@@ -1,0 +1,42 @@
+# Adapted from the original hand-written template-sensor dashboard.
+# Replace sensor.ess_manager_status with your actual main status sensor,
+# and the sensor.ess_manager_* value sensors below with the entity_ids
+# HA actually assigned to the individual value sensors created alongside
+# it (Settings -> Devices & Services -> ESS Manager -> entities).
+
+type: custom:stack-in-card
+mode: vertical
+cards:
+  - type: entities
+    entities:
+      - type: custom:multiple-entity-row
+        entity: sensor.ess_manager_status
+        name: Charge
+        icon: mdi:battery-charging
+        show_state: false
+        entities:
+          - entity: sensor.ess_manager_status
+            name: Status
+          - entity: sensor.ess_manager_charge_start
+            name: Start
+          - entity: sensor.ess_manager_charge_amount
+            name: Amount
+          - entity: sensor.ess_manager_charge_stop
+            name: Stop
+
+      - type: custom:multiple-entity-row
+        entity: sensor.ess_manager_status
+        name: Discharge
+        icon: mdi:battery-arrow-down
+        show_state: false
+        entities:
+          - entity: sensor.ess_manager_discharge_start
+            name: Start
+          - entity: sensor.ess_manager_discharge_amount
+            name: Amount
+          - entity: sensor.ess_manager_discharge_stop
+            name: Stop
+
+  - type: history-graph
+    entities:
+      - entity: sensor.ess_manager_status

@@ -1,0 +1,226 @@
+# Adapted from the original hand-written template-sensor dashboard to the
+# ESS Manager custom integration's entity/attribute names.
+#
+# Before pasting into Lovelace, replace:
+#   sensor.ess_manager_status   -> your actual main status sensor's entity_id
+#                                  (Settings -> Devices & Services -> ESS
+#                                  Manager -> entities, look for "Status")
+#
+# Capacity and the low/high thresholds are now read live from the sensor's
+# own attributes (capacity_kwh / low_threshold_kwh / high_threshold_kwh)
+# instead of being hardcoded to one battery size, since those are
+# configurable per-installation number entities now.
+
+- type: "vertical-stack"
+  cards:
+    - type: custom:apexcharts-card
+      header:
+        show: false
+      graph_span: 120h
+      span:
+        start: hour
+        offset: +0h
+      apex_config:
+        chart:
+          height: 300px
+      yaxis:
+        - id: energy
+          min: 0
+          max: 120
+          decimals: 0
+          apex_config:
+            title:
+              text: Battery (%)
+        - id: power
+          opposite: true
+          decimals: 1
+          apex_config:
+            title:
+              text: Solar / Usage (kWh)
+      series:
+        - entity: sensor.ess_manager_status
+          name: Buy
+          type: area
+          color: '#90EE90'
+          opacity: 0.45
+          stroke_width: 2
+          yaxis_id: energy
+          show:
+            in_header: false
+            legend_value: false
+          data_generator: |
+            const neg = entity.attributes['negative_price_plan'];
+            const spike = entity.attributes['spike_plan'];
+            const plan = entity.attributes['low_charge_plan'];
+            const curUnit = entity.attributes['current_price_unit'];
+            let startUnit = null, endUnit = null;
+            if (neg && neg.active) {
+              startUnit = neg.charge_start_unit; endUnit = neg.charge_end_unit;
+            } else if (spike && spike.active) {
+              startUnit = spike.charge_start_unit; endUnit = spike.charge_end_unit;
+            } else if (plan && plan.active) {
+              startUnit = plan.start_unit; endUnit = plan.end_unit;
+            }
+            if (startUnit === null) return [];
+            const now = new Date().getTime();
+            const startMs = now + (startUnit - curUnit) * 15 * 60000;
+            const endMs = now + (endUnit - curUnit) * 15 * 60000;
+            return [[startMs, 0], [startMs, 120], [endMs, 120], [endMs, 0]];
+        - entity: sensor.ess_manager_status
+          name: Sell
+          type: area
+          color: '#FFB6B6'
+          opacity: 0.45
+          stroke_width: 2
+          yaxis_id: energy
+          show:
+            in_header: false
+            legend_value: false
+          data_generator: |
+            const neg = entity.attributes['negative_price_plan'];
+            const spike = entity.attributes['spike_plan'];
+            const plan = entity.attributes['high_discharge_plan'];
+            const curUnit = entity.attributes['current_price_unit'];
+            let startUnit = null, endUnit = null;
+            if (neg && neg.active) {
+              startUnit = neg.discharge_start_unit; endUnit = neg.discharge_end_unit;
+            } else if (spike && spike.active) {
+              startUnit = spike.discharge_start_unit; endUnit = spike.discharge_end_unit;
+            } else if (plan && plan.active) {
+              startUnit = plan.start_unit; endUnit = plan.end_unit;
+            }
+            if (startUnit === null) return [];
+            const now = new Date().getTime();
+            const startMs = now + (startUnit - curUnit) * 15 * 60000;
+            const endMs = now + (endUnit - curUnit) * 15 * 60000;
+            return [[startMs, 0], [startMs, 120], [endMs, 120], [endMs, 0]];
+        - entity: sensor.ess_manager_status
+          name: Solar export
+          type: area
+          color: '#40C4FF'
+          opacity: 0.35
+          stroke_width: 2
+          yaxis_id: energy
+          show:
+            in_header: false
+            legend_value: false
+          data_generator: |
+            const neg = entity.attributes['negative_price_plan'];
+            const curUnit = entity.attributes['current_price_unit'];
+            if (!neg || !neg.active) return [];
+            const startUnit = neg.solar_export_start_unit, endUnit = neg.solar_export_end_unit;
+            if (startUnit === undefined || endUnit === undefined || endUnit <= startUnit) return [];
+            const now = new Date().getTime();
+            const startMs = now + (startUnit - curUnit) * 15 * 60000;
+            const endMs = now + (endUnit - curUnit) * 15 * 60000;
+            return [[startMs, 0], [startMs, 120], [endMs, 120], [endMs, 0]];
+        - entity: sensor.ess_manager_status
+          name: Lower limit
+          type: line
+          color: '#66BB6A'
+          stroke_width: 1.5
+          stroke_dash: 3
+          yaxis_id: energy
+          show:
+            in_header: false
+            legend_value: false
+          data_generator: |
+            const capacity = entity.attributes['capacity_kwh'] || 30;
+            const value = ((entity.attributes['low_threshold_kwh'] || 0) / capacity) * 100;
+            const now = new Date().getTime();
+            return [[now - 2 * 3600000, value], [now + 121 * 3600000, value]];
+        - entity: sensor.ess_manager_status
+          name: Upper limit
+          type: line
+          color: '#66BB6A'
+          stroke_width: 1.5
+          stroke_dash: 3
+          yaxis_id: energy
+          show:
+            in_header: false
+            legend_value: false
+          data_generator: |
+            const capacity = entity.attributes['capacity_kwh'] || 30;
+            const value = ((entity.attributes['high_threshold_kwh'] || 0) / capacity) * 100;
+            const now = new Date().getTime();
+            return [[now - 2 * 3600000, value], [now + 121 * 3600000, value]];
+        - entity: sensor.ess_manager_status
+          name: Planning horizon
+          type: line
+          color: '#E65100'
+          stroke_width: 2.5
+          stroke_dash: 4
+          extend_to: false
+          yaxis_id: energy
+          show:
+            in_header: false
+            legend_value: false
+          data_generator: |
+            const horizonHours = entity.attributes['planning_horizon_hours'] || 72;
+            const now = new Date();
+            const t0 = new Date(now);
+            t0.setMinutes(0, 0, 0);
+            t0.setHours(t0.getHours() + 1);
+            const t = t0.getTime() + horizonHours * 3600000;
+            return [[t, 0], [t, 120]];
+        - entity: sensor.ess_manager_status
+          name: Solar
+          type: line
+          color: '#FFA500'
+          stroke_width: 2
+          yaxis_id: power
+          show:
+            legend_value: false
+          data_generator: >
+            const solar = entity.attributes['solar_120h'] || []; const now = new
+            Date(); const t0 = new Date(now); t0.setMinutes(0, 0, 0);
+            t0.setHours(t0.getHours() + 1); return solar.map((v, i) => [t0.getTime() +
+            i * 3600000, v === null ? 0 : v]);
+        - entity: sensor.ess_manager_status
+          name: Usage
+          type: line
+          color: '#1E90FF'
+          stroke_width: 2
+          yaxis_id: power
+          show:
+            legend_value: false
+          data_generator: |
+            const usage = entity.attributes['energy_usage_120h'] || [];
+            const now = new Date();
+            const t0 = new Date(now);
+            t0.setMinutes(0, 0, 0);
+            t0.setHours(t0.getHours() + 1);
+            return usage.map((v, i) => [t0.getTime() + i * 3600000, v]);
+        - entity: sensor.ess_manager_status
+          name: SOC
+          type: line
+          color: '#c30010'
+          stroke_width: 3
+          yaxis_id: energy
+          show:
+            legend_value: false
+          data_generator: |
+            const capacity = entity.attributes['capacity_kwh'] || 30;
+            const forecast = entity.attributes['battery_forecast'] || [];
+            const now = new Date();
+            const t0 = new Date(now);
+            t0.setMinutes(0, 0, 0);
+            t0.setHours(t0.getHours() + 1);
+            return forecast.map((v, i) => [t0.getTime() + i * 3600000, (v / capacity) * 100]);
+        - entity: sensor.ess_manager_status
+          name: SOC new
+          type: line
+          color: '#8B008B'
+          stroke_width: 2
+          stroke_dash: 4
+          yaxis_id: energy
+          show:
+            legend_value: false
+          data_generator: |
+            const capacity = entity.attributes['capacity_kwh'] || 30;
+            const forecast = entity.attributes['battery_forecast_adjusted'] || [];
+            const now = new Date();
+            const t0 = new Date(now);
+            t0.setMinutes(0, 0, 0);
+            t0.setHours(t0.getHours() + 1);
+            return forecast.map((v, i) => [t0.getTime() + i * 3600000, (v / capacity) * 100]);

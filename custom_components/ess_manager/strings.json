@@ -1,0 +1,52 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up ESS Manager",
+        "description": "Point this at your own battery, price and solar-forecast entities. All of these can be changed later from the integration's options.",
+        "data": {
+          "name": "Name",
+          "battery_soc_entity": "Battery state-of-charge sensor (%)",
+          "price_entity": "Electricity price sensor (Nordpool-style, with today/tomorrow quarter-hour price lists)",
+          "usage_forecast_entity": "Household usage forecast sensor (exposes h0..h120 attributes)",
+          "solar_forecast_entities": "Solar forecast sensor(s) (Solcast-style, with a detailedHourly attribute) - add as many as needed to cover your forecast horizon",
+          "grid_setpoint_entity": "Grid/inverter setpoint sensor (optional, improves status accuracy)",
+          "voltage_diff_entity": "Cell voltage differential sensor (optional, only needed for the full-charge balancing plan)",
+          "battery_capacity_kwh": "Battery capacity",
+          "charge_speed_kw": "Normal charge speed",
+          "discharge_speed_kw": "Normal discharge speed",
+          "min_soc_percent": "Minimum SOC (%)",
+          "max_soc_percent": "Maximum SOC (%) - can exceed 100% to allow deliberate solar overshoot before discharging",
+          "enable_negative_price_plan": "Enable negative price plan",
+          "enable_spike_plan": "Enable spike arbitrage plan",
+          "enable_full_charge_plan": "Enable periodic full-charge balancing plan"
+        }
+      }
+    },
+    "error": {
+      "solar_forecast_required": "Select at least one solar forecast entity."
+    },
+    "abort": {
+      "already_configured": "An ESS Manager instance with this name already exists."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ESS Manager options",
+        "description": "Re-point entities or toggle optional plans. Speeds, SOC limits and other tunables are adjusted directly on their own number entities, not here.",
+        "data": {
+          "battery_soc_entity": "Battery state-of-charge sensor (%)",
+          "price_entity": "Electricity price sensor",
+          "usage_forecast_entity": "Household usage forecast sensor",
+          "solar_forecast_entities": "Solar forecast sensor(s)",
+          "grid_setpoint_entity": "Grid/inverter setpoint sensor (optional)",
+          "voltage_diff_entity": "Cell voltage differential sensor (optional)",
+          "enable_negative_price_plan": "Enable negative price plan",
+          "enable_spike_plan": "Enable spike arbitrage plan",
+          "enable_full_charge_plan": "Enable periodic full-charge balancing plan"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,192 @@
+# ESS Manager
+
+A Home Assistant custom integration for battery/solar/price-aware charge and
+discharge planning: it watches your battery's state of charge, a solar
+production forecast, a household usage forecast, and dynamic electricity
+prices, and decides when to charge, when to discharge, and how much - so a
+separate, small automation (or your inverter integration's own automation)
+can act on that decision.
+
+This started as a hand-written Home Assistant template sensor (see
+`legacy-yaml-config/` in this repo for that exact, still-in-production
+configuration) and was rebuilt here as a proper, configurable custom
+integration so it can be shared and installed on other systems via HACS,
+without every install needing to hand-edit Jinja templates or hardcode
+someone else's entity IDs.
+
+## What it does
+
+Five planning engines, all documented in detail in the code
+(`custom_components/ess_manager/plans.py`):
+
+1. **Low charge plan** - charges before the battery would otherwise drop
+   below your minimum SOC, during the cheapest available price window.
+2. **High discharge plan** - discharges before the battery would otherwise
+   overshoot your maximum SOC, during the priciest available price window.
+3. **Full charge plan** *(optional)* - periodically charges all the way to
+   100% and holds there briefly to let the BMS balance cells, on a
+   configurable interval.
+4. **Spike arbitrage plan** - on a day with a large enough price spread,
+   deliberately charges cheap and discharges into the peak instead of just
+   capping at your normal SOC band.
+5. **Negative price plan** - when the price goes low enough that charging
+   pays you outright, buys as much as your hardware can take in that
+   window, clearing room beforehand if needed.
+
+All five compose on top of a 121-hour (5-day) forecast pipeline: solar
+forecast minus usage forecast, cumulatively summed into a projected battery
+level, compensated for the fact that the current hour is only partially
+elapsed (see the code comments in `forecasting.py` for why that matters).
+
+The integration's own sensor (`Status`) never writes to your inverter
+directly - see "Wiring it to your inverter" below.
+
+## Requirements
+
+Your Home Assistant instance needs entities shaped like these (the
+integration reads them as configured attributes, not by name, so any
+integration producing the same shape works):
+
+- **Battery state of charge**: a sensor whose numeric state is a percentage
+  (0-100).
+- **Electricity price**: a sensor exposing `today` and `tomorrow` attributes
+  as flat lists of **quarter-hour (15-minute)** prices - this is the shape
+  the Nordpool HACS integration produces for markets settled at 15-minute
+  resolution. A sensor with hourly-only prices will not line up correctly
+  with the planning engines' 15-minute unit indexing.
+- **Household usage forecast**: a sensor exposing `h0` through `h120`
+  attributes, one float per forecast hour (h0 = current hour). The original
+  system built this with a single SQL sensor averaging the same calendar
+  hour/weekday from several weeks back - see `legacy-yaml-config/` for that
+  query if you want a starting point, though any source producing the same
+  `h0..h120` shape works.
+- **Solar forecast**: one or more sensors exposing a `detailedHourly`
+  attribute shaped like Solcast's: a list of
+  `{"period_start": <ISO timestamp>, "pv_estimate": <kWh>}` objects. Add as
+  many forecast-day sensors as you need to cover 121 hours from whatever
+  time of day updates happen to run (Solcast typically needs
+  today/tomorrow/day_3 at minimum, more if you want headroom late in the
+  day - see the original's notes in `legacy-yaml-config/ess_manager_sensor.yaml`).
+- **Grid/inverter setpoint** *(optional but recommended)*: a sensor
+  reporting your current commanded charge/discharge power, used to make the
+  "Status" sensor's engaged-vs-starting distinction accurate.
+- **Cell voltage differential** *(optional)*: only needed if you enable the
+  full-charge balancing plan.
+
+## Installation
+
+### Via HACS (custom repository)
+
+1. Push this repository to your own GitHub account (or fork it).
+2. In Home Assistant: HACS -> Integrations -> ⋮ -> Custom repositories ->
+   add your repo URL, category **Integration**.
+3. Install "ESS Manager" from HACS, restart Home Assistant.
+4. Settings -> Devices & Services -> Add Integration -> "ESS Manager".
+
+### Manual
+
+Copy `custom_components/ess_manager/` into your Home Assistant
+`config/custom_components/` folder, restart, then add the integration from
+Settings -> Devices & Services as above.
+
+## Configuration
+
+The setup wizard asks for the entities above, plus seed values for the
+initial battery capacity, charge/discharge speed, and min/max SOC - these
+seed a set of `number` entities (see below) that you actually tune
+afterward. Entity references (which sensors to read) can be changed later
+from the integration's **Configure** options; the number entities are
+adjusted directly, the same way you'd adjust an `input_number` helper -
+no need to create separate helpers.
+
+### Tunable `number` entities
+
+Created automatically once you finish setup - find them under the ESS
+Manager device in Settings -> Devices & Services -> Entities:
+
+| Entity | What it controls |
+|---|---|
+| Minimum SOC | Battery %, below which the low charge plan triggers |
+| Maximum SOC | Battery %, above which the high discharge plan triggers (can be set above 100% to allow deliberate solar overshoot before discharging - the original hand-written version hardcoded this to 110% of a 30 kWh battery) |
+| Battery capacity | kWh, used to convert the SOC % settings above into kWh thresholds |
+| Charge speed / Discharge speed | Normal charge/discharge rate (kW) |
+| Negative price charge speed | Rate used specifically during a negative-price event |
+| Spike discharge speed | Rate used specifically during a spike-arbitrage discharge |
+| Negative price threshold | Price (EUR/kWh) below which charging is considered "getting paid" |
+| Spike margin | Minimum day price spread (EUR/kWh) to treat a day as spike-worthy |
+| Minimum charge target | Always charge at least this many kWh once a charge session starts |
+| Planning horizon | How many hours ahead the low/high plans are allowed to react to (price data usually doesn't exist much beyond ~48h anyway) |
+| Full charge interval | Days between full-charge/balance cycles |
+| Full charge max hold | Safety timeout (minutes) for the 100%-hold/balance phase |
+
+## Wiring it to your inverter
+
+The integration produces a `Status` sensor whose state is one of `Standby`,
+`Start charge`, `Actief` (engaged), `Start discharge`, `Stop`, `Grid usage`,
+`Solar export`, `Balancing`, `Start negative price charge`,
+`Negative price charge`, `Start spike discharge`, `Spike discharge` - see
+`custom_components/ess_manager/plans.py`'s `compute_system_status` for the
+exact meaning of each. It deliberately does **not** write to any inverter
+or battery control entity itself, since every make/model exposes a
+different control surface (an `input_number`, a native `number` entity from
+that inverter's own integration, an MQTT topic, ...).
+
+`dashboard/automation_example.yaml` is a starting point for the small glue
+automation that turns `Status` into an actual command - adapt the
+`target: entity_id:` lines to whatever your inverter setup actually uses.
+
+## Dashboard
+
+`dashboard/` has ApexCharts-based Lovelace cards adapted from the original
+system's dashboard (battery/SOC forecast chart, price chart with buy/sell
+highlighting, and an entities card) - each file's header comment explains
+which placeholder entity_ids to replace with your own. Requires the
+`apexcharts-card` and `multiple-entity-row` HACS frontend cards.
+
+## What changed vs. the original hand-written version
+
+This is a full rewrite (Jinja2 template sensor -> Python custom
+integration), not a mechanical export, so a few things were deliberately
+generalized for portability - documented here so nothing is a surprise if
+you're the one who ran the original on a live system:
+
+- **Every entity reference is configurable** - the original hardcoded
+  Victron/Nordpool/Solcast entity IDs; this version only assumes the
+  *shape* of data described under Requirements above.
+- **Min/max SOC are direct % tunables**, not derived from an external
+  "inverter's own minimum SOC" sensor plus a hardcoded margin. If you want
+  that margin back, just set Minimum SOC a few points above your inverter's
+  own floor.
+- **Capacity is a tunable**, not hardcoded to 30 kWh, and the dashboard
+  cards read it live from the sensor rather than a hardcoded constant.
+- **Idle setpoint tolerance** is generalized to 0W (the original's -30W was
+  a quirk of one specific Victron install's idle reading).
+- **Plan lock-in state survives Home Assistant restarts** (persisted via
+  Home Assistant's storage helper) - the original template sensor's
+  self-referencing `this.attributes` lookups would silently reset on
+  restart and could re-plan an in-progress session differently. This is an
+  intentional improvement, not a bug-for-bug port.
+- **"Days since last full charge" is tracked internally** (the moment SOC
+  last crossed 99.5%), rather than depending on an external
+  "time since last full charge" sensor that not everyone will have. Until
+  the integration has observed a full charge once, it treats a full-charge
+  cycle as overdue, so expect one shortly after first setup if you enable
+  that plan.
+- **One rich "Status" sensor + several small display sensors**, rather than
+  one sensor with ~40 flattened attributes - the forecast arrays and plan
+  dictionaries the dashboard needs still live as attributes on `Status`
+  (for drop-in ApexCharts compatibility), but values useful directly in
+  automations or history graphs (battery level, charge/discharge amount and
+  timing, days to next full charge) are now their own entities.
+
+See `legacy-yaml-config/` for the exact, byte-for-byte YAML this was ported
+from, including the full, heavily-commented Jinja2 source and the original
+project handoff notes on every design decision made along the way.
+
+## Repository layout
+
+```
+custom_components/ess_manager/   the integration itself
+dashboard/                       adapted Lovelace cards + example automation
+legacy-yaml-config/              the original template-sensor config, preserved as-is
+```

@@ -1,0 +1,268 @@
+# Adapted from the original hand-written template-sensor dashboard.
+#
+# Before pasting into Lovelace, replace:
+#   sensor.YOUR_PRICE_ENTITY    -> the same price sensor you selected as
+#                                  "Electricity price sensor" during setup
+#                                  (needs raw_today / raw_tomorrow attributes,
+#                                  e.g. a Nordpool sensor)
+#   sensor.ess_manager_status   -> your actual main status sensor's entity_id
+
+- type: "vertical-stack"
+  cards:
+  - type: custom:apexcharts-card
+    now:
+      show: true
+      label: NOW
+    graph_span: 48h
+    apex_config:
+      chart:
+        height: 200px
+        stacked: true
+      legend:
+        showForSingleSeries: true
+      plotOptions:
+        bar:
+          borderRadius: 2
+      yaxis:
+        decimalsInFloat: 2
+        tickAmount: 10
+        forceNiceScale: false
+      xaxis:
+        labels:
+          datetimeFormatter:
+            hour: HH
+    all_series_config:
+      show:
+        offset_in_name: false
+    header:
+      title: " "
+      show: true
+      show_states: true
+      colorize_states: true
+    span:
+      start: day
+      offset: +0h
+    series:
+      - entity: sensor.YOUR_PRICE_ENTITY
+        type: line
+        color: transparent
+        stroke_width: 0
+        name: " "
+        show:
+          in_header: false
+          in_legend: false
+          legend_value: false
+        data_generator: |
+          const raw = (entity.attributes.raw_today || []).concat(entity.attributes.raw_tomorrow || []);
+          if (raw.length === 0) return [];
+          const values = raw.map((item) => item["value"]);
+          const top = Math.max(...values) + 0.05;
+          const firstT = new Date(raw[0]["start"]).getTime();
+          const lastT = new Date(raw[raw.length - 1]["start"]).getTime();
+          return [[firstT, top], [lastT, top]];
+      - entity: sensor.YOUR_PRICE_ENTITY
+        type: column
+        color: '#2196F3'
+        float_precision: 4
+        stroke_width: 2
+        name: Buy
+        show:
+          in_header: false
+          legend_value: false
+          extremas: min
+        data_generator: |
+          const raw = (entity.attributes.raw_today || []).concat(entity.attributes.raw_tomorrow || []);
+          const essAttrs = hass.states['sensor.ess_manager_status'] ? hass.states['sensor.ess_manager_status'].attributes : {};
+          const neg = essAttrs['negative_price_plan'];
+          const spike = essAttrs['spike_plan'];
+          const plan = essAttrs['low_charge_plan'];
+          const now = new Date();
+          const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime();
+          let startMs = null, endMs = null;
+          if (neg && neg.active) {
+            startMs = midnight + neg.charge_start_unit * 15 * 60000;
+            endMs = midnight + neg.charge_end_unit * 15 * 60000;
+          } else if (spike && spike.active) {
+            startMs = midnight + spike.charge_start_unit * 15 * 60000;
+            endMs = midnight + spike.charge_end_unit * 15 * 60000;
+          } else if (plan && plan.active) {
+            startMs = midnight + plan.start_unit * 15 * 60000;
+            endMs = midnight + plan.end_unit * 15 * 60000;
+          }
+          if (startMs === null) return raw.map((item) => [new Date(item["start"]).getTime(), null]);
+          return raw.map((item) => {
+            const t = new Date(item["start"]).getTime();
+            const inWindow = t >= startMs && t < endMs;
+            return [t, inWindow ? item["value"] : null];
+          });
+      - entity: sensor.YOUR_PRICE_ENTITY
+        type: column
+        color: '#FF5252'
+        float_precision: 4
+        stroke_width: 2
+        name: Sell
+        show:
+          in_header: false
+          legend_value: false
+          extremas: max
+        data_generator: |
+          const raw = (entity.attributes.raw_today || []).concat(entity.attributes.raw_tomorrow || []);
+          const essAttrs = hass.states['sensor.ess_manager_status'] ? hass.states['sensor.ess_manager_status'].attributes : {};
+          const neg = essAttrs['negative_price_plan'];
+          const spike = essAttrs['spike_plan'];
+          const plan = essAttrs['high_discharge_plan'];
+          const now = new Date();
+          const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime();
+          let startMs = null, endMs = null;
+          if (neg && neg.active) {
+            startMs = midnight + neg.discharge_start_unit * 15 * 60000;
+            endMs = midnight + neg.discharge_end_unit * 15 * 60000;
+          } else if (spike && spike.active) {
+            startMs = midnight + spike.discharge_start_unit * 15 * 60000;
+            endMs = midnight + spike.discharge_end_unit * 15 * 60000;
+          } else if (plan && plan.active) {
+            startMs = midnight + plan.start_unit * 15 * 60000;
+            endMs = midnight + plan.end_unit * 15 * 60000;
+          }
+          if (startMs === null) return raw.map((item) => [new Date(item["start"]).getTime(), null]);
+          return raw.map((item) => {
+            const t = new Date(item["start"]).getTime();
+            const inWindow = t >= startMs && t < endMs;
+            return [t, inWindow ? item["value"] : null];
+          });
+      - entity: sensor.YOUR_PRICE_ENTITY
+        type: column
+        color: '#00BCD4'
+        float_precision: 4
+        stroke_width: 2
+        name: Solar export
+        show:
+          in_header: false
+          legend_value: false
+        data_generator: |
+          const raw = (entity.attributes.raw_today || []).concat(entity.attributes.raw_tomorrow || []);
+          const essAttrs = hass.states['sensor.ess_manager_status'] ? hass.states['sensor.ess_manager_status'].attributes : {};
+          const neg = essAttrs['negative_price_plan'];
+          const now = new Date();
+          const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime();
+          let startMs = null, endMs = null;
+          if (neg && neg.active && neg.solar_export_end_unit > neg.solar_export_start_unit) {
+            startMs = midnight + neg.solar_export_start_unit * 15 * 60000;
+            endMs = midnight + neg.solar_export_end_unit * 15 * 60000;
+          }
+          if (startMs === null) return raw.map((item) => [new Date(item["start"]).getTime(), null]);
+          return raw.map((item) => {
+            const t = new Date(item["start"]).getTime();
+            const inWindow = t >= startMs && t < endMs;
+            return [t, inWindow ? item["value"] : null];
+          });
+      - entity: sensor.YOUR_PRICE_ENTITY
+        type: line
+        color: transparent
+        stroke_width: 0
+        float_precision: 2
+        name: " "
+        show:
+          in_header: false
+          in_legend: false
+          legend_value: false
+          extremas: true
+        data_generator: |
+          const rawToday = entity.attributes.raw_today || [];
+          const rawTomorrow = entity.attributes.raw_tomorrow || [];
+          const raw = rawToday.concat(rawTomorrow);
+          return raw.map((item, i) => {
+            const t = new Date(item["start"]).getTime();
+            return [t, i < rawToday.length ? item["value"] : null];
+          });
+      - entity: sensor.YOUR_PRICE_ENTITY
+        type: line
+        color: transparent
+        stroke_width: 0
+        float_precision: 2
+        name: " "
+        show:
+          in_header: false
+          in_legend: false
+          legend_value: false
+          extremas: true
+        data_generator: |
+          const rawToday = entity.attributes.raw_today || [];
+          const rawTomorrow = entity.attributes.raw_tomorrow || [];
+          const raw = rawToday.concat(rawTomorrow);
+          return raw.map((item, i) => {
+            const t = new Date(item["start"]).getTime();
+            return [t, i >= rawToday.length ? item["value"] : null];
+          });
+      - entity: sensor.YOUR_PRICE_ENTITY
+        type: column
+        color: green
+        float_precision: 4
+        stroke_width: 2
+        name: Today's prices
+        show:
+          in_header: false
+          legend_value: false
+        data_generator: |
+          const rawToday = entity.attributes.raw_today || [];
+          const rawTomorrow = entity.attributes.raw_tomorrow || [];
+          const raw = rawToday.concat(rawTomorrow);
+          const essAttrs = hass.states['sensor.ess_manager_status'] ? hass.states['sensor.ess_manager_status'].attributes : {};
+          const neg = essAttrs['negative_price_plan'];
+          const spike = essAttrs['spike_plan'];
+          const buy = essAttrs['low_charge_plan'];
+          const sell = essAttrs['high_discharge_plan'];
+          const now = new Date();
+          const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime();
+          const negOn = neg && neg.active;
+          const spikeOn = !negOn && spike && spike.active;
+          const buyStart = negOn ? midnight + neg.charge_start_unit * 15 * 60000 : (spikeOn ? midnight + spike.charge_start_unit * 15 * 60000 : (buy && buy.active ? midnight + buy.start_unit * 15 * 60000 : null));
+          const buyEnd = negOn ? midnight + neg.charge_end_unit * 15 * 60000 : (spikeOn ? midnight + spike.charge_end_unit * 15 * 60000 : (buy && buy.active ? midnight + buy.end_unit * 15 * 60000 : null));
+          const sellStart = negOn ? midnight + neg.discharge_start_unit * 15 * 60000 : (spikeOn ? midnight + spike.discharge_start_unit * 15 * 60000 : (sell && sell.active ? midnight + sell.start_unit * 15 * 60000 : null));
+          const sellEnd = negOn ? midnight + neg.discharge_end_unit * 15 * 60000 : (spikeOn ? midnight + spike.discharge_end_unit * 15 * 60000 : (sell && sell.active ? midnight + sell.end_unit * 15 * 60000 : null));
+          const exportStart = (negOn && neg.solar_export_end_unit > neg.solar_export_start_unit) ? midnight + neg.solar_export_start_unit * 15 * 60000 : null;
+          const exportEnd = (negOn && neg.solar_export_end_unit > neg.solar_export_start_unit) ? midnight + neg.solar_export_end_unit * 15 * 60000 : null;
+          return raw.map((item, i) => {
+            const t = new Date(item["start"]).getTime();
+            if (i >= rawToday.length) return [t, null];
+            const inBuy = buyStart !== null && t >= buyStart && t < buyEnd;
+            const inSell = sellStart !== null && t >= sellStart && t < sellEnd;
+            const inExport = exportStart !== null && t >= exportStart && t < exportEnd;
+            return [t, (inBuy || inSell || inExport) ? null : item["value"]];
+          });
+      - entity: sensor.YOUR_PRICE_ENTITY
+        type: column
+        color: yellow
+        float_precision: 4
+        stroke_width: 2
+        name: Tomorrow's prices
+        show:
+          in_header: false
+          legend_value: false
+        data_generator: |
+          const rawToday = entity.attributes.raw_today || [];
+          const rawTomorrow = entity.attributes.raw_tomorrow || [];
+          const raw = rawToday.concat(rawTomorrow);
+          const essAttrs = hass.states['sensor.ess_manager_status'] ? hass.states['sensor.ess_manager_status'].attributes : {};
+          const neg = essAttrs['negative_price_plan'];
+          const spike = essAttrs['spike_plan'];
+          const buy = essAttrs['low_charge_plan'];
+          const sell = essAttrs['high_discharge_plan'];
+          const now = new Date();
+          const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime();
+          const negOn = neg && neg.active;
+          const spikeOn = !negOn && spike && spike.active;
+          const buyStart = negOn ? midnight + neg.charge_start_unit * 15 * 60000 : (spikeOn ? midnight + spike.charge_start_unit * 15 * 60000 : (buy && buy.active ? midnight + buy.start_unit * 15 * 60000 : null));
+          const buyEnd = negOn ? midnight + neg.charge_end_unit * 15 * 60000 : (spikeOn ? midnight + spike.charge_end_unit * 15 * 60000 : (buy && buy.active ? midnight + buy.end_unit * 15 * 60000 : null));
+          const sellStart = negOn ? midnight + neg.discharge_start_unit * 15 * 60000 : (spikeOn ? midnight + spike.discharge_start_unit * 15 * 60000 : (sell && sell.active ? midnight + sell.start_unit * 15 * 60000 : null));
+          const sellEnd = negOn ? midnight + neg.discharge_end_unit * 15 * 60000 : (spikeOn ? midnight + spike.discharge_end_unit * 15 * 60000 : (sell && sell.active ? midnight + sell.end_unit * 15 * 60000 : null));
+          const exportStart = (negOn && neg.solar_export_end_unit > neg.solar_export_start_unit) ? midnight + neg.solar_export_start_unit * 15 * 60000 : null;
+          const exportEnd = (negOn && neg.solar_export_end_unit > neg.solar_export_start_unit) ? midnight + neg.solar_export_end_unit * 15 * 60000 : null;
+          return raw.map((item, i) => {
+            const t = new Date(item["start"]).getTime();
+            if (i < rawToday.length) return [t, null];
+            const inBuy = buyStart !== null && t >= buyStart && t < buyEnd;
+            const inSell = sellStart !== null && t >= sellStart && t < sellEnd;
+            const inExport = exportStart !== null && t >= exportStart && t < exportEnd;
+            return [t, (inBuy || inSell || inExport) ? null : item["value"]];
+          });

@@ -1,0 +1,108 @@
+# Example automation - the integration only ever DECIDES what should
+# happen (via the "Status" sensor's state); it deliberately does not
+# actuate your inverter/battery itself, since every make/model exposes a
+# different control surface. Adapt the `target: entity_id:` lines below to
+# whatever your own setup uses to command a charge/discharge rate (an
+# input_number your own inverter automation reads, a number entity exposed
+# by your inverter's own integration, an MQTT topic via mqtt.publish, etc).
+#
+# Replace:
+#   sensor.ess_manager_status        -> your actual main status sensor
+#   input_number.your_ess_setpoint   -> your own setpoint control entity
+#   7 / -10 / 15 / -15                -> match your own charge/discharge
+#                                        speeds (kW) if your setpoint entity
+#                                        expects kW rather than some other
+#                                        unit/scale
+
+alias: ESS manager
+description: ''
+triggers:
+  - trigger: state
+    entity_id:
+      - sensor.ess_manager_status
+    to:
+      - Stop
+      - Standby
+      - Grid usage
+      - Solar export
+      - unknown
+    id: Idle
+  - trigger: state
+    entity_id:
+      - sensor.ess_manager_status
+    to:
+      - Start charge
+    id: Start charge
+  - trigger: state
+    entity_id:
+      - sensor.ess_manager_status
+    to:
+      - Start discharge
+    id: Start discharge
+  - trigger: state
+    entity_id:
+      - sensor.ess_manager_status
+    to:
+      - Start negative price charge
+    id: Start negative price charge
+  - trigger: state
+    entity_id:
+      - sensor.ess_manager_status
+    to:
+      - Start spike discharge
+    id: Start spike discharge
+conditions: []
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id:
+              - Idle
+        sequence:
+          - action: input_number.set_value
+            data:
+              value: 0
+            target:
+              entity_id: input_number.your_ess_setpoint
+      - conditions:
+          - condition: trigger
+            id:
+              - Start charge
+        sequence:
+          - action: input_number.set_value
+            data:
+              value: '{{ 7 }}'
+            target:
+              entity_id: input_number.your_ess_setpoint
+      - conditions:
+          - condition: trigger
+            id:
+              - Start discharge
+        sequence:
+          - action: input_number.set_value
+            data:
+              value: '{{ -10 }}'
+            target:
+              entity_id: input_number.your_ess_setpoint
+      - conditions:
+          - condition: trigger
+            id:
+              - Start negative price charge
+        sequence:
+          - action: input_number.set_value
+            data:
+              value: '{{ 15 }}'
+            target:
+              entity_id: input_number.your_ess_setpoint
+      - conditions:
+          - condition: trigger
+            id:
+              - Start spike discharge
+        sequence:
+          - action: input_number.set_value
+            data:
+              value: '{{ -15 }}'
+            target:
+              entity_id: input_number.your_ess_setpoint
+    enabled: true
+mode: restart
