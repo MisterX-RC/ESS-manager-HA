@@ -18,15 +18,24 @@ from homeassistant.util import dt as dt_util
 
 from . import display, forecasting, plans
 from .const import (
+    CONF_BATTERY_CHARGE_ENERGY_ENTITY,
+    CONF_BATTERY_DISCHARGE_ENERGY_ENTITY,
     CONF_BATTERY_SOC_ENTITY,
     CONF_ENABLE_FULL_CHARGE_PLAN,
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
+    CONF_GRID_EXPORT_ENTITIES,
+    CONF_GRID_IMPORT_ENTITIES,
     CONF_GRID_SETPOINT_ENTITY,
     CONF_PRICE_ENTITY,
     CONF_SOLAR_FORECAST_ENTITIES,
+    CONF_SOLAR_PRODUCTION_ENTITIES,
     CONF_USAGE_FORECAST_ENTITY,
+    CONF_USAGE_LOOKBACK_WEEKS,
+    CONF_USAGE_SOURCE,
     CONF_VOLTAGE_DIFF_ENTITY,
+    DEFAULT_USAGE_LOOKBACK_WEEKS,
+    DEFAULT_USAGE_SOURCE,
     DOMAIN,
     FORECAST_HOURS,
     NUM_BATTERY_CAPACITY_KWH,
@@ -45,7 +54,11 @@ from .const import (
     STORAGE_VERSION,
     STORAGE_KEY_SUFFIX,
     UPDATE_INTERVAL_SECONDS,
+    USAGE_FORECAST_RECALC_MINUTES,
+    USAGE_SOURCE_CALCULATED,
 )
+from .statistics_source import async_fetch_hourly_sums
+from .usage_forecast import compute_usage_forecast
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,6 +108,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._was_full_prev_cycle: bool = False
         self._restored = False
 
+        # Calculated-usage-forecast cache - recomputed at most once every
+        # USAGE_FORECAST_RECALC_MINUTES, not every 30s cycle (see
+        # _async_get_calculated_usage_forecast).
+        self._usage_forecast_cache: Optional[list[float]] = None
+        self._usage_forecast_computed_at: Optional[datetime] = None
+
     # -- wiring from number.py --------------------------------------------------
     def register_number(self, key: str, entity: Any) -> None:
         self._numbers[key] = entity
@@ -132,6 +151,72 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             }
         )
 
+    # -- calculated usage forecast --------------------------------------------
+    async def _async_get_calculated_usage_forecast(self, conf: dict[str, Any], now: datetime) -> list[float]:
+        """The h0..h120 usage forecast, computed from recorder statistics
+        instead of an external sensor - cached and only recomputed once
+        every USAGE_FORECAST_RECALC_MINUTES, since the underlying long-term
+        statistics only ever land once per hour anyway.
+        """
+        stale = (
+            self._usage_forecast_cache is None
+            or self._usage_forecast_computed_at is None
+            or (now - self._usage_forecast_computed_at) >= timedelta(minutes=USAGE_FORECAST_RECALC_MINUTES)
+        )
+        if not stale:
+            return self._usage_forecast_cache
+
+        import_entities = [e for e in conf.get(CONF_GRID_IMPORT_ENTITIES, []) or [] if e]
+        export_entities = [e for e in conf.get(CONF_GRID_EXPORT_ENTITIES, []) or [] if e]
+        solar_entities = [e for e in conf.get(CONF_SOLAR_PRODUCTION_ENTITIES, []) or [] if e]
+        battery_charge_entity = conf.get(CONF_BATTERY_CHARGE_ENERGY_ENTITY) or None
+        battery_discharge_entity = conf.get(CONF_BATTERY_DISCHARGE_ENERGY_ENTITY) or None
+        lookback_weeks = int(conf.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS))
+
+        all_entities = [*solar_entities, *import_entities, *export_entities]
+        if battery_charge_entity:
+            all_entities.append(battery_charge_entity)
+        if battery_discharge_entity:
+            all_entities.append(battery_discharge_entity)
+
+        if not all_entities:
+            # Nothing configured yet (e.g. mid-setup) - fall back to zeros
+            # rather than failing the whole coordinator update over it.
+            self._usage_forecast_cache = [0.0] * FORECAST_HOURS
+            self._usage_forecast_computed_at = now
+            return self._usage_forecast_cache
+
+        base_hour = now.replace(minute=0, second=0, microsecond=0)
+        # Need every hour from (lookback_weeks weeks + 1 hour) before the
+        # current hour through the current hour itself - every historical
+        # sample this feature ever looks up falls somewhere in that range,
+        # since it only ever looks *backward* in time regardless of how far
+        # forward the forecast itself projects.
+        range_start = base_hour - timedelta(weeks=lookback_weeks, hours=1)
+        range_end = base_hour + timedelta(hours=1)
+
+        try:
+            hourly_sums = await async_fetch_hourly_sums(self.hass, all_entities, range_start, range_end)
+        except Exception as err:  # noqa: BLE001 - a statistics/DB hiccup shouldn't fail the whole update
+            _LOGGER.warning("ESS Manager: could not fetch usage-forecast statistics: %s", err)
+            if self._usage_forecast_cache is not None:
+                return self._usage_forecast_cache
+            return [0.0] * FORECAST_HOURS
+
+        self._usage_forecast_cache = compute_usage_forecast(
+            hourly_sums,
+            import_entities,
+            export_entities,
+            solar_entities,
+            battery_charge_entity,
+            battery_discharge_entity,
+            now,
+            FORECAST_HOURS,
+            lookback_weeks,
+        )
+        self._usage_forecast_computed_at = now
+        return self._usage_forecast_cache
+
     # -- main update ----------------------------------------------------------
     async def _async_update_data(self) -> dict[str, Any]:
         if not self._restored:
@@ -157,9 +242,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         tomorrow_price = list(price_state.attributes.get("tomorrow") or [])
         all_price = [float(p) for p in (today_price + tomorrow_price)]
 
-        usage_entity = conf.get(CONF_USAGE_FORECAST_ENTITY)
-        usage_state = self.hass.states.get(usage_entity) if usage_entity else None
-        usage_attrs = usage_state.attributes if usage_state else {}
+        if conf.get(CONF_USAGE_SOURCE, DEFAULT_USAGE_SOURCE) == USAGE_SOURCE_CALCULATED:
+            usage_forecast = await self._async_get_calculated_usage_forecast(conf, now)
+        else:
+            usage_entity = conf.get(CONF_USAGE_FORECAST_ENTITY)
+            usage_state = self.hass.states.get(usage_entity) if usage_entity else None
+            usage_attrs = usage_state.attributes if usage_state else {}
+            usage_forecast = forecasting.build_usage_forecast(usage_attrs, FORECAST_HOURS)
 
         solar_points: list[list[dict]] = []
         for entity_id in conf.get(CONF_SOLAR_FORECAST_ENTITIES, []):
@@ -195,7 +284,6 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # -- forecasting pipeline ----------------------------------------------
         merged_solar_points = forecasting.merge_hourly_points(solar_points)
         solar_forecast = forecasting.build_solar_forecast(merged_solar_points, now, FORECAST_HOURS)
-        usage_forecast = forecasting.build_usage_forecast(usage_attrs, FORECAST_HOURS)
         net_energy = forecasting.build_net_energy(solar_forecast, usage_forecast)
         battery_now_kwh = round(capacity_kwh * (soc_now_percent / 100), 2)
         battery_forecast = forecasting.build_battery_forecast(net_energy, battery_now_kwh, now)

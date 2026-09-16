@@ -54,12 +54,12 @@ integration producing the same shape works):
   the Nordpool HACS integration produces for markets settled at 15-minute
   resolution. A sensor with hourly-only prices will not line up correctly
   with the planning engines' 15-minute unit indexing.
-- **Household usage forecast**: a sensor exposing `h0` through `h120`
-  attributes, one float per forecast hour (h0 = current hour). The original
-  system built this with a single SQL sensor averaging the same calendar
-  hour/weekday from several weeks back - see `legacy-yaml-config/` for that
-  query if you want a starting point, though any source producing the same
-  `h0..h120` shape works.
+- **Household usage forecast**: either an existing sensor exposing `h0`
+  through `h120` attributes (one float per forecast hour, h0 = current
+  hour), or nothing at all - the integration can calculate this forecast
+  itself directly from Home Assistant's own recorder statistics. See
+  "Household usage forecast" below for how the built-in calculation works
+  and what it needs.
 - **Solar forecast**: one or more sensors exposing a `detailedHourly`
   attribute shaped like Solcast's: a list of
   `{"period_start": <ISO timestamp>, "pv_estimate": <kWh>}` objects. Add as
@@ -72,6 +72,49 @@ integration producing the same shape works):
   "Status" sensor's engaged-vs-starting distinction accurate.
 - **Cell voltage differential** *(optional)*: only needed if you enable the
   full-charge balancing plan.
+
+## Household usage forecast
+
+Every planning engine needs a household usage forecast, but there's no one
+right way to produce it, so the setup wizard offers two:
+
+**An existing sensor** - point the integration at any sensor exposing
+`h0`..`h120` attributes, however you produce it. This is the original
+system's approach: a hand-written SQL sensor averaging the same calendar
+hour/weekday over several weeks of recorder history (see
+`legacy-yaml-config/` for that exact query, if you're curious or want to
+build your own variant).
+
+**Calculated internally** *(no external sensor needed)* - the integration
+queries Home Assistant's own long-term recorder statistics itself and
+computes the same kind of forecast, using the energy-balance identity:
+
+```
+consumption = solar produced + grid imported + battery discharged
+              - grid exported - battery charged
+```
+
+averaged across the same hour-of-day/day-of-week for however many weeks
+back you choose (default 6). You provide:
+
+- One or more **grid import** energy sensors (cumulative kWh) - use two if
+  your meter has separate day/night (tariff 1/2) sensors, or just one if it
+  doesn't; every sensor you list is summed together.
+- **Grid export** energy sensor(s), same idea, optional if you never export.
+- One or more **solar production** energy sensors (cumulative kWh) - one
+  per inverter/array if you have more than one.
+- Optionally, **battery charged/discharged energy** sensors, if your
+  battery monitor tracks those cumulatively (Victron shunts typically do).
+  Leave either blank if you don't have one - that term is just treated as 0.
+
+This queries Home Assistant's statistics API rather than running raw SQL
+against the recorder database directly, so it works the same regardless of
+whether your recorder is SQLite, MariaDB/MySQL, or Postgres (the original
+hand-written query was MySQL-specific). It also only recomputes about once
+an hour internally (long-term statistics only ever land once an hour
+anyway), and - unlike the original query - a week with a genuine gap in the
+data (an entity that didn't exist yet, a recorder outage) is excluded from
+that hour's average rather than silently counted as a zero.
 
 ## Installation
 
@@ -153,6 +196,13 @@ you're the one who ran the original on a live system:
 - **Every entity reference is configurable** - the original hardcoded
   Victron/Nordpool/Solcast entity IDs; this version only assumes the
   *shape* of data described under Requirements above.
+- **The household usage forecast can be calculated internally**, with no
+  external SQL sensor required - see "Household usage forecast" above. The
+  original's approach (a hand-written, MySQL-specific SQL sensor) still
+  works too if you'd rather keep using it, but isn't required anymore, and
+  the built-in version also fixes a flagged correctness issue in the
+  original (a week with missing data was silently averaged in as a 0
+  instead of being excluded).
 - **Min/max SOC are direct % tunables**, not derived from an external
   "inverter's own minimum SOC" sensor plus a hardcoded margin. If you want
   that margin back, just set Minimum SOC a few points above your inverter's

@@ -32,6 +32,7 @@ _load("const")
 forecasting = _load("forecasting")
 plans = _load("plans")
 display = _load("display")
+usage_forecast = _load("usage_forecast")
 
 FAILURES = []
 
@@ -264,6 +265,90 @@ check("charge_display produces a start time string", isinstance(start_text, str)
 
 next_days = display.next_full_charge_in_days(interval_days=14, time_since_days=20)
 check("next_full_charge_in_days floors at 0 when overdue", next_days == 0)
+
+# ---------------------------------------------------------------------------
+# usage_forecast.py - calculated household usage forecast (no HA needed:
+# operates on a plain dict of pre-fetched hourly cumulative sums, the same
+# shape statistics_source.py produces from the real recorder)
+# ---------------------------------------------------------------------------
+HOUR_S = 3600
+WEEK_S = 7 * 24 * HOUR_S
+usage_now = now_top_of_hour  # 2026-09-16 14:00:00, top of hour
+usage_base_epoch = int(usage_now.replace(minute=0, second=0, microsecond=0).timestamp())
+
+
+def _hist_epoch(weeks_back: int) -> int:
+    return usage_base_epoch - weeks_back * WEEK_S
+
+
+hourly_sums = {"sensor.solar": {}, "sensor.import": {}, "sensor.export": {}, "sensor.batt_charge": {}, "sensor.batt_discharge": {}}
+
+# 1 week back: a complete sample. solar +2.0, import +3.0, export +0.5,
+# battery charge +1.0, battery discharge +0.2
+# consumption = solar + import + discharge - export - charge = 3.7
+e1 = _hist_epoch(1)
+hourly_sums["sensor.solar"][e1] = 100.0
+hourly_sums["sensor.solar"][e1 - HOUR_S] = 98.0
+hourly_sums["sensor.import"][e1] = 50.0
+hourly_sums["sensor.import"][e1 - HOUR_S] = 47.0
+hourly_sums["sensor.export"][e1] = 10.5
+hourly_sums["sensor.export"][e1 - HOUR_S] = 10.0
+hourly_sums["sensor.batt_charge"][e1] = 5.0
+hourly_sums["sensor.batt_charge"][e1 - HOUR_S] = 4.0
+hourly_sums["sensor.batt_discharge"][e1] = 2.2
+hourly_sums["sensor.batt_discharge"][e1 - HOUR_S] = 2.0
+
+# 2 weeks back: deliberately missing the export entity's data entirely, to
+# verify a week with any missing term is dropped from the average outright
+# (not coalesced to a 0 contribution - the fix over the original's SQL).
+e2 = _hist_epoch(2)
+hourly_sums["sensor.solar"][e2] = 30.0
+hourly_sums["sensor.solar"][e2 - HOUR_S] = 29.0
+hourly_sums["sensor.import"][e2] = 20.0
+hourly_sums["sensor.import"][e2 - HOUR_S] = 16.0
+hourly_sums["sensor.batt_charge"][e2] = 8.0
+hourly_sums["sensor.batt_charge"][e2 - HOUR_S] = 8.0
+hourly_sums["sensor.batt_discharge"][e2] = 3.0
+hourly_sums["sensor.batt_discharge"][e2 - HOUR_S] = 3.0
+# sensor.export has no entries at all for week 2 - that week's sample must
+# be dropped, not treated as a 0 export delta.
+
+result = usage_forecast.compute_usage_forecast(
+    hourly_sums,
+    import_entities=["sensor.import"],
+    export_entities=["sensor.export"],
+    solar_entities=["sensor.solar"],
+    battery_charge_entity="sensor.batt_charge",
+    battery_discharge_entity="sensor.batt_discharge",
+    now=usage_now,
+    forecast_hours=3,
+    lookback_weeks=2,
+)
+check("compute_usage_forecast returns the requested number of hours", len(result) == 3)
+check(
+    "h0 averages only the complete week - the week with missing export data is skipped, not zeroed",
+    result[0] == 3.7,
+)
+check("hours with no historical data at all fall back to 0.0", result[1] == 0.0 and result[2] == 0.0)
+
+# Dual-tariff import + multiple solar arrays: every configured entity in a
+# list is summed together for that term, so a 1-sensor or 2-sensor meter
+# both work without the user needing to pre-combine them.
+hourly_sums["sensor.import_t1"] = {e1: 10.0, e1 - HOUR_S: 8.0}  # delta 2.0
+hourly_sums["sensor.import_t2"] = {e1: 6.0, e1 - HOUR_S: 4.5}  # delta 1.5
+hourly_sums["sensor.solar_array2"] = {e1: 5.0, e1 - HOUR_S: 4.0}  # delta 1.0
+multi_result = usage_forecast.compute_usage_forecast(
+    hourly_sums,
+    import_entities=["sensor.import_t1", "sensor.import_t2"],
+    export_entities=[],
+    solar_entities=["sensor.solar_array2"],
+    battery_charge_entity=None,
+    battery_discharge_entity=None,
+    now=usage_now,
+    forecast_hours=1,
+    lookback_weeks=1,
+)
+check("multiple import/solar entities in one category are summed together", multi_result[0] == 4.5)
 
 print()
 if FAILURES:

@@ -14,10 +14,43 @@ UPDATE_INTERVAL_SECONDS = 30
 CONF_NAME = "name"
 CONF_BATTERY_SOC_ENTITY = "battery_soc_entity"
 CONF_PRICE_ENTITY = "price_entity"
-CONF_USAGE_FORECAST_ENTITY = "usage_forecast_entity"
 CONF_SOLAR_FORECAST_ENTITIES = "solar_forecast_entities"
 CONF_GRID_SETPOINT_ENTITY = "grid_setpoint_entity"
 CONF_VOLTAGE_DIFF_ENTITY = "voltage_diff_entity"
+
+# -- household usage forecast: either an existing "h0..h120" sensor, or --
+# -- calculated internally from HA's own long-term recorder statistics --
+CONF_USAGE_SOURCE = "usage_source"
+USAGE_SOURCE_EXTERNAL_SENSOR = "external_sensor"
+USAGE_SOURCE_CALCULATED = "calculated"
+DEFAULT_USAGE_SOURCE = USAGE_SOURCE_EXTERNAL_SENSOR
+
+CONF_USAGE_FORECAST_ENTITY = "usage_forecast_entity"
+
+# Calculated-usage-forecast inputs. Import/export are lists, not single
+# entities, because meters vary: a single-tariff meter exposes one
+# cumulative import/export sensor, a dual-tariff meter (common e.g. for
+# day/night rates) exposes two - every configured entity in each list is
+# summed together for that side of the energy balance, so either shape
+# works without the user needing to combine them into one sensor first.
+# Solar production is a list for the same reason (multiple inverters/arrays).
+# Battery charge/discharge energy are optional single entities (only some
+# battery monitors expose lifetime charged/discharged energy) - when
+# omitted, that term of the energy-balance identity is simply treated as 0.
+CONF_GRID_IMPORT_ENTITIES = "grid_import_entities"
+CONF_GRID_EXPORT_ENTITIES = "grid_export_entities"
+CONF_SOLAR_PRODUCTION_ENTITIES = "solar_production_entities"
+CONF_BATTERY_CHARGE_ENERGY_ENTITY = "battery_charge_energy_entity"
+CONF_BATTERY_DISCHARGE_ENERGY_ENTITY = "battery_discharge_energy_entity"
+CONF_USAGE_LOOKBACK_WEEKS = "usage_lookback_weeks"
+DEFAULT_USAGE_LOOKBACK_WEEKS = 6
+
+# The calculated usage forecast queries long-term recorder statistics, which
+# only ever land once per hour - recomputing it every 30-second coordinator
+# cycle (like the rest of the pipeline) would just hammer the database for
+# an answer that can't have changed. Recomputed at most this often; cached
+# in between (see coordinator.py's _async_get_calculated_usage_forecast).
+USAGE_FORECAST_RECALC_MINUTES = 55
 
 CONF_ENABLE_FULL_CHARGE_PLAN = "enable_full_charge_plan"
 CONF_ENABLE_SPIKE_PLAN = "enable_spike_plan"

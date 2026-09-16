@@ -8,8 +8,8 @@
           "name": "Name",
           "battery_soc_entity": "Battery state-of-charge sensor (%)",
           "price_entity": "Electricity price sensor (Nordpool-style, with today/tomorrow quarter-hour price lists)",
-          "usage_forecast_entity": "Household usage forecast sensor (exposes h0..h120 attributes)",
           "solar_forecast_entities": "Solar forecast sensor(s) (Solcast-style, with a detailedHourly attribute) - add as many as needed to cover your forecast horizon",
+          "usage_source": "Household usage forecast source",
           "grid_setpoint_entity": "Grid/inverter setpoint sensor (optional, improves status accuracy)",
           "voltage_diff_entity": "Cell voltage differential sensor (optional, only needed for the full-charge balancing plan)",
           "battery_capacity_kwh": "Battery capacity",
@@ -21,10 +21,30 @@
           "enable_spike_plan": "Enable spike arbitrage plan",
           "enable_full_charge_plan": "Enable periodic full-charge balancing plan"
         }
+      },
+      "usage_sensor": {
+        "title": "Household usage forecast sensor",
+        "description": "Point this at an existing sensor exposing h0..h120 attributes (one float per forecast hour).",
+        "data": {
+          "usage_forecast_entity": "Household usage forecast sensor"
+        }
+      },
+      "usage_calculated": {
+        "title": "Calculate the household usage forecast",
+        "description": "Pick the energy entities that make up your household's net consumption. Each import/export field accepts one or more entities - use two when your meter has separate day/night (tariff 1/2) sensors, or just one if it doesn't. Consumption for each historical hour is derived as: solar produced + grid imported + battery discharged - grid exported - battery charged, then averaged across the same hour/weekday over your chosen lookback window.",
+        "data": {
+          "grid_import_entities": "Grid import energy sensor(s) (cumulative kWh - one per tariff, if your meter has more than one)",
+          "grid_export_entities": "Grid export energy sensor(s) (cumulative kWh, optional - leave empty if you never export)",
+          "solar_production_entities": "Solar production energy sensor(s) (cumulative kWh - one per inverter/array, if you have more than one)",
+          "battery_charge_energy_entity": "Battery charged energy sensor (cumulative kWh, optional)",
+          "battery_discharge_energy_entity": "Battery discharged energy sensor (cumulative kWh, optional)",
+          "usage_lookback_weeks": "How many weeks back to average (same hour, same day of week)"
+        }
       }
     },
     "error": {
-      "solar_forecast_required": "Select at least one solar forecast entity."
+      "solar_forecast_required": "Select at least one solar forecast entity.",
+      "usage_calculated_entities_required": "Select at least one grid import entity and at least one solar production entity."
     },
     "abort": {
       "already_configured": "An ESS Manager instance with this name already exists."
@@ -38,15 +58,35 @@
         "data": {
           "battery_soc_entity": "Battery state-of-charge sensor (%)",
           "price_entity": "Electricity price sensor",
-          "usage_forecast_entity": "Household usage forecast sensor",
           "solar_forecast_entities": "Solar forecast sensor(s)",
+          "usage_source": "Household usage forecast source",
           "grid_setpoint_entity": "Grid/inverter setpoint sensor (optional)",
           "voltage_diff_entity": "Cell voltage differential sensor (optional)",
           "enable_negative_price_plan": "Enable negative price plan",
           "enable_spike_plan": "Enable spike arbitrage plan",
           "enable_full_charge_plan": "Enable periodic full-charge balancing plan"
         }
+      },
+      "usage_sensor": {
+        "title": "Household usage forecast sensor",
+        "data": {
+          "usage_forecast_entity": "Household usage forecast sensor"
+        }
+      },
+      "usage_calculated": {
+        "title": "Calculate the household usage forecast",
+        "data": {
+          "grid_import_entities": "Grid import energy sensor(s)",
+          "grid_export_entities": "Grid export energy sensor(s) (optional)",
+          "solar_production_entities": "Solar production energy sensor(s)",
+          "battery_charge_energy_entity": "Battery charged energy sensor (optional)",
+          "battery_discharge_energy_entity": "Battery discharged energy sensor (optional)",
+          "usage_lookback_weeks": "How many weeks back to average"
+        }
       }
+    },
+    "error": {
+      "usage_calculated_entities_required": "Select at least one grid import entity and at least one solar production entity."
     }
   }
 }

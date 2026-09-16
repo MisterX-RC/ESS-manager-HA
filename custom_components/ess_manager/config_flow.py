@@ -2,6 +2,12 @@
 entities and seed values for the tunables (which then become `number`
 entities - see number.py) instead of anything being hardcoded to one
 person's Victron/Nordpool/Solcast setup.
+
+The household usage forecast has two mutually-exclusive sources, so this
+flow branches after the main step: either an existing "h0..h120" sensor
+(the original behavior), or calculated internally from Home Assistant's own
+recorder statistics (see usage_forecast.py/statistics_source.py) - which
+needs a second, more detailed step to collect the energy entities involved.
 """
 from __future__ import annotations
 
@@ -14,19 +20,26 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_BATTERY_CAPACITY_KWH,
+    CONF_BATTERY_CHARGE_ENERGY_ENTITY,
+    CONF_BATTERY_DISCHARGE_ENERGY_ENTITY,
     CONF_BATTERY_SOC_ENTITY,
     CONF_CHARGE_SPEED_KW,
     CONF_DISCHARGE_SPEED_KW,
     CONF_ENABLE_FULL_CHARGE_PLAN,
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
+    CONF_GRID_EXPORT_ENTITIES,
+    CONF_GRID_IMPORT_ENTITIES,
     CONF_GRID_SETPOINT_ENTITY,
     CONF_MAX_SOC_PERCENT,
     CONF_MIN_SOC_PERCENT,
     CONF_NAME,
     CONF_PRICE_ENTITY,
     CONF_SOLAR_FORECAST_ENTITIES,
+    CONF_SOLAR_PRODUCTION_ENTITIES,
     CONF_USAGE_FORECAST_ENTITY,
+    CONF_USAGE_LOOKBACK_WEEKS,
+    CONF_USAGE_SOURCE,
     CONF_VOLTAGE_DIFF_ENTITY,
     DEFAULT_BATTERY_CAPACITY_KWH,
     DEFAULT_CHARGE_SPEED_KW,
@@ -37,11 +50,24 @@ from .const import (
     DEFAULT_MAX_SOC_PERCENT,
     DEFAULT_MIN_SOC_PERCENT,
     DEFAULT_NAME,
+    DEFAULT_USAGE_LOOKBACK_WEEKS,
+    DEFAULT_USAGE_SOURCE,
     DOMAIN,
+    USAGE_SOURCE_CALCULATED,
+    USAGE_SOURCE_EXTERNAL_SENSOR,
 )
 
+USAGE_SOURCE_OPTIONS = [
+    selector.SelectOptionDict(value=USAGE_SOURCE_EXTERNAL_SENSOR, label="An existing sensor with h0..h120 attributes"),
+    selector.SelectOptionDict(value=USAGE_SOURCE_CALCULATED, label="Calculate it from my energy statistics"),
+]
 
-def _schema(defaults: dict[str, Any]) -> vol.Schema:
+
+def _main_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Everything except the usage-forecast source, which is its own
+    branching step (see async_step_usage_sensor/async_step_usage_calculated
+    below) since the calculated path needs a whole extra set of fields.
+    """
     return vol.Schema(
         {
             vol.Required(CONF_NAME, default=defaults.get(CONF_NAME, DEFAULT_NAME)): str,
@@ -52,11 +78,13 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.EntitySelectorConfig(domain="sensor")
             ),
             vol.Required(
-                CONF_USAGE_FORECAST_ENTITY, default=defaults.get(CONF_USAGE_FORECAST_ENTITY)
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            vol.Required(
                 CONF_SOLAR_FORECAST_ENTITIES, default=defaults.get(CONF_SOLAR_FORECAST_ENTITIES, [])
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
+            vol.Required(
+                CONF_USAGE_SOURCE, default=defaults.get(CONF_USAGE_SOURCE, DEFAULT_USAGE_SOURCE)
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=USAGE_SOURCE_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+            ),
             vol.Optional(
                 CONF_GRID_SETPOINT_ENTITY, default=defaults.get(CONF_GRID_SETPOINT_ENTITY, "")
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
@@ -93,19 +121,67 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
-def _clean(user_input: dict[str, Any]) -> dict[str, Any]:
+def _usage_sensor_schema(defaults: dict[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_USAGE_FORECAST_ENTITY, default=defaults.get(CONF_USAGE_FORECAST_ENTITY)
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+        }
+    )
+
+
+def _usage_calculated_schema(defaults: dict[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_GRID_IMPORT_ENTITIES, default=defaults.get(CONF_GRID_IMPORT_ENTITIES, [])
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
+            vol.Optional(
+                CONF_GRID_EXPORT_ENTITIES, default=defaults.get(CONF_GRID_EXPORT_ENTITIES, [])
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
+            vol.Required(
+                CONF_SOLAR_PRODUCTION_ENTITIES, default=defaults.get(CONF_SOLAR_PRODUCTION_ENTITIES, [])
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
+            vol.Optional(
+                CONF_BATTERY_CHARGE_ENERGY_ENTITY, default=defaults.get(CONF_BATTERY_CHARGE_ENERGY_ENTITY, "")
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Optional(
+                CONF_BATTERY_DISCHARGE_ENERGY_ENTITY, default=defaults.get(CONF_BATTERY_DISCHARGE_ENERGY_ENTITY, "")
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Required(
+                CONF_USAGE_LOOKBACK_WEEKS, default=defaults.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS)
+            ): selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=12, step=1, unit_of_measurement="weeks")),
+        }
+    )
+
+
+def _clean(data: dict[str, Any]) -> dict[str, Any]:
     """Blank optional entity-selector strings become None rather than ''."""
-    data = dict(user_input)
-    for key in (CONF_GRID_SETPOINT_ENTITY, CONF_VOLTAGE_DIFF_ENTITY):
-        if not data.get(key):
+    data = dict(data)
+    for key in (
+        CONF_GRID_SETPOINT_ENTITY,
+        CONF_VOLTAGE_DIFF_ENTITY,
+        CONF_BATTERY_CHARGE_ENERGY_ENTITY,
+        CONF_BATTERY_DISCHARGE_ENERGY_ENTITY,
+    ):
+        if key in data and not data.get(key):
             data[key] = None
     return data
 
 
 class EssManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle the initial setup flow for one ESS Manager instance."""
+    """Handle the initial setup flow for one ESS Manager instance.
+
+    Three possible steps: `user` (always), then either `usage_sensor` or
+    `usage_calculated` depending on what was picked for CONF_USAGE_SOURCE in
+    `user` - whichever one runs is what actually creates the config entry.
+    """
 
     VERSION = 1
+
+    def __init__(self) -> None:
+        self._data: dict[str, Any] = {}
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
@@ -114,11 +190,33 @@ class EssManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not data.get(CONF_SOLAR_FORECAST_ENTITIES):
                 errors["base"] = "solar_forecast_required"
             else:
-                await self.async_set_unique_id(f"{DOMAIN}_{data[CONF_NAME].lower().replace(' ', '_')}")
-                self._abort_if_unique_id_configured()
-                return self.async_create_entry(title=data[CONF_NAME], data=data)
+                self._data = data
+                if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CALCULATED:
+                    return await self.async_step_usage_calculated()
+                return await self.async_step_usage_sensor()
 
-        return self.async_show_form(step_id="user", data_schema=_schema({}), errors=errors)
+        return self.async_show_form(step_id="user", data_schema=_main_schema({}), errors=errors)
+
+    async def async_step_usage_sensor(self, user_input: dict[str, Any] | None = None):
+        if user_input is not None:
+            data = {**self._data, **_clean(user_input)}
+            return await self._async_create(data)
+        return self.async_show_form(step_id="usage_sensor", data_schema=_usage_sensor_schema({}))
+
+    async def async_step_usage_calculated(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data = {**self._data, **_clean(user_input)}
+            if not data.get(CONF_GRID_IMPORT_ENTITIES) or not data.get(CONF_SOLAR_PRODUCTION_ENTITIES):
+                errors["base"] = "usage_calculated_entities_required"
+            else:
+                return await self._async_create(data)
+        return self.async_show_form(step_id="usage_calculated", data_schema=_usage_calculated_schema({}), errors=errors)
+
+    async def _async_create(self, data: dict[str, Any]):
+        await self.async_set_unique_id(f"{DOMAIN}_{data[CONF_NAME].lower().replace(' ', '_')}")
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(title=data[CONF_NAME], data=data)
 
     @staticmethod
     @callback
@@ -128,20 +226,28 @@ class EssManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class EssManagerOptionsFlow(config_entries.OptionsFlow):
     """Lets the user re-point entity references later (e.g. after renaming
-    a sensor, or swapping their price/solar integration) without deleting
-    and recreating the whole config entry. Seed-only values
+    a sensor, or swapping their price/solar/usage-statistics setup) without
+    deleting and recreating the whole config entry. Seed-only values
     (capacity/speeds/min/max SOC) are intentionally NOT editable here once
     their `number` entities exist - adjust those directly on the number
     entities instead, the same way you'd adjust an input_number.
+
+    Same three-step branching as the initial config flow: `init` always
+    runs first, then either `usage_sensor` or `usage_calculated`.
     """
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self.config_entry = config_entry
+        self._data: dict[str, Any] = {}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         current = {**self.config_entry.data, **self.config_entry.options}
         if user_input is not None:
-            return self.async_create_entry(title="", data=_clean(user_input))
+            data = _clean(user_input)
+            self._data = data
+            if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CALCULATED:
+                return await self.async_step_usage_calculated()
+            return await self.async_step_usage_sensor()
 
         schema = vol.Schema(
             {
@@ -152,11 +258,13 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
                 vol.Required(
-                    CONF_USAGE_FORECAST_ENTITY, default=current.get(CONF_USAGE_FORECAST_ENTITY)
-                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-                vol.Required(
                     CONF_SOLAR_FORECAST_ENTITIES, default=current.get(CONF_SOLAR_FORECAST_ENTITIES, [])
                 ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
+                vol.Required(
+                    CONF_USAGE_SOURCE, default=current.get(CONF_USAGE_SOURCE, DEFAULT_USAGE_SOURCE)
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=USAGE_SOURCE_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+                ),
                 vol.Optional(
                     CONF_GRID_SETPOINT_ENTITY, default=current.get(CONF_GRID_SETPOINT_ENTITY) or ""
                 ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
@@ -177,3 +285,23 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
+
+    async def async_step_usage_sensor(self, user_input: dict[str, Any] | None = None):
+        current = {**self.config_entry.data, **self.config_entry.options}
+        if user_input is not None:
+            data = {**self._data, **_clean(user_input)}
+            return self.async_create_entry(title="", data=data)
+        return self.async_show_form(step_id="usage_sensor", data_schema=_usage_sensor_schema(current))
+
+    async def async_step_usage_calculated(self, user_input: dict[str, Any] | None = None):
+        current = {**self.config_entry.data, **self.config_entry.options}
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data = {**self._data, **_clean(user_input)}
+            if not data.get(CONF_GRID_IMPORT_ENTITIES) or not data.get(CONF_SOLAR_PRODUCTION_ENTITIES):
+                errors["base"] = "usage_calculated_entities_required"
+            else:
+                return self.async_create_entry(title="", data=data)
+        return self.async_show_form(
+            step_id="usage_calculated", data_schema=_usage_calculated_schema(current), errors=errors
+        )
