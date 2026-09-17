@@ -86,10 +86,10 @@ def _main_schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.SelectSelectorConfig(options=USAGE_SOURCE_OPTIONS, mode=selector.SelectSelectorMode.LIST)
             ),
             vol.Optional(
-                CONF_GRID_SETPOINT_ENTITY, default=defaults.get(CONF_GRID_SETPOINT_ENTITY, "")
+                CONF_GRID_SETPOINT_ENTITY, default=defaults.get(CONF_GRID_SETPOINT_ENTITY)
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(
-                CONF_VOLTAGE_DIFF_ENTITY, default=defaults.get(CONF_VOLTAGE_DIFF_ENTITY, "")
+                CONF_VOLTAGE_DIFF_ENTITY, default=defaults.get(CONF_VOLTAGE_DIFF_ENTITY)
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Required(
                 CONF_BATTERY_CAPACITY_KWH, default=defaults.get(CONF_BATTERY_CAPACITY_KWH, DEFAULT_BATTERY_CAPACITY_KWH)
@@ -144,10 +144,10 @@ def _usage_calculated_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_SOLAR_PRODUCTION_ENTITIES, default=defaults.get(CONF_SOLAR_PRODUCTION_ENTITIES, [])
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
             vol.Optional(
-                CONF_BATTERY_CHARGE_ENERGY_ENTITY, default=defaults.get(CONF_BATTERY_CHARGE_ENERGY_ENTITY, "")
+                CONF_BATTERY_CHARGE_ENERGY_ENTITY, default=defaults.get(CONF_BATTERY_CHARGE_ENERGY_ENTITY)
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(
-                CONF_BATTERY_DISCHARGE_ENERGY_ENTITY, default=defaults.get(CONF_BATTERY_DISCHARGE_ENERGY_ENTITY, "")
+                CONF_BATTERY_DISCHARGE_ENERGY_ENTITY, default=defaults.get(CONF_BATTERY_DISCHARGE_ENERGY_ENTITY)
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Required(
                 CONF_USAGE_LOOKBACK_WEEKS, default=defaults.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS)
@@ -266,10 +266,10 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
                     selector.SelectSelectorConfig(options=USAGE_SOURCE_OPTIONS, mode=selector.SelectSelectorMode.LIST)
                 ),
                 vol.Optional(
-                    CONF_GRID_SETPOINT_ENTITY, default=current.get(CONF_GRID_SETPOINT_ENTITY) or ""
+                    CONF_GRID_SETPOINT_ENTITY, default=current.get(CONF_GRID_SETPOINT_ENTITY)
                 ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
                 vol.Optional(
-                    CONF_VOLTAGE_DIFF_ENTITY, default=current.get(CONF_VOLTAGE_DIFF_ENTITY) or ""
+                    CONF_VOLTAGE_DIFF_ENTITY, default=current.get(CONF_VOLTAGE_DIFF_ENTITY)
                 ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
                 vol.Required(
                     CONF_ENABLE_NEGATIVE_PRICE_PLAN,

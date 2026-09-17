@@ -8,6 +8,18 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.4] - 2026-09-17
+
+### Fixed
+- The optional single-entity fields (grid/inverter setpoint sensor, cell
+  voltage differential sensor, and the calculated-usage-forecast's battery
+  charge/discharge energy entities) defaulted to an empty string, which the
+  Home Assistant frontend's entity picker flags as "Entity is neither a
+  valid entity ID nor a valid UUID" even though the field is optional and
+  left blank. They now default to no value, so the setup and options forms
+  no longer show a false validation error on fields you don't need to fill
+  in.
+
 ## [0.1.3] - 2026-09-17
 
 ### Added
