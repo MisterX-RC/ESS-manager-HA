@@ -162,4 +162,14 @@ class EssManagerValueSensor(CoordinatorEntity[EssManagerCoordinator], SensorEnti
         if self.coordinator.data is None:
             return None
         value = self.coordinator.data.get(self._data_key)
-        return value if value is not None else "-"
+        if value is not None:
+            return value
+        # charge/discharge amount and start/stop time are legitimately
+        # None whenever no plan is currently active - that's the normal,
+        # frequent case, not an error. A sensor with a unit of measurement
+        # (kWh, d) must report a number or None: Home Assistant treats a
+        # unit as a promise that the state is numeric and raises instead
+        # of just showing "unknown" if it ever gets a string like "-".
+        # Only genuinely unit-less (text) sensors can safely use "-" as a
+        # placeholder.
+        return None if self._attr_native_unit_of_measurement else "-"

@@ -8,6 +8,25 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.6] - 2026-09-17
+
+### Fixed
+- The Home Assistant log filled with repeated "Unexpected error updating
+  listener" crashes from `sensor.py`, ultimately raising `ValueError:
+  Sensor sensor.ess_manager_discharge_amount ... has ... unit 'kWh' ...
+  however, it has the non-numeric value: '-'`. Cause: the charge/discharge
+  amount, start and stop display sensors fall back to the literal text
+  "-" whenever no charge or discharge plan is currently active - a normal,
+  frequent state, not an error. Home Assistant treats a sensor's unit of
+  measurement (kWh, in this case) as a promise that its state is always
+  numeric or `None`, and raises instead of just showing "unknown" the
+  moment a unit-bearing sensor reports a string like "-". Fixed by only
+  using the "-" placeholder for the genuinely unit-less display sensors
+  (start/stop times, spike status text); the kWh/day sensors (battery
+  level, charge/discharge amount, next full charge in) now report `None`
+  when there's nothing to show, which Home Assistant renders as "unknown"
+  without erroring.
+
 ## [0.1.5] - 2026-09-17
 
 ### Fixed
