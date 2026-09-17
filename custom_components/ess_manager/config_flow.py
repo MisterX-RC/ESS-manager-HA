@@ -221,7 +221,7 @@ class EssManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> "EssManagerOptionsFlow":
-        return EssManagerOptionsFlow(config_entry)
+        return EssManagerOptionsFlow()
 
 
 class EssManagerOptionsFlow(config_entries.OptionsFlow):
@@ -234,10 +234,16 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
 
     Same three-step branching as the initial config flow: `init` always
     runs first, then either `usage_sensor` or `usage_calculated`.
+
+    Does NOT store `config_entry` itself in `__init__` - recent Home
+    Assistant core versions set `self.config_entry` automatically after
+    constructing the flow, and an integration that assigns it manually
+    (the pattern used by older HA templates/tutorials) crashes the options
+    flow outright with an unhandled exception the frontend reports as a
+    generic 500 error.
     """
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
+    def __init__(self) -> None:
         self._data: dict[str, Any] = {}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):

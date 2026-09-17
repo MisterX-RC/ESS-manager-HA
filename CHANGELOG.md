@@ -8,6 +8,20 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.5] - 2026-09-17
+
+### Fixed
+- Opening the integration's options (the gear icon on the configured hub)
+  crashed with a generic "Config flow could not be loaded: 500 Internal
+  Server Error" instead of showing the options form. Cause: the options
+  flow's `__init__` stored `self.config_entry = config_entry` itself, which
+  recent Home Assistant core versions handle automatically after
+  constructing the flow - an integration that also assigns it manually
+  raises an unhandled exception, which the frontend reports as a bare 500.
+  The options flow no longer takes or stores `config_entry` in `__init__`;
+  it relies on Home Assistant to set `self.config_entry` for it, same as
+  current HA's own guidance for custom integrations.
+
 ## [0.1.4] - 2026-09-17
 
 ### Fixed
