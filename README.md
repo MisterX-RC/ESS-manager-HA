@@ -239,4 +239,23 @@ project handoff notes on every design decision made along the way.
 custom_components/ess_manager/   the integration itself
 dashboard/                       adapted Lovelace cards + example automation
 legacy-yaml-config/              the original template-sensor config, preserved as-is
+sync-and-push.command            macOS helper - see "Keeping this repo in sync" below
 ```
+
+## Keeping this repo in sync (macOS)
+
+If you're developing this alongside Claude rather than editing it directly
+in GitHub: `sync-and-push.command` is a double-clickable script that lives
+in this same folder. Each time it runs, it looks in your Downloads folder
+for the newest `ess-manager-ha-repo*.zip`, copies its contents over this
+folder (leaving this script and this folder's own `.git` history/remote
+alone), commits whatever changed, and pushes to GitHub - so picking up an
+update is one double-click instead of unzipping and typing git commands by
+hand.
+
+The first time it runs, git will ask for your GitHub username and a
+personal access token right there in the Terminal window it opens; macOS
+Keychain remembers it after that, so every run after the first is silent.
+If macOS refuses to run it the very first time ("cannot be opened because
+it is from an unidentified developer"), right-click the file, choose
+**Open**, and confirm once - after that, double-clicking works normally.
