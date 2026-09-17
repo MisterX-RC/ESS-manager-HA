@@ -242,6 +242,18 @@ legacy-yaml-config/              the original template-sensor config, preserved 
 sync-and-push.command            macOS helper - see "Keeping this repo in sync" below
 ```
 
+## Versioning
+
+`custom_components/ess_manager/manifest.json`'s `version` bumps by 0.0.1
+(the patch digit) on every push - see `CHANGELOG.md` for what changed at
+each version. This is what lets HACS tell installed instances an update
+exists: it compares the tag on your most recent GitHub Release against
+whatever version they currently have installed. Cutting a release is a
+separate, manual step (GitHub -> Releases -> Draft a new release -> tag it
+`vX.Y.Z` to match the manifest version -> Publish) - do it whenever you
+want HACS to pick up everything pushed since the last release, not
+necessarily after every single patch bump.
+
 ## Keeping this repo in sync (macOS)
 
 If you're developing this alongside Claude rather than editing it directly
