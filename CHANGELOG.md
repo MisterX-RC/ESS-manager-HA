@@ -8,6 +8,22 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.10] - 2026-09-18
+
+### Added
+- An alternative way to supply the cell voltage differential used by the
+  full-charge balancing plan: instead of a BMS that already exposes the
+  differential as its own sensor, you can now point the integration at the
+  lowest and highest individual cell voltage sensors instead, and it
+  calculates the differential itself as (highest - lowest), converted from
+  volts to millivolts to match the existing single-sensor convention. Both
+  fields are optional and independent of the original "cell voltage
+  differential sensor" field - if you already have that configured,
+  nothing changes; if you only have per-cell voltage sensors (a more
+  common shape for many BMS integrations), you can use those instead. The
+  computed value is also now exposed as a `cell_voltage_differential_mv`
+  attribute on the Status sensor, so you can see what it's reading.
+
 ## [0.1.9] - 2026-09-18
 
 ### Added

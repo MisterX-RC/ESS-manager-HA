@@ -16,7 +16,23 @@ CONF_BATTERY_SOC_ENTITY = "battery_soc_entity"
 CONF_PRICE_ENTITY = "price_entity"
 CONF_SOLAR_FORECAST_ENTITIES = "solar_forecast_entities"
 CONF_GRID_SETPOINT_ENTITY = "grid_setpoint_entity"
+
+# Cell voltage differential (only used by the full-charge balancing plan, to
+# decide when the pack is balanced enough to stop holding at full). Two ways
+# to supply it, both optional and independent of each other:
+#  - CONF_VOLTAGE_DIFF_ENTITY: a BMS that already exposes the differential
+#    directly as its own sensor (e.g. a JK BMS's "cell voltage differential"
+#    entity) - assumed to report millivolts, matching compute_full_charge_plan's
+#    balance_threshold default of 10.0.
+#  - CONF_LOW_CELL_VOLTAGE_ENTITY + CONF_HIGH_CELL_VOLTAGE_ENTITY: for a BMS
+#    that instead exposes the lowest/highest individual cell voltages as
+#    their own sensors (the more common shape) - the differential is derived
+#    as (highest - lowest), converted from volts to millivolts to match the
+#    same balance_threshold convention. When both of these are configured,
+#    they take priority over CONF_VOLTAGE_DIFF_ENTITY.
 CONF_VOLTAGE_DIFF_ENTITY = "voltage_diff_entity"
+CONF_LOW_CELL_VOLTAGE_ENTITY = "low_cell_voltage_entity"
+CONF_HIGH_CELL_VOLTAGE_ENTITY = "high_cell_voltage_entity"
 
 # -- household usage forecast: an existing "h0..h120" sensor, calculated --
 # -- internally from HA's own long-term recorder statistics (the full --

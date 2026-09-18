@@ -77,3 +77,26 @@ def spike_status_text(spike: dict) -> str:
 
 def next_full_charge_in_days(interval_days: float, time_since_days: float) -> float:
     return round(max(interval_days - time_since_days, 0), 1)
+
+
+def cell_voltage_differential_mv(low_v: Optional[float], high_v: Optional[float]) -> Optional[float]:
+    """The full-charge balancing plan's voltage_diff input, derived from a
+    pair of lowest/highest individual-cell-voltage sensors instead of a BMS
+    that already exposes the differential as its own sensor.
+
+    Individual per-cell voltage sensors are conventionally reported in
+    Home Assistant in volts (e.g. 3.285), while
+    plans.compute_full_charge_plan's balance_threshold default (10.0) - and
+    the single-sensor CONF_VOLTAGE_DIFF_ENTITY path - both assume
+    millivolts (matching how a BMS like a JK BMS exposes its own "cell
+    voltage differential" sensor). So this multiplies by 1000 to convert,
+    not just subtracts. None if either reading isn't available - the
+    caller should NOT substitute a fallback voltage into the subtraction,
+    since that would fabricate a specific (and possibly wrong) differential
+    rather than honestly reporting "no reading this cycle" and letting
+    compute_full_charge_plan's own None-handling (treat as unbalanced,
+    matching its 999.0 default) take over.
+    """
+    if low_v is None or high_v is None:
+        return None
+    return round((high_v - low_v) * 1000, 1)

@@ -27,6 +27,8 @@ from .const import (
     CONF_GRID_EXPORT_ENTITIES,
     CONF_GRID_IMPORT_ENTITIES,
     CONF_GRID_SETPOINT_ENTITY,
+    CONF_HIGH_CELL_VOLTAGE_ENTITY,
+    CONF_LOW_CELL_VOLTAGE_ENTITY,
     CONF_PRICE_ENTITY,
     CONF_SOLAR_FORECAST_ENTITIES,
     CONF_SOLAR_PRODUCTION_ENTITIES,
@@ -73,7 +75,16 @@ IDLE_SETPOINT_W = 0.0
 IDLE_TOLERANCE_W = 50.0
 
 
-def _get_float_state(hass: HomeAssistant, entity_id: Optional[str], default: float = 0.0) -> float:
+def _get_float_state(
+    hass: HomeAssistant, entity_id: Optional[str], default: Optional[float] = 0.0
+) -> Optional[float]:
+    """Read one entity's state as a float, or `default` if it's missing/
+    unavailable/non-numeric. `default` accepts None (not just a float) so a
+    caller can tell "no reading available" apart from any real number -
+    used by the low/high cell voltage fields below, where a missing reading
+    on either side has to cancel the whole computed differential rather
+    than silently substituting some fallback voltage into the subtraction.
+    """
     if not entity_id:
         return default
     state = hass.states.get(entity_id)
@@ -278,6 +289,44 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._usage_forecast_computed_at = now
         return self._usage_forecast_cache
 
+    def _get_voltage_diff(self, conf: dict[str, Any]) -> Optional[float]:
+        """The cell voltage differential (millivolts) fed to the full-charge
+        balancing plan, from whichever of the two configured sources
+        applies - see const.py's CONF_VOLTAGE_DIFF_ENTITY docstring for the
+        full reasoning. Which source is used is decided purely by which
+        fields are configured (not by their live availability this cycle),
+        so behavior doesn't flip between the two sources moment to moment:
+
+        - Both CONF_LOW_CELL_VOLTAGE_ENTITY and CONF_HIGH_CELL_VOLTAGE_ENTITY
+          set: derive it as (highest - lowest), converted from volts (how
+          individual per-cell voltage sensors are conventionally reported in
+          Home Assistant) to millivolts by multiplying by 1000, to match the
+          millivolt convention the single-sensor path and
+          plans.compute_full_charge_plan's balance_threshold default (10.0)
+          already assume. If either reading is currently unavailable, the
+          result is None for this cycle rather than falling back to some
+          fixed voltage - compute_full_charge_plan already treats None as
+          "assume not balanced yet" (its own 999.0 fallback), which is the
+          correct, conservative behavior here too.
+        - Otherwise, CONF_VOLTAGE_DIFF_ENTITY set: read it directly, assumed
+          to already be in millivolts (this is how it worked before this
+          option existed, e.g. a JK BMS's own "cell voltage differential"
+          sensor - unchanged for anyone with this already configured).
+        - Neither set: None (the full-charge plan just never ends its
+          holding phase on voltage, only via its max-hold-minutes timeout).
+        """
+        low_entity = conf.get(CONF_LOW_CELL_VOLTAGE_ENTITY)
+        high_entity = conf.get(CONF_HIGH_CELL_VOLTAGE_ENTITY)
+        if low_entity and high_entity:
+            low_v = _get_float_state(self.hass, low_entity, default=None)
+            high_v = _get_float_state(self.hass, high_entity, default=None)
+            return display.cell_voltage_differential_mv(low_v, high_v)
+
+        voltage_diff_entity = conf.get(CONF_VOLTAGE_DIFF_ENTITY)
+        if voltage_diff_entity:
+            return _get_float_state(self.hass, voltage_diff_entity, default=999.0)
+        return None
+
     # -- main update ----------------------------------------------------------
     async def _async_update_data(self) -> dict[str, Any]:
         if not self._restored:
@@ -321,10 +370,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 solar_points.append(list(state.attributes.get("detailedHourly") or []))
 
         setpoint_w = _get_float_state(self.hass, conf.get(CONF_GRID_SETPOINT_ENTITY), default=0.0)
-        voltage_diff_entity = conf.get(CONF_VOLTAGE_DIFF_ENTITY)
-        voltage_diff = (
-            _get_float_state(self.hass, voltage_diff_entity, default=999.0) if voltage_diff_entity else None
-        )
+        voltage_diff = self._get_voltage_diff(conf)
 
         # -- tunables (numbers) ------------------------------------------------
         capacity_kwh = self.get_number(NUM_BATTERY_CAPACITY_KWH, 30.0)
@@ -506,6 +552,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "low_charge_plan": self._low_charge_plan,
             "high_discharge_plan": self._high_discharge_plan,
             "full_charge_plan": self._full_charge_plan,
+            "cell_voltage_differential_mv": voltage_diff,
             "time_since_full_charge_days": round(time_since_full_days, 2),
             "planning_horizon_hours": planning_horizon_hours,
             "charge_energy_kwh": charge_kwh,

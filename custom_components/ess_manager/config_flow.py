@@ -34,6 +34,8 @@ from .const import (
     CONF_GRID_EXPORT_ENTITIES,
     CONF_GRID_IMPORT_ENTITIES,
     CONF_GRID_SETPOINT_ENTITY,
+    CONF_HIGH_CELL_VOLTAGE_ENTITY,
+    CONF_LOW_CELL_VOLTAGE_ENTITY,
     CONF_MAX_SOC_PERCENT,
     CONF_MIN_SOC_PERCENT,
     CONF_NAME,
@@ -73,8 +75,8 @@ USAGE_SOURCE_OPTIONS = [
 
 def _optional_entity_selector() -> vol.Maybe:
     """An EntitySelector for a field that may be genuinely left unset
-    (grid/inverter setpoint, cell voltage differential, battery
-    charge/discharge energy entities).
+    (grid/inverter setpoint, cell voltage differential and its low/high-cell
+    alternative, battery charge/discharge energy entities).
 
     Home Assistant's EntitySelector.__call__ validates whatever value it's
     given by calling cv.entity_id_or_uuid(value) unconditionally - it has
@@ -126,6 +128,12 @@ def _main_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): _optional_entity_selector(),
             vol.Optional(
                 CONF_VOLTAGE_DIFF_ENTITY, default=defaults.get(CONF_VOLTAGE_DIFF_ENTITY)
+            ): _optional_entity_selector(),
+            vol.Optional(
+                CONF_LOW_CELL_VOLTAGE_ENTITY, default=defaults.get(CONF_LOW_CELL_VOLTAGE_ENTITY)
+            ): _optional_entity_selector(),
+            vol.Optional(
+                CONF_HIGH_CELL_VOLTAGE_ENTITY, default=defaults.get(CONF_HIGH_CELL_VOLTAGE_ENTITY)
             ): _optional_entity_selector(),
             vol.Required(
                 CONF_BATTERY_CAPACITY_KWH, default=defaults.get(CONF_BATTERY_CAPACITY_KWH, DEFAULT_BATTERY_CAPACITY_KWH)
@@ -211,6 +219,8 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
     for key in (
         CONF_GRID_SETPOINT_ENTITY,
         CONF_VOLTAGE_DIFF_ENTITY,
+        CONF_LOW_CELL_VOLTAGE_ENTITY,
+        CONF_HIGH_CELL_VOLTAGE_ENTITY,
         CONF_BATTERY_CHARGE_ENERGY_ENTITY,
         CONF_BATTERY_DISCHARGE_ENERGY_ENTITY,
     ):
@@ -343,6 +353,12 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
                 ): _optional_entity_selector(),
                 vol.Optional(
                     CONF_VOLTAGE_DIFF_ENTITY, default=current.get(CONF_VOLTAGE_DIFF_ENTITY)
+                ): _optional_entity_selector(),
+                vol.Optional(
+                    CONF_LOW_CELL_VOLTAGE_ENTITY, default=current.get(CONF_LOW_CELL_VOLTAGE_ENTITY)
+                ): _optional_entity_selector(),
+                vol.Optional(
+                    CONF_HIGH_CELL_VOLTAGE_ENTITY, default=current.get(CONF_HIGH_CELL_VOLTAGE_ENTITY)
                 ): _optional_entity_selector(),
                 vol.Required(
                     CONF_ENABLE_NEGATIVE_PRICE_PLAN,

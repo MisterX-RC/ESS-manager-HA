@@ -266,6 +266,23 @@ check("charge_display produces a start time string", isinstance(start_text, str)
 next_days = display.next_full_charge_in_days(interval_days=14, time_since_days=20)
 check("next_full_charge_in_days floors at 0 when overdue", next_days == 0)
 
+# cell_voltage_differential_mv - the low/high individual-cell-voltage
+# alternative to a BMS's own differential sensor (added with the
+# low/high cell voltage config option).
+diff_mv = display.cell_voltage_differential_mv(low_v=3.285, high_v=3.301)
+check(
+    "cell_voltage_differential_mv converts volts to millivolts, not just subtracts",
+    diff_mv == 16.0,
+)
+check(
+    "cell_voltage_differential_mv is None when either reading is unavailable (low)",
+    display.cell_voltage_differential_mv(low_v=None, high_v=3.301) is None,
+)
+check(
+    "cell_voltage_differential_mv is None when either reading is unavailable (high)",
+    display.cell_voltage_differential_mv(low_v=3.285, high_v=None) is None,
+)
+
 # ---------------------------------------------------------------------------
 # usage_forecast.py - calculated household usage forecast (no HA needed:
 # operates on a plain dict of pre-fetched hourly cumulative sums, the same
