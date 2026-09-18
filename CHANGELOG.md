@@ -8,6 +8,24 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.7] - 2026-09-18
+
+### Fixed
+- Submitting the setup or options form with the grid/inverter setpoint,
+  cell voltage differential, or either calculated-usage-forecast battery
+  energy field genuinely left blank failed validation with "Entity None
+  is neither a valid entity ID nor a valid UUID" - a real, blocking error
+  on submit, not just a cosmetic pre-fill issue. The v0.1.4 fix (defaulting
+  these fields to `None` instead of `""`) only addressed the *display*:
+  voluptuous still substitutes and validates a field's default whenever
+  it's missing from the submitted data, and Home Assistant's entity
+  selector has no special case for `None`, so it got rejected exactly as
+  if `None` were a real (bad) entity ID. All four fields' selectors are
+  now wrapped in `vol.Maybe(...)`, which accepts a literal `None` outright
+  before validation - confirmed against Home Assistant's own selector and
+  form-serialization code that this still renders the normal entity-picker
+  widget, it just no longer chokes on being left empty.
+
 ## [0.1.6] - 2026-09-17
 
 ### Fixed

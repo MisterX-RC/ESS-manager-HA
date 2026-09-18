@@ -63,6 +63,34 @@ USAGE_SOURCE_OPTIONS = [
 ]
 
 
+def _optional_entity_selector() -> vol.Maybe:
+    """An EntitySelector for a field that may be genuinely left unset
+    (grid/inverter setpoint, cell voltage differential, battery
+    charge/discharge energy entities).
+
+    Home Assistant's EntitySelector.__call__ validates whatever value it's
+    given by calling cv.entity_id_or_uuid(value) unconditionally - it has
+    no special case for None. voluptuous substitutes AND VALIDATES a
+    vol.Optional's default whenever the key is missing from the submitted
+    data (confirmed directly against voluptuous 0.15), so a plain
+    `default=None` (the v0.1.4 fix) only ever addressed the cosmetic
+    pre-fill display - submitting the form with the field actually left
+    blank still fails validation every time, with "Entity None is neither
+    a valid entity ID nor a valid UUID".
+
+    vol.Maybe(x) (== vol.Any(None, x)) fixes this at the validator level:
+    it accepts a literal None outright before ever reaching the entity
+    validator, for both a substituted default and a value explicitly
+    cleared to None. It's also not a hack around Home Assistant's own
+    tooling - voluptuous_serialize (which HA uses to describe this schema
+    to the frontend) specifically recognizes exactly this
+    `vol.Any(None, selector)` shape, unwraps it, and still renders the
+    proper entity-picker widget (with allow_none set), confirmed by
+    reading voluptuous_serialize 2.7.0's convert() directly.
+    """
+    return vol.Maybe(selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")))
+
+
 def _main_schema(defaults: dict[str, Any]) -> vol.Schema:
     """Everything except the usage-forecast source, which is its own
     branching step (see async_step_usage_sensor/async_step_usage_calculated
@@ -87,10 +115,10 @@ def _main_schema(defaults: dict[str, Any]) -> vol.Schema:
             ),
             vol.Optional(
                 CONF_GRID_SETPOINT_ENTITY, default=defaults.get(CONF_GRID_SETPOINT_ENTITY)
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            ): _optional_entity_selector(),
             vol.Optional(
                 CONF_VOLTAGE_DIFF_ENTITY, default=defaults.get(CONF_VOLTAGE_DIFF_ENTITY)
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            ): _optional_entity_selector(),
             vol.Required(
                 CONF_BATTERY_CAPACITY_KWH, default=defaults.get(CONF_BATTERY_CAPACITY_KWH, DEFAULT_BATTERY_CAPACITY_KWH)
             ): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=400, step=0.5, unit_of_measurement="kWh")),
@@ -145,10 +173,10 @@ def _usage_calculated_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
             vol.Optional(
                 CONF_BATTERY_CHARGE_ENERGY_ENTITY, default=defaults.get(CONF_BATTERY_CHARGE_ENERGY_ENTITY)
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            ): _optional_entity_selector(),
             vol.Optional(
                 CONF_BATTERY_DISCHARGE_ENERGY_ENTITY, default=defaults.get(CONF_BATTERY_DISCHARGE_ENERGY_ENTITY)
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            ): _optional_entity_selector(),
             vol.Required(
                 CONF_USAGE_LOOKBACK_WEEKS, default=defaults.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS)
             ): selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=12, step=1, unit_of_measurement="weeks")),
@@ -273,10 +301,10 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Optional(
                     CONF_GRID_SETPOINT_ENTITY, default=current.get(CONF_GRID_SETPOINT_ENTITY)
-                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                ): _optional_entity_selector(),
                 vol.Optional(
                     CONF_VOLTAGE_DIFF_ENTITY, default=current.get(CONF_VOLTAGE_DIFF_ENTITY)
-                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                ): _optional_entity_selector(),
                 vol.Required(
                     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
                     default=current.get(CONF_ENABLE_NEGATIVE_PRICE_PLAN, DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN),
