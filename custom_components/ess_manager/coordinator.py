@@ -30,6 +30,7 @@ from .const import (
     CONF_PRICE_ENTITY,
     CONF_SOLAR_FORECAST_ENTITIES,
     CONF_SOLAR_PRODUCTION_ENTITIES,
+    CONF_USAGE_CONSUMPTION_ENTITIES,
     CONF_USAGE_FORECAST_ENTITY,
     CONF_USAGE_LOOKBACK_WEEKS,
     CONF_USAGE_SOURCE,
@@ -56,9 +57,10 @@ from .const import (
     UPDATE_INTERVAL_SECONDS,
     USAGE_FORECAST_RECALC_MINUTES,
     USAGE_SOURCE_CALCULATED,
+    USAGE_SOURCE_CONSUMPTION_SENSOR,
 )
 from .statistics_source import async_fetch_hourly_sums
-from .usage_forecast import compute_usage_forecast
+from .usage_forecast import compute_usage_forecast, compute_usage_forecast_from_consumption
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -217,6 +219,65 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._usage_forecast_computed_at = now
         return self._usage_forecast_cache
 
+    async def _async_get_measured_usage_forecast(self, conf: dict[str, Any], now: datetime) -> list[float]:
+        """The h0..h120 usage forecast, read directly from one or more
+        home-energy-consumption sensors instead of derived from the
+        solar/import/export/battery energy-balance identity - see
+        usage_forecast.compute_usage_forecast_from_consumption for why this
+        is a separate, simpler path (no derivation, so none of the
+        cross-sensor resolution mismatches the calculated identity can run
+        into). Deliberately structured as a standalone twin of
+        _async_get_calculated_usage_forecast above (same caching, same
+        USAGE_FORECAST_RECALC_MINUTES cadence, same "not enough
+        history/data yet -> fall back to zeros or the last good cache"
+        behavior) rather than a shared helper, so a future change to one
+        source's fetch/caching logic can't accidentally change the other's.
+        """
+        stale = (
+            self._usage_forecast_cache is None
+            or self._usage_forecast_computed_at is None
+            or (now - self._usage_forecast_computed_at) >= timedelta(minutes=USAGE_FORECAST_RECALC_MINUTES)
+        )
+        if not stale:
+            return self._usage_forecast_cache
+
+        consumption_entities = [e for e in conf.get(CONF_USAGE_CONSUMPTION_ENTITIES, []) or [] if e]
+        lookback_weeks = int(conf.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS))
+
+        if not consumption_entities:
+            # Nothing configured yet (e.g. mid-setup) - fall back to zeros
+            # rather than failing the whole coordinator update over it.
+            self._usage_forecast_cache = [0.0] * FORECAST_HOURS
+            self._usage_forecast_computed_at = now
+            return self._usage_forecast_cache
+
+        base_hour = now.replace(minute=0, second=0, microsecond=0)
+        # Same backward-looking range as the calculated path: every
+        # historical sample this feature ever looks up falls somewhere in
+        # [now - lookback_weeks - 1h, now + 1h], since it only ever looks
+        # backward regardless of how far forward the forecast itself
+        # projects.
+        range_start = base_hour - timedelta(weeks=lookback_weeks, hours=1)
+        range_end = base_hour + timedelta(hours=1)
+
+        try:
+            hourly_sums = await async_fetch_hourly_sums(self.hass, consumption_entities, range_start, range_end)
+        except Exception as err:  # noqa: BLE001 - a statistics/DB hiccup shouldn't fail the whole update
+            _LOGGER.warning("ESS Manager: could not fetch usage-forecast statistics: %s", err)
+            if self._usage_forecast_cache is not None:
+                return self._usage_forecast_cache
+            return [0.0] * FORECAST_HOURS
+
+        self._usage_forecast_cache = compute_usage_forecast_from_consumption(
+            hourly_sums,
+            consumption_entities,
+            now,
+            FORECAST_HOURS,
+            lookback_weeks,
+        )
+        self._usage_forecast_computed_at = now
+        return self._usage_forecast_cache
+
     # -- main update ----------------------------------------------------------
     async def _async_update_data(self) -> dict[str, Any]:
         if not self._restored:
@@ -242,8 +303,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         tomorrow_price = list(price_state.attributes.get("tomorrow") or [])
         all_price = [float(p) for p in (today_price + tomorrow_price)]
 
-        if conf.get(CONF_USAGE_SOURCE, DEFAULT_USAGE_SOURCE) == USAGE_SOURCE_CALCULATED:
+        usage_source = conf.get(CONF_USAGE_SOURCE, DEFAULT_USAGE_SOURCE)
+        if usage_source == USAGE_SOURCE_CALCULATED:
             usage_forecast = await self._async_get_calculated_usage_forecast(conf, now)
+        elif usage_source == USAGE_SOURCE_CONSUMPTION_SENSOR:
+            usage_forecast = await self._async_get_measured_usage_forecast(conf, now)
         else:
             usage_entity = conf.get(CONF_USAGE_FORECAST_ENTITY)
             usage_state = self.hass.states.get(usage_entity) if usage_entity else None

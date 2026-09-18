@@ -18,11 +18,14 @@ CONF_SOLAR_FORECAST_ENTITIES = "solar_forecast_entities"
 CONF_GRID_SETPOINT_ENTITY = "grid_setpoint_entity"
 CONF_VOLTAGE_DIFF_ENTITY = "voltage_diff_entity"
 
-# -- household usage forecast: either an existing "h0..h120" sensor, or --
-# -- calculated internally from HA's own long-term recorder statistics --
+# -- household usage forecast: an existing "h0..h120" sensor, calculated --
+# -- internally from HA's own long-term recorder statistics (the full --
+# -- solar/import/export/battery energy-balance identity), or read --
+# -- directly from a home-energy-consumption meter, if one is available --
 CONF_USAGE_SOURCE = "usage_source"
 USAGE_SOURCE_EXTERNAL_SENSOR = "external_sensor"
 USAGE_SOURCE_CALCULATED = "calculated"
+USAGE_SOURCE_CONSUMPTION_SENSOR = "consumption_sensor"
 DEFAULT_USAGE_SOURCE = USAGE_SOURCE_EXTERNAL_SENSOR
 
 CONF_USAGE_FORECAST_ENTITY = "usage_forecast_entity"
@@ -42,6 +45,23 @@ CONF_GRID_EXPORT_ENTITIES = "grid_export_entities"
 CONF_SOLAR_PRODUCTION_ENTITIES = "solar_production_entities"
 CONF_BATTERY_CHARGE_ENERGY_ENTITY = "battery_charge_energy_entity"
 CONF_BATTERY_DISCHARGE_ENERGY_ENTITY = "battery_discharge_energy_entity"
+
+# Direct-consumption-meter usage-forecast input (USAGE_SOURCE_CONSUMPTION_SENSOR).
+# A list, same reasoning as solar/import/export above - some homes split
+# whole-house consumption across more than one energy monitor/circuit. This
+# sidesteps the energy-balance identity entirely (nothing to derive - a
+# direct consumption meter already *is* the household's usage), which also
+# avoids a real failure mode the balance identity is exposed to: if the
+# grid/solar/battery entities that feed it don't all update at the same
+# resolution (e.g. a grid meter that only ticks in coarse 0.1 kWh steps
+# next to a battery shunt updating every couple of minutes), Home
+# Assistant's hourly statistics can attribute a real, continuous energy
+# flow entirely to whichever single hour the coarse sensor happened to
+# tick over in - producing nonsensical (even negative) per-hour swings
+# even though the day's total works out fine. A direct meter has only one
+# term, so there's nothing for it to disagree with.
+CONF_USAGE_CONSUMPTION_ENTITIES = "usage_consumption_entities"
+
 CONF_USAGE_LOOKBACK_WEEKS = "usage_lookback_weeks"
 DEFAULT_USAGE_LOOKBACK_WEEKS = 6
 

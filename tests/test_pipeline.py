@@ -350,6 +350,40 @@ multi_result = usage_forecast.compute_usage_forecast(
 )
 check("multiple import/solar entities in one category are summed together", multi_result[0] == 4.5)
 
+# ---------------------------------------------------------------------------
+# usage_forecast.py - direct consumption-meter usage forecast (no
+# solar/import/export/battery balance identity involved at all)
+# ---------------------------------------------------------------------------
+consumption_sums = {"sensor.consumption": {}, "sensor.consumption_annex": {}}
+# 1 week back: two consumption sensors (e.g. main house + a separate annex
+# submeter) - their deltas should simply be summed, same as a multi-entity
+# import/solar list in the calculated path above.
+consumption_sums["sensor.consumption"][e1] = 40.0
+consumption_sums["sensor.consumption"][e1 - HOUR_S] = 38.5  # delta 1.5
+consumption_sums["sensor.consumption_annex"][e1] = 12.2
+consumption_sums["sensor.consumption_annex"][e1 - HOUR_S] = 12.0  # delta 0.2
+# 2 weeks back: missing entirely for the annex meter - that week must be
+# dropped from the average, not treated as a 0 contribution from it.
+consumption_sums["sensor.consumption"][e2] = 25.0
+consumption_sums["sensor.consumption"][e2 - HOUR_S] = 24.0  # delta 1.0
+
+consumption_result = usage_forecast.compute_usage_forecast_from_consumption(
+    consumption_sums,
+    consumption_entities=["sensor.consumption", "sensor.consumption_annex"],
+    now=usage_now,
+    forecast_hours=3,
+    lookback_weeks=2,
+)
+check("compute_usage_forecast_from_consumption returns the requested number of hours", len(consumption_result) == 3)
+check(
+    "h0 sums both consumption sensors and averages only the complete week",
+    consumption_result[0] == 1.7,
+)
+check(
+    "compute_usage_forecast_from_consumption needs no solar/import/export/battery entities at all",
+    consumption_result[1] == 0.0 and consumption_result[2] == 0.0,
+)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

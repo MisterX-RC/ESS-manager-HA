@@ -142,3 +142,49 @@ def compute_usage_forecast(
                 samples.append(sample)
         result.append(round(sum(samples) / len(samples), 3) if samples else 0.0)
     return result
+
+
+def compute_usage_forecast_from_consumption(
+    hourly_sums: dict[str, dict[int, float]],
+    consumption_entities: list[str],
+    now: datetime,
+    forecast_hours: int,
+    lookback_weeks: int,
+) -> list[float]:
+    """Same historical-hour-averaging methodology as compute_usage_forecast,
+    for a home that already has one or more direct "total energy consumed"
+    sensors, instead of needing to derive consumption from the
+    solar/import/export/battery energy-balance identity.
+
+    There's nothing to balance here - a direct consumption meter already
+    *is* the answer, so this is just compute_usage_forecast with every term
+    except "import" zeroed out (grid_import_entities is really just "sum
+    and average whatever cumulative energy sensor(s) these are", which is
+    exactly what a direct consumption meter needs too). Kept as its own
+    named function rather than relying on callers to know that trick, so a
+    future change to the balance-identity math doesn't silently change this
+    path too without a deliberate decision.
+
+    This also sidesteps a real failure mode the balance identity is exposed
+    to: if one of its four terms comes from a coarser/less-frequently
+    updating sensor than the others (e.g. a grid meter that only reports in
+    0.1 kWh steps a few times an hour, next to a battery shunt updating
+    every couple of minutes), Home Assistant's hourly statistics can
+    attribute a real, continuous energy flow entirely to whichever single
+    hour the coarse sensor happened to tick over in - producing
+    nonsensical per-hour swings (including impossible negative
+    "consumption") even though the day's total works out fine. A direct
+    consumption meter has only one term, so there's nothing for it to be
+    inconsistent with.
+    """
+    return compute_usage_forecast(
+        hourly_sums,
+        import_entities=consumption_entities,
+        export_entities=[],
+        solar_entities=[],
+        battery_charge_entity=None,
+        battery_discharge_entity=None,
+        now=now,
+        forecast_hours=forecast_hours,
+        lookback_weeks=lookback_weeks,
+    )

@@ -8,6 +8,29 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.9] - 2026-09-18
+
+### Added
+- A third household usage forecast source: "Use a home energy consumption
+  sensor I already have." If you already have a sensor that reports your
+  home's total energy consumed (a whole-home energy monitor, for example),
+  you can point the integration straight at it instead of deriving
+  consumption from the solar/import/export/battery energy balance. This
+  sidesteps a real limitation of the calculated option: if those four
+  entities don't all update at similar resolution (e.g. a grid meter that
+  only reports in coarse 0.1 kWh steps a few times an hour, next to a
+  battery sensor updating every couple of minutes), Home Assistant's hourly
+  statistics can misattribute a real, continuous energy flow entirely to
+  whichever single hour the coarse sensor happened to tick over in -
+  producing a noisy, sometimes even briefly negative, per-hour usage
+  forecast even though the daily total works out fine. A direct
+  consumption sensor has only one term, so there's nothing for it to
+  disagree with. Same historical-hour-averaging methodology and lookback
+  window as the calculated option, just without the derivation - accepts
+  more than one entity if your home's consumption is split across multiple
+  monitors/circuits (they're summed together, same as the calculated
+  option's import/solar fields).
+
 ## [0.1.8] - 2026-09-18
 
 ### Fixed

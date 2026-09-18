@@ -3,11 +3,14 @@ entities and seed values for the tunables (which then become `number`
 entities - see number.py) instead of anything being hardcoded to one
 person's Victron/Nordpool/Solcast setup.
 
-The household usage forecast has two mutually-exclusive sources, so this
-flow branches after the main step: either an existing "h0..h120" sensor
-(the original behavior), or calculated internally from Home Assistant's own
-recorder statistics (see usage_forecast.py/statistics_source.py) - which
-needs a second, more detailed step to collect the energy entities involved.
+The household usage forecast has three mutually-exclusive sources, so this
+flow branches after the main step: an existing "h0..h120" sensor (the
+original behavior), calculated internally from Home Assistant's own
+recorder statistics via the full solar/import/export/battery energy-balance
+identity, or read directly from one or more home-energy-consumption
+sensors, if the user already has one - see usage_forecast.py/
+statistics_source.py. Each needs its own second step to collect the right
+entities.
 """
 from __future__ import annotations
 
@@ -37,6 +40,7 @@ from .const import (
     CONF_PRICE_ENTITY,
     CONF_SOLAR_FORECAST_ENTITIES,
     CONF_SOLAR_PRODUCTION_ENTITIES,
+    CONF_USAGE_CONSUMPTION_ENTITIES,
     CONF_USAGE_FORECAST_ENTITY,
     CONF_USAGE_LOOKBACK_WEEKS,
     CONF_USAGE_SOURCE,
@@ -54,12 +58,16 @@ from .const import (
     DEFAULT_USAGE_SOURCE,
     DOMAIN,
     USAGE_SOURCE_CALCULATED,
+    USAGE_SOURCE_CONSUMPTION_SENSOR,
     USAGE_SOURCE_EXTERNAL_SENSOR,
 )
 
 USAGE_SOURCE_OPTIONS = [
     selector.SelectOptionDict(value=USAGE_SOURCE_EXTERNAL_SENSOR, label="An existing sensor with h0..h120 attributes"),
     selector.SelectOptionDict(value=USAGE_SOURCE_CALCULATED, label="Calculate it from my energy statistics"),
+    selector.SelectOptionDict(
+        value=USAGE_SOURCE_CONSUMPTION_SENSOR, label="Use a home energy consumption sensor I already have"
+    ),
 ]
 
 
@@ -184,6 +192,19 @@ def _usage_calculated_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
+def _usage_consumption_schema(defaults: dict[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_USAGE_CONSUMPTION_ENTITIES, default=defaults.get(CONF_USAGE_CONSUMPTION_ENTITIES, [])
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
+            vol.Required(
+                CONF_USAGE_LOOKBACK_WEEKS, default=defaults.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS)
+            ): selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=12, step=1, unit_of_measurement="weeks")),
+        }
+    )
+
+
 def _clean(data: dict[str, Any]) -> dict[str, Any]:
     """Blank optional entity-selector strings become None rather than ''."""
     data = dict(data)
@@ -201,9 +222,10 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
 class EssManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle the initial setup flow for one ESS Manager instance.
 
-    Three possible steps: `user` (always), then either `usage_sensor` or
-    `usage_calculated` depending on what was picked for CONF_USAGE_SOURCE in
-    `user` - whichever one runs is what actually creates the config entry.
+    Four possible steps: `user` (always), then whichever of
+    `usage_sensor` / `usage_calculated` / `usage_consumption` matches what
+    was picked for CONF_USAGE_SOURCE in `user` - whichever one runs is what
+    actually creates the config entry.
     """
 
     VERSION = 1
@@ -221,6 +243,8 @@ class EssManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._data = data
                 if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CALCULATED:
                     return await self.async_step_usage_calculated()
+                if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CONSUMPTION_SENSOR:
+                    return await self.async_step_usage_consumption()
                 return await self.async_step_usage_sensor()
 
         return self.async_show_form(step_id="user", data_schema=_main_schema({}), errors=errors)
@@ -241,6 +265,18 @@ class EssManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self._async_create(data)
         return self.async_show_form(step_id="usage_calculated", data_schema=_usage_calculated_schema({}), errors=errors)
 
+    async def async_step_usage_consumption(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data = {**self._data, **_clean(user_input)}
+            if not data.get(CONF_USAGE_CONSUMPTION_ENTITIES):
+                errors["base"] = "usage_consumption_entities_required"
+            else:
+                return await self._async_create(data)
+        return self.async_show_form(
+            step_id="usage_consumption", data_schema=_usage_consumption_schema({}), errors=errors
+        )
+
     async def _async_create(self, data: dict[str, Any]):
         await self.async_set_unique_id(f"{DOMAIN}_{data[CONF_NAME].lower().replace(' ', '_')}")
         self._abort_if_unique_id_configured()
@@ -260,8 +296,9 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
     their `number` entities exist - adjust those directly on the number
     entities instead, the same way you'd adjust an input_number.
 
-    Same three-step branching as the initial config flow: `init` always
-    runs first, then either `usage_sensor` or `usage_calculated`.
+    Same branching as the initial config flow: `init` always runs first,
+    then whichever of `usage_sensor` / `usage_calculated` /
+    `usage_consumption` matches the chosen usage source.
 
     Does NOT store `config_entry` itself in `__init__` - recent Home
     Assistant core versions set `self.config_entry` automatically after
@@ -281,6 +318,8 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
             self._data = data
             if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CALCULATED:
                 return await self.async_step_usage_calculated()
+            if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CONSUMPTION_SENSOR:
+                return await self.async_step_usage_consumption()
             return await self.async_step_usage_sensor()
 
         schema = vol.Schema(
@@ -338,4 +377,17 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
                 return self.async_create_entry(title="", data=data)
         return self.async_show_form(
             step_id="usage_calculated", data_schema=_usage_calculated_schema(current), errors=errors
+        )
+
+    async def async_step_usage_consumption(self, user_input: dict[str, Any] | None = None):
+        current = {**self.config_entry.data, **self.config_entry.options}
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data = {**self._data, **_clean(user_input)}
+            if not data.get(CONF_USAGE_CONSUMPTION_ENTITIES):
+                errors["base"] = "usage_consumption_entities_required"
+            else:
+                return self.async_create_entry(title="", data=data)
+        return self.async_show_form(
+            step_id="usage_consumption", data_schema=_usage_consumption_schema(current), errors=errors
         )
