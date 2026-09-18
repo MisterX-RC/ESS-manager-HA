@@ -8,6 +8,20 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.8] - 2026-09-18
+
+### Fixed
+- `sync-and-push.command` failed with "fatal: No configured push
+  destination" on every run in a folder whose `origin` remote had never
+  been set - which happens for any freshly unzipped folder, since every
+  zip is deliberately built with its remote removed (so a GitHub access
+  token never ends up embedded in a shipped file), and previously required
+  a one-time manual `git remote add origin ...` to fix. The script now
+  detects a missing `origin` and adds it automatically, and the push step
+  itself sets the upstream tracking branch on every run (harmless once
+  already set), which the first push after auto-adding the remote needs -
+  no more one-time manual git commands.
+
 ## [0.1.7] - 2026-09-18
 
 ### Fixed

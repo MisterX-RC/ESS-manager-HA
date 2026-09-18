@@ -12,6 +12,9 @@
 #
 # This script must live INSIDE your ess-manager-ha folder (the one with
 # the .git folder in it) - it finds everything else relative to itself.
+# If that folder's GitHub remote is missing (e.g. a freshly unzipped
+# folder that's never been pointed at GitHub before), this script adds it
+# automatically rather than failing with "no configured push destination".
 #
 # First run: git will ask for your GitHub username and a personal access
 # token once, in this Terminal window. After that, macOS Keychain
@@ -38,6 +41,18 @@ fi
 # Once a push succeeds interactively, remember the credential in the Mac's
 # own Keychain so future runs never have to ask again.
 git config credential.helper osxkeychain
+
+# Every zip is built from a repo with its GitHub remote deliberately
+# removed (so an access token never ends up embedded in a shipped file),
+# and rsync below never touches .git - so a folder that was never
+# manually pointed at GitHub (or somehow lost that setting) would fail
+# every single run with "No configured push destination" until someone
+# ran `git remote add origin ...` by hand. Do that automatically instead.
+REPO_URL="https://github.com/MisterX-RC/ESS-manager-HA.git"
+if ! git remote get-url origin >/dev/null 2>&1; then
+  echo "No 'origin' remote configured in this folder yet - adding it now ($REPO_URL)."
+  git remote add origin "$REPO_URL"
+fi
 
 # --- find the newest matching zip in Downloads ----------------------------
 LATEST_ZIP=""
@@ -102,8 +117,13 @@ else
 fi
 
 # --- push -------------------------------------------------------------
+# -u (re)sets the upstream tracking branch every time - harmless once it's
+# already set, but required the first time origin gets added (whether
+# that was done manually before, or automatically just above), otherwise
+# a plain `git push` fails with an unrelated "no upstream branch" error.
 echo "Pushing to GitHub..."
-if git push; then
+CURRENT_BRANCH="$(git branch --show-current)"
+if git push -u origin "$CURRENT_BRANCH"; then
   echo "Done - pushed successfully."
 else
   echo
