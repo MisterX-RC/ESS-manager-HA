@@ -304,6 +304,158 @@ check(
 next_days = display.next_full_charge_in_days(interval_days=14, time_since_days=20)
 check("next_full_charge_in_days floors at 0 when overdue", next_days == 0)
 
+# ---------------------------------------------------------------------------
+# compute_full_charge_plan - session cap, multi-day spread, flat-price extension
+# ---------------------------------------------------------------------------
+
+# A large deficit + a slow charger would otherwise want a single very long
+# window; the session cap (30x the 5-day average hourly usage) should
+# limit target_kwh, and units_needed/end_unit should reflect the capped
+# figure, not the full deficit. all_price is sized to exactly units_needed
+# so there's no room for _extend_flat_price_window to grow the window
+# either direction, isolating the cap math from the extension logic.
+capped_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=0,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=20.0,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=3.0,
+    upper_limit_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 14,
+)
+check(
+    "compute_full_charge_plan caps a single session's target_kwh at 30x the 5-day average hourly usage",
+    capped_plan["session_cap_kwh"] == 9.0 and capped_plan["target_kwh"] == 9.0,
+)
+check(
+    "compute_full_charge_plan's units_needed/end_unit reflect the capped target, not the full 12kWh deficit",
+    capped_plan["units_needed"] == 14 and capped_plan["end_unit"] == 14,
+)
+
+# A small deficit that's already under the cap shouldn't be touched by it.
+uncapped_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=0,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=90.0,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=14.5,
+    upper_limit_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 2,
+)
+check(
+    "compute_full_charge_plan leaves target_kwh alone when it's already under the session cap",
+    uncapped_plan["session_cap_kwh"] == 9.0 and uncapped_plan["target_kwh"] == 0.8,
+)
+
+# A "charging" session whose window has fully elapsed without reaching
+# full should NOT just keep returning prev (the old, run-forever
+# behavior) - it should fall through and compute a fresh plan, which is
+# what actually lets a too-big charge spread across multiple days.
+midway_prev = {
+    "active": True,
+    "phase": "charging",
+    "target_kwh": 9.0,
+    "deficit_kwh": 12.0,
+    "hold_hour_usage_kwh": 0.3,
+    "session_cap_kwh": 9.0,
+    "effective_charge_per_unit": 0.675,
+    "units_needed": 14,
+    "start_unit": 0,
+    "end_unit": 5,
+}
+continued_plan = plans.compute_full_charge_plan(
+    prev=midway_prev,
+    cur_unit=5,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=60.0,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=8.0,
+    upper_limit_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+)
+check(
+    "compute_full_charge_plan re-plans a fresh session once an elapsed window didn't reach full, instead of running forever",
+    continued_plan["phase"] == "scheduled" and continued_plan is not midway_prev,
+)
+
+# The same session, still mid-window and not yet full, should keep
+# returning the locked-in plan unchanged (existing behavior, unaffected).
+still_charging_plan = plans.compute_full_charge_plan(
+    prev=midway_prev,
+    cur_unit=2,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=60.0,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=8.0,
+    upper_limit_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+)
+check("compute_full_charge_plan keeps charging unchanged while still inside its locked window", still_charging_plan == midway_prev)
+
+# Reaching full mid-window (or right as the window elapses) always wins
+# and moves to holding, regardless of how much window time is left.
+full_mid_window_plan = plans.compute_full_charge_plan(
+    prev=midway_prev,
+    cur_unit=2,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=99.6,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=14.95,
+    upper_limit_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+)
+check("compute_full_charge_plan moves to holding as soon as full, even mid-window", full_mid_window_plan["phase"] == "holding")
+
+# _extend_flat_price_window - the houseboat-style "extend into a flat
+# block" heuristic (8% relative OR EUR 0.02 absolute, whichever is easier).
+ext_start, ext_end = plans._extend_flat_price_window([1.00, 1.03], start=0, end=1, min_start=0)
+check(
+    "_extend_flat_price_window extends via the 8% relative tolerance even when the absolute diff exceeds EUR 0.02",
+    (ext_start, ext_end) == (0, 2),
+)
+
+mixed_prices = [0.50, 0.10, 0.10, 0.10, 0.105, 0.30, 0.30]
+ext2_start, ext2_end = plans._extend_flat_price_window(mixed_prices, start=1, end=4, min_start=0)
+check(
+    "_extend_flat_price_window extends forward via the EUR 0.02 absolute tolerance and stops at the next real jump",
+    (ext2_start, ext2_end) == (1, 5),
+)
+check(
+    "_extend_flat_price_window doesn't extend backward into a much higher price just because it's adjacent",
+    ext2_start == 1,
+)
+
+flat_prices = [0.10, 0.10, 0.10, 0.10]
+ext3_start, _ = plans._extend_flat_price_window(flat_prices, start=2, end=3, min_start=2)
+check("_extend_flat_price_window never grows backward past min_start, even into an equally cheap unit", ext3_start == 2)
+
 # cell_voltage_differential_mv - the low/high individual-cell-voltage
 # alternative to a BMS's own differential sensor (added with the
 # low/high cell voltage config option).

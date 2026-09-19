@@ -8,6 +8,35 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.13] - 2026-09-19
+
+### Added
+- A cap on how much a single full-charge/balance session commits to, and
+  the ability to spread a too-big charge across multiple days/sessions
+  instead of one very long window - ported from the same pattern already
+  proven on Timo's houseboat charge system. A single session's energy
+  target is now capped at 30x the home's own average hourly consumption
+  over the forecasted next 5 days (a new `session_cap_kwh` attribute on
+  `full_charge_plan`), which matters most with a slow charger and a large
+  deficit: previously the plan would size one very long single window
+  (potentially extending past the known price horizon) and, once started,
+  hold the setpoint on indefinitely regardless of price until the battery
+  actually reached 100%. Now, if a session's window runs out without
+  reaching full, it stops and lets the next cycle plan a fresh session
+  against the reduced remaining deficit - since the "days since last full
+  charge" tracking only resets once the battery is genuinely full, this
+  naturally repeats over consecutive days, each time picking whatever's
+  cheapest, until the charge actually completes.
+- Once a cheap window is found, the plan now also checks the price
+  immediately before and after it and extends the window (in either
+  direction, one 15-minute unit at a time) as long as the neighboring
+  price stays within 8% or EUR 0.02 of the window's own average price -
+  whichever tolerance is easier to satisfy. Same "extend into a flat
+  block" idea as the houseboat system: it's fine to charge a bit longer
+  than the strict minimum if the surrounding price is basically
+  unchanged, rather than always stopping exactly at the computed minimum
+  duration.
+
 ## [0.1.12] - 2026-09-19
 
 ### Fixed

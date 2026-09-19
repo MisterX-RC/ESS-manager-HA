@@ -43,6 +43,45 @@ def _best_price_window(
     return best_start
 
 
+def _extend_flat_price_window(
+    prices: list[float],
+    start: int,
+    end: int,
+    min_start: int,
+    tolerance_relative: float = 0.08,
+    tolerance_absolute: float = 0.02,
+) -> tuple[int, int]:
+    """Grows a [start, end) price window outward, one 15-minute unit at a
+    time on each side independently, for as long as the next adjacent
+    unit's price stays within tolerance of the window's own current
+    average price - either within `tolerance_relative` (8%) of it, or
+    within `tolerance_absolute` (EUR 0.02), whichever is easier to satisfy.
+
+    Mirrors the houseboat charge system's "extend into a flat-priced
+    block" behavior (see claude/houseboat handoff notes): once a cheap
+    window is found, it's fine to charge longer than the minimum computed
+    duration if the surrounding price is basically the same, rather than
+    always stopping exactly at that minimum. `min_start` prevents growing
+    backward past the current unit (can't charge in the past); there's no
+    corresponding forward bound beyond the price array's own length.
+    """
+    while start > min_start:
+        window_avg = sum(prices[start:end]) / (end - start)
+        diff = abs(prices[start - 1] - window_avg)
+        if diff <= tolerance_absolute or (window_avg > 0 and diff / window_avg <= tolerance_relative):
+            start -= 1
+        else:
+            break
+    while end < len(prices):
+        window_avg = sum(prices[start:end]) / (end - start)
+        diff = abs(prices[end] - window_avg)
+        if diff <= tolerance_absolute or (window_avg > 0 and diff / window_avg <= tolerance_relative):
+            end += 1
+        else:
+            break
+    return start, end
+
+
 # ---------------------------------------------------------------------------
 # Negative price plan
 # ---------------------------------------------------------------------------
@@ -575,7 +614,19 @@ def compute_full_charge_plan(
     if prev.get("active") and prev.get("phase") == "charging":
         if is_full:
             return {"active": True, "phase": "holding", "hold_start": now.isoformat()}
-        return prev
+        if cur_unit < prev.get("end_unit", -1):
+            return prev
+        # This session's window ran out without reaching full - a real
+        # possibility now that a single session's energy is capped (see
+        # session_cap_kwh below), for chargers too slow to finish in one
+        # window. Stop here and fall through to search for a fresh window
+        # below, instead of holding the setpoint on indefinitely regardless
+        # of price. time_since_days only resets once is_full genuinely
+        # fires, so it's still "due" on the very next cycle and immediately
+        # re-plans against the reduced deficit left over from this
+        # session's partial charge - this is what actually spreads a
+        # too-big-for-one-window full charge across multiple days/sessions,
+        # each picking whatever's cheapest when it runs.
 
     if (
         prev.get("active")
@@ -588,6 +639,7 @@ def compute_full_charge_plan(
             "target_kwh": prev["target_kwh"],
             "deficit_kwh": prev["deficit_kwh"],
             "hold_hour_usage_kwh": prev["hold_hour_usage_kwh"],
+            "session_cap_kwh": prev.get("session_cap_kwh", 0.0),
             "effective_charge_per_unit": prev["effective_charge_per_unit"],
             "units_needed": prev["units_needed"],
             "start_unit": prev["start_unit"],
@@ -603,6 +655,23 @@ def compute_full_charge_plan(
     deficit = round(upper_limit_kwh - battery_now_kwh, 3)
     hold_hour_usage = float(usage[0]) if usage else 0.0
     target_kwh = round(deficit + hold_hour_usage, 3)
+
+    # Cap a single session's energy commitment at 30x the home's own
+    # average hourly consumption over the forecasted next 5 days (120
+    # hours of the usage forecast) - the same "N-hour-average-equivalent
+    # session cap" pattern used on the houseboat charge system. Without
+    # this, a large deficit combined with a slow charge_speed_kw produces
+    # one very long single window (see compute_full_charge_plan's docs);
+    # capping it here, combined with the "charging" phase now expiring at
+    # end_unit above instead of running indefinitely, is what actually lets
+    # a too-big charge spread across multiple days/sessions instead of one
+    # long straight run regardless of price.
+    horizon_hours = min(120, len(usage))
+    avg_hourly_usage_5d = sum(usage[:horizon_hours]) / horizon_hours if horizon_hours > 0 else 0.0
+    session_cap_kwh = round(avg_hourly_usage_5d * 30, 3)
+    if session_cap_kwh > 0:
+        target_kwh = min(target_kwh, session_cap_kwh)
+
     charge_per_unit = charge_speed_kw / 4
     avg_usage_per_unit = hold_hour_usage / 4
     effective_charge_per_unit = max(charge_per_unit - avg_usage_per_unit, 0.1)
@@ -610,6 +679,7 @@ def compute_full_charge_plan(
 
     search_end = len(all_price)
     best_start = _best_price_window(all_price, cur_unit, search_end, units_needed, cheapest=True)
+    start_unit, end_unit = _extend_flat_price_window(all_price, best_start, best_start + units_needed, min_start=cur_unit)
 
     return {
         "active": True,
@@ -617,10 +687,11 @@ def compute_full_charge_plan(
         "target_kwh": target_kwh,
         "deficit_kwh": deficit,
         "hold_hour_usage_kwh": round(hold_hour_usage, 3),
+        "session_cap_kwh": session_cap_kwh,
         "effective_charge_per_unit": round(effective_charge_per_unit, 4),
         "units_needed": units_needed,
-        "start_unit": best_start,
-        "end_unit": best_start + units_needed,
+        "start_unit": start_unit,
+        "end_unit": end_unit,
     }
 
 
