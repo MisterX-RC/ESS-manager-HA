@@ -254,14 +254,52 @@ status_charging = plans.compute_system_status(
 )
 check("system_status is Start charge when low plan's window just opened", status_charging == "Start charge")
 
+status_full_scheduled = plans.compute_system_status(
+    setpoint_w=0.0,
+    idle_setpoint_w=0.0,
+    cur_unit=93,
+    full={"active": True, "phase": "scheduled", "start_unit": 135, "end_unit": 164, "target_kwh": 11.99},
+    neg={"active": False},
+    spike={"active": False},
+    low={"active": False, "breach_unit": 999999},
+    high={"active": False, "breach_unit": 999999},
+    battery_now_kwh=3.15,
+    low_threshold_kwh=1.5,
+    charge_speed_kw=7.0,
+    discharge_speed_kw=10.0,
+    all_price=[0.20] * 192,
+)
+check(
+    "system_status shows Full charge scheduled instead of falling through to Standby",
+    status_full_scheduled == "Full charge scheduled",
+)
+
 # ---------------------------------------------------------------------------
 # display.py
 # ---------------------------------------------------------------------------
 energy, start_text, stop_text = display.charge_display(
-    {"active": False}, {"active": False}, low_plan, cur_unit=0, now=now_top_of_hour
+    {"active": False, "phase": None}, {"active": False}, {"active": False}, low_plan, cur_unit=0, now=now_top_of_hour
 )
 check("charge_display falls through to the low charge plan", energy == round(low_plan["target_kwh"], 2))
 check("charge_display produces a start time string", isinstance(start_text, str))
+
+full_scheduled = {"active": True, "phase": "scheduled", "start_unit": 135, "end_unit": 164, "target_kwh": 11.99}
+energy_full, start_full, stop_full = display.charge_display(
+    full_scheduled, {"active": False}, {"active": False}, low_plan, cur_unit=93, now=now_top_of_hour
+)
+check(
+    "charge_display shows the full charge plan's scheduled window ahead of an active low charge plan",
+    energy_full == 11.99 and start_full is not None and stop_full is not None,
+)
+
+full_holding = {"active": True, "phase": "holding", "hold_start": now_top_of_hour.isoformat(), "hold_minutes": 5.0}
+energy_holding, start_holding, stop_holding = display.charge_display(
+    full_holding, {"active": False}, {"active": False}, low_plan, cur_unit=0, now=now_top_of_hour
+)
+check(
+    "charge_display falls through to the low charge plan while full charge plan is only holding/balancing",
+    energy_holding == round(low_plan["target_kwh"], 2),
+)
 
 next_days = display.next_full_charge_in_days(interval_days=14, time_since_days=20)
 check("next_full_charge_in_days floors at 0 when overdue", next_days == 0)

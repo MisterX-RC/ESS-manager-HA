@@ -8,6 +8,31 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.12] - 2026-09-19
+
+### Fixed
+- The full-charge balancing plan could be genuinely scheduled or actively
+  charging and yet the "Charge amount"/"Charge start"/"Charge stop"
+  sensors (and the dashboard's blue "Buy" price-chart overlay) showed
+  nothing at all - `charge_energy_kwh`/`charge_start_time`/
+  `charge_stop_time` were derived only from the negative-price, spike, and
+  low-charge plans; `full_charge_plan` was never wired into that display
+  logic, even though it was already wired into `system_status`. On top of
+  that, `system_status` itself only special-cased the full-charge plan's
+  "charging"/"holding" phases - its "scheduled" phase (a window has been
+  picked, but hasn't started yet) fell through to a plain "Standby",
+  giving no indication anything was planned. Fixed both: `display.
+  charge_display` now takes the full-charge plan as its highest-priority
+  input (ahead of the day-to-day cost-driven plans, since a full charge is
+  a deliberate, infrequent maintenance action) for its "scheduled" and
+  "charging" phases - "holding" isn't a charge window and correctly falls
+  through to the other plans instead; `system_status` now reports "Full
+  charge scheduled" during the scheduled phase instead of "Standby"; and
+  `dashboard/price_apexcharts_card.yaml`'s "Buy" series and Today's/
+  Tomorrow's-prices exclusion logic now also recognize the full-charge
+  plan's window, with the same priority order, so the chart actually shows
+  it.
+
 ## [0.1.11] - 2026-09-19
 
 ### Fixed

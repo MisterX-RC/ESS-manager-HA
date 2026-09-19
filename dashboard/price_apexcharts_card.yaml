@@ -73,13 +73,17 @@
         data_generator: |
           const raw = (entity.attributes.raw_today || []).concat(entity.attributes.raw_tomorrow || []);
           const essAttrs = hass.states['sensor.ess_manager_status'] ? hass.states['sensor.ess_manager_status'].attributes : {};
+          const full = essAttrs['full_charge_plan'];
           const neg = essAttrs['negative_price_plan'];
           const spike = essAttrs['spike_plan'];
           const plan = essAttrs['low_charge_plan'];
           const now = new Date();
           const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime();
           let startMs = null, endMs = null;
-          if (neg && neg.active) {
+          if (full && full.active && (full.phase === 'scheduled' || full.phase === 'charging')) {
+            startMs = midnight + full.start_unit * 15 * 60000;
+            endMs = midnight + full.end_unit * 15 * 60000;
+          } else if (neg && neg.active) {
             startMs = midnight + neg.charge_start_unit * 15 * 60000;
             endMs = midnight + neg.charge_end_unit * 15 * 60000;
           } else if (spike && spike.active) {
@@ -208,16 +212,18 @@
           const rawTomorrow = entity.attributes.raw_tomorrow || [];
           const raw = rawToday.concat(rawTomorrow);
           const essAttrs = hass.states['sensor.ess_manager_status'] ? hass.states['sensor.ess_manager_status'].attributes : {};
+          const full = essAttrs['full_charge_plan'];
           const neg = essAttrs['negative_price_plan'];
           const spike = essAttrs['spike_plan'];
           const buy = essAttrs['low_charge_plan'];
           const sell = essAttrs['high_discharge_plan'];
           const now = new Date();
           const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime();
-          const negOn = neg && neg.active;
-          const spikeOn = !negOn && spike && spike.active;
-          const buyStart = negOn ? midnight + neg.charge_start_unit * 15 * 60000 : (spikeOn ? midnight + spike.charge_start_unit * 15 * 60000 : (buy && buy.active ? midnight + buy.start_unit * 15 * 60000 : null));
-          const buyEnd = negOn ? midnight + neg.charge_end_unit * 15 * 60000 : (spikeOn ? midnight + spike.charge_end_unit * 15 * 60000 : (buy && buy.active ? midnight + buy.end_unit * 15 * 60000 : null));
+          const fullOn = full && full.active && (full.phase === 'scheduled' || full.phase === 'charging');
+          const negOn = !fullOn && neg && neg.active;
+          const spikeOn = !fullOn && !negOn && spike && spike.active;
+          const buyStart = fullOn ? midnight + full.start_unit * 15 * 60000 : (negOn ? midnight + neg.charge_start_unit * 15 * 60000 : (spikeOn ? midnight + spike.charge_start_unit * 15 * 60000 : (buy && buy.active ? midnight + buy.start_unit * 15 * 60000 : null)));
+          const buyEnd = fullOn ? midnight + full.end_unit * 15 * 60000 : (negOn ? midnight + neg.charge_end_unit * 15 * 60000 : (spikeOn ? midnight + spike.charge_end_unit * 15 * 60000 : (buy && buy.active ? midnight + buy.end_unit * 15 * 60000 : null)));
           const sellStart = negOn ? midnight + neg.discharge_start_unit * 15 * 60000 : (spikeOn ? midnight + spike.discharge_start_unit * 15 * 60000 : (sell && sell.active ? midnight + sell.start_unit * 15 * 60000 : null));
           const sellEnd = negOn ? midnight + neg.discharge_end_unit * 15 * 60000 : (spikeOn ? midnight + spike.discharge_end_unit * 15 * 60000 : (sell && sell.active ? midnight + sell.end_unit * 15 * 60000 : null));
           const exportStart = (negOn && neg.solar_export_end_unit > neg.solar_export_start_unit) ? midnight + neg.solar_export_start_unit * 15 * 60000 : null;
@@ -244,16 +250,18 @@
           const rawTomorrow = entity.attributes.raw_tomorrow || [];
           const raw = rawToday.concat(rawTomorrow);
           const essAttrs = hass.states['sensor.ess_manager_status'] ? hass.states['sensor.ess_manager_status'].attributes : {};
+          const full = essAttrs['full_charge_plan'];
           const neg = essAttrs['negative_price_plan'];
           const spike = essAttrs['spike_plan'];
           const buy = essAttrs['low_charge_plan'];
           const sell = essAttrs['high_discharge_plan'];
           const now = new Date();
           const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime();
-          const negOn = neg && neg.active;
-          const spikeOn = !negOn && spike && spike.active;
-          const buyStart = negOn ? midnight + neg.charge_start_unit * 15 * 60000 : (spikeOn ? midnight + spike.charge_start_unit * 15 * 60000 : (buy && buy.active ? midnight + buy.start_unit * 15 * 60000 : null));
-          const buyEnd = negOn ? midnight + neg.charge_end_unit * 15 * 60000 : (spikeOn ? midnight + spike.charge_end_unit * 15 * 60000 : (buy && buy.active ? midnight + buy.end_unit * 15 * 60000 : null));
+          const fullOn = full && full.active && (full.phase === 'scheduled' || full.phase === 'charging');
+          const negOn = !fullOn && neg && neg.active;
+          const spikeOn = !fullOn && !negOn && spike && spike.active;
+          const buyStart = fullOn ? midnight + full.start_unit * 15 * 60000 : (negOn ? midnight + neg.charge_start_unit * 15 * 60000 : (spikeOn ? midnight + spike.charge_start_unit * 15 * 60000 : (buy && buy.active ? midnight + buy.start_unit * 15 * 60000 : null)));
+          const buyEnd = fullOn ? midnight + full.end_unit * 15 * 60000 : (negOn ? midnight + neg.charge_end_unit * 15 * 60000 : (spikeOn ? midnight + spike.charge_end_unit * 15 * 60000 : (buy && buy.active ? midnight + buy.end_unit * 15 * 60000 : null)));
           const sellStart = negOn ? midnight + neg.discharge_start_unit * 15 * 60000 : (spikeOn ? midnight + spike.discharge_start_unit * 15 * 60000 : (sell && sell.active ? midnight + sell.start_unit * 15 * 60000 : null));
           const sellEnd = negOn ? midnight + neg.discharge_end_unit * 15 * 60000 : (spikeOn ? midnight + spike.discharge_end_unit * 15 * 60000 : (sell && sell.active ? midnight + sell.end_unit * 15 * 60000 : null));
           const exportStart = (negOn && neg.solar_export_end_unit > neg.solar_export_start_unit) ? midnight + neg.solar_export_start_unit * 15 * 60000 : null;

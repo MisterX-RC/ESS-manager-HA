@@ -658,6 +658,9 @@ def compute_system_status(
             return "Actief" if setpoint_w >= charge_engaged_at else "Start charge"
         return "Balancing" if setpoint_w >= charge_engaged_at else "Start charge"
 
+    if full.get("active") and full.get("phase") == "scheduled":
+        return "Full charge scheduled"
+
     if neg.get("active") and cur_unit < neg.get("charge_end_unit", -1):
         if neg["charge_start_unit"] <= cur_unit < neg["charge_end_unit"]:
             return "Negative price charge" if setpoint_w >= charge_engaged_at else "Start negative price charge"

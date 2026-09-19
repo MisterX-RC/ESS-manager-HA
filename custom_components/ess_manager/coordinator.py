@@ -523,7 +523,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         charge_kwh, charge_start_text, charge_stop_text = display.charge_display(
-            self._negative_price_plan, self._spike_plan, self._low_charge_plan, current_price_unit, now
+            self._full_charge_plan, self._negative_price_plan, self._spike_plan, self._low_charge_plan, current_price_unit, now
         )
         discharge_kwh, discharge_start_text, discharge_stop_text = display.discharge_display(
             self._negative_price_plan, self._spike_plan, self._high_discharge_plan, current_price_unit, now

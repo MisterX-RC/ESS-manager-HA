@@ -15,12 +15,28 @@ def _format_time(now: datetime, cur_unit: int, target_unit: int) -> str:
 
 
 def charge_display(
-    neg: dict, spike: dict, low: dict, cur_unit: int, now: datetime
+    full: dict, neg: dict, spike: dict, low: dict, cur_unit: int, now: datetime
 ) -> tuple[Optional[float], Optional[str], Optional[str]]:
     """Returns (energy_kwh, start_time_text, stop_time_text) for whichever
-    plan currently governs the charge side, priority: negative price plan
-    -> spike plan -> low charge plan. All three None when nothing's active.
+    plan currently governs the charge side, priority: full charge plan ->
+    negative price plan -> spike plan -> low charge plan. All three None
+    when nothing's active.
+
+    Full charge plan takes top priority (over the day-to-day cost-driven
+    plans) because it's a deliberate, infrequent maintenance action (once
+    every `full_charge_interval_days`) rather than routine charging - if
+    it's scheduled or actively running, that's the charge cycle worth
+    surfacing. Only its "scheduled" and "charging" phases carry a
+    start_unit/end_unit/target_kwh to show; "holding" (post-full balancing)
+    doesn't represent a charge window at all, so it falls through to the
+    other plans same as when full charge plan isn't active.
     """
+    if full.get("active") and full.get("phase") in ("scheduled", "charging"):
+        return (
+            round(full["target_kwh"], 2),
+            _format_time(now, cur_unit, full["start_unit"]),
+            _format_time(now, cur_unit, full["end_unit"]),
+        )
     if neg.get("active") and cur_unit < neg.get("charge_end_unit", -1):
         return (
             round(neg["achievable_charge_kwh"], 2),
