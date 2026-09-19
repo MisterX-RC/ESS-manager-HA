@@ -8,6 +8,22 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.11] - 2026-09-19
+
+### Fixed
+- "Charge amount" and "Discharge amount" showed "Unknown" whenever no plan
+  was active, while "Charge start"/"Charge stop"/"Discharge start"/
+  "Discharge stop" showed the friendlier "-" placeholder for the exact same
+  situation - an inconsistency, not something intentional. They now all
+  show "-". The reason the amount sensors couldn't just do this before
+  (the v0.1.6 fix) is that they carry a unit of measurement (kWh), and
+  Home Assistant raises instead of showing "unknown" if a unit-bearing
+  sensor is ever given a non-numeric state like "-". Fixed by hiding the
+  unit itself whenever there's nothing to show (a new
+  `native_unit_of_measurement` override alongside `native_value`), so "-"
+  is safe to report; the kWh unit reappears normally the moment a real
+  amount is available again.
+
 ## [0.1.10] - 2026-09-18
 
 ### Added

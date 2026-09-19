@@ -167,10 +167,22 @@ class EssManagerValueSensor(CoordinatorEntity[EssManagerCoordinator], SensorEnti
             return value
         # charge/discharge amount and start/stop time are legitimately
         # None whenever no plan is currently active - that's the normal,
-        # frequent case, not an error. A sensor with a unit of measurement
-        # (kWh, d) must report a number or None: Home Assistant treats a
-        # unit as a promise that the state is numeric and raises instead
-        # of just showing "unknown" if it ever gets a string like "-".
-        # Only genuinely unit-less (text) sensors can safely use "-" as a
-        # placeholder.
-        return None if self._attr_native_unit_of_measurement else "-"
+        # frequent case, not an error, so every one of these sensors shows
+        # the same "-" placeholder rather than "unknown". A sensor with a
+        # unit of measurement (kWh, d) can't safely report "-" while its
+        # unit is still set, though: Home Assistant treats a unit as a
+        # promise that the state is numeric and raises instead of just
+        # showing "unknown"/the placeholder if it ever gets a non-numeric
+        # string while a (unit-convertible) unit like kWh is attached. See
+        # native_unit_of_measurement below, which hides the unit for
+        # exactly this case so "-" is safe to return unconditionally here.
+        return "-"
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        # Mirrors native_value: hide the configured unit whenever there's
+        # nothing to show, so the placeholder "-" above is never paired
+        # with a unit Home Assistant would try to numerically validate.
+        if self.coordinator.data is not None and self.coordinator.data.get(self._data_key) is None:
+            return None
+        return self._attr_native_unit_of_measurement
