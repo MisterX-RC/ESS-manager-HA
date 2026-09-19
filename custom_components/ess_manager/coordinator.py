@@ -471,11 +471,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             planning_horizon_hours,
         )
 
-        battery_forecast_adjusted = plans.compose_forecast_adjusted(
-            forecast_with_spike, self._low_charge_plan, self._high_discharge_plan, current_price_unit, now
-        )
-
         # -- full charge plan (self-tracked "days since last full") -------------
+        # Computed before battery_forecast_adjusted below (not after, as
+        # before v0.1.14) so that forecast can actually reflect it - it
+        # doesn't depend on the low/high charge plans or forecast_with_spike
+        # for anything, so moving it earlier changes nothing about its own
+        # result.
         is_full_now = soc_now_percent >= FULL_SOC_THRESHOLD
         if is_full_now and not self._was_full_prev_cycle:
             self._last_full_reached = now
@@ -505,6 +506,16 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         else:
             self._full_charge_plan = {"active": False, "phase": None}
+
+        battery_forecast_adjusted = plans.compose_forecast_adjusted(
+            forecast_with_spike,
+            self._low_charge_plan,
+            self._high_discharge_plan,
+            current_price_unit,
+            now,
+            full=self._full_charge_plan,
+            upper_limit_kwh=upper_limit_kwh,
+        )
 
         system_status = plans.compute_system_status(
             setpoint_w,

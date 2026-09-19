@@ -557,8 +557,29 @@ def compute_high_discharge_plan(
 
 
 def compose_forecast_adjusted(
-    base: list[float], low: dict, high: dict, cur_unit: int, now: datetime
+    base: list[float],
+    low: dict,
+    high: dict,
+    cur_unit: int,
+    now: datetime,
+    full: Optional[dict] = None,
+    upper_limit_kwh: float = 0.0,
 ) -> list[float]:
+    """`full` (the full-charge plan) is optional, keyword-only in practice,
+    and defaults to inactive - existing callers/tests that only care about
+    the low/high plans can keep calling with just `base`/`low`/`high`/
+    `cur_unit`/`now` and get the pre-v0.1.14 behavior unchanged.
+
+    Its "scheduled"/"charging" phases add energy the same way the low
+    charge plan does (a per-unit rate over its own start_unit/end_unit).
+    Its "holding" phase is different in kind, not just in when it applies:
+    the system deliberately keeps the battery pinned at 100% for the
+    balancing wait (`hold_start_unit`..`hold_end_unit`, see
+    `compute_full_charge_plan`) rather than drawing it down by the usage
+    forecast like every other hour - so those hours are pinned outright to
+    `upper_limit_kwh` instead of receiving a delta.
+    """
+    full = full or {"active": False, "phase": None}
     charge_rate = low.get("effective_charge_per_unit", 0) if low.get("active") else 0
     discharge_rate = high.get("effective_discharge_per_unit", 0) if high.get("active") else 0
     hour0_start_unit = _hour0_start_unit(cur_unit, now)
@@ -567,6 +588,15 @@ def compose_forecast_adjusted(
     high_start = high.get("start_unit", 0) if high.get("active") else 0
     high_end = high.get("end_unit", 0) if high.get("active") else 0
 
+    full_charging = full.get("active") and full.get("phase") in ("scheduled", "charging")
+    full_charge_rate = full.get("effective_charge_per_unit", 0) if full_charging else 0
+    full_start = full.get("start_unit", 0) if full_charging else 0
+    full_end = full.get("end_unit", 0) if full_charging else 0
+
+    full_holding = full.get("active") and full.get("phase") == "holding"
+    hold_start = full.get("hold_start_unit", 0) if full_holding else 0
+    hold_end = full.get("hold_end_unit", 0) if full_holding else 0
+
     values: list[float] = []
     delta = 0.0
     for h in range(len(base)):
@@ -574,8 +604,13 @@ def compose_forecast_adjusted(
         hour_end = hour_start + 4
         charge_overlap = max(min(hour_end, low_end) - max(hour_start, low_start), 0)
         discharge_overlap = max(min(hour_end, high_end) - max(hour_start, high_start), 0)
-        delta += (charge_overlap * charge_rate) - (discharge_overlap * discharge_rate)
-        values.append(round(base[h] + delta, 2))
+        full_overlap = max(min(hour_end, full_end) - max(hour_start, full_start), 0)
+        delta += (charge_overlap * charge_rate) - (discharge_overlap * discharge_rate) + (full_overlap * full_charge_rate)
+        value = base[h] + delta
+        hold_overlap = max(min(hour_end, hold_end) - max(hour_start, hold_start), 0)
+        if hold_overlap > 0:
+            value = upper_limit_kwh
+        values.append(round(value, 2))
     return values
 
 
@@ -602,6 +637,22 @@ def compute_full_charge_plan(
     is_full = soc_now_percent >= 99.5
     voltage_diff = voltage_diff if voltage_diff is not None else 999.0
 
+    def _start_holding() -> dict:
+        # hold_start_unit/hold_end_unit exist purely for display/forecast
+        # purposes (compose_forecast_adjusted pins the battery forecast at
+        # 100% across this range, since the system deliberately holds the
+        # setpoint there while waiting for the cells to balance) - the
+        # actual end of holding is still decided live, by voltage_diff or
+        # the max_hold_minutes timeout above, not by this estimate.
+        hold_units = max(math.ceil(max_hold_minutes / 15), 1)
+        return {
+            "active": True,
+            "phase": "holding",
+            "hold_start": now.isoformat(),
+            "hold_start_unit": cur_unit,
+            "hold_end_unit": cur_unit + hold_units,
+        }
+
     if prev.get("active") and prev.get("phase") == "holding":
         hold_start = datetime.fromisoformat(prev["hold_start"])
         hold_minutes = round((now - hold_start).total_seconds() / 60, 1)
@@ -609,11 +660,18 @@ def compute_full_charge_plan(
             return {"active": False, "phase": None}
         if hold_minutes >= max_hold_minutes:
             return {"active": False, "phase": None, "timed_out": True}
-        return {"active": True, "phase": "holding", "hold_start": prev["hold_start"], "hold_minutes": hold_minutes}
+        return {
+            "active": True,
+            "phase": "holding",
+            "hold_start": prev["hold_start"],
+            "hold_minutes": hold_minutes,
+            "hold_start_unit": prev.get("hold_start_unit", cur_unit),
+            "hold_end_unit": prev.get("hold_end_unit", cur_unit),
+        }
 
     if prev.get("active") and prev.get("phase") == "charging":
         if is_full:
-            return {"active": True, "phase": "holding", "hold_start": now.isoformat()}
+            return _start_holding()
         if cur_unit < prev.get("end_unit", -1):
             return prev
         # This session's window ran out without reaching full - a real
@@ -650,7 +708,7 @@ def compute_full_charge_plan(
     if not due:
         return {"active": False, "phase": None}
     if is_full:
-        return {"active": True, "phase": "holding", "hold_start": now.isoformat()}
+        return _start_holding()
 
     deficit = round(upper_limit_kwh - battery_now_kwh, 3)
     hold_hour_usage = float(usage[0]) if usage else 0.0

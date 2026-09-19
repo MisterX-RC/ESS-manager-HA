@@ -49,12 +49,15 @@
             in_header: false
             legend_value: false
           data_generator: |
+            const full = entity.attributes['full_charge_plan'];
             const neg = entity.attributes['negative_price_plan'];
             const spike = entity.attributes['spike_plan'];
             const plan = entity.attributes['low_charge_plan'];
             const curUnit = entity.attributes['current_price_unit'];
             let startUnit = null, endUnit = null;
-            if (neg && neg.active) {
+            if (full && full.active && (full.phase === 'scheduled' || full.phase === 'charging')) {
+              startUnit = full.start_unit; endUnit = full.end_unit;
+            } else if (neg && neg.active) {
               startUnit = neg.charge_start_unit; endUnit = neg.charge_end_unit;
             } else if (spike && spike.active) {
               startUnit = spike.charge_start_unit; endUnit = spike.charge_end_unit;
@@ -62,6 +65,32 @@
               startUnit = plan.start_unit; endUnit = plan.end_unit;
             }
             if (startUnit === null) return [];
+            const now = new Date().getTime();
+            const startMs = now + (startUnit - curUnit) * 15 * 60000;
+            const endMs = now + (endUnit - curUnit) * 15 * 60000;
+            return [[startMs, 0], [startMs, 120], [endMs, 120], [endMs, 0]];
+        - entity: sensor.ess_manager_status
+          name: Balancing
+          type: area
+          color: '#B39DDB'
+          opacity: 0.35
+          stroke_width: 2
+          yaxis_id: energy
+          show:
+            in_header: false
+            legend_value: false
+          data_generator: |
+            // The full-charge plan's post-charge "holding" phase: the
+            // system deliberately sits at 100% here (feeding just enough
+            // to counter usage) while it waits for the cells to balance,
+            // rather than actually charging - shown as its own band so it
+            // doesn't look like the Buy window ended with nothing to
+            // explain the flat SOC line that follows.
+            const full = entity.attributes['full_charge_plan'];
+            const curUnit = entity.attributes['current_price_unit'];
+            if (!full || !full.active || full.phase !== 'holding') return [];
+            const startUnit = full.hold_start_unit, endUnit = full.hold_end_unit;
+            if (startUnit === undefined || endUnit === undefined) return [];
             const now = new Date().getTime();
             const startMs = now + (startUnit - curUnit) * 15 * 60000;
             const endMs = now + (endUnit - curUnit) * 15 * 60000;

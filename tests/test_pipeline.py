@@ -217,6 +217,41 @@ check(
     adjusted == [round(v, 2) for v in composed_spike],
 )
 
+# The full-charge plan's "scheduled"/"charging" phases add energy the same
+# way the low charge plan does (v0.1.14) - a per-unit rate over its own
+# start_unit/end_unit, unaffected by whether low/high are active.
+adjusted_full_charging = plans.compose_forecast_adjusted(
+    [10.0] * 4,
+    {"active": False},
+    {"active": False},
+    cur_unit=0,
+    now=now_top_of_hour,
+    full={"active": True, "phase": "charging", "start_unit": 0, "end_unit": 8, "effective_charge_per_unit": 0.5},
+    upper_limit_kwh=15.0,
+)
+check(
+    "forecast_adjusted adds the full-charge plan's charging delta over its own window, then holds it",
+    adjusted_full_charging == [12.0, 14.0, 14.0, 14.0],
+)
+
+# The full-charge plan's "holding" phase pins the forecast at 100%
+# (upper_limit_kwh) across hold_start_unit..hold_end_unit instead of
+# adding a delta - the system genuinely sits at the ceiling during that
+# wait rather than declining per the usage forecast.
+adjusted_full_holding = plans.compose_forecast_adjusted(
+    [14.0, 13.5, 13.0, 12.5],
+    {"active": False},
+    {"active": False},
+    cur_unit=0,
+    now=now_top_of_hour,
+    full={"active": True, "phase": "holding", "hold_start_unit": 0, "hold_end_unit": 8},
+    upper_limit_kwh=15.0,
+)
+check(
+    "forecast_adjusted pins the battery forecast at upper_limit_kwh across the full-charge plan's holding window",
+    adjusted_full_holding == [15.0, 15.0, 13.0, 12.5],
+)
+
 # ---------------------------------------------------------------------------
 # system_status
 # ---------------------------------------------------------------------------
@@ -432,6 +467,65 @@ full_mid_window_plan = plans.compute_full_charge_plan(
     all_price=[0.10] * 20,
 )
 check("compute_full_charge_plan moves to holding as soon as full, even mid-window", full_mid_window_plan["phase"] == "holding")
+check(
+    "compute_full_charge_plan's fresh holding entry (from charging) stamps hold_start_unit/hold_end_unit from cur_unit and max_hold_minutes",
+    full_mid_window_plan["hold_start_unit"] == 2 and full_mid_window_plan["hold_end_unit"] == 10,
+)
+
+# Reaching the due-and-already-full path (no prior charging session at
+# all - e.g. a fresh calibration check right as the battery happens to
+# already be full) should stamp the same hold_start_unit/hold_end_unit
+# fields, needed by compose_forecast_adjusted to pin the forecast at 100%.
+due_and_full_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=10,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=99.8,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=15.0,
+    upper_limit_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+)
+check(
+    "compute_full_charge_plan starts holding directly (skipping scheduled/charging) when already full and due",
+    due_and_full_plan["phase"] == "holding" and due_and_full_plan["hold_start_unit"] == 10 and due_and_full_plan["hold_end_unit"] == 18,
+)
+
+# Continuing an already-in-progress holding phase must carry its
+# hold_start_unit/hold_end_unit forward unchanged from prev, not
+# recompute them from the current cycle's cur_unit.
+holding_prev = {
+    "active": True,
+    "phase": "holding",
+    "hold_start": now_top_of_hour.isoformat(),
+    "hold_minutes": 30.0,
+    "hold_start_unit": 10,
+    "hold_end_unit": 18,
+}
+continued_holding_plan = plans.compute_full_charge_plan(
+    prev=holding_prev,
+    cur_unit=16,
+    now=now_top_of_hour + timedelta(minutes=30),
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=99.8,
+    max_hold_minutes=120.0,
+    voltage_diff=999.0,
+    battery_now_kwh=15.0,
+    upper_limit_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+)
+check(
+    "compute_full_charge_plan keeps a continuing holding phase's hold_start_unit/hold_end_unit fixed from when holding began",
+    continued_holding_plan["hold_start_unit"] == 10 and continued_holding_plan["hold_end_unit"] == 18,
+)
 
 # _extend_flat_price_window - the houseboat-style "extend into a flat
 # block" heuristic (8% relative OR EUR 0.02 absolute, whichever is easier).

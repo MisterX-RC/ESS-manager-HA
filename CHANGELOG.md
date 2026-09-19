@@ -8,6 +8,45 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.14] - 2026-09-19
+
+### Fixed
+- Neither dashboard chart actually showed the full-charge plan's window:
+  the price chart's "Buy" price highlight and Today's/Tomorrow's-prices
+  exclusion logic were updated for it back in 0.1.12, but the battery/
+  energy forecast chart (`dashboard/battery_forecast_chart.yaml`) never
+  was, and separately, the underlying `battery_forecast_adjusted`
+  attribute that its "SOC new" line is drawn from never factored the
+  full-charge plan into its math at all - only the low/high charge plans
+  did. So even a correctly-updated chart would have shown a flat line
+  straight through a scheduled or in-progress full charge. Fixed both:
+  `plans.compose_forecast_adjusted` now also takes the full-charge plan
+  and adds its charging-phase energy the same way it already does for the
+  low charge plan (over the plan's own `start_unit`/`end_unit`), and
+  `battery_forecast_chart.yaml`'s "Buy" area highlight now checks the
+  full-charge plan first, same priority order as the price chart.
+- The full-charge plan's "holding" phase (waiting for the cells to
+  balance after reaching 100%, up to `full_charge_max_hold_minutes`) was
+  invisible to the forecast entirely - the battery genuinely sits pinned
+  at 100% during that wait rather than declining with usage like it
+  normally would, but nothing modeled that. `compute_full_charge_plan`'s
+  "holding" phase result now also carries `hold_start_unit`/
+  `hold_end_unit` (an estimate of the hold's span, from when it started
+  to `max_hold_minutes` later - the real end is still decided live, by
+  voltage balance or the timeout), and `compose_forecast_adjusted` pins
+  the forecast to the battery's full capacity across that range instead
+  of applying a delta. `battery_forecast_chart.yaml` also gained a
+  separate "Balancing" band using the same fields, so the chart doesn't
+  look like the charge window just ends with nothing explaining the flat
+  100% line that follows it.
+- Along the way, `battery_forecast_adjusted` was being computed before
+  the full-charge plan even existed for the cycle (the full-charge plan
+  was computed further down in `coordinator.py`) - reordered so the
+  full-charge plan is computed first; it doesn't depend on anything from
+  the low/high charge plans or `forecast_with_spike`, so this only
+  changes what the forecast can see, not the full-charge plan's own
+  result.
+
 ## [0.1.13] - 2026-09-19
 
 ### Added
