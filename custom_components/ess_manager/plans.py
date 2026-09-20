@@ -727,34 +727,32 @@ def compute_full_charge_plan(
     horizon_hours = min(120, len(usage))
     avg_hourly_usage_5d = sum(usage[:horizon_hours]) / horizon_hours if horizon_hours > 0 else 0.0
     session_cap_kwh = round(avg_hourly_usage_5d * 30, 3)
-    was_capped = session_cap_kwh > 0 and target_kwh > session_cap_kwh
-    if was_capped:
-        target_kwh = session_cap_kwh
+    if session_cap_kwh > 0:
+        target_kwh = min(target_kwh, session_cap_kwh)
 
     charge_per_unit = charge_speed_kw / 4
     avg_usage_per_unit = hold_hour_usage / 4
     effective_charge_per_unit = max(charge_per_unit - avg_usage_per_unit, 0.1)
     units_needed = max(math.ceil(target_kwh / effective_charge_per_unit), 1)
 
+    # The session cap (above) exists to keep the *initial* window search
+    # from having to reach into meaningfully pricier hours just to fit a
+    # large deficit's units_needed into one sitting - a small, cheap
+    # units_needed-sized window is the point, not an artificially short
+    # one. The flat-price extension below is a separate, narrower
+    # decision: it only ever grows the window into neighboring units that
+    # are still within the same 8%/EUR 0.02 tolerance of this window's own
+    # average price (see _extend_flat_price_window), i.e. genuinely flat,
+    # still-cheap territory - never into "the expensive part". Since it
+    # can't do that, extending a capped session is safe by construction:
+    # if a long flat-cheap valley happens to be available right where this
+    # session landed, using more of it (and delivering correspondingly
+    # more energy while the price is still just as good) is a win, not a
+    # regression on the cap's purpose. Applies uniformly regardless of
+    # whether this session's target was actually capped.
     search_end = len(all_price)
     best_start = _best_price_window(all_price, cur_unit, search_end, units_needed, cheapest=True)
-    if was_capped:
-        # The flat-price extension is meant to be harmless slack: on an
-        # uncapped session, is_full still cuts charging off the moment the
-        # battery actually reaches upper_limit_kwh, regardless of how far
-        # end_unit stretches, so a longer window just means more
-        # flexibility on when to run, not more energy delivered. But once
-        # the session's target has been reduced below the real deficit
-        # (session_cap_kwh above), is_full won't fire during this session
-        # at all - end_unit becomes the ONLY thing stopping the charge.
-        # Extending it here would silently let a session deliver far more
-        # than its own cap (a long flat-priced valley - exactly when this
-        # cap matters most - could easily double or triple it), defeating
-        # the whole point of capping it in the first place. So a capped
-        # session keeps its tight, units_needed-sized window instead.
-        start_unit, end_unit = best_start, best_start + units_needed
-    else:
-        start_unit, end_unit = _extend_flat_price_window(all_price, best_start, best_start + units_needed, min_start=cur_unit)
+    start_unit, end_unit = _extend_flat_price_window(all_price, best_start, best_start + units_needed, min_start=cur_unit)
 
     return {
         "active": True,

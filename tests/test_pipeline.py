@@ -373,18 +373,19 @@ check(
     capped_plan["units_needed"] == 14 and capped_plan["end_unit"] == 14,
 )
 
-# Regression: a capped session must NOT get the flat-price extension
-# (v0.1.15) - a long stretch of near-identical cheap prices (very common
-# with dynamic tariffs, e.g. an overnight/midday near-zero valley) used
-# to stretch end_unit far past what units_needed called for, and since
-# is_full can't fire during a capped session (its target is deliberately
-# below what would reach upper_limit_kwh), nothing else stopped the
-# charge from running the whole extended window - silently delivering
-# far more energy than the cap allowed and defeating the multi-day
-# spread the cap exists for. This reproduces a live report: a 16-unit
-# session capped to 6.318 kWh, with a ~35-unit flat near-zero price
-# valley available to extend into, must still end exactly at
-# best_start + units_needed.
+# A session-capped window still gets the flat-price extension (v0.1.16 -
+# reverts v0.1.15's blanket "never extend a capped session", per Timo:
+# the session cap exists to keep the *initial* window search from having
+# to reach into meaningfully pricier hours just to fit a large deficit's
+# units_needed in one sitting, not to cap total energy delivered outright
+# - and the extension can't violate that on its own, since it only ever
+# grows into neighbors within the same 8%/EUR 0.02 tolerance (still
+# genuinely cheap, never "the expensive part"). So if a long flat-cheap
+# valley happens to be available right where a capped session lands,
+# using more of it is fine. Same scenario as the v0.1.15 regression test
+# this replaces (a 16-unit session capped to 6.318 kWh with a ~35-unit
+# flat near-zero valley available), but now asserting the window DOES
+# extend into it rather than staying tight.
 flat_valley_price = [0.03] * 20 + [0.005] * 40 + [0.25] * 20
 capped_with_flat_valley = plans.compute_full_charge_plan(
     prev=None,
@@ -402,8 +403,8 @@ capped_with_flat_valley = plans.compute_full_charge_plan(
     all_price=flat_valley_price,
 )
 check(
-    "compute_full_charge_plan does not extend a session-capped window into an available flat-price valley",
-    capped_with_flat_valley["end_unit"] - capped_with_flat_valley["start_unit"] == capped_with_flat_valley["units_needed"],
+    "compute_full_charge_plan still extends a session-capped window into an available flat-price valley",
+    capped_with_flat_valley["end_unit"] - capped_with_flat_valley["start_unit"] > capped_with_flat_valley["units_needed"],
 )
 
 # A small deficit that's already under the cap shouldn't be touched by it.

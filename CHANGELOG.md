@@ -8,6 +8,27 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.16] - 2026-09-20
+
+### Changed
+- Reverted 0.1.15's blanket rule that a session-capped full charge never
+  gets the flat-price window extension. Timo clarified the session cap's
+  actual purpose: it exists so the *initial* window search doesn't have
+  to reach into meaningfully pricier hours just to fit a large deficit's
+  `units_needed` into one sitting - not to put a hard ceiling on how much
+  energy a session can ever deliver. The flat-price extension can't
+  violate that on its own: it only ever grows a window into neighboring
+  units within the same 8%/EUR 0.02 tolerance of the window's own average
+  price (see `_extend_flat_price_window`) - by construction, never into
+  "the expensive part". So if a long, genuinely flat, cheap price valley
+  happens to be available right where a capped session lands, it's fine
+  - good, even - to use more of it rather than stopping at the bare
+  minimum. The extension now applies uniformly again, whether or not a
+  session's target was reduced by the cap. Updated the 0.1.15 regression
+  test to assert the opposite of what it asserted before (the window DOES
+  extend into an available flat valley, using the same numbers from
+  Timo's original report).
+
 ## [0.1.15] - 2026-09-20
 
 ### Fixed
