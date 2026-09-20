@@ -36,6 +36,8 @@ from .const import (
     CONF_GRID_SETPOINT_ENTITY,
     CONF_HIGH_CELL_VOLTAGE_ENTITY,
     CONF_LOW_CELL_VOLTAGE_ENTITY,
+    CONF_MAX_BATTERY_CHARGE_SPEED_KW,
+    CONF_MAX_BATTERY_DISCHARGE_SPEED_KW,
     CONF_MAX_SOC_PERCENT,
     CONF_MIN_SOC_PERCENT,
     CONF_NAME,
@@ -53,6 +55,8 @@ from .const import (
     DEFAULT_ENABLE_FULL_CHARGE_PLAN,
     DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN,
     DEFAULT_ENABLE_SPIKE_PLAN,
+    DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW,
+    DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW,
     DEFAULT_MAX_SOC_PERCENT,
     DEFAULT_MIN_SOC_PERCENT,
     DEFAULT_NAME,
@@ -144,6 +148,14 @@ def _main_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_DISCHARGE_SPEED_KW, default=defaults.get(CONF_DISCHARGE_SPEED_KW, DEFAULT_DISCHARGE_SPEED_KW)
             ): selector.NumberSelector(selector.NumberSelectorConfig(min=0.1, max=100, step=0.1, unit_of_measurement="kW")),
+            vol.Required(
+                CONF_MAX_BATTERY_CHARGE_SPEED_KW,
+                default=defaults.get(CONF_MAX_BATTERY_CHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW),
+            ): selector.NumberSelector(selector.NumberSelectorConfig(min=0.1, max=200, step=0.1, unit_of_measurement="kW")),
+            vol.Required(
+                CONF_MAX_BATTERY_DISCHARGE_SPEED_KW,
+                default=defaults.get(CONF_MAX_BATTERY_DISCHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW),
+            ): selector.NumberSelector(selector.NumberSelectorConfig(min=0.1, max=200, step=0.1, unit_of_measurement="kW")),
             vol.Required(
                 CONF_MIN_SOC_PERCENT, default=defaults.get(CONF_MIN_SOC_PERCENT, DEFAULT_MIN_SOC_PERCENT)
             ): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=100, step=1, unit_of_measurement="%")),

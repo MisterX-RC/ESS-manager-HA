@@ -106,7 +106,11 @@ def build_net_energy(
 
 
 def build_battery_forecast(
-    net: list[float], start_kwh: float, now: datetime
+    net: list[float],
+    start_kwh: float,
+    now: datetime,
+    max_charge_kw: Optional[float] = None,
+    max_discharge_kw: Optional[float] = None,
 ) -> list[float]:
     """Cumulative running battery level (kWh), compensated for the partial
     current hour.
@@ -119,12 +123,34 @@ def build_battery_forecast(
     attribute - see the project handoff doc's Resolved Decisions for the
     full reasoning, including why a "lock SOC at the top of the hour"
     alternative was considered and rejected in favor of this).
+
+    `max_charge_kw`/`max_discharge_kw` optionally cap what the battery
+    itself can absorb or supply each hour. Each entry in `net` already
+    represents a full-hour-equivalent kWh figure (see build_net_energy), so
+    it doubles directly as an average kW over that hour - a positive net
+    (solar exceeding usage) above `max_charge_kw` is clamped down to it,
+    and a negative net (usage exceeding solar) more negative than
+    `-max_discharge_kw` is clamped up to it. Whatever's left over is
+    assumed to flow to/from the grid instead (curtailed export on the
+    charge side, grid import on the discharge side) rather than the
+    battery - this function only tracks what the battery itself sees; the
+    unclamped `net` array (exposed separately as `net_energy_120h`) still
+    shows the raw solar-minus-usage figure. The cap is applied to the
+    full-hour rate *before* the partial-current-hour scaling above, since
+    that scaling only accounts for elapsed time, not the physical power
+    limit. Left at None (the default) for either side, there's no cap on
+    that side, matching behavior before these parameters existed.
     """
     fraction_remaining = (60 - now.minute) / 60
     values: list[float] = []
     soc = start_kwh
     for h, delta in enumerate(net):
-        step = delta * fraction_remaining if h == 0 else delta
+        capped_delta = delta
+        if max_charge_kw is not None:
+            capped_delta = min(capped_delta, max_charge_kw)
+        if max_discharge_kw is not None:
+            capped_delta = max(capped_delta, -max_discharge_kw)
+        step = capped_delta * fraction_remaining if h == 0 else capped_delta
         soc = soc + step
         values.append(round(soc, 2))
     return values

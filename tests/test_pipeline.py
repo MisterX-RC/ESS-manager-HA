@@ -86,6 +86,48 @@ check(
     battery_forecast_top[0] == round(start_kwh + net[0], 2),
 )
 
+# build_battery_forecast's optional max_charge_kw/max_discharge_kw - the
+# battery's own physical power limit, distinct from the grid-charge-speed
+# tunables used by the planning engines. h0: solar surplus of 8 kWh (would
+# charge faster than a 5 kW physical limit); h1: usage deficit of 6 kWh
+# (would discharge faster than a 3 kW physical limit); h2/h3 stay within
+# both limits and should be completely unaffected.
+cap_net = [8.0, -6.0, 2.0, -1.0]
+cap_start = 10.0
+uncapped_cap_forecast = forecasting.build_battery_forecast(cap_net, cap_start, now_top_of_hour)
+capped_forecast = forecasting.build_battery_forecast(
+    cap_net, cap_start, now_top_of_hour, max_charge_kw=5.0, max_discharge_kw=3.0
+)
+check(
+    "build_battery_forecast without a cap follows the raw solar/usage net exactly",
+    uncapped_cap_forecast == [18.0, 12.0, 14.0, 13.0],
+)
+check(
+    "build_battery_forecast's max_charge_kw clamps an hour's charge to the battery's physical limit",
+    capped_forecast[0] == round(cap_start + 5.0, 2),
+)
+check(
+    "build_battery_forecast's max_discharge_kw clamps an hour's discharge to the battery's physical limit",
+    capped_forecast[1] == round(capped_forecast[0] - 3.0, 2),
+)
+check(
+    "build_battery_forecast's caps don't affect hours already within both limits",
+    capped_forecast[2] == round(capped_forecast[1] + 2.0, 2) and capped_forecast[3] == round(capped_forecast[2] - 1.0, 2),
+)
+
+# The cap applies to the full-hour-equivalent rate before the partial-hour
+# scaling, not after - at minute=37 (fraction_remaining = 23/60), the
+# clamped-to-5kW h0 should scale by that fraction, not the raw 8kW.
+now_partial = datetime(2026, 9, 16, 14, 37, 0)
+capped_partial = forecasting.build_battery_forecast(
+    cap_net, cap_start, now_partial, max_charge_kw=5.0, max_discharge_kw=3.0
+)
+partial_fraction = (60 - 37) / 60
+check(
+    "build_battery_forecast applies the charge/discharge cap before partial-hour scaling, not after",
+    capped_partial[0] == round(cap_start + 5.0 * partial_fraction, 2),
+)
+
 # ---------------------------------------------------------------------------
 # plans.py - low charge plan / high discharge plan basic breach detection
 # ---------------------------------------------------------------------------

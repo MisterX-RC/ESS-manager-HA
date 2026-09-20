@@ -8,6 +8,40 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.20] - 2026-09-20
+
+### Added
+- Two new setup-time configurables: **Max battery charge speed** and **Max
+  battery discharge speed** (kW), seeding two new `number` entities the
+  same way battery capacity/charge speed/discharge speed already do.
+  These are distinct from the existing "Normal charge speed"/"Normal
+  discharge speed" tunables, which are how fast the planning engines
+  deliberately charge/discharge *from the grid* - the new pair represents
+  the battery's own physical power limit, and only affects the passive,
+  solar/usage-driven battery energy forecast
+  (`forecasting.build_battery_forecast`), not any of the planning engines.
+  Per Timo's spec: when a forecasted hour's solar surplus exceeds the max
+  charge speed, only the max charge speed counts toward the battery's
+  forecasted energy for that hour (the rest is assumed exported to the
+  grid instead); symmetrically, when a forecasted hour's usage deficit
+  exceeds the max discharge speed, only the max discharge speed is drawn
+  from the battery (the rest is assumed imported from the grid instead).
+  `build_battery_forecast` gained two new optional parameters
+  (`max_charge_kw`/`max_discharge_kw`, both defaulting to `None` = no
+  cap, fully backward compatible) that clamp each hour's net energy
+  before it's accumulated - applied to the full-hour-equivalent rate
+  *before* the existing partial-current-hour scaling, since that scaling
+  only accounts for elapsed time, not the physical power limit. The
+  unclamped `net_energy_120h` attribute is untouched, so it still shows
+  the raw solar-minus-usage figure for transparency; only
+  `battery_forecast` (and everything downstream of it - the low/high/full
+  charge plans' peak-anchoring, `battery_forecast_adjusted`, etc.) sees
+  the clamped version. Added 5 new tests: the uncapped case is unaffected,
+  each cap independently clamps only the hour(s) that exceed it, hours
+  already within both limits pass through unchanged, and the cap is
+  applied before (not after) the partial-hour scaling. Check count:
+  66 → 71.
+
 ## [0.1.19] - 2026-09-20
 
 ### Fixed

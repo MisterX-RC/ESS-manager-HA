@@ -44,6 +44,8 @@ from .const import (
     NUM_BATTERY_CAPACITY_KWH,
     NUM_CHARGE_SPEED_KW,
     NUM_DISCHARGE_SPEED_KW,
+    NUM_MAX_BATTERY_CHARGE_SPEED_KW,
+    NUM_MAX_BATTERY_DISCHARGE_SPEED_KW,
     NUM_FULL_CHARGE_INTERVAL_DAYS,
     NUM_FULL_CHARGE_MAX_HOLD_MINUTES,
     NUM_MAX_SOC_PERCENT,
@@ -378,6 +380,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         max_soc_percent = self.get_number(NUM_MAX_SOC_PERCENT, 110.0)
         charge_speed_kw = self.get_number(NUM_CHARGE_SPEED_KW, 7.0)
         discharge_speed_kw = self.get_number(NUM_DISCHARGE_SPEED_KW, 10.0)
+        max_battery_charge_speed_kw = self.get_number(NUM_MAX_BATTERY_CHARGE_SPEED_KW, 10.0)
+        max_battery_discharge_speed_kw = self.get_number(NUM_MAX_BATTERY_DISCHARGE_SPEED_KW, 10.0)
         negative_price_charge_speed_kw = self.get_number(NUM_NEGATIVE_PRICE_CHARGE_SPEED_KW, charge_speed_kw * 2)
         spike_discharge_speed_kw = self.get_number(NUM_SPIKE_DISCHARGE_SPEED_KW, discharge_speed_kw * 1.5)
         negative_price_threshold = self.get_number(NUM_NEGATIVE_PRICE_THRESHOLD, -0.20)
@@ -396,7 +400,16 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         solar_forecast = forecasting.build_solar_forecast(merged_solar_points, now, FORECAST_HOURS)
         net_energy = forecasting.build_net_energy(solar_forecast, usage_forecast)
         battery_now_kwh = round(capacity_kwh * (soc_now_percent / 100), 2)
-        battery_forecast = forecasting.build_battery_forecast(net_energy, battery_now_kwh, now)
+        # max_battery_charge_speed_kw/max_battery_discharge_speed_kw are the
+        # battery's own physical power limit - distinct from
+        # charge_speed_kw/discharge_speed_kw above, which are how fast the
+        # planning engines deliberately charge/discharge *from the grid*.
+        # Whatever solar or usage would otherwise push the battery faster
+        # than it can physically go is assumed to flow to/from the grid
+        # instead, not the battery - see forecasting.build_battery_forecast.
+        battery_forecast = forecasting.build_battery_forecast(
+            net_energy, battery_now_kwh, now, max_battery_charge_speed_kw, max_battery_discharge_speed_kw
+        )
 
         current_price_unit = (now.hour * 4) + (now.minute // 15)
 

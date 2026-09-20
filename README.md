@@ -135,12 +135,13 @@ Settings -> Devices & Services as above.
 ## Configuration
 
 The setup wizard asks for the entities above, plus seed values for the
-initial battery capacity, charge/discharge speed, and min/max SOC - these
-seed a set of `number` entities (see below) that you actually tune
-afterward. Entity references (which sensors to read) can be changed later
-from the integration's **Configure** options; the number entities are
-adjusted directly, the same way you'd adjust an `input_number` helper -
-no need to create separate helpers.
+initial battery capacity, charge/discharge speed, max battery
+charge/discharge speed, and min/max SOC - these seed a set of `number`
+entities (see below) that you actually tune afterward. Entity references
+(which sensors to read) can be changed later from the integration's
+**Configure** options; the number entities are adjusted directly, the same
+way you'd adjust an `input_number` helper - no need to create separate
+helpers.
 
 ### Tunable `number` entities
 
@@ -152,7 +153,8 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Minimum SOC | Battery %, below which the low charge plan triggers |
 | Maximum SOC | Battery %, above which the high discharge plan triggers (can be set above 100% to allow deliberate solar overshoot before discharging - the original hand-written version hardcoded this to 110% of a 30 kWh battery) |
 | Battery capacity | kWh, used to convert the SOC % settings above into kWh thresholds |
-| Charge speed / Discharge speed | Normal charge/discharge rate (kW) |
+| Charge speed / Discharge speed | Normal charge/discharge rate (kW) used by the planning engines to size grid-driven charge/discharge windows |
+| Max battery charge speed / Max battery discharge speed | The battery's own physical power limit (kW) - caps the passive, solar/usage-driven battery energy forecast only; anything solar or usage implies faster than this is assumed to flow to/from the grid instead |
 | Negative price charge speed | Rate used specifically during a negative-price event |
 | Spike discharge speed | Rate used specifically during a spike-arbitrage discharge |
 | Negative price threshold | Price (EUR/kWh) below which charging is considered "getting paid" |

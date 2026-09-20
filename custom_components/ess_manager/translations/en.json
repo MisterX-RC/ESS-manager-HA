@@ -17,6 +17,8 @@
           "battery_capacity_kwh": "Battery capacity",
           "charge_speed_kw": "Normal charge speed",
           "discharge_speed_kw": "Normal discharge speed",
+          "max_battery_charge_speed_kw": "Max battery charge speed (physical limit, used by the battery energy forecast - solar above this is assumed exported to the grid instead)",
+          "max_battery_discharge_speed_kw": "Max battery discharge speed (physical limit, used by the battery energy forecast - usage above this is assumed drawn from the grid instead)",
           "min_soc_percent": "Minimum SOC (%)",
           "max_soc_percent": "Maximum SOC (%) - can exceed 100% to allow deliberate solar overshoot before discharging",
           "enable_negative_price_plan": "Enable negative price plan",
