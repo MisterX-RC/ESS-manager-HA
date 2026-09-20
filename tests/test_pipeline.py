@@ -729,6 +729,10 @@ check(
     "compute_full_charge_plan schedules the window to finish by the peak (deadline), not after it",
     future_peak_plan["start_unit"] == 0 and future_peak_plan["end_unit"] == 24,
 )
+check(
+    "compute_full_charge_plan flags relying_on_peak_unit at the genuine future peak's own unit, for the discharge plan to respect",
+    future_peak_plan["relying_on_peak_unit"] == 24,
+)
 
 # The same shape, but the forecasted peak (17.0 kWh) now reaches past the
 # 16.5 kWh overshoot ceiling - a genuine, sustained surplus, not just a
@@ -753,7 +757,11 @@ overshoot_plan = plans.compute_full_charge_plan(
 )
 check(
     "compute_full_charge_plan schedules nothing when the forecasted peak already reaches the overshoot ceiling on its own",
-    overshoot_plan == {"active": False, "phase": None},
+    overshoot_plan == {"active": False, "phase": None, "relying_on_peak_unit": 24},
+)
+check(
+    "compute_full_charge_plan still flags relying_on_peak_unit even when skipping scheduling entirely - the discharge plan must not sell off a peak this decision is silently counting on",
+    overshoot_plan["relying_on_peak_unit"] == 24,
 )
 
 # No future rise at all (forecast strictly declines from today's level -
@@ -788,6 +796,67 @@ check(
 check(
     "compute_full_charge_plan's no-future-rise target (10.0 kWh) is bigger than the naive today-anchored figure would be (7.5 kWh)",
     no_rise_plan["target_kwh"] == 10.0 and no_rise_plan["start_unit"] == 20 and no_rise_plan["end_unit"] == 30,
+)
+check(
+    "compute_full_charge_plan leaves relying_on_peak_unit as None for the no-future-rise (cheapest-window) case - there's no future peak there for the discharge plan to protect",
+    no_rise_plan["relying_on_peak_unit"] is None,
+)
+
+# compute_high_discharge_plan's suppress_new - blocks scheduling a brand new
+# discharge window while the full-charge plan is relying on the same future
+# solar peak this function would otherwise sell surplus down from (see
+# coordinator.py's suppress_high_discharge wiring), without disturbing a
+# discharge window that's already locked in and in progress.
+discharge_forecast_with_spike = [6.0] * 5 + [20.0] * 60  # breaches high_threshold almost immediately
+suppressed_discharge_plan = plans.compute_high_discharge_plan(
+    prev=None,
+    cur_unit=0,
+    forecast_with_spike=discharge_forecast_with_spike,
+    now=now_top_of_hour,
+    discharge_speed_kw=5.0,
+    high_threshold_kwh=16.5,
+    low_threshold_kwh=1.0,
+    usage=[1.0] * 120,
+    all_price=[0.10] * 96,
+    planning_horizon_hours=72,
+    suppress_new=True,
+)
+check(
+    "compute_high_discharge_plan's suppress_new blocks scheduling a brand new discharge window",
+    suppressed_discharge_plan == {"active": False, "breach_unit": 999999, "suppressed_by_full_charge": True},
+)
+unsuppressed_discharge_plan = plans.compute_high_discharge_plan(
+    prev=None,
+    cur_unit=0,
+    forecast_with_spike=discharge_forecast_with_spike,
+    now=now_top_of_hour,
+    discharge_speed_kw=5.0,
+    high_threshold_kwh=16.5,
+    low_threshold_kwh=1.0,
+    usage=[1.0] * 120,
+    all_price=[0.10] * 96,
+    planning_horizon_hours=72,
+)
+check(
+    "compute_high_discharge_plan schedules normally when suppress_new is left at its default (False)",
+    unsuppressed_discharge_plan["active"] is True,
+)
+locked_in_discharge_plan = plans.compute_high_discharge_plan(
+    prev=unsuppressed_discharge_plan,
+    cur_unit=unsuppressed_discharge_plan["start_unit"],
+    forecast_with_spike=discharge_forecast_with_spike,
+    now=now_top_of_hour,
+    discharge_speed_kw=5.0,
+    high_threshold_kwh=16.5,
+    low_threshold_kwh=1.0,
+    usage=[1.0] * 120,
+    all_price=[0.10] * 96,
+    planning_horizon_hours=72,
+    suppress_new=True,
+)
+check(
+    "compute_high_discharge_plan's suppress_new doesn't cut off a discharge window already locked in and in progress",
+    locked_in_discharge_plan == unsuppressed_discharge_plan,
 )
 
 # _extend_flat_price_window - the houseboat-style "extend into a flat

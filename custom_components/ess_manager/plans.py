@@ -508,10 +508,28 @@ def compute_high_discharge_plan(
     usage: list[float],
     all_price: list[float],
     planning_horizon_hours: int,
+    suppress_new: bool = False,
 ) -> dict:
+    """`suppress_new` blocks scheduling a brand-new discharge window - used
+    when the full-charge plan is relying on a future solar peak (or is
+    actively charging/holding) to reach/hold the same high_threshold_kwh
+    ceiling this function would otherwise sell surplus down from. This
+    plan's own peak-scan only looks `planning_horizon_hours` ahead (a few
+    days by default) and has no idea the full-charge plan exists, so
+    without this it could sell off exactly the surplus energy a much
+    longer-horizon full-charge peak-scan (compute_full_charge_plan, which
+    scans the whole ~5-day forecast) is counting on to reach that peak for
+    free - see coordinator.py for how the two are wired together. Checked
+    *after* the lock-in check below, so a discharge window already in
+    progress finishes normally rather than being cut off mid-window; only
+    scheduling a *new* one is blocked. Left at its default (False), nothing
+    changes from before this parameter existed.
+    """
     prev = prev or {"active": False}
     if prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
         return prev
+    if suppress_new:
+        return {"active": False, "breach_unit": 999999, "suppressed_by_full_charge": True}
 
     forecast = forecast_with_spike[0 : planning_horizon_hours + 1]
     discharge_per_unit = discharge_speed_kw / 4
@@ -777,7 +795,21 @@ def compute_full_charge_plan(
         # cell-balancing hold on its own. Nothing to buy - live SOC
         # crossing 99.5% (is_full, above) will still drive the holding
         # phase exactly as it already does, for free.
-        return {"active": False, "phase": None}
+        #
+        # relying_on_peak_unit still flags which future hour this "solar
+        # will handle it" conclusion depends on, even though there's no
+        # active plan here for the discharge plan's own active/phase check
+        # to notice. Without it, compute_high_discharge_plan (working off
+        # its own, much shorter-horizon forecast) could sell exactly the
+        # surplus this decision is counting on before it ever accumulates,
+        # silently turning a "free" balance charge into one that never
+        # actually happens - see coordinator.py's discharge-suppression
+        # logic, which reads this field.
+        return {
+            "active": False,
+            "phase": None,
+            "relying_on_peak_unit": anchor_unit if peak_hour_index > 0 else None,
+        }
 
     hold_hour_usage = float(usage[0]) if usage else 0.0
     target_kwh = round(deficit + hold_hour_usage, 3)
@@ -853,6 +885,12 @@ def compute_full_charge_plan(
         "anchor_kwh": round(anchor_kwh, 3),
         "anchor_unit": anchor_unit,
         "peak_kwh": round(peak_kwh, 3),
+        # See the deficit<=0 branch above for why this exists: a genuine
+        # future peak (peak_hour_index > 0) that this session's own target
+        # is anchored to, so the discharge plan knows not to sell it off
+        # before it happens. None for the no-future-rise (cheapest-window)
+        # case, since there's no peak there to protect.
+        "relying_on_peak_unit": anchor_unit if peak_hour_index > 0 else None,
     }
 
 

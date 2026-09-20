@@ -413,6 +413,55 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         current_price_unit = (now.hour * 4) + (now.minute // 15)
 
+        # -- full charge plan (self-tracked "days since last full") -------------
+        # Computed early, before every other plan, for two reasons: (1) so
+        # battery_forecast_adjusted below can reflect it (see v0.1.14), and
+        # (2) so the high discharge plan (below) can be told not to sell
+        # off a future solar peak this plan is relying on - see
+        # relying_on_peak_unit and the suppress_high_discharge logic just
+        # before compute_high_discharge_plan's call. It doesn't depend on
+        # any other plan or on forecast_with_spike for anything, so
+        # computing it first changes nothing about its own result.
+        is_full_now = soc_now_percent >= FULL_SOC_THRESHOLD
+        if is_full_now and not self._was_full_prev_cycle:
+            self._last_full_reached = now
+        self._was_full_prev_cycle = is_full_now
+        if self._last_full_reached is not None:
+            time_since_full_days = (now - self._last_full_reached).total_seconds() / 86400
+        else:
+            # Never observed full since this integration was set up - treat
+            # as overdue so an initial calibration charge gets scheduled.
+            time_since_full_days = full_charge_interval_days
+
+        if conf.get(CONF_ENABLE_FULL_CHARGE_PLAN, False):
+            # Passes high_threshold_kwh (the max-SOC-based overshoot
+            # ceiling, ~110% by default) rather than upper_limit_kwh
+            # (nominal 100%) - compute_full_charge_plan uses it both to
+            # decide whether a forecasted future solar peak already
+            # amounts to a real, sustained overshoot (long enough to
+            # finish cell-balancing on its own) and, if not, as the
+            # reference point for how much to buy. battery_forecast (the
+            # raw, unadjusted solar/usage projection - no price-driven
+            # charging baked in) is what it searches for that peak in.
+            self._full_charge_plan = plans.compute_full_charge_plan(
+                self._full_charge_plan,
+                current_price_unit,
+                now,
+                full_charge_interval_days,
+                time_since_full_days,
+                soc_now_percent,
+                full_charge_max_hold_minutes,
+                voltage_diff,
+                battery_now_kwh,
+                high_threshold_kwh,
+                usage_forecast,
+                charge_speed_kw,
+                all_price,
+                battery_forecast,
+            )
+        else:
+            self._full_charge_plan = {"active": False, "phase": None}
+
         # -- negative price plan -------------------------------------------------
         if conf.get(CONF_ENABLE_NEGATIVE_PRICE_PLAN, True):
             self._negative_price_plan = plans.compute_negative_price_plan(
@@ -471,6 +520,28 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             all_price,
             planning_horizon_hours,
         )
+        # A full charge relying on a future solar peak (either genuinely
+        # scheduled to buy up to it, or silently skipped because that peak
+        # already reaches high_threshold_kwh on its own - see
+        # relying_on_peak_unit in compute_full_charge_plan) needs that peak
+        # left alone until it happens: compute_high_discharge_plan's own
+        # peak-scan only looks planning_horizon_hours ahead and has no idea
+        # the full-charge plan exists, so without this it could sell off
+        # exactly the surplus energy the full-charge plan is counting on to
+        # reach that peak for free. Also suppressed outright while a full
+        # charge is actively charging or holding, since discharging then
+        # would directly fight the charge/hold setpoint. Only blocks
+        # scheduling a *new* discharge window - one already in progress
+        # (locked in via compute_high_discharge_plan's own prev check)
+        # finishes normally regardless.
+        full_charging_or_holding = self._full_charge_plan.get("active") and self._full_charge_plan.get("phase") in (
+            "charging",
+            "holding",
+        )
+        full_relying_on_peak_unit = self._full_charge_plan.get("relying_on_peak_unit")
+        full_peak_not_yet_reached = full_relying_on_peak_unit is not None and current_price_unit < full_relying_on_peak_unit
+        suppress_high_discharge = bool(full_charging_or_holding or full_peak_not_yet_reached)
+
         self._high_discharge_plan = plans.compute_high_discharge_plan(
             self._high_discharge_plan,
             current_price_unit,
@@ -482,53 +553,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             usage_forecast,
             all_price,
             planning_horizon_hours,
+            suppress_high_discharge,
         )
-
-        # -- full charge plan (self-tracked "days since last full") -------------
-        # Computed before battery_forecast_adjusted below (not after, as
-        # before v0.1.14) so that forecast can actually reflect it - it
-        # doesn't depend on the low/high charge plans or forecast_with_spike
-        # for anything, so moving it earlier changes nothing about its own
-        # result.
-        is_full_now = soc_now_percent >= FULL_SOC_THRESHOLD
-        if is_full_now and not self._was_full_prev_cycle:
-            self._last_full_reached = now
-        self._was_full_prev_cycle = is_full_now
-        if self._last_full_reached is not None:
-            time_since_full_days = (now - self._last_full_reached).total_seconds() / 86400
-        else:
-            # Never observed full since this integration was set up - treat
-            # as overdue so an initial calibration charge gets scheduled.
-            time_since_full_days = full_charge_interval_days
-
-        if conf.get(CONF_ENABLE_FULL_CHARGE_PLAN, False):
-            # Passes high_threshold_kwh (the max-SOC-based overshoot
-            # ceiling, ~110% by default) rather than upper_limit_kwh
-            # (nominal 100%) - compute_full_charge_plan uses it both to
-            # decide whether a forecasted future solar peak already
-            # amounts to a real, sustained overshoot (long enough to
-            # finish cell-balancing on its own) and, if not, as the
-            # reference point for how much to buy. battery_forecast (the
-            # raw, unadjusted solar/usage projection - no price-driven
-            # charging baked in) is what it searches for that peak in.
-            self._full_charge_plan = plans.compute_full_charge_plan(
-                self._full_charge_plan,
-                current_price_unit,
-                now,
-                full_charge_interval_days,
-                time_since_full_days,
-                soc_now_percent,
-                full_charge_max_hold_minutes,
-                voltage_diff,
-                battery_now_kwh,
-                high_threshold_kwh,
-                usage_forecast,
-                charge_speed_kw,
-                all_price,
-                battery_forecast,
-            )
-        else:
-            self._full_charge_plan = {"active": False, "phase": None}
 
         battery_forecast_adjusted = plans.compose_forecast_adjusted(
             forecast_with_spike,

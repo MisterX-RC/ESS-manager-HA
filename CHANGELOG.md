@@ -8,6 +8,60 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.21] - 2026-09-20
+
+### Fixed
+- Fixed a real conflict Timo caught from a live attribute dump: the high
+  discharge plan (`compute_high_discharge_plan`) could independently sell
+  off exactly the future solar surplus the full-charge plan is relying on
+  to reach a genuine, sustained overshoot for free. The two plans were
+  computed with no awareness of each other - the discharge plan's own
+  peak-scan only looks `planning_horizon_hours` ahead (a few days by
+  default), while the full-charge plan's peak-scan spans the *entire*
+  ~5-day `battery_forecast`. As the timeline advances and a big future
+  peak the full-charge plan is counting on slides into the discharge
+  plan's shorter horizon, the discharge plan would schedule a real
+  discharge at the priciest window before that peak - actual energy
+  leaving the real battery - while the full-charge plan kept reading the
+  same unadjusted, undischarged forecast and kept concluding "solar
+  handles it, nothing to buy." The balance charge the full-charge plan
+  was silently counting on would then never actually happen.
+  - `compute_full_charge_plan` now returns a `relying_on_peak_unit` field
+    (the price unit of the genuine future peak it's anchored to) in both
+    the "scheduled" case (buying a partial top-up) and, critically, the
+    "skip scheduling entirely" case too (previously that branch just
+    returned a bare `{"active": False, "phase": None}`, discarding the
+    peak info that made the skip decision safe). `None` for the
+    no-future-rise (cheapest-window-anchored) case, which never had this
+    conflict to begin with.
+  - `compute_high_discharge_plan` gained an optional `suppress_new`
+    parameter (default `False`, fully backward compatible): when set, it
+    won't schedule a *new* discharge window, but a window already locked
+    in and in progress still finishes normally rather than being cut off
+    mid-window.
+  - `coordinator.py` now computes the full-charge plan first (moved up
+    from after the low/high charge plans - it never depended on them),
+    and derives `suppress_high_discharge` from it: suppress whenever the
+    full-charge plan is actively `charging`/`holding` (discharging then
+    would directly fight the charge/hold setpoint), or whenever it's
+    relying on a future peak that hasn't happened yet
+    (`relying_on_peak_unit` set and still in the future). When suppressed
+    this way, `high_discharge_plan` also carries a
+    `suppressed_by_full_charge: true` field for visibility on live
+    attribute dumps.
+  - This is a suppression-only fix (Timo's primary ask): a much larger
+    overshoot (e.g. a peak reaching 120%+ against a 110% ceiling) still
+    just gets suppressed/curtailed rather than having the discharge plan
+    trim the excess back down in a way synchronized to the same peak -
+    that's a bigger follow-on feature, deferred for now.
+  - Added 6 new tests: `relying_on_peak_unit` is set correctly in both
+    the scheduled and skip-entirely cases and left `None` for the
+    no-future-rise case; `suppress_new` blocks a brand-new discharge
+    window; discharge scheduling is unaffected when `suppress_new` is
+    left at its default; and an already-locked-in discharge window
+    finishes normally even if `suppress_new` turns on mid-window. Check
+    count: 71 → 77.
+
 ## [0.1.20] - 2026-09-20
 
 ### Added
