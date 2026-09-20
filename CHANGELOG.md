@@ -8,6 +8,32 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.15] - 2026-09-20
+
+### Fixed
+- A session-capped full charge (see 0.1.13) could silently deliver far
+  more energy than its own cap allowed, driven by the 0.1.13 flat-price
+  window extension - reported live: a session capped to 6.318 kWh (16
+  units) landed on a 37-unit window (start_unit 34, end_unit 71) because
+  a long stretch of near-identical, near-zero prices was available to
+  extend into. The extension was designed on the assumption that
+  charging longer than strictly needed is harmless, since `is_full`
+  would cut a session off the moment the battery actually reached
+  100% regardless of how long its window ran - true for an *uncapped*
+  session, but not for a capped one: capping intentionally sets the
+  target below what would ever reach 100% in this session (that's the
+  whole point - spreading a too-big charge across multiple days), so
+  `is_full` never fires, and the extended `end_unit` becomes the only
+  thing bounding how long the setpoint stays on. A 37-unit window at
+  this session's charge rate would have delivered roughly 15 kWh -
+  nearly the entire original 13.21 kWh deficit in one sitting, defeating
+  the multi-day spread outright. Fixed: a session that actually got
+  capped now keeps its tight, `units_needed`-sized window instead of
+  being extended; the extension still applies normally to uncapped
+  sessions, where it stays harmless. Added a regression test
+  reproducing the exact reported scenario (a capped session with a long
+  flat-priced valley available to extend into).
+
 ## [0.1.14] - 2026-09-19
 
 ### Fixed
