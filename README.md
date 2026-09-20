@@ -135,13 +135,20 @@ Settings -> Devices & Services as above.
 ## Configuration
 
 The setup wizard asks for the entities above, plus seed values for the
-initial battery capacity, charge/discharge speed, max battery
-charge/discharge speed, and min/max SOC - these seed a set of `number`
-entities (see below) that you actually tune afterward. Entity references
-(which sensors to read) can be changed later from the integration's
-**Configure** options; the number entities are adjusted directly, the same
-way you'd adjust an `input_number` helper - no need to create separate
-helpers.
+initial battery capacity, charge/discharge speed, and min/max SOC - these
+seed a set of `number` entities (see below) that you actually tune
+afterward. Entity references (which sensors to read) can be changed later
+from the integration's **Configure** options; the number entities are
+adjusted directly, the same way you'd adjust an `input_number` helper - no
+need to create separate helpers.
+
+Max battery charge speed and max battery discharge speed (the battery's own
+physical power limit, in kW - see the table below) are the exception: they
+aren't a `number` entity at all, since they're a fixed hardware property
+rather than something to tune from a dashboard. You set them during setup,
+and can still change them afterward from the integration's **Configure**
+options screen if you got it wrong or upgrade your hardware - just not as a
+live number entity.
 
 ### Tunable `number` entities
 
@@ -154,7 +161,6 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Maximum SOC | Battery %, above which the high discharge plan triggers (can be set above 100% to allow deliberate solar overshoot before discharging - the original hand-written version hardcoded this to 110% of a 30 kWh battery) |
 | Battery capacity | kWh, used to convert the SOC % settings above into kWh thresholds |
 | Charge speed / Discharge speed | Normal charge/discharge rate (kW) used by the planning engines to size grid-driven charge/discharge windows |
-| Max battery charge speed / Max battery discharge speed | The battery's own physical power limit (kW) - caps the passive, solar/usage-driven battery energy forecast only; anything solar or usage implies faster than this is assumed to flow to/from the grid instead |
 | Negative price charge speed | Rate used specifically during a negative-price event |
 | Spike discharge speed | Rate used specifically during a spike-arbitrage discharge |
 | Negative price threshold | Price (EUR/kWh) below which charging is considered "getting paid" |
@@ -163,6 +169,14 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Planning horizon | How many hours ahead the low/high plans are allowed to react to (price data usually doesn't exist much beyond ~48h anyway) |
 | Full charge interval | Days between full-charge/balance cycles |
 | Full charge max hold | Safety timeout (minutes) for the 100%-hold/balance phase |
+
+Max battery charge speed and max battery discharge speed are set during
+setup and re-editable later from **Configure** (see above) rather than
+appearing in this table - they're a fixed hardware property (the battery's
+own physical power limit, in kW), not a live dashboard setpoint, and they
+only cap the passive, solar/usage-driven battery energy forecast; anything
+solar or usage implies faster than this is assumed to flow to/from the grid
+instead.
 
 ## Wiring it to your inverter
 

@@ -67,7 +67,7 @@
     "step": {
       "init": {
         "title": "ESS Manager options",
-        "description": "Re-point entities or toggle optional plans. Speeds, SOC limits and other tunables are adjusted directly on their own number entities, not here.",
+        "description": "Re-point entities or toggle optional plans. SOC limits and grid-charge/discharge speeds are adjusted directly on their own number entities, not here - the max battery charge/discharge speed below is a fixed hardware property instead, so it lives here.",
         "data": {
           "battery_soc_entity": "Battery state-of-charge sensor (%)",
           "price_entity": "Electricity price sensor",
@@ -77,6 +77,8 @@
           "voltage_diff_entity": "Cell voltage differential sensor (optional)",
           "low_cell_voltage_entity": "Lowest individual cell voltage sensor (V, optional - alternative to the differential sensor above)",
           "high_cell_voltage_entity": "Highest individual cell voltage sensor (V, optional)",
+          "max_battery_charge_speed_kw": "Max battery charge speed (physical limit, used by the battery energy forecast)",
+          "max_battery_discharge_speed_kw": "Max battery discharge speed (physical limit, used by the battery energy forecast)",
           "enable_negative_price_plan": "Enable negative price plan",
           "enable_spike_plan": "Enable spike arbitrage plan",
           "enable_full_charge_plan": "Enable periodic full-charge balancing plan"

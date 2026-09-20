@@ -8,6 +8,43 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.22] - 2026-09-20
+
+### Changed
+- Max battery charge speed and max battery discharge speed (added in
+  0.1.20) are no longer `number` entities. Timo pointed out these aren't
+  something to adjust from a live dashboard - they're a fixed hardware
+  property (the battery's own physical power limit) - so exposing them as
+  a `number` entity that could be nudged in normal use was more than
+  needed. They're still set during initial setup, and per Timo's explicit
+  choice they remain editable afterward too: through the integration's
+  **Configure** (options) screen, the same way entity references
+  (`voltage_diff_entity`, `low_cell_voltage_entity`, etc.) are already
+  re-editable there, rather than requiring the whole integration to be
+  deleted and re-added over a typo or a battery/inverter upgrade.
+  - Removed the `NUM_MAX_BATTERY_CHARGE_SPEED_KW`/
+    `NUM_MAX_BATTERY_DISCHARGE_SPEED_KW` constants and their two
+    `NUMBER_DEFINITIONS` entries from `const.py` - `number.py` needed no
+    changes since it's fully data-driven off that list.
+  - Added matching `NumberSelector` fields to `EssManagerOptionsFlow`'s
+    `init` schema in `config_flow.py` (the setup-time fields in
+    `_main_schema` are unchanged).
+  - `coordinator.py` now reads `max_battery_charge_speed_kw`/
+    `max_battery_discharge_speed_kw` straight from the merged config
+    entry (`conf.get(CONF_MAX_BATTERY_CHARGE_SPEED_KW, DEFAULT_...)`)
+    instead of `self.get_number(...)`, so an options-flow edit takes
+    effect on the next update cycle exactly like the other
+    options-editable, non-number config keys.
+  - `strings.json`/`translations/en.json` gained labels for the two new
+    options-step fields, and the README's tunables section and
+    Configuration intro were updated to describe them as a setup+options
+    field rather than a `number` entity.
+  - No behavior change to the battery energy forecast itself
+    (`forecasting.build_battery_forecast`'s capping logic is untouched) -
+    only where the two kW values are sourced from changes. Test suite
+    unaffected (still 77/77 - none of the changed files are exercised by
+    `tests/test_pipeline.py`).
+
 ## [0.1.21] - 2026-09-20
 
 ### Fixed

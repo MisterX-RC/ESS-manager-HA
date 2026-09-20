@@ -111,6 +111,13 @@ CONF_DISCHARGE_SPEED_KW = "discharge_speed_kw"
 # otherwise imply a faster charge/discharge rate than the battery can
 # physically handle is assumed to flow to/from the grid instead (curtailed
 # export or grid import), not the battery.
+#
+# Unlike the seed values above, these are NOT backed by a `number` entity -
+# they're a fixed hardware property, not something to tweak from a dashboard.
+# They're set during initial setup and stay editable afterward via the
+# integration's Configure (options) screen (see EssManagerOptionsFlow in
+# config_flow.py) and coordinator.py reads them straight from the config
+# entry's merged data/options each cycle.
 CONF_MAX_BATTERY_CHARGE_SPEED_KW = "max_battery_charge_speed_kw"
 CONF_MAX_BATTERY_DISCHARGE_SPEED_KW = "max_battery_discharge_speed_kw"
 
@@ -150,8 +157,6 @@ NUM_MAX_SOC_PERCENT = "max_soc_percent"
 NUM_BATTERY_CAPACITY_KWH = "battery_capacity_kwh"
 NUM_CHARGE_SPEED_KW = "charge_speed_kw"
 NUM_DISCHARGE_SPEED_KW = "discharge_speed_kw"
-NUM_MAX_BATTERY_CHARGE_SPEED_KW = "max_battery_charge_speed_kw"
-NUM_MAX_BATTERY_DISCHARGE_SPEED_KW = "max_battery_discharge_speed_kw"
 NUM_NEGATIVE_PRICE_CHARGE_SPEED_KW = "negative_price_charge_speed_kw"
 NUM_SPIKE_DISCHARGE_SPEED_KW = "spike_discharge_speed_kw"
 NUM_NEGATIVE_PRICE_THRESHOLD = "negative_price_threshold"
@@ -214,26 +219,6 @@ NUMBER_DEFINITIONS = [
         0.1,
         "kW",
         lambda data: data.get(CONF_DISCHARGE_SPEED_KW, DEFAULT_DISCHARGE_SPEED_KW),
-    ),
-    (
-        NUM_MAX_BATTERY_CHARGE_SPEED_KW,
-        "Max battery charge speed",
-        "mdi:battery-charging-100",
-        0.1,
-        200,
-        0.1,
-        "kW",
-        lambda data: data.get(CONF_MAX_BATTERY_CHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW),
-    ),
-    (
-        NUM_MAX_BATTERY_DISCHARGE_SPEED_KW,
-        "Max battery discharge speed",
-        "mdi:battery-arrow-down-outline",
-        0.1,
-        200,
-        0.1,
-        "kW",
-        lambda data: data.get(CONF_MAX_BATTERY_DISCHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW),
     ),
     (
         NUM_NEGATIVE_PRICE_CHARGE_SPEED_KW,

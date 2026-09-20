@@ -29,6 +29,8 @@ from .const import (
     CONF_GRID_SETPOINT_ENTITY,
     CONF_HIGH_CELL_VOLTAGE_ENTITY,
     CONF_LOW_CELL_VOLTAGE_ENTITY,
+    CONF_MAX_BATTERY_CHARGE_SPEED_KW,
+    CONF_MAX_BATTERY_DISCHARGE_SPEED_KW,
     CONF_PRICE_ENTITY,
     CONF_SOLAR_FORECAST_ENTITIES,
     CONF_SOLAR_PRODUCTION_ENTITIES,
@@ -37,6 +39,8 @@ from .const import (
     CONF_USAGE_LOOKBACK_WEEKS,
     CONF_USAGE_SOURCE,
     CONF_VOLTAGE_DIFF_ENTITY,
+    DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW,
+    DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW,
     DEFAULT_USAGE_LOOKBACK_WEEKS,
     DEFAULT_USAGE_SOURCE,
     DOMAIN,
@@ -44,8 +48,6 @@ from .const import (
     NUM_BATTERY_CAPACITY_KWH,
     NUM_CHARGE_SPEED_KW,
     NUM_DISCHARGE_SPEED_KW,
-    NUM_MAX_BATTERY_CHARGE_SPEED_KW,
-    NUM_MAX_BATTERY_DISCHARGE_SPEED_KW,
     NUM_FULL_CHARGE_INTERVAL_DAYS,
     NUM_FULL_CHARGE_MAX_HOLD_MINUTES,
     NUM_MAX_SOC_PERCENT,
@@ -380,8 +382,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         max_soc_percent = self.get_number(NUM_MAX_SOC_PERCENT, 110.0)
         charge_speed_kw = self.get_number(NUM_CHARGE_SPEED_KW, 7.0)
         discharge_speed_kw = self.get_number(NUM_DISCHARGE_SPEED_KW, 10.0)
-        max_battery_charge_speed_kw = self.get_number(NUM_MAX_BATTERY_CHARGE_SPEED_KW, 10.0)
-        max_battery_discharge_speed_kw = self.get_number(NUM_MAX_BATTERY_DISCHARGE_SPEED_KW, 10.0)
+        # Not a `number` entity - a fixed hardware property set/edited via the
+        # config/options flow, not a dashboard-adjustable setpoint.
+        max_battery_charge_speed_kw = conf.get(CONF_MAX_BATTERY_CHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW)
+        max_battery_discharge_speed_kw = conf.get(
+            CONF_MAX_BATTERY_DISCHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW
+        )
         negative_price_charge_speed_kw = self.get_number(NUM_NEGATIVE_PRICE_CHARGE_SPEED_KW, charge_speed_kw * 2)
         spike_discharge_speed_kw = self.get_number(NUM_SPIKE_DISCHARGE_SPEED_KW, discharge_speed_kw * 1.5)
         negative_price_threshold = self.get_number(NUM_NEGATIVE_PRICE_THRESHOLD, -0.20)

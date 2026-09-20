@@ -318,6 +318,12 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
     their `number` entities exist - adjust those directly on the number
     entities instead, the same way you'd adjust an input_number.
 
+    Max battery charge/discharge speed are the exception: they're a fixed
+    hardware property rather than a dashboard-adjustable setpoint, so they
+    have no `number` entity at all - they're editable only here, so a typo
+    or a battery/inverter upgrade doesn't require deleting and re-adding the
+    whole integration.
+
     Same branching as the initial config flow: `init` always runs first,
     then whichever of `usage_sensor` / `usage_calculated` /
     `usage_consumption` matches the chosen usage source.
@@ -372,6 +378,18 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(
                     CONF_HIGH_CELL_VOLTAGE_ENTITY, default=current.get(CONF_HIGH_CELL_VOLTAGE_ENTITY)
                 ): _optional_entity_selector(),
+                vol.Required(
+                    CONF_MAX_BATTERY_CHARGE_SPEED_KW,
+                    default=current.get(CONF_MAX_BATTERY_CHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0.1, max=200, step=0.1, unit_of_measurement="kW")
+                ),
+                vol.Required(
+                    CONF_MAX_BATTERY_DISCHARGE_SPEED_KW,
+                    default=current.get(CONF_MAX_BATTERY_DISCHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=0.1, max=200, step=0.1, unit_of_measurement="kW")
+                ),
                 vol.Required(
                     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
                     default=current.get(CONF_ENABLE_NEGATIVE_PRICE_PLAN, DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN),
