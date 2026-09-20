@@ -8,6 +8,29 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.17] - 2026-09-20
+
+### Changed
+- The full-charge session cap now also floors at a 4-hour-equivalent
+  minimum window, expressed in kWh via this session's own
+  `charge_speed_kw` (`min_session_kwh = charge_speed_kw * 4`), instead of
+  being based purely on 30x the 5-day average hourly usage. This makes
+  charge speed itself a factor in whether the cap ever actually binds, per
+  Timo: a fast charger (e.g. 10 kW) can fully charge a typical battery in
+  a few hours regardless, so its 4-hour floor (40 kWh) sits above any
+  realistic single-session deficit and the cap becomes a no-op there -
+  `is_full` remains the real backstop, same as before this cap existed at
+  all. A slow charger (e.g. 1.8 kW) would otherwise need 8+ hours for the
+  same battery, so its much lower 4-hour floor (7.2 kWh) still lets the
+  usage-based cap - or the floor itself, whichever is larger - meaningfully
+  spread a large deficit across multiple days. The floor only ever raises
+  a cap that would otherwise be shorter than 4 hours; a usage-based cap
+  that already implies a longer window is left unchanged. Added three new
+  tests covering all three cases (floor irrelevant on a fast charger,
+  usage-average cap still binding on a slow charger, and the floor itself
+  becoming the binding constraint when usage is very low) and updated the
+  existing session-cap tests' expected numbers to reflect the new floor.
+
 ## [0.1.16] - 2026-09-20
 
 ### Changed

@@ -344,11 +344,15 @@ check("next_full_charge_in_days floors at 0 when overdue", next_days == 0)
 # ---------------------------------------------------------------------------
 
 # A large deficit + a slow charger would otherwise want a single very long
-# window; the session cap (30x the 5-day average hourly usage) should
-# limit target_kwh, and units_needed/end_unit should reflect the capped
-# figure, not the full deficit. all_price is sized to exactly units_needed
-# so there's no room for _extend_flat_price_window to grow the window
-# either direction, isolating the cap math from the extension logic.
+# window; the session cap (30x the 5-day average hourly usage, floored at
+# a 4-hour-equivalent minimum for this session's own charge_speed_kw - see
+# below) should limit target_kwh, and units_needed/end_unit should reflect
+# the capped figure, not the full deficit. all_price is sized to exactly
+# units_needed so there's no room for _extend_flat_price_window to grow
+# the window either direction, isolating the cap math from the extension
+# logic. Here the raw usage-average cap (9.0 kWh) is actually smaller than
+# this charger's 4-hour floor (3.0 kW * 4h = 12.0 kWh), so the floor is
+# what ends up binding - 12.0, not 9.0.
 capped_plan = plans.compute_full_charge_plan(
     prev=None,
     cur_unit=0,
@@ -362,15 +366,81 @@ capped_plan = plans.compute_full_charge_plan(
     upper_limit_kwh=15.0,
     usage=[0.3] * 120,
     charge_speed_kw=3.0,
-    all_price=[0.10] * 14,
+    all_price=[0.10] * 18,
 )
 check(
-    "compute_full_charge_plan caps a single session's target_kwh at 30x the 5-day average hourly usage",
-    capped_plan["session_cap_kwh"] == 9.0 and capped_plan["target_kwh"] == 9.0,
+    "compute_full_charge_plan caps a single session's target_kwh at max(30x 5-day avg usage, 4h at charge_speed_kw)",
+    capped_plan["session_cap_kwh"] == 12.0 and capped_plan["target_kwh"] == 12.0,
 )
 check(
-    "compute_full_charge_plan's units_needed/end_unit reflect the capped target, not the full 12kWh deficit",
-    capped_plan["units_needed"] == 14 and capped_plan["end_unit"] == 14,
+    "compute_full_charge_plan's units_needed/end_unit reflect the capped target, not the full 12.3kWh deficit",
+    capped_plan["units_needed"] == 18 and capped_plan["end_unit"] == 18,
+)
+
+# The 4-hour-minimum floor is what makes charge speed itself a factor in
+# whether the cap ever actually binds (added v0.1.17, per Timo: a 10kW
+# charger can empty/fill a typical battery in ~3 hours regardless, so a
+# cap is unnecessary there, while a 1.8kW charger taking 8+ hours for the
+# same energy genuinely needs one). Same deficit/usage in both cases below
+# - only charge_speed_kw differs.
+fast_charger_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=0,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=20.0,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=3.0,
+    upper_limit_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=10.0,
+    all_price=[0.10] * 6,
+)
+check(
+    "compute_full_charge_plan: a fast charger's 4h-floor cap (40 kWh) is well above the deficit, so the cap doesn't bind at all",
+    fast_charger_plan["session_cap_kwh"] == 40.0 and fast_charger_plan["target_kwh"] == 12.3,
+)
+
+slow_charger_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=0,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=20.0,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=3.0,
+    upper_limit_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=1.8,
+    all_price=[0.10] * 24,
+)
+check(
+    "compute_full_charge_plan: a slow charger's usage-average cap (9.0 kWh, above its 7.2 kWh floor) still meaningfully binds",
+    slow_charger_plan["session_cap_kwh"] == 9.0 and slow_charger_plan["target_kwh"] == 9.0,
+)
+
+low_usage_slow_charger_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=0,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=20.0,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=3.0,
+    upper_limit_kwh=15.0,
+    usage=[0.05] * 120,
+    charge_speed_kw=1.8,
+    all_price=[0.10] * 17,
+)
+check(
+    "compute_full_charge_plan: with very low average usage, the 4h floor (7.2 kWh) itself becomes the binding cap, not the tiny 1.5 kWh usage-average figure",
+    low_usage_slow_charger_plan["session_cap_kwh"] == 7.2 and low_usage_slow_charger_plan["target_kwh"] == 7.2,
 )
 
 # A session-capped window still gets the flat-price extension (v0.1.16 -
@@ -382,10 +452,12 @@ check(
 # grows into neighbors within the same 8%/EUR 0.02 tolerance (still
 # genuinely cheap, never "the expensive part"). So if a long flat-cheap
 # valley happens to be available right where a capped session lands,
-# using more of it is fine. Same scenario as the v0.1.15 regression test
-# this replaces (a 16-unit session capped to 6.318 kWh with a ~35-unit
-# flat near-zero valley available), but now asserting the window DOES
-# extend into it rather than staying tight.
+# using more of it is fine. Same shape as the original live-reported
+# scenario (a session capped well below the raw deficit, with a long
+# flat near-zero valley available right where the cheapest window lands)
+# - here the 4-hour floor (v0.1.17) is what caps this particular session
+# at 12.0 kWh/18 units, and the window still extends well past that into
+# the flat valley, confirming the floor doesn't disable the extension.
 flat_valley_price = [0.03] * 20 + [0.005] * 40 + [0.25] * 20
 capped_with_flat_valley = plans.compute_full_charge_plan(
     prev=None,
@@ -425,7 +497,7 @@ uncapped_plan = plans.compute_full_charge_plan(
 )
 check(
     "compute_full_charge_plan leaves target_kwh alone when it's already under the session cap",
-    uncapped_plan["session_cap_kwh"] == 9.0 and uncapped_plan["target_kwh"] == 0.8,
+    uncapped_plan["session_cap_kwh"] == 12.0 and uncapped_plan["target_kwh"] == 0.8,
 )
 
 # A "charging" session whose window has fully elapsed without reaching

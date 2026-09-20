@@ -724,9 +724,25 @@ def compute_full_charge_plan(
     # end_unit above instead of running indefinitely, is what actually lets
     # a too-big charge spread across multiple days/sessions instead of one
     # long straight run regardless of price.
+    #
+    # The cap is then floored at a 4-hour minimum window, expressed in kWh
+    # via this session's own charge_speed_kw (min_session_kwh = 4 hours of
+    # charging at this charger's speed). This is what makes charge speed a
+    # factor in whether the cap ever actually binds: a fast charger (e.g.
+    # 10 kW) reaches its 4-hour floor at 40 kWh - typically above what any
+    # single session would need anyway, so the cap is effectively a no-op
+    # and is_full remains the real backstop. A slow charger (e.g. 1.8 kW)
+    # reaches its 4-hour floor at only 7.2 kWh, so the usage-based cap
+    # still applies and can meaningfully spread a large deficit across
+    # multiple days. If the usage-based cap already implies more than 4
+    # hours at this charge speed, it's left unchanged - the floor only
+    # raises a cap that would otherwise be shorter than 4 hours, never
+    # shortens one that's already longer.
     horizon_hours = min(120, len(usage))
     avg_hourly_usage_5d = sum(usage[:horizon_hours]) / horizon_hours if horizon_hours > 0 else 0.0
     session_cap_kwh = round(avg_hourly_usage_5d * 30, 3)
+    min_session_kwh = round(charge_speed_kw * 4, 3)
+    session_cap_kwh = max(session_cap_kwh, min_session_kwh)
     if session_cap_kwh > 0:
         target_kwh = min(target_kwh, session_cap_kwh)
 
