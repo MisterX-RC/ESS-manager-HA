@@ -48,6 +48,7 @@ def _extend_flat_price_window(
     start: int,
     end: int,
     min_start: int,
+    max_end: Optional[int] = None,
     tolerance_relative: float = 0.08,
     tolerance_absolute: float = 0.02,
 ) -> tuple[int, int]:
@@ -62,8 +63,11 @@ def _extend_flat_price_window(
     window is found, it's fine to charge longer than the minimum computed
     duration if the surrounding price is basically the same, rather than
     always stopping exactly at that minimum. `min_start` prevents growing
-    backward past the current unit (can't charge in the past); there's no
-    corresponding forward bound beyond the price array's own length.
+    backward past the current unit (can't charge in the past). `max_end`
+    is an optional deadline - when set, the rightward extension won't grow
+    past it (e.g. a forecasted peak the window needs to finish by); left
+    at None (the default) there's no forward bound beyond the price
+    array's own length, same as before this parameter existed.
     """
     while start > min_start:
         window_avg = sum(prices[start:end]) / (end - start)
@@ -72,7 +76,7 @@ def _extend_flat_price_window(
             start -= 1
         else:
             break
-    while end < len(prices):
+    while end < len(prices) and (max_end is None or end < max_end):
         window_avg = sum(prices[start:end]) / (end - start)
         diff = abs(prices[end] - window_avg)
         if diff <= tolerance_absolute or (window_avg > 0 and diff / window_avg <= tolerance_relative):
@@ -721,8 +725,14 @@ def compute_full_charge_plan(
     # peak is genuinely in the future (solar expected to raise the battery
     # further before it's needed), there's no point buying grid energy for
     # a gap solar will close for free - anchor the deficit to that peak's
-    # own forecasted level instead of today's, and never schedule the
-    # window earlier than when that peak actually happens.
+    # own forecasted level instead of today's. The purchased top-up must
+    # then be scheduled to *finish by* that peak, not after it: by the time
+    # the peak has already passed, the optimal window - where a grid
+    # top-up combines with solar's still-rising contribution - is gone, and
+    # buying afterwards only fights the declining tail on the far side.
+    # `anchor_unit` is therefore used as a deadline (search_end), mirroring
+    # the breach_unit deadline pattern already used by
+    # compute_low_charge_plan/compute_high_discharge_plan, not as a floor.
     peak_hour_index = 0
     peak_kwh = battery_now_kwh
     for h, level in enumerate(battery_forecast):
@@ -734,7 +744,8 @@ def compute_full_charge_plan(
     if peak_hour_index > 0:
         anchor_kwh = peak_kwh
         anchor_unit = hour0_start_unit + (peak_hour_index * 4)
-        search_start = max(cur_unit, anchor_unit)
+        search_start = cur_unit
+        search_end = min(anchor_unit, len(all_price))
     else:
         # No meaningful future rise forecast (e.g. no solar) - today's
         # level effectively already IS the peak. Rather than anchoring to
@@ -753,6 +764,7 @@ def compute_full_charge_plan(
         anchor_kwh = battery_forecast[prelim_hour_index] if battery_forecast else battery_now_kwh
         anchor_unit = hour0_start_unit + (prelim_hour_index * 4)
         search_start = cur_unit
+        search_end = len(all_price)
 
     deficit = round(high_threshold_kwh - anchor_kwh, 3)
     if deficit <= 0:
@@ -822,9 +834,10 @@ def compute_full_charge_plan(
     # more energy while the price is still just as good) is a win, not a
     # regression on the cap's purpose. Applies uniformly regardless of
     # whether this session's target was actually capped.
-    search_end = len(all_price)
     best_start = _best_price_window(all_price, search_start, search_end, units_needed, cheapest=True)
-    start_unit, end_unit = _extend_flat_price_window(all_price, best_start, best_start + units_needed, min_start=search_start)
+    start_unit, end_unit = _extend_flat_price_window(
+        all_price, best_start, best_start + units_needed, min_start=search_start, max_end=search_end
+    )
 
     return {
         "active": True,

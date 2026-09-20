@@ -8,6 +8,33 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.19] - 2026-09-20
+
+### Fixed
+- Fixed a design flaw in v0.1.18's peak-anchored full-charge scheduling:
+  when the deficit is anchored to a genuine future peak, the purchased
+  top-up window was being scheduled to start *at or after* that peak
+  (`search_start = max(cur_unit, anchor_unit)`) - i.e. only once the
+  optimal moment had already passed. The peak is where a grid top-up
+  should land, combining with solar's own still-rising contribution to
+  maximize the real battery's dwell time at true 100% - not a floor to
+  wait out. `anchor_unit` is now used as a deadline the window must
+  *finish by* (`search_end = min(anchor_unit, len(all_price))`, with the
+  search itself starting from right now), mirroring the existing
+  `breach_unit` deadline pattern already used by
+  `compute_low_charge_plan`/`compute_high_discharge_plan`. The
+  no-future-rise (cheapest-window-anchored) case is unaffected - it never
+  had a peak-as-floor problem in the first place.
+  - `_extend_flat_price_window` gains a new optional `max_end` parameter
+    so its flat-price rightward extension also respects this deadline
+    instead of potentially growing the window past the peak; left at its
+    default (`None`) it behaves exactly as before.
+  - Updated the `future_peak_plan` test's expected `start_unit`/`end_unit`
+    (previously asserting the window landed *after* the peak at
+    `[24, 30)`; now asserts it lands *before/by* the peak at `[0, 24)`,
+    recomputed from the actual code rather than by hand) and added two
+    new tests for `_extend_flat_price_window`'s `max_end` parameter.
+
 ## [0.1.18] - 2026-09-20
 
 ### Changed

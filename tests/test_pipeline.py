@@ -656,9 +656,11 @@ check(
 # battery_forecast rises to a peak of 12.0 kWh at hour 6 (unit 24), well
 # below the 16.5 kWh overshoot ceiling, then declines - a real but partial
 # future rise. The deficit should be anchored to that peak (12.0), not
-# today's 5.0 kWh, and the window must not be scheduled earlier than the
-# peak even though far cheaper prices (0.01) exist before it - buying grid
-# energy before the free solar rise happens would be wasted.
+# today's 5.0 kWh, and the window must be scheduled to *finish by* the
+# peak (unit 24) rather than after it - the peak is the optimal moment
+# (grid top-up landing right as solar's own rise crests), not a floor to
+# wait out. Here the cheapest prices (0.01) happen to sit right before the
+# peak anyway, so the window lands at [0, 24).
 future_peak_forecast = [6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 11.0, 10.0, 9.0]
 future_peak_price = [0.01] * 24 + [0.20] * 6 + [0.40] * 10
 future_peak_plan = plans.compute_full_charge_plan(
@@ -682,8 +684,8 @@ check(
     future_peak_plan["anchor_kwh"] == 12.0 and future_peak_plan["deficit_kwh"] == 4.5 and future_peak_plan["target_kwh"] == 5.5,
 )
 check(
-    "compute_full_charge_plan never schedules the window before the peak, even though much cheaper prices exist earlier",
-    future_peak_plan["start_unit"] == 24 and future_peak_plan["end_unit"] == 30,
+    "compute_full_charge_plan schedules the window to finish by the peak (deadline), not after it",
+    future_peak_plan["start_unit"] == 0 and future_peak_plan["end_unit"] == 24,
 )
 
 # The same shape, but the forecasted peak (17.0 kWh) now reaches past the
@@ -768,6 +770,18 @@ check(
 flat_prices = [0.10, 0.10, 0.10, 0.10]
 ext3_start, _ = plans._extend_flat_price_window(flat_prices, start=2, end=3, min_start=2)
 check("_extend_flat_price_window never grows backward past min_start, even into an equally cheap unit", ext3_start == 2)
+
+flat_prices_long = [0.10, 0.10, 0.10, 0.10, 0.10, 0.10]
+_, ext4_end = plans._extend_flat_price_window(flat_prices_long, start=0, end=1, min_start=0, max_end=4)
+check(
+    "_extend_flat_price_window's optional max_end stops the rightward extension at a deadline, even into equally cheap units beyond it",
+    ext4_end == 4,
+)
+_, ext5_end = plans._extend_flat_price_window(flat_prices_long, start=0, end=1, min_start=0)
+check(
+    "_extend_flat_price_window still extends to the end of the array when max_end is left at its default (None)",
+    ext5_end == 6,
+)
 
 # cell_voltage_differential_mv - the low/high individual-cell-voltage
 # alternative to a BMS's own differential sensor (added with the
