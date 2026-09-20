@@ -912,6 +912,50 @@ def compute_system_status(
     discharge_speed_kw: float,
     all_price: list[float],
 ) -> str:
+    status = _compute_system_status_raw(
+        setpoint_w,
+        idle_setpoint_w,
+        cur_unit,
+        full,
+        neg,
+        spike,
+        low,
+        high,
+        battery_now_kwh,
+        low_threshold_kwh,
+        charge_speed_kw,
+        discharge_speed_kw,
+        all_price,
+    )
+    # The full-charge plan can quietly decide there's nothing to buy because
+    # a genuine future solar peak will reach the overshoot ceiling on its
+    # own (see compute_full_charge_plan's deficit<=0 "skip" branch) -
+    # relying_on_peak_unit flags this even though full.active stays False,
+    # since nothing is actually scheduled. Without surfacing it, the
+    # entities card just shows plain "Standby" with no indication a full
+    # charge is being planned around that peak at all. Only replaces a
+    # genuine "Standby" (nothing else going on) - never overrides a real
+    # in-progress action from another plan.
+    if status == "Standby" and not full.get("active") and full.get("relying_on_peak_unit") is not None:
+        return "Awaiting solar (full charge)"
+    return status
+
+
+def _compute_system_status_raw(
+    setpoint_w: float,
+    idle_setpoint_w: float,
+    cur_unit: int,
+    full: dict,
+    neg: dict,
+    spike: dict,
+    low: dict,
+    high: dict,
+    battery_now_kwh: float,
+    low_threshold_kwh: float,
+    charge_speed_kw: float,
+    discharge_speed_kw: float,
+    all_price: list[float],
+) -> str:
     is_idle = abs(setpoint_w - idle_setpoint_w) < 50
     near_low_limit = (battery_now_kwh - low_threshold_kwh) <= 1
     charge_engaged_at = charge_speed_kw * 1000 * 0.5

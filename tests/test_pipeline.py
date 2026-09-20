@@ -351,6 +351,46 @@ check(
     status_full_scheduled == "Full charge scheduled",
 )
 
+status_awaiting_solar = plans.compute_system_status(
+    setpoint_w=0.0,
+    idle_setpoint_w=0.0,
+    cur_unit=81,
+    full={"active": False, "phase": None, "relying_on_peak_unit": 540},
+    neg={"active": False},
+    spike={"active": False},
+    low={"active": False, "breach_unit": 999999},
+    high={"active": False, "breach_unit": 999999, "suppressed_by_full_charge": True},
+    battery_now_kwh=9.5,
+    low_threshold_kwh=1.5,
+    charge_speed_kw=7.0,
+    discharge_speed_kw=10.0,
+    all_price=[0.20] * 192,
+)
+check(
+    "system_status shows Awaiting solar (full charge) instead of a bare Standby when relying on a future peak",
+    status_awaiting_solar == "Awaiting solar (full charge)",
+)
+
+status_awaiting_solar_overridden_by_real_action = plans.compute_system_status(
+    setpoint_w=4000.0,
+    idle_setpoint_w=0.0,
+    cur_unit=21,
+    full={"active": False, "phase": None, "relying_on_peak_unit": 540},
+    neg={"active": False},
+    spike={"active": False},
+    low={"active": True, "start_unit": 20, "end_unit": 24, "breach_unit": 30},
+    high={"active": False, "breach_unit": 999999},
+    battery_now_kwh=2.0,
+    low_threshold_kwh=3.0,
+    charge_speed_kw=7.0,
+    discharge_speed_kw=10.0,
+    all_price=[0.20] * 96,
+)
+check(
+    "Awaiting solar (full charge) never overrides a genuinely active plan's own status",
+    status_awaiting_solar_overridden_by_real_action == "Actief",
+)
+
 # ---------------------------------------------------------------------------
 # display.py
 # ---------------------------------------------------------------------------

@@ -8,6 +8,39 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.23] - 2026-09-20
+
+### Added
+- New `Status` sensor state, `Awaiting solar (full charge)`, for a real gap
+  Timo caught from a live entities-card screenshot: `sensor.ess_manager_status`
+  showed plain "Standby" while `full_charge_plan.active` was `false` but
+  `relying_on_peak_unit: 540` was set - i.e. the full-charge plan had
+  correctly concluded a genuine future solar peak (21.24 kWh forecast,
+  well past the 15.75 kWh overshoot ceiling, ~4.8 days out) would reach
+  the ceiling on its own, so nothing needed buying - but that conclusion
+  was completely invisible on the dashboard, indistinguishable from
+  "nothing planned at all."
+  - `compute_system_status` (`plans.py`) is now a thin wrapper around the
+    previous logic (renamed `_compute_system_status_raw`): whenever the
+    raw result would be exactly `"Standby"` *and* `full.relying_on_peak_unit`
+    is set with `full.active` still `False`, it returns
+    `"Awaiting solar (full charge)"` instead. This only ever replaces a
+    genuine "nothing else going on" `Standby` - it never overrides a real
+    in-progress action from another plan (verified with a dedicated test:
+    a low-charge-plan window actively engaged still reports `"Actief"`
+    even with `relying_on_peak_unit` set at the same time).
+  - Added to the `Status` sensor's documented state list in the README,
+    alongside `Full charge scheduled` (added commit 13/v0.1.12, and found
+    to have been missing from that same list this whole time - fixed now
+    too).
+  - Added 2 new tests: the new status shows up when relying on a peak
+    with nothing else active, and is correctly *not* shown when a real
+    plan (e.g. the low charge plan) is genuinely active at the same time.
+    Check count: 77 → 79.
+  - No change to `high_discharge_plan`'s own suppression behavior
+    (`suppressed_by_full_charge`, added commit 22/v0.1.21) - this is a
+    display-only fix, on top of already-correct underlying logic.
+
 ## [0.1.22] - 2026-09-20
 
 ### Changed

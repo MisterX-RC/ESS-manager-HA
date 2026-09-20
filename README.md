@@ -183,9 +183,16 @@ instead.
 The integration produces a `Status` sensor whose state is one of `Standby`,
 `Start charge`, `Actief` (engaged), `Start discharge`, `Stop`, `Grid usage`,
 `Solar export`, `Balancing`, `Start negative price charge`,
-`Negative price charge`, `Start spike discharge`, `Spike discharge` - see
+`Negative price charge`, `Start spike discharge`, `Spike discharge`,
+`Full charge scheduled`, `Awaiting solar (full charge)` - see
 `custom_components/ess_manager/plans.py`'s `compute_system_status` for the
-exact meaning of each. It deliberately does **not** write to any inverter
+exact meaning of each. `Awaiting solar (full charge)` means the full-charge
+plan has concluded a forecasted future solar peak will reach the overshoot
+ceiling on its own, so nothing is being bought - it's the visible version of
+what would otherwise be an indistinguishable `Standby` while
+`full_charge_plan.relying_on_peak_unit` is quietly set (see
+`high_discharge_plan.suppressed_by_full_charge`, which is also active
+during this same wait). It deliberately does **not** write to any inverter
 or battery control entity itself, since every make/model exposes a
 different control surface (an `input_number`, a native `number` entity from
 that inverter's own integration, an MQTT topic, ...).
