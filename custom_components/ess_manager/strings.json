@@ -14,6 +14,8 @@
           "voltage_diff_entity": "Cell voltage differential sensor (optional, only needed for the full-charge balancing plan - leave blank if your BMS doesn't expose this directly and use the lowest/highest cell voltage fields below instead)",
           "low_cell_voltage_entity": "Lowest individual cell voltage sensor (V, optional - alternative to the differential sensor above; used together with the highest cell voltage sensor below)",
           "high_cell_voltage_entity": "Highest individual cell voltage sensor (V, optional - the differential is calculated as (highest - lowest) x 1000 to get millivolts)",
+          "battery_voltage_entity": "Battery pack voltage sensor (V) - required for the full-charge balancing plan; a third confirmation leg alongside SOC and the cell voltage differential, checked against the target voltage below",
+          "full_charge_target_voltage": "Full charge target voltage (V) - your battery pack's own voltage setpoint when genuinely full; the balancing plan treats it as confirmed once the pack voltage reaches this minus 0.1V",
           "battery_capacity_kwh": "Battery capacity",
           "charge_speed_kw": "Normal charge speed",
           "discharge_speed_kw": "Normal discharge speed",
@@ -56,6 +58,7 @@
     },
     "error": {
       "solar_forecast_required": "Select at least one solar forecast entity.",
+      "battery_voltage_entity_required": "Select a battery pack voltage sensor - required alongside the full-charge balancing plan.",
       "usage_calculated_entities_required": "Select at least one grid import entity and at least one solar production entity.",
       "usage_consumption_entities_required": "Select at least one home energy consumption entity."
     },
@@ -77,6 +80,7 @@
           "voltage_diff_entity": "Cell voltage differential sensor (optional)",
           "low_cell_voltage_entity": "Lowest individual cell voltage sensor (V, optional - alternative to the differential sensor above)",
           "high_cell_voltage_entity": "Highest individual cell voltage sensor (V, optional)",
+          "battery_voltage_entity": "Battery pack voltage sensor (V) - required for the full-charge balancing plan",
           "max_battery_charge_speed_kw": "Max battery charge speed (physical limit, used by the battery energy forecast)",
           "max_battery_discharge_speed_kw": "Max battery discharge speed (physical limit, used by the battery energy forecast)",
           "enable_negative_price_plan": "Enable negative price plan",
@@ -110,6 +114,7 @@
       }
     },
     "error": {
+      "battery_voltage_entity_required": "Select a battery pack voltage sensor - required alongside the full-charge balancing plan.",
       "usage_calculated_entities_required": "Select at least one grid import entity and at least one solar production entity.",
       "usage_consumption_entities_required": "Select at least one home energy consumption entity."
     }

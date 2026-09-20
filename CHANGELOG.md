@@ -8,6 +8,79 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.24] - 2026-09-20
+
+### Fixed
+- **Race condition that could silently skip a genuinely-due holding phase.**
+  `coordinator.py` used to reset `_last_full_reached` (and thus the "days
+  since last full charge" clock) the instant raw SOC crossed 99.5%,
+  computed *before* calling `compute_full_charge_plan` each cycle. On the
+  exact cycle a due, waiting-on-solar plan's SOC first crossed 99.5% (a
+  `relying_on_peak_unit`-style scenario), that same-cycle reset could flip
+  the plan's own `due` check to `False` before it ever got a chance to
+  enter `holding` - silently skipping the whole balance cycle. The reset
+  now happens strictly *after* `compute_full_charge_plan` runs, and only
+  when its own output says balance was genuinely confirmed (see
+  `balance_confirmed` below) - never from an independent, earlier SOC
+  check.
+
+### Added
+- **Full-charge balancing reworked per Timo's two-situation spec.**
+  `compute_full_charge_plan` and `compute_system_status` now handle both:
+  - *Nothing due, but the battery reaches 100% anyway* (typically solar
+    alone) - nothing is forced. The plan quietly checks all three
+    confirmation legs (below) every cycle in the background and, once
+    satisfied together, reports `balance_confirmed: true` so
+    `coordinator.py` can reset the interval clock without ever starting an
+    active plan.
+  - *A full balance is due* and the plan is waiting on a forecasted solar
+    peak - unchanged up to the point SOC reaches 99.5%, at which the hold
+    phase starts exactly as before. What's new: `compute_system_status`
+    now reports `Start charge` for the **entire** holding duration,
+    instead of only once the setpoint readback ramps up past
+    `charge_engaged_at` (previously `Balancing` in between). Solar alone
+    can hold the battery at 100% with zero grid setpoint ever needed, so
+    the old setpoint-based check could show a stuck `Start charge` (or
+    never show any indication a hold was even active). `Balancing` is
+    retired as a `Status` state - it was never an automation trigger to
+    begin with (see `dashboard/automation_example.yaml`), purely cosmetic.
+    `Start charge` is the actual signal external automations react to, so
+    keeping it up for the whole hold is what actually prevents household
+    loads from eroding the SOC while the cells finish balancing.
+- **Third confirmation leg: battery pack voltage vs. a new adjustable
+  target-voltage `number` entity.** On top of SOC (>=99.5%) and the cell
+  voltage differential, "genuinely balanced" now also requires the
+  battery's own pack voltage (a new required-alongside-the-full-charge-plan
+  entity, `battery_voltage_entity`) to be at or above a new
+  `full_charge_target_voltage` `number` entity's value, minus 0.1V. Unlike
+  the fixed hardware properties added in earlier versions
+  (`max_battery_charge/discharge_speed_kw`), this target voltage is meant
+  to be tuned live from a dashboard, so it follows the ordinary
+  seed-value + `number`-entity pattern, defaulting to 55.2V (a 48V-class
+  LiFePO4 pack, fully charged) - adjust it to your own pack's actual
+  full-charge voltage after setup. A missing reading on either the
+  battery-voltage sensor or the cell-voltage-differential sensor is always
+  treated as "not yet confirmed," never as satisfied.
+- **A timed-out hold no longer immediately re-forces another hold.** If
+  the "Full charge max hold" safety timeout elapses without ever
+  confirming balance, the plan now defers to the same forward-looking
+  logic used before any charge was ever forced: if a genuine future solar
+  peak is still expected to reach the overshoot ceiling on its own, it
+  quietly waits for that (still passively checking for balance
+  confirmation the whole time); if not, the charging logic schedules a
+  fresh grid-charge session at the cheapest available window instead. A
+  new internal `retry_after_timeout` flag (not user-facing) is what
+  prevents the very next evaluation from shortcutting straight back into
+  `holding` just because SOC still happens to be >=99.5%.
+- New `battery_voltage` attribute on `sensor.ess_manager_status`, exposing
+  the raw reading alongside the existing `cell_voltage_differential_mv`.
+
+### Changed
+- `battery_voltage_entity` is required during setup (and re-editable from
+  **Configure**) whenever the full-charge balancing plan is enabled -
+  validated the same way `solar_forecast_entities` already is
+  (`battery_voltage_entity_required`).
+
 ## [0.1.23] - 2026-09-20
 
 ### Added

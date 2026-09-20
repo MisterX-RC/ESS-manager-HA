@@ -72,6 +72,10 @@ integration producing the same shape works):
   "Status" sensor's engaged-vs-starting distinction accurate.
 - **Cell voltage differential** *(optional)*: only needed if you enable the
   full-charge balancing plan.
+- **Battery pack voltage** *(required if you enable the full-charge balancing
+  plan)*: a sensor reporting the battery pack's own overall voltage. This is
+  a third, independent confirmation leg on top of SOC and the cell voltage
+  differential above - see "Full-charge balancing" below.
 
 ## Household usage forecast
 
@@ -169,6 +173,7 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Planning horizon | How many hours ahead the low/high plans are allowed to react to (price data usually doesn't exist much beyond ~48h anyway) |
 | Full charge interval | Days between full-charge/balance cycles |
 | Full charge max hold | Safety timeout (minutes) for the 100%-hold/balance phase |
+| Full charge target voltage | Battery pack voltage (V) that counts as "genuinely full" - checked minus 0.1V (see "Full-charge balancing" below) |
 
 Max battery charge speed and max battery discharge speed are set during
 setup and re-editable later from **Configure** (see above) rather than
@@ -182,7 +187,7 @@ instead.
 
 The integration produces a `Status` sensor whose state is one of `Standby`,
 `Start charge`, `Actief` (engaged), `Start discharge`, `Stop`, `Grid usage`,
-`Solar export`, `Balancing`, `Start negative price charge`,
+`Solar export`, `Start negative price charge`,
 `Negative price charge`, `Start spike discharge`, `Spike discharge`,
 `Full charge scheduled`, `Awaiting solar (full charge)` - see
 `custom_components/ess_manager/plans.py`'s `compute_system_status` for the
@@ -200,6 +205,36 @@ that inverter's own integration, an MQTT topic, ...).
 `dashboard/automation_example.yaml` is a starting point for the small glue
 automation that turns `Status` into an actual command - adapt the
 `target: entity_id:` lines to whatever your inverter setup actually uses.
+
+## Full-charge balancing
+
+Once the battery reaches 100% SOC (>=99.5%), "genuinely balanced" is
+confirmed only once all three of these hold together:
+
+- SOC >= 99.5%
+- the cell voltage differential is below the balance threshold
+- the battery pack voltage is at or above the full-charge target voltage
+  minus 0.1V
+
+If the battery reaches 100% (typically via solar) while no full-balance
+cycle is currently due, nothing is forced - the integration just quietly
+watches for all three conditions in the background, and resets the "days
+since last full charge" clock the moment they're satisfied together. If a
+full-balance cycle *is* due and the plan is waiting on a forecasted solar
+peak to reach 100% on its own, the moment SOC reaches 99.5% the hold phase
+starts and `Status` reports `Start charge` for the entire holding
+duration - not just once the setpoint has ramped up - so household loads
+can't erode the SOC while the cells finish balancing, even when solar alone
+is what's holding the battery full with no grid setpoint needed. Once the
+three conditions above are satisfied (or the "Full charge max hold" safety
+timeout elapses first), the setpoint is released back to idle.
+
+A hold that times out without ever confirming balance does **not**
+immediately force another hold attempt - it falls back to the normal flow:
+if there's a genuine future point where solar is forecast to push the
+battery back into overshoot, the plan quietly waits for that; if not, the
+charging logic schedules a fresh grid-charge session at the cheapest
+available window to complete the balance.
 
 ## Dashboard
 

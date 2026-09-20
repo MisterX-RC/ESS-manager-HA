@@ -43,6 +43,7 @@ STATUS_ATTRIBUTES = [
     "high_discharge_plan",
     "full_charge_plan",
     "cell_voltage_differential_mv",
+    "battery_voltage",
     "time_since_full_charge_days",
     "planning_horizon_hours",
     "charge_energy_kwh",

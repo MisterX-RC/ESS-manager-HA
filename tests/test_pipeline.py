@@ -391,6 +391,51 @@ check(
     status_awaiting_solar_overridden_by_real_action == "Actief",
 )
 
+# Holding always reports "Start charge" for its entire duration now,
+# regardless of the setpoint readback - solar alone can hold the battery
+# at 100% with zero grid setpoint needed, so "Balancing"/setpoint-ramp-up
+# is retired (it was never even an automation trigger - see
+# dashboard/automation_example.yaml).
+status_holding_no_setpoint = plans.compute_system_status(
+    setpoint_w=0.0,
+    idle_setpoint_w=0.0,
+    cur_unit=12,
+    full={"active": True, "phase": "holding", "hold_start_unit": 10, "hold_end_unit": 18},
+    neg={"active": False},
+    spike={"active": False},
+    low={"active": False, "breach_unit": 999999},
+    high={"active": False, "breach_unit": 999999},
+    battery_now_kwh=15.0,
+    low_threshold_kwh=1.5,
+    charge_speed_kw=7.0,
+    discharge_speed_kw=10.0,
+    all_price=[0.20] * 96,
+)
+check(
+    "system_status shows Start charge while holding even with zero setpoint readback (solar alone holding it full)",
+    status_holding_no_setpoint == "Start charge",
+)
+
+status_holding_with_setpoint = plans.compute_system_status(
+    setpoint_w=4000.0,
+    idle_setpoint_w=0.0,
+    cur_unit=12,
+    full={"active": True, "phase": "holding", "hold_start_unit": 10, "hold_end_unit": 18},
+    neg={"active": False},
+    spike={"active": False},
+    low={"active": False, "breach_unit": 999999},
+    high={"active": False, "breach_unit": 999999},
+    battery_now_kwh=15.0,
+    low_threshold_kwh=1.5,
+    charge_speed_kw=7.0,
+    discharge_speed_kw=10.0,
+    all_price=[0.20] * 96,
+)
+check(
+    "system_status still shows Start charge while holding even once the setpoint readback has ramped up (Balancing retired)",
+    status_holding_with_setpoint == "Start charge",
+)
+
 # ---------------------------------------------------------------------------
 # display.py
 # ---------------------------------------------------------------------------
@@ -450,6 +495,8 @@ capped_plan = plans.compute_full_charge_plan(
     charge_speed_kw=3.0,
     all_price=[0.10] * 18,
     battery_forecast=[3.0] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check(
     "compute_full_charge_plan caps a single session's target_kwh at max(30x 5-day avg usage, 4h at charge_speed_kw)",
@@ -481,6 +528,8 @@ fast_charger_plan = plans.compute_full_charge_plan(
     charge_speed_kw=10.0,
     all_price=[0.10] * 6,
     battery_forecast=[3.0] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check(
     "compute_full_charge_plan: a fast charger's 4h-floor cap (40 kWh) is well above the deficit, so the cap doesn't bind at all",
@@ -502,6 +551,8 @@ slow_charger_plan = plans.compute_full_charge_plan(
     charge_speed_kw=1.8,
     all_price=[0.10] * 24,
     battery_forecast=[3.0] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check(
     "compute_full_charge_plan: a slow charger's usage-average cap (9.0 kWh, above its 7.2 kWh floor) still meaningfully binds",
@@ -523,6 +574,8 @@ low_usage_slow_charger_plan = plans.compute_full_charge_plan(
     charge_speed_kw=1.8,
     all_price=[0.10] * 17,
     battery_forecast=[3.0] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check(
     "compute_full_charge_plan: with very low average usage, the 4h floor (7.2 kWh) itself becomes the binding cap, not the tiny 1.5 kWh usage-average figure",
@@ -560,6 +613,8 @@ capped_with_flat_valley = plans.compute_full_charge_plan(
     charge_speed_kw=3.0,
     all_price=flat_valley_price,
     battery_forecast=[1.79] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check(
     "compute_full_charge_plan still extends a session-capped window into an available flat-price valley",
@@ -582,6 +637,8 @@ uncapped_plan = plans.compute_full_charge_plan(
     charge_speed_kw=3.0,
     all_price=[0.10] * 2,
     battery_forecast=[14.5] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check(
     "compute_full_charge_plan leaves target_kwh alone when it's already under the session cap",
@@ -619,6 +676,8 @@ continued_plan = plans.compute_full_charge_plan(
     charge_speed_kw=3.0,
     all_price=[0.10] * 20,
     battery_forecast=[8.0] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check(
     "compute_full_charge_plan re-plans a fresh session once an elapsed window didn't reach full, instead of running forever",
@@ -642,6 +701,8 @@ still_charging_plan = plans.compute_full_charge_plan(
     charge_speed_kw=3.0,
     all_price=[0.10] * 20,
     battery_forecast=[8.0] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check("compute_full_charge_plan keeps charging unchanged while still inside its locked window", still_charging_plan == midway_prev)
 
@@ -662,6 +723,8 @@ full_mid_window_plan = plans.compute_full_charge_plan(
     charge_speed_kw=3.0,
     all_price=[0.10] * 20,
     battery_forecast=[14.95] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check("compute_full_charge_plan moves to holding as soon as full, even mid-window", full_mid_window_plan["phase"] == "holding")
 check(
@@ -688,6 +751,8 @@ due_and_full_plan = plans.compute_full_charge_plan(
     charge_speed_kw=3.0,
     all_price=[0.10] * 20,
     battery_forecast=[15.0] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check(
     "compute_full_charge_plan starts holding directly (skipping scheduled/charging) when already full and due",
@@ -720,6 +785,8 @@ continued_holding_plan = plans.compute_full_charge_plan(
     charge_speed_kw=3.0,
     all_price=[0.10] * 20,
     battery_forecast=[15.0] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check(
     "compute_full_charge_plan keeps a continuing holding phase's hold_start_unit/hold_end_unit fixed from when holding began",
@@ -760,6 +827,8 @@ future_peak_plan = plans.compute_full_charge_plan(
     charge_speed_kw=5.0,
     all_price=future_peak_price,
     battery_forecast=future_peak_forecast,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check(
     "compute_full_charge_plan anchors the deficit to a genuine future peak (12.0 kWh), not today's 5.0 kWh",
@@ -794,10 +863,12 @@ overshoot_plan = plans.compute_full_charge_plan(
     charge_speed_kw=5.0,
     all_price=[0.10] * 30,
     battery_forecast=overshoot_forecast,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check(
     "compute_full_charge_plan schedules nothing when the forecasted peak already reaches the overshoot ceiling on its own",
-    overshoot_plan == {"active": False, "phase": None, "relying_on_peak_unit": 24},
+    overshoot_plan == {"active": False, "phase": None, "relying_on_peak_unit": 24, "retry_after_timeout": False},
 )
 check(
     "compute_full_charge_plan still flags relying_on_peak_unit even when skipping scheduling entirely - the discharge plan must not sell off a peak this decision is silently counting on",
@@ -828,6 +899,8 @@ no_rise_plan = plans.compute_full_charge_plan(
     charge_speed_kw=5.0,
     all_price=no_rise_price,
     battery_forecast=no_rise_forecast,
+    battery_voltage=None,
+    target_voltage=55.2,
 )
 check(
     "compute_full_charge_plan with no future rise anchors to the forecasted level at the cheapest window (7.5 kWh), not today's 10.0 kWh",
@@ -840,6 +913,220 @@ check(
 check(
     "compute_full_charge_plan leaves relying_on_peak_unit as None for the no-future-rise (cheapest-window) case - there's no future peak there for the discharge plan to protect",
     no_rise_plan["relying_on_peak_unit"] is None,
+)
+
+# ---------------------------------------------------------------------------
+# compute_full_charge_plan - balance_confirmed (three-way AND: SOC, cell
+# voltage differential, battery pack voltage vs. target) and
+# retry_after_timeout (a timed-out hold defers to the normal flow instead
+# of immediately re-forcing another hold). Added per Timo's situation
+# 1/situation 2 spec and the "default to normal flow" timeout answer.
+# ---------------------------------------------------------------------------
+
+# Situation 1: nothing due, but the battery is genuinely full and all three
+# confirmation legs are satisfied together - passively confirmed, no active
+# plan forced.
+passive_confirmed_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=10,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=1.0,
+    soc_now_percent=99.6,
+    max_hold_minutes=120.0,
+    voltage_diff=5.0,
+    battery_now_kwh=15.0,
+    high_threshold_kwh=16.5,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+    battery_forecast=[15.0] * 5,
+    battery_voltage=55.2,
+    target_voltage=55.2,
+)
+check(
+    "compute_full_charge_plan passively confirms balance (and forces nothing) when full+balanced with nothing due",
+    passive_confirmed_plan == {"active": False, "phase": None, "balance_confirmed": True},
+)
+
+# Same, but the battery pack voltage hasn't actually reached the target yet
+# (still well under target - 0.1V) - SOC and voltage_diff alone are not
+# enough, balance_confirmed must stay False.
+passive_unconfirmed_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=10,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=1.0,
+    soc_now_percent=99.6,
+    max_hold_minutes=120.0,
+    voltage_diff=5.0,
+    battery_now_kwh=15.0,
+    high_threshold_kwh=16.5,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+    battery_forecast=[15.0] * 5,
+    battery_voltage=54.0,
+    target_voltage=55.2,
+)
+check(
+    "compute_full_charge_plan withholds balance_confirmed when battery voltage hasn't reached target - 0.1V yet",
+    passive_unconfirmed_plan == {"active": False, "phase": None, "balance_confirmed": False},
+)
+
+# A missing battery_voltage reading must be treated the same conservative
+# way as a missing voltage_diff reading - never assume the target's met.
+passive_missing_voltage_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=10,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=1.0,
+    soc_now_percent=99.6,
+    max_hold_minutes=120.0,
+    voltage_diff=5.0,
+    battery_now_kwh=15.0,
+    high_threshold_kwh=16.5,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+    battery_forecast=[15.0] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
+)
+check(
+    "compute_full_charge_plan treats a missing battery_voltage reading as not-yet-confirmed, never as satisfied",
+    passive_missing_voltage_plan["balance_confirmed"] is False,
+)
+
+# Situation 2: a hold already in progress ends the moment all three legs
+# are satisfied together, regardless of how long is left on the timeout.
+holding_all_confirmed_prev = {
+    "active": True,
+    "phase": "holding",
+    "hold_start": now_top_of_hour.isoformat(),
+    "hold_minutes": 5.0,
+    "hold_start_unit": 10,
+    "hold_end_unit": 18,
+}
+holding_confirmed_plan = plans.compute_full_charge_plan(
+    prev=holding_all_confirmed_prev,
+    cur_unit=11,
+    now=now_top_of_hour + timedelta(minutes=5),
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=99.8,
+    max_hold_minutes=120.0,
+    voltage_diff=2.0,
+    battery_now_kwh=15.0,
+    high_threshold_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+    battery_forecast=[15.0] * 5,
+    battery_voltage=55.5,
+    target_voltage=55.2,
+)
+check(
+    "compute_full_charge_plan ends a holding phase as soon as all three legs are genuinely satisfied together",
+    holding_confirmed_plan == {"active": False, "phase": None, "balance_confirmed": True},
+)
+
+# A hold that times out without ever confirming balance must NOT reset the
+# interval (balance_confirmed absent/false) and must flag
+# retry_after_timeout, so the very next fresh evaluation doesn't just
+# shortcut straight back into another hold.
+holding_timeout_prev = {
+    "active": True,
+    "phase": "holding",
+    "hold_start": now_top_of_hour.isoformat(),
+    "hold_minutes": 30.0,
+    "hold_start_unit": 10,
+    "hold_end_unit": 18,
+}
+holding_timed_out_plan = plans.compute_full_charge_plan(
+    prev=holding_timeout_prev,
+    cur_unit=18,
+    now=now_top_of_hour + timedelta(minutes=125),
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=99.8,
+    max_hold_minutes=120.0,
+    voltage_diff=999.0,
+    battery_now_kwh=15.0,
+    high_threshold_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+    battery_forecast=[15.0] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
+)
+check(
+    "compute_full_charge_plan flags retry_after_timeout (and not balance_confirmed) when a hold times out unbalanced",
+    holding_timed_out_plan == {"active": False, "phase": None, "timed_out": True, "retry_after_timeout": True},
+)
+
+# The very next fresh (phase=None) evaluation, still due and still
+# genuinely full, must NOT shortcut straight back into holding just
+# because retry_after_timeout is set - it falls through to the same
+# forward-looking peak/deficit logic used before any charge was ever
+# forced. Here battery_now_kwh already equals high_threshold_kwh with a
+# flat forecast, so deficit<=0 and nothing gets scheduled either - proving
+# holding was genuinely skipped, not just deferred into a scheduled plan.
+retry_after_timeout_plan = plans.compute_full_charge_plan(
+    prev=holding_timed_out_plan,
+    cur_unit=18,
+    now=now_top_of_hour + timedelta(minutes=130),
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=99.8,
+    max_hold_minutes=120.0,
+    voltage_diff=999.0,
+    battery_now_kwh=15.0,
+    high_threshold_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+    battery_forecast=[15.0] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
+)
+check(
+    "compute_full_charge_plan does not immediately re-enter holding on the fresh evaluation right after a timeout, even though SOC is still >=99.5%",
+    retry_after_timeout_plan["phase"] is None and retry_after_timeout_plan["active"] is False,
+)
+check(
+    "compute_full_charge_plan carries retry_after_timeout forward across consecutive fresh evaluations, until real progress resets it",
+    retry_after_timeout_plan["retry_after_timeout"] is True,
+)
+
+# Contrast: the SAME due+genuinely-full scenario, but with no prior timeout
+# (prev=None) - the direct, immediate is_full -> holding transition (the
+# ORIGINAL, non-timeout situation-2 behavior) must be unaffected by any of
+# the above.
+fresh_due_and_full_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=18,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=99.8,
+    max_hold_minutes=120.0,
+    voltage_diff=999.0,
+    battery_now_kwh=15.0,
+    high_threshold_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+    battery_forecast=[15.0] * 5,
+    battery_voltage=None,
+    target_voltage=55.2,
+)
+check(
+    "compute_full_charge_plan still enters holding immediately on a genuine first-time is_full+due, unaffected by retry_after_timeout logic",
+    fresh_due_and_full_plan["phase"] == "holding",
 )
 
 # compute_high_discharge_plan's suppress_new - blocks scheduling a brand new

@@ -26,11 +26,13 @@ from .const import (
     CONF_BATTERY_CHARGE_ENERGY_ENTITY,
     CONF_BATTERY_DISCHARGE_ENERGY_ENTITY,
     CONF_BATTERY_SOC_ENTITY,
+    CONF_BATTERY_VOLTAGE_ENTITY,
     CONF_CHARGE_SPEED_KW,
     CONF_DISCHARGE_SPEED_KW,
     CONF_ENABLE_FULL_CHARGE_PLAN,
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
+    CONF_FULL_CHARGE_TARGET_VOLTAGE,
     CONF_GRID_EXPORT_ENTITIES,
     CONF_GRID_IMPORT_ENTITIES,
     CONF_GRID_SETPOINT_ENTITY,
@@ -55,6 +57,7 @@ from .const import (
     DEFAULT_ENABLE_FULL_CHARGE_PLAN,
     DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN,
     DEFAULT_ENABLE_SPIKE_PLAN,
+    DEFAULT_FULL_CHARGE_TARGET_VOLTAGE,
     DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW,
     DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW,
     DEFAULT_MAX_SOC_PERCENT,
@@ -139,6 +142,19 @@ def _main_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_HIGH_CELL_VOLTAGE_ENTITY, default=defaults.get(CONF_HIGH_CELL_VOLTAGE_ENTITY)
             ): _optional_entity_selector(),
+            # Optional at the schema level (like the entity fields above) but
+            # validated as conditionally required in async_step_user/
+            # async_step_init - see battery_voltage_entity_required - since
+            # it's only mandatory when the full-charge plan is enabled, a
+            # relationship voluptuous can't express as cleanly as a
+            # submit-time check.
+            vol.Optional(
+                CONF_BATTERY_VOLTAGE_ENTITY, default=defaults.get(CONF_BATTERY_VOLTAGE_ENTITY)
+            ): _optional_entity_selector(),
+            vol.Required(
+                CONF_FULL_CHARGE_TARGET_VOLTAGE,
+                default=defaults.get(CONF_FULL_CHARGE_TARGET_VOLTAGE, DEFAULT_FULL_CHARGE_TARGET_VOLTAGE),
+            ): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=1000, step=0.1, unit_of_measurement="V")),
             vol.Required(
                 CONF_BATTERY_CAPACITY_KWH, default=defaults.get(CONF_BATTERY_CAPACITY_KWH, DEFAULT_BATTERY_CAPACITY_KWH)
             ): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=400, step=0.5, unit_of_measurement="kWh")),
@@ -235,6 +251,7 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
         CONF_HIGH_CELL_VOLTAGE_ENTITY,
         CONF_BATTERY_CHARGE_ENERGY_ENTITY,
         CONF_BATTERY_DISCHARGE_ENERGY_ENTITY,
+        CONF_BATTERY_VOLTAGE_ENTITY,
     ):
         if key in data and not data.get(key):
             data[key] = None
@@ -261,6 +278,12 @@ class EssManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data = _clean(user_input)
             if not data.get(CONF_SOLAR_FORECAST_ENTITIES):
                 errors["base"] = "solar_forecast_required"
+            elif data.get(CONF_ENABLE_FULL_CHARGE_PLAN) and not data.get(CONF_BATTERY_VOLTAGE_ENTITY):
+                # The battery-voltage confirmation leg is required alongside
+                # the full-charge plan - it's a core leg of "genuinely
+                # balanced" now, not an optional extra like the voltage-diff/
+                # cell-voltage fields above.
+                errors["base"] = "battery_voltage_entity_required"
             else:
                 self._data = data
                 if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CALCULATED:
@@ -341,14 +364,18 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         current = {**self.config_entry.data, **self.config_entry.options}
+        errors: dict[str, str] = {}
         if user_input is not None:
             data = _clean(user_input)
-            self._data = data
-            if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CALCULATED:
-                return await self.async_step_usage_calculated()
-            if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CONSUMPTION_SENSOR:
-                return await self.async_step_usage_consumption()
-            return await self.async_step_usage_sensor()
+            if data.get(CONF_ENABLE_FULL_CHARGE_PLAN) and not data.get(CONF_BATTERY_VOLTAGE_ENTITY):
+                errors["base"] = "battery_voltage_entity_required"
+            else:
+                self._data = data
+                if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CALCULATED:
+                    return await self.async_step_usage_calculated()
+                if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CONSUMPTION_SENSOR:
+                    return await self.async_step_usage_consumption()
+                return await self.async_step_usage_sensor()
 
         schema = vol.Schema(
             {
@@ -378,6 +405,9 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(
                     CONF_HIGH_CELL_VOLTAGE_ENTITY, default=current.get(CONF_HIGH_CELL_VOLTAGE_ENTITY)
                 ): _optional_entity_selector(),
+                vol.Optional(
+                    CONF_BATTERY_VOLTAGE_ENTITY, default=current.get(CONF_BATTERY_VOLTAGE_ENTITY)
+                ): _optional_entity_selector(),
                 vol.Required(
                     CONF_MAX_BATTERY_CHARGE_SPEED_KW,
                     default=current.get(CONF_MAX_BATTERY_CHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW),
@@ -403,7 +433,7 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
                 ): selector.BooleanSelector(),
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
 
     async def async_step_usage_sensor(self, user_input: dict[str, Any] | None = None):
         current = {**self.config_entry.data, **self.config_entry.options}

@@ -21,9 +21,11 @@ from .const import (
     CONF_BATTERY_CHARGE_ENERGY_ENTITY,
     CONF_BATTERY_DISCHARGE_ENERGY_ENTITY,
     CONF_BATTERY_SOC_ENTITY,
+    CONF_BATTERY_VOLTAGE_ENTITY,
     CONF_ENABLE_FULL_CHARGE_PLAN,
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
+    CONF_FULL_CHARGE_TARGET_VOLTAGE,
     CONF_GRID_EXPORT_ENTITIES,
     CONF_GRID_IMPORT_ENTITIES,
     CONF_GRID_SETPOINT_ENTITY,
@@ -39,6 +41,7 @@ from .const import (
     CONF_USAGE_LOOKBACK_WEEKS,
     CONF_USAGE_SOURCE,
     CONF_VOLTAGE_DIFF_ENTITY,
+    DEFAULT_FULL_CHARGE_TARGET_VOLTAGE,
     DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW,
     DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW,
     DEFAULT_USAGE_LOOKBACK_WEEKS,
@@ -50,6 +53,7 @@ from .const import (
     NUM_DISCHARGE_SPEED_KW,
     NUM_FULL_CHARGE_INTERVAL_DAYS,
     NUM_FULL_CHARGE_MAX_HOLD_MINUTES,
+    NUM_FULL_CHARGE_TARGET_VOLTAGE,
     NUM_MAX_SOC_PERCENT,
     NUM_MIN_SOC_PERCENT,
     NUM_MINIMUM_CHARGE_TARGET_KWH,
@@ -70,7 +74,6 @@ from .usage_forecast import compute_usage_forecast, compute_usage_forecast_from_
 
 _LOGGER = logging.getLogger(__name__)
 
-FULL_SOC_THRESHOLD = 99.5
 # Idle grid-setpoint tolerance window (W). The original hardcoded -30W as
 # "idle" because that specific Victron install's setpoint never quite sat at
 # 0. Generalized to 0W here - if your inverter has a similar quirk, that's a
@@ -122,7 +125,6 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._high_discharge_plan: Optional[dict] = None
         self._full_charge_plan: Optional[dict] = None
         self._last_full_reached: Optional[datetime] = None
-        self._was_full_prev_cycle: bool = False
         self._restored = False
 
         # Calculated-usage-forecast cache - recomputed at most once every
@@ -152,7 +154,6 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._full_charge_plan = data.get("full_charge_plan")
             last_full = data.get("last_full_reached")
             self._last_full_reached = dt_util.parse_datetime(last_full) if last_full else None
-            self._was_full_prev_cycle = bool(data.get("was_full_prev_cycle", False))
         self._restored = True
 
     async def _async_persist(self) -> None:
@@ -164,7 +165,6 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "high_discharge_plan": self._high_discharge_plan,
                 "full_charge_plan": self._full_charge_plan,
                 "last_full_reached": self._last_full_reached.isoformat() if self._last_full_reached else None,
-                "was_full_prev_cycle": self._was_full_prev_cycle,
             }
         )
 
@@ -375,6 +375,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         setpoint_w = _get_float_state(self.hass, conf.get(CONF_GRID_SETPOINT_ENTITY), default=0.0)
         voltage_diff = self._get_voltage_diff(conf)
+        # Third full-charge confirmation leg - the battery pack's own
+        # measured voltage, checked against the adjustable target-voltage
+        # number entity below (see compute_full_charge_plan's
+        # voltage_at_target check). default=None (not 0.0) so a missing
+        # reading is distinguishable from a genuine 0V reading.
+        battery_voltage = _get_float_state(self.hass, conf.get(CONF_BATTERY_VOLTAGE_ENTITY), default=None)
 
         # -- tunables (numbers) ------------------------------------------------
         capacity_kwh = self.get_number(NUM_BATTERY_CAPACITY_KWH, 30.0)
@@ -396,6 +402,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         planning_horizon_hours = int(self.get_number(NUM_PLANNING_HORIZON_HOURS, 72))
         full_charge_interval_days = self.get_number(NUM_FULL_CHARGE_INTERVAL_DAYS, 14.0)
         full_charge_max_hold_minutes = self.get_number(NUM_FULL_CHARGE_MAX_HOLD_MINUTES, 120.0)
+        # Live-adjustable, unlike max_battery_charge/discharge_speed_kw above -
+        # a calibration figure meant to be dialed in/tweaked from a dashboard,
+        # not a fixed hardware property, so it's an ordinary `number` entity.
+        full_charge_target_voltage = self.get_number(NUM_FULL_CHARGE_TARGET_VOLTAGE, DEFAULT_FULL_CHARGE_TARGET_VOLTAGE)
 
         low_threshold_kwh = round((min_soc_percent / 100) * capacity_kwh, 2)
         high_threshold_kwh = round((max_soc_percent / 100) * capacity_kwh, 2)
@@ -428,10 +438,6 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # before compute_high_discharge_plan's call. It doesn't depend on
         # any other plan or on forecast_with_spike for anything, so
         # computing it first changes nothing about its own result.
-        is_full_now = soc_now_percent >= FULL_SOC_THRESHOLD
-        if is_full_now and not self._was_full_prev_cycle:
-            self._last_full_reached = now
-        self._was_full_prev_cycle = is_full_now
         if self._last_full_reached is not None:
             time_since_full_days = (now - self._last_full_reached).total_seconds() / 86400
         else:
@@ -464,9 +470,21 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 charge_speed_kw,
                 all_price,
                 battery_forecast,
+                battery_voltage,
+                full_charge_target_voltage,
             )
         else:
             self._full_charge_plan = {"active": False, "phase": None}
+
+        # Situation 1 (passive confirmation) and the fix for the old
+        # SOC-crossing race condition both come from the same change: the
+        # "days since last full" clock now resets strictly AFTER
+        # compute_full_charge_plan runs, and only when ITS OWN output says
+        # all three legs (SOC, voltage differential, battery voltage) were
+        # genuinely satisfied together - never on a bare SOC threshold
+        # crossing computed independently beforehand.
+        if self._full_charge_plan.get("balance_confirmed"):
+            self._last_full_reached = now
 
         # -- negative price plan -------------------------------------------------
         if conf.get(CONF_ENABLE_NEGATIVE_PRICE_PLAN, True):
@@ -619,6 +637,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "high_discharge_plan": self._high_discharge_plan,
             "full_charge_plan": self._full_charge_plan,
             "cell_voltage_differential_mv": voltage_diff,
+            "battery_voltage": battery_voltage,
             "time_since_full_charge_days": round(time_since_full_days, 2),
             "planning_horizon_hours": planning_horizon_hours,
             "charge_energy_kwh": charge_kwh,

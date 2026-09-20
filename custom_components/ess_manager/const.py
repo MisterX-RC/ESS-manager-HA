@@ -34,6 +34,16 @@ CONF_VOLTAGE_DIFF_ENTITY = "voltage_diff_entity"
 CONF_LOW_CELL_VOLTAGE_ENTITY = "low_cell_voltage_entity"
 CONF_HIGH_CELL_VOLTAGE_ENTITY = "high_cell_voltage_entity"
 
+# A third, independent confirmation leg for the full-charge balancing plan,
+# on top of SOC (>=99.5%) and the cell voltage differential above: the
+# battery pack's own measured voltage must also have reached its configured
+# full-charge target (see CONF_FULL_CHARGE_TARGET_VOLTAGE below), minus a
+# small margin - see compute_full_charge_plan's voltage_at_target check.
+# Required alongside CONF_ENABLE_FULL_CHARGE_PLAN (validated in
+# config_flow.py), since it's now a core leg of "genuinely balanced", not an
+# optional extra like the differential sources above.
+CONF_BATTERY_VOLTAGE_ENTITY = "battery_voltage_entity"
+
 # -- household usage forecast: an existing "h0..h120" sensor, calculated --
 # -- internally from HA's own long-term recorder statistics (the full --
 # -- solar/import/export/battery energy-balance identity), or read --
@@ -124,6 +134,15 @@ CONF_MAX_BATTERY_DISCHARGE_SPEED_KW = "max_battery_discharge_speed_kw"
 CONF_MIN_SOC_PERCENT = "min_soc_percent"
 CONF_MAX_SOC_PERCENT = "max_soc_percent"
 
+# Seed value for the full-charge target voltage `number` entity (see
+# NUMBER_DEFINITIONS below) - the pack's own fully-charged voltage setpoint,
+# checked (minus a small margin) as the third confirmation leg alongside SOC
+# and the cell voltage differential. Unlike CONF_MAX_BATTERY_CHARGE_SPEED_KW
+# above, this one IS meant to be tweaked live from a dashboard (a
+# calibration figure you dial in/adjust over time), so it follows the
+# ordinary seed-value pattern, not the setup+options-only one.
+CONF_FULL_CHARGE_TARGET_VOLTAGE = "full_charge_target_voltage"
+
 # ---------------------------------------------------------------------------
 # Defaults for the initial config flow
 # ---------------------------------------------------------------------------
@@ -142,6 +161,10 @@ DEFAULT_MIN_SOC_PERCENT = 15.0
 # ceiling, not a hard cap - it mirrors the original hand-written sensor's
 # hardcoded 33 kWh threshold on a 30 kWh battery (110%).
 DEFAULT_MAX_SOC_PERCENT = 110.0
+# 48V-class LiFePO4 pack (16S), fully charged - a reasonable starting point
+# only; battery voltage varies widely by chemistry/pack size, so this should
+# be tuned to your own system's actual full-charge voltage after setup.
+DEFAULT_FULL_CHARGE_TARGET_VOLTAGE = 55.2
 DEFAULT_ENABLE_FULL_CHARGE_PLAN = False
 DEFAULT_ENABLE_SPIKE_PLAN = True
 DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN = True
@@ -165,6 +188,7 @@ NUM_MINIMUM_CHARGE_TARGET_KWH = "minimum_charge_target_kwh"
 NUM_PLANNING_HORIZON_HOURS = "planning_horizon_hours"
 NUM_FULL_CHARGE_INTERVAL_DAYS = "full_charge_interval_days"
 NUM_FULL_CHARGE_MAX_HOLD_MINUTES = "full_charge_max_hold_minutes"
+NUM_FULL_CHARGE_TARGET_VOLTAGE = "full_charge_target_voltage"
 
 # (key, name, icon, min, max, step, unit, default_fn(config_entry.data))
 # default_fn takes the config entry's `data` dict and returns the seed value
@@ -299,6 +323,16 @@ NUMBER_DEFINITIONS = [
         5,
         "min",
         lambda data: 120,
+    ),
+    (
+        NUM_FULL_CHARGE_TARGET_VOLTAGE,
+        "Full charge target voltage",
+        "mdi:flash",
+        0,
+        1000,
+        0.1,
+        "V",
+        lambda data: data.get(CONF_FULL_CHARGE_TARGET_VOLTAGE, DEFAULT_FULL_CHARGE_TARGET_VOLTAGE),
     ),
 ]
 

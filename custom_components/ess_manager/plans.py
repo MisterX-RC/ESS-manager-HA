@@ -654,11 +654,35 @@ def compute_full_charge_plan(
     charge_speed_kw: float,
     all_price: list[float],
     battery_forecast: list[float],
+    battery_voltage: Optional[float],
+    target_voltage: float,
     balance_threshold: float = 10.0,
 ) -> dict:
     prev = prev or {"active": False, "phase": None}
     is_full = soc_now_percent >= 99.5
     voltage_diff = voltage_diff if voltage_diff is not None else 999.0
+
+    # Third confirmation leg, on top of SOC and the cell voltage
+    # differential above: the battery pack's own measured voltage must
+    # also have reached its configured full-charge target, minus a small
+    # margin (chasing the exact figure to the millivolt is neither
+    # realistic nor useful). A missing reading is treated the same
+    # conservative way as a missing voltage_diff reading - assume it
+    # hasn't been reached yet, never assume it has.
+    VOLTAGE_MARGIN = 0.1
+    voltage_at_target = battery_voltage is not None and battery_voltage >= (target_voltage - VOLTAGE_MARGIN)
+    balance_confirmed_now = is_full and voltage_diff < balance_threshold and voltage_at_target
+
+    # Once a holding attempt times out without ever confirming balance,
+    # `retry_after_timeout` carries the instruction "don't shortcut
+    # straight back into holding just because SOC still happens to be
+    # >=99.5%" forward through every subsequent fresh (phase=None)
+    # recomputation - whether that lands back in a quiet wait for a future
+    # solar peak or a freshly scheduled grid session - until either a real
+    # charging session's own completion earns a clean new attempt (that
+    # transition doesn't consult this flag at all), or the interval
+    # genuinely resets via balance_confirmed_now succeeding elsewhere.
+    retry_after_timeout = bool(prev.get("retry_after_timeout"))
 
     def _start_holding() -> dict:
         # hold_start_unit/hold_end_unit exist purely for display/forecast
@@ -679,10 +703,19 @@ def compute_full_charge_plan(
     if prev.get("active") and prev.get("phase") == "holding":
         hold_start = datetime.fromisoformat(prev["hold_start"])
         hold_minutes = round((now - hold_start).total_seconds() / 60, 1)
-        if is_full and voltage_diff < balance_threshold:
-            return {"active": False, "phase": None}
+        if balance_confirmed_now:
+            return {"active": False, "phase": None, "balance_confirmed": True}
         if hold_minutes >= max_hold_minutes:
-            return {"active": False, "phase": None, "timed_out": True}
+            # Don't force anything further, and don't let the very next
+            # fresh evaluation immediately re-enter holding just because
+            # SOC still happens to be >=99.5% - defer to the same
+            # forward-looking logic used before any charge was ever
+            # forced (below): if solar is still expected to carry the
+            # battery to a genuine future overshoot, quietly wait for it
+            # (still passively checking for balance meanwhile, same as
+            # the "not due" path); if not, let the charging logic pick a
+            # fresh cheapest window instead. See retry_after_timeout above.
+            return {"active": False, "phase": None, "timed_out": True, "retry_after_timeout": True}
         return {
             "active": True,
             "phase": "holding",
@@ -731,9 +764,21 @@ def compute_full_charge_plan(
         }
 
     due = time_since_days >= interval_days
+
     if not due:
-        return {"active": False, "phase": None}
-    if is_full:
+        # Passive balance confirmation: even with nothing due, if the
+        # battery happens to be sitting genuinely full (solar, most
+        # commonly) and already satisfies all three confirmation legs,
+        # that's a perfectly good, unforced full+balanced cycle - checked
+        # quietly every cycle regardless of `due`, so the caller
+        # (coordinator.py) can reset the "days since last full charge"
+        # clock without ever entering an active plan or forcing a
+        # setpoint. If it never gets there before SOC drops back below
+        # 99.5% again, nothing happens - the interval keeps counting
+        # toward becoming genuinely due, same as always.
+        return {"active": False, "phase": None, "balance_confirmed": balance_confirmed_now}
+
+    if is_full and not retry_after_timeout:
         return _start_holding()
 
     # Don't necessarily base the deficit on right now. battery_forecast is
@@ -809,6 +854,7 @@ def compute_full_charge_plan(
             "active": False,
             "phase": None,
             "relying_on_peak_unit": anchor_unit if peak_hour_index > 0 else None,
+            "retry_after_timeout": retry_after_timeout,
         }
 
     hold_hour_usage = float(usage[0]) if usage else 0.0
@@ -891,6 +937,12 @@ def compute_full_charge_plan(
         # before it happens. None for the no-future-rise (cheapest-window)
         # case, since there's no peak there to protect.
         "relying_on_peak_unit": anchor_unit if peak_hour_index > 0 else None,
+        # A legitimate new charging session is starting here - carry the
+        # flag forward unchanged (it isn't consulted again until the next
+        # fresh phase=None evaluation), rather than clearing it, since
+        # this path doesn't itself decide whether the retry restriction
+        # is still needed.
+        "retry_after_timeout": retry_after_timeout,
     }
 
 
@@ -970,7 +1022,17 @@ def _compute_system_status_raw(
     if full.get("active") and full.get("phase") in ("charging", "holding"):
         if full.get("phase") == "charging":
             return "Actief" if setpoint_w >= charge_engaged_at else "Start charge"
-        return "Balancing" if setpoint_w >= charge_engaged_at else "Start charge"
+        # Holding: keep commanding a charge setpoint for the WHOLE hold,
+        # regardless of what the setpoint readback shows. Solar alone can
+        # already be holding the battery at 100% with zero grid setpoint
+        # needed, in which case setpoint_w never ramps up - but "Start
+        # charge" is precisely the signal the external automation reacts
+        # to in order to keep enforcing a charge setpoint, so household
+        # loads can't erode the SOC while waiting for the cells to
+        # balance. "Balancing" was display-only and never an automation
+        # trigger (see dashboard/automation_example.yaml), so nothing is
+        # lost by retiring it here.
+        return "Start charge"
 
     if full.get("active") and full.get("phase") == "scheduled":
         return "Full charge scheduled"
