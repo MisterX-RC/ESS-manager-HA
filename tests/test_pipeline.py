@@ -363,10 +363,11 @@ capped_plan = plans.compute_full_charge_plan(
     max_hold_minutes=120.0,
     voltage_diff=None,
     battery_now_kwh=3.0,
-    upper_limit_kwh=15.0,
+    high_threshold_kwh=15.0,
     usage=[0.3] * 120,
     charge_speed_kw=3.0,
     all_price=[0.10] * 18,
+    battery_forecast=[3.0] * 5,
 )
 check(
     "compute_full_charge_plan caps a single session's target_kwh at max(30x 5-day avg usage, 4h at charge_speed_kw)",
@@ -393,10 +394,11 @@ fast_charger_plan = plans.compute_full_charge_plan(
     max_hold_minutes=120.0,
     voltage_diff=None,
     battery_now_kwh=3.0,
-    upper_limit_kwh=15.0,
+    high_threshold_kwh=15.0,
     usage=[0.3] * 120,
     charge_speed_kw=10.0,
     all_price=[0.10] * 6,
+    battery_forecast=[3.0] * 5,
 )
 check(
     "compute_full_charge_plan: a fast charger's 4h-floor cap (40 kWh) is well above the deficit, so the cap doesn't bind at all",
@@ -413,10 +415,11 @@ slow_charger_plan = plans.compute_full_charge_plan(
     max_hold_minutes=120.0,
     voltage_diff=None,
     battery_now_kwh=3.0,
-    upper_limit_kwh=15.0,
+    high_threshold_kwh=15.0,
     usage=[0.3] * 120,
     charge_speed_kw=1.8,
     all_price=[0.10] * 24,
+    battery_forecast=[3.0] * 5,
 )
 check(
     "compute_full_charge_plan: a slow charger's usage-average cap (9.0 kWh, above its 7.2 kWh floor) still meaningfully binds",
@@ -433,10 +436,11 @@ low_usage_slow_charger_plan = plans.compute_full_charge_plan(
     max_hold_minutes=120.0,
     voltage_diff=None,
     battery_now_kwh=3.0,
-    upper_limit_kwh=15.0,
+    high_threshold_kwh=15.0,
     usage=[0.05] * 120,
     charge_speed_kw=1.8,
     all_price=[0.10] * 17,
+    battery_forecast=[3.0] * 5,
 )
 check(
     "compute_full_charge_plan: with very low average usage, the 4h floor (7.2 kWh) itself becomes the binding cap, not the tiny 1.5 kWh usage-average figure",
@@ -469,10 +473,11 @@ capped_with_flat_valley = plans.compute_full_charge_plan(
     max_hold_minutes=120.0,
     voltage_diff=None,
     battery_now_kwh=1.79,
-    upper_limit_kwh=15.0,
+    high_threshold_kwh=15.0,
     usage=[0.21] * 120,
     charge_speed_kw=3.0,
     all_price=flat_valley_price,
+    battery_forecast=[1.79] * 5,
 )
 check(
     "compute_full_charge_plan still extends a session-capped window into an available flat-price valley",
@@ -490,10 +495,11 @@ uncapped_plan = plans.compute_full_charge_plan(
     max_hold_minutes=120.0,
     voltage_diff=None,
     battery_now_kwh=14.5,
-    upper_limit_kwh=15.0,
+    high_threshold_kwh=15.0,
     usage=[0.3] * 120,
     charge_speed_kw=3.0,
     all_price=[0.10] * 2,
+    battery_forecast=[14.5] * 5,
 )
 check(
     "compute_full_charge_plan leaves target_kwh alone when it's already under the session cap",
@@ -526,10 +532,11 @@ continued_plan = plans.compute_full_charge_plan(
     max_hold_minutes=120.0,
     voltage_diff=None,
     battery_now_kwh=8.0,
-    upper_limit_kwh=15.0,
+    high_threshold_kwh=15.0,
     usage=[0.3] * 120,
     charge_speed_kw=3.0,
     all_price=[0.10] * 20,
+    battery_forecast=[8.0] * 5,
 )
 check(
     "compute_full_charge_plan re-plans a fresh session once an elapsed window didn't reach full, instead of running forever",
@@ -548,10 +555,11 @@ still_charging_plan = plans.compute_full_charge_plan(
     max_hold_minutes=120.0,
     voltage_diff=None,
     battery_now_kwh=8.0,
-    upper_limit_kwh=15.0,
+    high_threshold_kwh=15.0,
     usage=[0.3] * 120,
     charge_speed_kw=3.0,
     all_price=[0.10] * 20,
+    battery_forecast=[8.0] * 5,
 )
 check("compute_full_charge_plan keeps charging unchanged while still inside its locked window", still_charging_plan == midway_prev)
 
@@ -567,10 +575,11 @@ full_mid_window_plan = plans.compute_full_charge_plan(
     max_hold_minutes=120.0,
     voltage_diff=None,
     battery_now_kwh=14.95,
-    upper_limit_kwh=15.0,
+    high_threshold_kwh=15.0,
     usage=[0.3] * 120,
     charge_speed_kw=3.0,
     all_price=[0.10] * 20,
+    battery_forecast=[14.95] * 5,
 )
 check("compute_full_charge_plan moves to holding as soon as full, even mid-window", full_mid_window_plan["phase"] == "holding")
 check(
@@ -592,10 +601,11 @@ due_and_full_plan = plans.compute_full_charge_plan(
     max_hold_minutes=120.0,
     voltage_diff=None,
     battery_now_kwh=15.0,
-    upper_limit_kwh=15.0,
+    high_threshold_kwh=15.0,
     usage=[0.3] * 120,
     charge_speed_kw=3.0,
     all_price=[0.10] * 20,
+    battery_forecast=[15.0] * 5,
 )
 check(
     "compute_full_charge_plan starts holding directly (skipping scheduled/charging) when already full and due",
@@ -623,14 +633,117 @@ continued_holding_plan = plans.compute_full_charge_plan(
     max_hold_minutes=120.0,
     voltage_diff=999.0,
     battery_now_kwh=15.0,
-    upper_limit_kwh=15.0,
+    high_threshold_kwh=15.0,
     usage=[0.3] * 120,
     charge_speed_kw=3.0,
     all_price=[0.10] * 20,
+    battery_forecast=[15.0] * 5,
 )
 check(
     "compute_full_charge_plan keeps a continuing holding phase's hold_start_unit/hold_end_unit fixed from when holding began",
     continued_holding_plan["hold_start_unit"] == 10 and continued_holding_plan["hold_end_unit"] == 18,
+)
+
+# ---------------------------------------------------------------------------
+# compute_full_charge_plan - deficit anchored to a forecasted peak or the
+# cheapest window, not always to right now (added v0.1.18, per Timo: if
+# solar is forecast to raise the battery later - even days out - there's
+# no point buying grid energy for a gap solar will close for free; if
+# there's no such rise, at least look at the level forecast to exist once
+# the cheapest window actually arrives, not the level right now).
+# ---------------------------------------------------------------------------
+
+# battery_forecast rises to a peak of 12.0 kWh at hour 6 (unit 24), well
+# below the 16.5 kWh overshoot ceiling, then declines - a real but partial
+# future rise. The deficit should be anchored to that peak (12.0), not
+# today's 5.0 kWh, and the window must not be scheduled earlier than the
+# peak even though far cheaper prices (0.01) exist before it - buying grid
+# energy before the free solar rise happens would be wasted.
+future_peak_forecast = [6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 11.0, 10.0, 9.0]
+future_peak_price = [0.01] * 24 + [0.20] * 6 + [0.40] * 10
+future_peak_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=0,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=33.0,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=5.0,
+    high_threshold_kwh=16.5,
+    usage=[1.0] * 120,
+    charge_speed_kw=5.0,
+    all_price=future_peak_price,
+    battery_forecast=future_peak_forecast,
+)
+check(
+    "compute_full_charge_plan anchors the deficit to a genuine future peak (12.0 kWh), not today's 5.0 kWh",
+    future_peak_plan["anchor_kwh"] == 12.0 and future_peak_plan["deficit_kwh"] == 4.5 and future_peak_plan["target_kwh"] == 5.5,
+)
+check(
+    "compute_full_charge_plan never schedules the window before the peak, even though much cheaper prices exist earlier",
+    future_peak_plan["start_unit"] == 24 and future_peak_plan["end_unit"] == 30,
+)
+
+# The same shape, but the forecasted peak (17.0 kWh) now reaches past the
+# 16.5 kWh overshoot ceiling - a genuine, sustained surplus, not just a
+# graze past 100%. Nothing should be scheduled at all: live SOC crossing
+# 99.5% will drive the holding phase on its own once solar gets it there.
+overshoot_forecast = [6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 17.0, 16.0, 15.0, 14.0]
+overshoot_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=0,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=33.0,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=6.0,
+    high_threshold_kwh=16.5,
+    usage=[1.0] * 120,
+    charge_speed_kw=5.0,
+    all_price=[0.10] * 30,
+    battery_forecast=overshoot_forecast,
+)
+check(
+    "compute_full_charge_plan schedules nothing when the forecasted peak already reaches the overshoot ceiling on its own",
+    overshoot_plan == {"active": False, "phase": None},
+)
+
+# No future rise at all (forecast strictly declines from today's level -
+# e.g. no solar) - "now" is effectively the peak. Rather than anchoring to
+# right now (10.0 kWh), the deficit should be anchored to whatever the
+# battery is forecast to be AT the cheapest available window (unit 20,
+# where forecast[5] == 7.5 kWh, lower than today because of ordinary usage
+# in the meantime) - producing a bigger, more honest target (10.0 kWh) than
+# the naive today-anchored figure would (7.5 kWh).
+no_rise_forecast = [10.0 - 0.5 * h for h in range(10)]
+no_rise_price = [0.30] * 20 + [0.05] * 10 + [0.30] * 10
+no_rise_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=0,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=66.0,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=10.0,
+    high_threshold_kwh=16.5,
+    usage=[1.0] * 120,
+    charge_speed_kw=5.0,
+    all_price=no_rise_price,
+    battery_forecast=no_rise_forecast,
+)
+check(
+    "compute_full_charge_plan with no future rise anchors to the forecasted level at the cheapest window (7.5 kWh), not today's 10.0 kWh",
+    no_rise_plan["anchor_kwh"] == 7.5 and no_rise_plan["anchor_unit"] == 20,
+)
+check(
+    "compute_full_charge_plan's no-future-rise target (10.0 kWh) is bigger than the naive today-anchored figure would be (7.5 kWh)",
+    no_rise_plan["target_kwh"] == 10.0 and no_rise_plan["start_unit"] == 20 and no_rise_plan["end_unit"] == 30,
 )
 
 # _extend_flat_price_window - the houseboat-style "extend into a flat

@@ -627,10 +627,11 @@ def compute_full_charge_plan(
     max_hold_minutes: float,
     voltage_diff: Optional[float],
     battery_now_kwh: float,
-    upper_limit_kwh: float,
+    high_threshold_kwh: float,
     usage: list[float],
     charge_speed_kw: float,
     all_price: list[float],
+    battery_forecast: list[float],
     balance_threshold: float = 10.0,
 ) -> dict:
     prev = prev or {"active": False, "phase": None}
@@ -702,6 +703,9 @@ def compute_full_charge_plan(
             "units_needed": prev["units_needed"],
             "start_unit": prev["start_unit"],
             "end_unit": prev["end_unit"],
+            "anchor_kwh": prev.get("anchor_kwh", battery_now_kwh),
+            "anchor_unit": prev.get("anchor_unit", prev["start_unit"]),
+            "peak_kwh": prev.get("peak_kwh", battery_now_kwh),
         }
 
     due = time_since_days >= interval_days
@@ -710,7 +714,59 @@ def compute_full_charge_plan(
     if is_full:
         return _start_holding()
 
-    deficit = round(upper_limit_kwh - battery_now_kwh, 3)
+    # Don't necessarily base the deficit on right now. battery_forecast is
+    # an *uncapped* running projection (solar minus usage, no clipping at
+    # the battery's real capacity - see forecasting.build_battery_forecast)
+    # - find its highest point anywhere in the forecast horizon. If that
+    # peak is genuinely in the future (solar expected to raise the battery
+    # further before it's needed), there's no point buying grid energy for
+    # a gap solar will close for free - anchor the deficit to that peak's
+    # own forecasted level instead of today's, and never schedule the
+    # window earlier than when that peak actually happens.
+    peak_hour_index = 0
+    peak_kwh = battery_now_kwh
+    for h, level in enumerate(battery_forecast):
+        if level is not None and level > peak_kwh:
+            peak_kwh = level
+            peak_hour_index = h
+    hour0_start_unit = _hour0_start_unit(cur_unit, now)
+
+    if peak_hour_index > 0:
+        anchor_kwh = peak_kwh
+        anchor_unit = hour0_start_unit + (peak_hour_index * 4)
+        search_start = max(cur_unit, anchor_unit)
+    else:
+        # No meaningful future rise forecast (e.g. no solar) - today's
+        # level effectively already IS the peak. Rather than anchoring to
+        # right now, find where the cheapest window would actually land
+        # (sized off today's level, purely as a first-pass estimate of a
+        # plausible window length) and use the battery's own forecasted
+        # level at THAT point instead - ordinary usage between now and
+        # then still moves the number even with no solar to speak of.
+        prelim_deficit = round(high_threshold_kwh - battery_now_kwh, 3)
+        prelim_hold_usage = float(usage[0]) if usage else 0.0
+        prelim_target = max(round(prelim_deficit + prelim_hold_usage, 3), 0.0)
+        prelim_effective = max((charge_speed_kw / 4) - (prelim_hold_usage / 4), 0.1)
+        prelim_units = max(math.ceil(prelim_target / prelim_effective), 1)
+        prelim_start = _best_price_window(all_price, cur_unit, len(all_price), prelim_units, cheapest=True)
+        prelim_hour_index = min(max((prelim_start - cur_unit) // 4, 0), len(battery_forecast) - 1) if battery_forecast else 0
+        anchor_kwh = battery_forecast[prelim_hour_index] if battery_forecast else battery_now_kwh
+        anchor_unit = hour0_start_unit + (prelim_hour_index * 4)
+        search_start = cur_unit
+
+    deficit = round(high_threshold_kwh - anchor_kwh, 3)
+    if deficit <= 0:
+        # The anchor point already reaches (or exceeds) the same max-SOC
+        # overshoot ceiling used elsewhere for solar headroom - not just a
+        # fleeting graze past 100%, but a real, sustained surplus. In
+        # practice that means the real (capped) battery is expected to sit
+        # pegged at its true 100% for a genuine stretch while the excess
+        # gets curtailed/exported, which is long enough to finish the
+        # cell-balancing hold on its own. Nothing to buy - live SOC
+        # crossing 99.5% (is_full, above) will still drive the holding
+        # phase exactly as it already does, for free.
+        return {"active": False, "phase": None}
+
     hold_hour_usage = float(usage[0]) if usage else 0.0
     target_kwh = round(deficit + hold_hour_usage, 3)
 
@@ -767,8 +823,8 @@ def compute_full_charge_plan(
     # regression on the cap's purpose. Applies uniformly regardless of
     # whether this session's target was actually capped.
     search_end = len(all_price)
-    best_start = _best_price_window(all_price, cur_unit, search_end, units_needed, cheapest=True)
-    start_unit, end_unit = _extend_flat_price_window(all_price, best_start, best_start + units_needed, min_start=cur_unit)
+    best_start = _best_price_window(all_price, search_start, search_end, units_needed, cheapest=True)
+    start_unit, end_unit = _extend_flat_price_window(all_price, best_start, best_start + units_needed, min_start=search_start)
 
     return {
         "active": True,
@@ -781,6 +837,9 @@ def compute_full_charge_plan(
         "units_needed": units_needed,
         "start_unit": start_unit,
         "end_unit": end_unit,
+        "anchor_kwh": round(anchor_kwh, 3),
+        "anchor_unit": anchor_unit,
+        "peak_kwh": round(peak_kwh, 3),
     }
 
 

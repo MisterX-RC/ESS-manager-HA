@@ -8,6 +8,54 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.18] - 2026-09-20
+
+### Changed
+- The full-charge plan's deficit is no longer always based on the
+  battery's level right now. `compute_full_charge_plan` now scans the raw
+  (uncapped) battery forecast for its highest point anywhere in the
+  forecast horizon (up to ~5 days out):
+  - If that peak is genuinely in the future (solar expected to raise the
+    battery further), the deficit is anchored to the peak's own
+    forecasted level instead of today's, and the charge window is never
+    scheduled earlier than when that peak actually happens - buying grid
+    energy before a free solar rise would be wasted, even if much
+    cheaper prices exist beforehand.
+  - If that peak already reaches the same max-SOC-based overshoot
+    ceiling used elsewhere for solar headroom (`high_threshold_kwh`, 110%
+    by default) - not just a fleeting graze past 100% but a genuine,
+    sustained surplus - nothing is scheduled at all. Live SOC crossing
+    99.5% (the existing `is_full` check) still drives the holding phase
+    on its own, for free.
+  - If there's no meaningful future rise (e.g. no solar forecast, so
+    today's level effectively already is the peak), the deficit is
+    anchored to the battery's own forecasted level at whichever point
+    the cheapest available price window actually lands, rather than to
+    right now - ordinary usage between now and then still moves the
+    number even with no solar in the picture.
+  - The deficit reference point itself changed from the nominal 100%
+    capacity to the max-SOC overshoot ceiling (`high_threshold_kwh`):
+    targeting only 100% would treat the very first instant the forecast
+    grazes full as "solar handles it," which usually isn't a real,
+    sustained plateau - real physical SOC is still safety-valved to
+    never exceed true 100% by the existing `is_full` check regardless of
+    this higher reference point.
+  - `compute_full_charge_plan`'s `upper_limit_kwh` parameter is renamed
+    `high_threshold_kwh` (now passed `high_threshold_kwh` from the
+    coordinator instead of the nominal-100% `upper_limit_kwh`), and it
+    gains a new required `battery_forecast` parameter (the raw,
+    unadjusted solar/usage projection, with no price-driven charging
+    baked in). The "scheduled"/"charging" plan dict gains three new
+    debug/display fields: `anchor_kwh`, `anchor_unit`, and `peak_kwh`.
+  - Added 5 new tests covering all three cases (anchored to a genuine
+    future peak and refusing to schedule earlier than it even with
+    cheaper prices available first; skipping entirely when the peak
+    already reaches the overshoot ceiling; anchoring to the forecasted
+    level at the cheapest window when there's no future rise) and
+    updated every existing `compute_full_charge_plan` test call for the
+    renamed/new parameters (existing tests pass a flat forecast so their
+    previously-asserted numbers are unaffected).
+
 ## [0.1.17] - 2026-09-20
 
 ### Changed

@@ -489,6 +489,15 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             time_since_full_days = full_charge_interval_days
 
         if conf.get(CONF_ENABLE_FULL_CHARGE_PLAN, False):
+            # Passes high_threshold_kwh (the max-SOC-based overshoot
+            # ceiling, ~110% by default) rather than upper_limit_kwh
+            # (nominal 100%) - compute_full_charge_plan uses it both to
+            # decide whether a forecasted future solar peak already
+            # amounts to a real, sustained overshoot (long enough to
+            # finish cell-balancing on its own) and, if not, as the
+            # reference point for how much to buy. battery_forecast (the
+            # raw, unadjusted solar/usage projection - no price-driven
+            # charging baked in) is what it searches for that peak in.
             self._full_charge_plan = plans.compute_full_charge_plan(
                 self._full_charge_plan,
                 current_price_unit,
@@ -499,10 +508,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 full_charge_max_hold_minutes,
                 voltage_diff,
                 battery_now_kwh,
-                upper_limit_kwh,
+                high_threshold_kwh,
                 usage_forecast,
                 charge_speed_kw,
                 all_price,
+                battery_forecast,
             )
         else:
             self._full_charge_plan = {"active": False, "phase": None}
