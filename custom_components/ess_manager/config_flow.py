@@ -28,11 +28,13 @@ from .const import (
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_VOLTAGE_ENTITY,
     CONF_CHARGE_SPEED_KW,
+    CONF_DAYS_SINCE_FULL_CHARGE_ENTITY,
     CONF_DISCHARGE_SPEED_KW,
     CONF_ENABLE_FULL_CHARGE_PLAN,
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
     CONF_FULL_CHARGE_TARGET_VOLTAGE,
+    CONF_FULL_CHARGE_TRACKING_SOURCE,
     CONF_GRID_EXPORT_ENTITIES,
     CONF_GRID_IMPORT_ENTITIES,
     CONF_GRID_SETPOINT_ENTITY,
@@ -58,6 +60,7 @@ from .const import (
     DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN,
     DEFAULT_ENABLE_SPIKE_PLAN,
     DEFAULT_FULL_CHARGE_TARGET_VOLTAGE,
+    DEFAULT_FULL_CHARGE_TRACKING_SOURCE,
     DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW,
     DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW,
     DEFAULT_MAX_SOC_PERCENT,
@@ -66,6 +69,8 @@ from .const import (
     DEFAULT_USAGE_LOOKBACK_WEEKS,
     DEFAULT_USAGE_SOURCE,
     DOMAIN,
+    FULL_CHARGE_TRACKING_EXTERNAL_SENSOR,
+    FULL_CHARGE_TRACKING_INTERNAL,
     USAGE_SOURCE_CALCULATED,
     USAGE_SOURCE_CONSUMPTION_SENSOR,
     USAGE_SOURCE_EXTERNAL_SENSOR,
@@ -76,6 +81,13 @@ USAGE_SOURCE_OPTIONS = [
     selector.SelectOptionDict(value=USAGE_SOURCE_CALCULATED, label="Calculate it from my energy statistics"),
     selector.SelectOptionDict(
         value=USAGE_SOURCE_CONSUMPTION_SENSOR, label="Use a home energy consumption sensor I already have"
+    ),
+]
+
+FULL_CHARGE_TRACKING_SOURCE_OPTIONS = [
+    selector.SelectOptionDict(value=FULL_CHARGE_TRACKING_INTERNAL, label="Track internally (default)"),
+    selector.SelectOptionDict(
+        value=FULL_CHARGE_TRACKING_EXTERNAL_SENSOR, label="Use an external \"days since full charge\" sensor"
     ),
 ]
 
@@ -150,6 +162,22 @@ def _main_schema(defaults: dict[str, Any]) -> vol.Schema:
             # submit-time check.
             vol.Optional(
                 CONF_BATTERY_VOLTAGE_ENTITY, default=defaults.get(CONF_BATTERY_VOLTAGE_ENTITY)
+            ): _optional_entity_selector(),
+            vol.Required(
+                CONF_FULL_CHARGE_TRACKING_SOURCE,
+                default=defaults.get(CONF_FULL_CHARGE_TRACKING_SOURCE, DEFAULT_FULL_CHARGE_TRACKING_SOURCE),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=FULL_CHARGE_TRACKING_SOURCE_OPTIONS, mode=selector.SelectSelectorMode.LIST
+                )
+            ),
+            # Optional at the schema level, same reasoning as
+            # CONF_BATTERY_VOLTAGE_ENTITY above - only mandatory when
+            # CONF_FULL_CHARGE_TRACKING_SOURCE is set to the external-sensor
+            # option, validated at submit time (see
+            # days_since_full_charge_entity_required).
+            vol.Optional(
+                CONF_DAYS_SINCE_FULL_CHARGE_ENTITY, default=defaults.get(CONF_DAYS_SINCE_FULL_CHARGE_ENTITY)
             ): _optional_entity_selector(),
             vol.Required(
                 CONF_FULL_CHARGE_TARGET_VOLTAGE,
@@ -252,6 +280,7 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
         CONF_BATTERY_CHARGE_ENERGY_ENTITY,
         CONF_BATTERY_DISCHARGE_ENERGY_ENTITY,
         CONF_BATTERY_VOLTAGE_ENTITY,
+        CONF_DAYS_SINCE_FULL_CHARGE_ENTITY,
     ):
         if key in data and not data.get(key):
             data[key] = None
@@ -284,6 +313,12 @@ class EssManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # balanced" now, not an optional extra like the voltage-diff/
                 # cell-voltage fields above.
                 errors["base"] = "battery_voltage_entity_required"
+            elif (
+                data.get(CONF_ENABLE_FULL_CHARGE_PLAN)
+                and data.get(CONF_FULL_CHARGE_TRACKING_SOURCE) == FULL_CHARGE_TRACKING_EXTERNAL_SENSOR
+                and not data.get(CONF_DAYS_SINCE_FULL_CHARGE_ENTITY)
+            ):
+                errors["base"] = "days_since_full_charge_entity_required"
             else:
                 self._data = data
                 if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CALCULATED:
@@ -369,6 +404,12 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
             data = _clean(user_input)
             if data.get(CONF_ENABLE_FULL_CHARGE_PLAN) and not data.get(CONF_BATTERY_VOLTAGE_ENTITY):
                 errors["base"] = "battery_voltage_entity_required"
+            elif (
+                data.get(CONF_ENABLE_FULL_CHARGE_PLAN)
+                and data.get(CONF_FULL_CHARGE_TRACKING_SOURCE) == FULL_CHARGE_TRACKING_EXTERNAL_SENSOR
+                and not data.get(CONF_DAYS_SINCE_FULL_CHARGE_ENTITY)
+            ):
+                errors["base"] = "days_since_full_charge_entity_required"
             else:
                 self._data = data
                 if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CALCULATED:
@@ -407,6 +448,17 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
                 ): _optional_entity_selector(),
                 vol.Optional(
                     CONF_BATTERY_VOLTAGE_ENTITY, default=current.get(CONF_BATTERY_VOLTAGE_ENTITY)
+                ): _optional_entity_selector(),
+                vol.Required(
+                    CONF_FULL_CHARGE_TRACKING_SOURCE,
+                    default=current.get(CONF_FULL_CHARGE_TRACKING_SOURCE, DEFAULT_FULL_CHARGE_TRACKING_SOURCE),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=FULL_CHARGE_TRACKING_SOURCE_OPTIONS, mode=selector.SelectSelectorMode.LIST
+                    )
+                ),
+                vol.Optional(
+                    CONF_DAYS_SINCE_FULL_CHARGE_ENTITY, default=current.get(CONF_DAYS_SINCE_FULL_CHARGE_ENTITY)
                 ): _optional_entity_selector(),
                 vol.Required(
                     CONF_MAX_BATTERY_CHARGE_SPEED_KW,

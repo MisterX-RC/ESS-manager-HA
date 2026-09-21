@@ -22,10 +22,12 @@ from .const import (
     CONF_BATTERY_DISCHARGE_ENERGY_ENTITY,
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_VOLTAGE_ENTITY,
+    CONF_DAYS_SINCE_FULL_CHARGE_ENTITY,
     CONF_ENABLE_FULL_CHARGE_PLAN,
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
     CONF_FULL_CHARGE_TARGET_VOLTAGE,
+    CONF_FULL_CHARGE_TRACKING_SOURCE,
     CONF_GRID_EXPORT_ENTITIES,
     CONF_GRID_IMPORT_ENTITIES,
     CONF_GRID_SETPOINT_ENTITY,
@@ -42,12 +44,14 @@ from .const import (
     CONF_USAGE_SOURCE,
     CONF_VOLTAGE_DIFF_ENTITY,
     DEFAULT_FULL_CHARGE_TARGET_VOLTAGE,
+    DEFAULT_FULL_CHARGE_TRACKING_SOURCE,
     DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW,
     DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW,
     DEFAULT_USAGE_LOOKBACK_WEEKS,
     DEFAULT_USAGE_SOURCE,
     DOMAIN,
     FORECAST_HOURS,
+    FULL_CHARGE_TRACKING_EXTERNAL_SENSOR,
     NUM_BATTERY_CAPACITY_KWH,
     NUM_CHARGE_SPEED_KW,
     NUM_DISCHARGE_SPEED_KW,
@@ -429,7 +433,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         current_price_unit = (now.hour * 4) + (now.minute // 15)
 
-        # -- full charge plan (self-tracked "days since last full") -------------
+        # -- full charge plan ("days since last full" tracking) -----------------
         # Computed early, before every other plan, for two reasons: (1) so
         # battery_forecast_adjusted below can reflect it (see v0.1.14), and
         # (2) so the high discharge plan (below) can be told not to sell
@@ -438,7 +442,23 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # before compute_high_discharge_plan's call. It doesn't depend on
         # any other plan or on forecast_with_spike for anything, so
         # computing it first changes nothing about its own result.
-        if self._last_full_reached is not None:
+        #
+        # "Days since last full" is tracked one of two ways, per
+        # CONF_FULL_CHARGE_TRACKING_SOURCE: either read directly from an
+        # external sensor that already tracks it (e.g. a BMS's own entity,
+        # which resets to 0 the moment it observes a genuine full charge),
+        # or self-tracked internally from the last time this integration's
+        # own compute_full_charge_plan reported balance_confirmed. A missing/
+        # unavailable external sensor falls back to full_charge_interval_days
+        # (i.e. "treat as due"), matching the same bootstrapping convention
+        # as "never observed full yet" below.
+        if conf.get(CONF_FULL_CHARGE_TRACKING_SOURCE, DEFAULT_FULL_CHARGE_TRACKING_SOURCE) == (
+            FULL_CHARGE_TRACKING_EXTERNAL_SENSOR
+        ):
+            time_since_full_days = _get_float_state(
+                self.hass, conf.get(CONF_DAYS_SINCE_FULL_CHARGE_ENTITY), default=full_charge_interval_days
+            )
+        elif self._last_full_reached is not None:
             time_since_full_days = (now - self._last_full_reached).total_seconds() / 86400
         else:
             # Never observed full since this integration was set up - treat

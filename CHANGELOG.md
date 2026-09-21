@@ -8,6 +8,23 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.33] - 2026-09-21
+
+### Added
+- **Choice of "days since full charge" tracking source** for the full-charge
+  balancing plan, alongside the existing `Enable periodic full-charge
+  balancing plan` toggle (in both the initial setup flow and the
+  integration's Options): track it internally (the original, still
+  default, behavior), or read it directly from an external sensor that
+  already tracks it - e.g. a BMS's own "days since full charge" entity,
+  which resets to 0 the moment it observes a genuine full charge. Selecting
+  the external-sensor option requires picking that sensor, validated the
+  same way `CONF_BATTERY_VOLTAGE_ENTITY` is required alongside the plan
+  itself. A missing/unavailable external sensor falls back to treating a
+  full-charge cycle as due, matching the existing "never observed full
+  yet" bootstrapping behavior. See the README's "Full-charge balancing"
+  section for details.
+
 ## [0.1.32] - 2026-09-21
 
 ### Fixed

@@ -76,6 +76,10 @@ integration producing the same shape works):
   plan)*: a sensor reporting the battery pack's own overall voltage. This is
   a third, independent confirmation leg on top of SOC and the cell voltage
   differential above - see "Full-charge balancing" below.
+- **Days since full charge sensor** *(optional)*: only needed if you enable
+  the full-charge balancing plan and choose the external-sensor tracking
+  option instead of the default internal tracking - see "Full-charge
+  balancing" below.
 
 ## Household usage forecast
 
@@ -208,6 +212,20 @@ automation that turns `Status` into an actual command - adapt the
 
 ## Full-charge balancing
 
+"Days since last full charge" - the clock that decides when a full-balance
+cycle is due - is tracked one of two ways, chosen during setup (or later,
+via the integration's options):
+
+- **Internal tracking** *(default)*: the integration remembers the last time
+  it confirmed the battery genuinely balanced (see below) and measures
+  forward from there. Until it has observed a full charge once, it treats a
+  cycle as overdue, so expect one shortly after first setup.
+- **External sensor**: point it at a sensor you already have that tracks
+  this itself (e.g. a BMS's own "days since full charge" entity), which
+  resets to 0 the moment *it* observes a genuine full charge. Useful if your
+  BMS already does this and you'd rather trust its own tracking than have
+  the integration keep a second, independent clock.
+
 Once the battery reaches 100% SOC (>=99.5%), "genuinely balanced" is
 confirmed only once all three of these hold together:
 
@@ -274,12 +292,11 @@ you're the one who ran the original on a live system:
   self-referencing `this.attributes` lookups would silently reset on
   restart and could re-plan an in-progress session differently. This is an
   intentional improvement, not a bug-for-bug port.
-- **"Days since last full charge" is tracked internally** (the moment SOC
-  last crossed 99.5%), rather than depending on an external
-  "time since last full charge" sensor that not everyone will have. Until
-  the integration has observed a full charge once, it treats a full-charge
-  cycle as overdue, so expect one shortly after first setup if you enable
-  that plan.
+- **"Days since last full charge" can be tracked internally**, rather than
+  requiring an external "time since last full charge" sensor that not
+  everyone will have - though if you do have one (e.g. from your BMS), you
+  can point the integration at it instead; see "Full-charge balancing"
+  above.
 - **One rich "Status" sensor + several small display sensors**, rather than
   one sensor with ~40 flattened attributes - the forecast arrays and plan
   dictionaries the dashboard needs still live as attributes on `Status`

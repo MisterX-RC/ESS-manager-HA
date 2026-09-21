@@ -44,6 +44,24 @@ CONF_HIGH_CELL_VOLTAGE_ENTITY = "high_cell_voltage_entity"
 # optional extra like the differential sources above.
 CONF_BATTERY_VOLTAGE_ENTITY = "battery_voltage_entity"
 
+# How "days since last full charge" is tracked, when the full-charge plan is
+# enabled: either this integration tracks it itself (internal - the original,
+# and still default, behavior: it remembers the last time
+# compute_full_charge_plan reported balance_confirmed and measures forward
+# from there, so a fresh install with no observed full charge yet is treated
+# as already overdue), or an external sensor already tracks it (e.g. a BMS's
+# own "days since full charge" entity, which resets to 0 the moment it
+# observes a genuine full charge) and is read directly instead.
+# CONF_DAYS_SINCE_FULL_CHARGE_ENTITY is required alongside the external
+# option (validated in config_flow.py), the same way CONF_BATTERY_VOLTAGE_ENTITY
+# is required alongside CONF_ENABLE_FULL_CHARGE_PLAN itself.
+CONF_FULL_CHARGE_TRACKING_SOURCE = "full_charge_tracking_source"
+FULL_CHARGE_TRACKING_INTERNAL = "internal"
+FULL_CHARGE_TRACKING_EXTERNAL_SENSOR = "external_sensor"
+DEFAULT_FULL_CHARGE_TRACKING_SOURCE = FULL_CHARGE_TRACKING_INTERNAL
+
+CONF_DAYS_SINCE_FULL_CHARGE_ENTITY = "days_since_full_charge_entity"
+
 # -- household usage forecast: an existing "h0..h120" sensor, calculated --
 # -- internally from HA's own long-term recorder statistics (the full --
 # -- solar/import/export/battery energy-balance identity), or read --
