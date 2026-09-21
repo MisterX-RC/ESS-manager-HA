@@ -8,6 +8,14 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.28] - 2026-09-21
+
+### Changed
+- **`dashboard/entities_card.yaml`** gained a third `multiple-entity-row`
+  line, "Price alerts", showing `sensor.ess_manager_spike_status` and
+  `sensor.ess_manager_negative_price_status` side by side (Spike /
+  Negative), alongside the existing Charge and Discharge lines.
+
 ## [0.1.27] - 2026-09-21
 
 ### Added

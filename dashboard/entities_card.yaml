@@ -37,6 +37,17 @@ cards:
           - entity: sensor.ess_manager_discharge_stop
             name: Stop
 
+      - type: custom:multiple-entity-row
+        entity: sensor.ess_manager_status
+        name: Price alerts
+        icon: mdi:flash-alert
+        show_state: false
+        entities:
+          - entity: sensor.ess_manager_spike_status
+            name: Spike
+          - entity: sensor.ess_manager_negative_price_status
+            name: Negative
+
   - type: history-graph
     entities:
       - entity: sensor.ess_manager_status
