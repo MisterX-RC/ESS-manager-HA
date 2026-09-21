@@ -624,6 +624,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "capacity_kwh": capacity_kwh,
             "current_price_unit": current_price_unit,
             "all_price": all_price,
+            # Where the "tomorrow" half of all_price begins (i.e. len(today's
+            # own price list)) - lets a dashboard split all_price back into
+            # its today/tomorrow halves by index without guessing a 96-unit
+            # boundary (which can be wrong on a DST transition day), so the
+            # price chart can be built entirely from this sensor instead of
+            # also referencing the raw price entity directly.
+            "today_price_units": len(today_price),
             "solar_120h": solar_forecast,
             "energy_usage_120h": usage_forecast,
             "net_energy_120h": net_energy,

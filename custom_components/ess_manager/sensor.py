@@ -30,6 +30,7 @@ STATUS_ATTRIBUTES = [
     "capacity_kwh",
     "current_price_unit",
     "all_price",
+    "today_price_units",
     "solar_120h",
     "energy_usage_120h",
     "net_energy_120h",

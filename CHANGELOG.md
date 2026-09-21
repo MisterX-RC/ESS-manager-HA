@@ -8,6 +8,28 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.25] - 2026-09-21
+
+### Changed
+- **The price dashboard chart (`dashboard/price_apexcharts_card.yaml`) no
+  longer needs its own separate reference to your Nordpool (or similar)
+  price sensor.** Timo asked whether the chart could pull price data
+  straight from `sensor.ess_manager_status` instead, since the integration
+  already imports it from Nordpool during its own update cycle - it can:
+  every series now reads `sensor.ess_manager_status`'s own `all_price`/
+  `current_price_unit` attributes directly, converting each array index to
+  a timestamp the same way the battery forecast chart already converts
+  plan-window unit indices to timestamps (`now + (i - current_price_unit) *
+  15min`), and comparing plan windows by unit index directly instead of
+  first converting everything to milliseconds via a locally-reconstructed
+  "midnight". Added a new `today_price_units` attribute to `sensor
+  .ess_manager_status` (the length of today's own price list) so the chart
+  can split `all_price` back into its today/tomorrow halves by index
+  exactly, without guessing a 96-unit boundary that would be wrong on a DST
+  transition day. The card's setup comment now only asks you to replace
+  `sensor.ess_manager_status`'s entity_id - no second price-sensor
+  placeholder to fill in.
+
 ## [0.1.24] - 2026-09-20
 
 ### Fixed
