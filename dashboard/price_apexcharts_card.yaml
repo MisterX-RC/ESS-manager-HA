@@ -87,7 +87,12 @@
             startUnit = full.start_unit; endUnit = full.end_unit;
           } else if (neg && neg.active) {
             startUnit = neg.charge_start_unit; endUnit = neg.charge_end_unit;
-          } else if (spike && spike.active) {
+          } else if (spike && spike.active && curUnit < spike.charge_end_unit) {
+            // spike stays "active" for its whole lifecycle, charge phase
+            // through discharge phase - so once its own charge window has
+            // passed but the discharge window hasn't started yet, this must
+            // fall through to the low charge plan below instead of still
+            // highlighting the spike's now-past charge window.
             startUnit = spike.charge_start_unit; endUnit = spike.charge_end_unit;
           } else if (plan && plan.active) {
             startUnit = plan.start_unit; endUnit = plan.end_unit;
@@ -217,8 +222,15 @@
           const fullOn = full && full.active && (full.phase === 'scheduled' || full.phase === 'charging');
           const negOn = !fullOn && neg && neg.active;
           const spikeOn = !fullOn && !negOn && spike && spike.active;
-          const buyStart = fullOn ? full.start_unit : (negOn ? neg.charge_start_unit : (spikeOn ? spike.charge_start_unit : (buy && buy.active ? buy.start_unit : null)));
-          const buyEnd = fullOn ? full.end_unit : (negOn ? neg.charge_end_unit : (spikeOn ? spike.charge_end_unit : (buy && buy.active ? buy.end_unit : null)));
+          // spike stays "active" for its whole lifecycle (charge phase
+          // through discharge phase), so spikeOn alone isn't enough to gate
+          // the buy window - it needs its own check that the charge window
+          // specifically hasn't passed yet, or a spike waiting on its later
+          // discharge phase would keep masking out its own already-past
+          // charge units instead of falling through to the low charge plan.
+          const spikeBuyOn = spikeOn && curUnit < spike.charge_end_unit;
+          const buyStart = fullOn ? full.start_unit : (negOn ? neg.charge_start_unit : (spikeBuyOn ? spike.charge_start_unit : (buy && buy.active ? buy.start_unit : null)));
+          const buyEnd = fullOn ? full.end_unit : (negOn ? neg.charge_end_unit : (spikeBuyOn ? spike.charge_end_unit : (buy && buy.active ? buy.end_unit : null)));
           const sellStart = negOn ? neg.discharge_start_unit : (spikeOn ? spike.discharge_start_unit : (sell && sell.active ? sell.start_unit : null));
           const sellEnd = negOn ? neg.discharge_end_unit : (spikeOn ? spike.discharge_end_unit : (sell && sell.active ? sell.end_unit : null));
           const exportStart = (negOn && neg.solar_export_end_unit > neg.solar_export_start_unit) ? neg.solar_export_start_unit : null;
@@ -254,8 +266,15 @@
           const fullOn = full && full.active && (full.phase === 'scheduled' || full.phase === 'charging');
           const negOn = !fullOn && neg && neg.active;
           const spikeOn = !fullOn && !negOn && spike && spike.active;
-          const buyStart = fullOn ? full.start_unit : (negOn ? neg.charge_start_unit : (spikeOn ? spike.charge_start_unit : (buy && buy.active ? buy.start_unit : null)));
-          const buyEnd = fullOn ? full.end_unit : (negOn ? neg.charge_end_unit : (spikeOn ? spike.charge_end_unit : (buy && buy.active ? buy.end_unit : null)));
+          // spike stays "active" for its whole lifecycle (charge phase
+          // through discharge phase), so spikeOn alone isn't enough to gate
+          // the buy window - it needs its own check that the charge window
+          // specifically hasn't passed yet, or a spike waiting on its later
+          // discharge phase would keep masking out its own already-past
+          // charge units instead of falling through to the low charge plan.
+          const spikeBuyOn = spikeOn && curUnit < spike.charge_end_unit;
+          const buyStart = fullOn ? full.start_unit : (negOn ? neg.charge_start_unit : (spikeBuyOn ? spike.charge_start_unit : (buy && buy.active ? buy.start_unit : null)));
+          const buyEnd = fullOn ? full.end_unit : (negOn ? neg.charge_end_unit : (spikeBuyOn ? spike.charge_end_unit : (buy && buy.active ? buy.end_unit : null)));
           const sellStart = negOn ? neg.discharge_start_unit : (spikeOn ? spike.discharge_start_unit : (sell && sell.active ? sell.start_unit : null));
           const sellEnd = negOn ? neg.discharge_end_unit : (spikeOn ? spike.discharge_end_unit : (sell && sell.active ? sell.end_unit : null));
           const exportStart = (negOn && neg.solar_export_end_unit > neg.solar_export_start_unit) ? neg.solar_export_start_unit : null;

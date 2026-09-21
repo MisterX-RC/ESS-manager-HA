@@ -59,7 +59,12 @@
               startUnit = full.start_unit; endUnit = full.end_unit;
             } else if (neg && neg.active) {
               startUnit = neg.charge_start_unit; endUnit = neg.charge_end_unit;
-            } else if (spike && spike.active) {
+            } else if (spike && spike.active && curUnit < spike.charge_end_unit) {
+              // spike stays "active" for its whole lifecycle, charge phase
+              // through discharge phase - so once its own charge window has
+              // passed but the discharge window hasn't started yet, this
+              // must fall through to the low charge plan below instead of
+              // still highlighting the spike's now-past charge window.
               startUnit = spike.charge_start_unit; endUnit = spike.charge_end_unit;
             } else if (plan && plan.active) {
               startUnit = plan.start_unit; endUnit = plan.end_unit;

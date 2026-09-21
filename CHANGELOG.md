@@ -8,6 +8,28 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.31] - 2026-09-21
+
+### Fixed
+- **The dashboard charts could hide a genuinely upcoming charge plan
+  behind a spike plan's already-past charge window** - the same root
+  cause as 0.1.30's `charge_display` fix, but in the two chart YAMLs'
+  own JavaScript. `dashboard/price_apexcharts_card.yaml`'s "Buy" series
+  and its combined "Today's/Tomorrow's prices" series, and
+  `dashboard/battery_forecast_chart.yaml`'s "Buy" series, all picked the
+  spike plan's `charge_start_unit`/`charge_end_unit` for as long as
+  `spike_plan.active` was true - which, like `charge_display`, is true
+  for the plan's entire charge-through-discharge lifecycle - instead of
+  checking whether the charge window itself had already passed. Once a
+  spike's charge window ended but its discharge window hadn't started
+  yet, the chart kept highlighting the stale charge window and never
+  fell through to show a genuinely upcoming low charge plan. Fixed by
+  additionally requiring `curUnit < spike.charge_end_unit` before using
+  the spike plan for the buy window (the sell/discharge side was already
+  correct, since `spike_plan.active` only stays true while the discharge
+  window is still ahead). The price chart's Sell highlighting is
+  unaffected.
+
 ## [0.1.30] - 2026-09-21
 
 ### Fixed
