@@ -10,8 +10,18 @@ from typing import Optional
 
 
 def _format_time(now: datetime, cur_unit: int, target_unit: int) -> str:
+    """`now` is the coordinator's actual wall-clock timestamp at the moment
+    it last recalculated (e.g. 19:23:07), not the start of the current
+    15-minute price unit (19:15) - so it's floored to that unit's start
+    first. Otherwise every displayed time would carry forward whatever
+    odd number of minutes "now" happened to be past the last quarter-hour
+    (offset_units * 15 is always a whole multiple of 15, so that leftover
+    never cancels out), showing e.g. "19:08" instead of "19:00"/"19:15" and
+    drifting a little between updates as the real clock advances.
+    """
+    unit_start = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
     offset_units = target_unit - cur_unit
-    return (now + timedelta(minutes=offset_units * 15)).strftime("%a %H:%M")
+    return (unit_start + timedelta(minutes=offset_units * 15)).strftime("%a %H:%M")
 
 
 def charge_display(

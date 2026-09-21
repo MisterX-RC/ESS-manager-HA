@@ -8,6 +8,19 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.32] - 2026-09-21
+
+### Fixed
+- **The charge/discharge start/stop time sensors could show an off-grid
+  minute** (e.g. "19:08" instead of "19:00"/"19:15"), drifting by a
+  couple of minutes between updates. `display._format_time` was adding
+  the whole-15-minute-unit offset to the coordinator's exact wall-clock
+  timestamp at recalculation time (e.g. 19:23:07) rather than to the
+  start of the current price unit (19:15) - so every displayed time
+  inherited whatever odd number of minutes "now" happened to be past the
+  last quarter-hour. `now` is now floored to the current unit's start
+  before the offset is applied. 1 new test (93 → 94).
+
 ## [0.1.31] - 2026-09-21
 
 ### Fixed

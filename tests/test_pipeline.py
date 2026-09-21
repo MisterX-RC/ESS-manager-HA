@@ -488,6 +488,20 @@ check(
     energy_spike_past == round(low_plan["target_kwh"], 2),
 )
 
+energy_snap, start_snap, stop_snap = display.charge_display(
+    {"active": False, "phase": None},
+    {"active": False},
+    {"active": False},
+    {"active": True, "target_kwh": 0.57, "start_unit": 77, "end_unit": 78},
+    cur_unit=77,
+    now=datetime(2026, 9, 21, 19, 23, 27),
+)
+check(
+    "charge_display snaps the displayed time to the 15-minute price grid instead of carrying "
+    "forward 'now''s own minutes/seconds (19:23:27 -> the 19:15 unit boundary, not 19:23)",
+    start_snap == "Mon 19:15",
+)
+
 next_days = display.next_full_charge_in_days(interval_days=14, time_since_days=20)
 check("next_full_charge_in_days floors at 0 when overdue", next_days == 0)
 
