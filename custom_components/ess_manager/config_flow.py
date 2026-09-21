@@ -177,7 +177,7 @@ def _main_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=100, step=1, unit_of_measurement="%")),
             vol.Required(
                 CONF_MAX_SOC_PERCENT, default=defaults.get(CONF_MAX_SOC_PERCENT, DEFAULT_MAX_SOC_PERCENT)
-            ): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=150, step=1, unit_of_measurement="%")),
+            ): selector.NumberSelector(selector.NumberSelectorConfig(min=50, max=150, step=1, unit_of_measurement="%")),
             vol.Required(
                 CONF_ENABLE_NEGATIVE_PRICE_PLAN,
                 default=defaults.get(CONF_ENABLE_NEGATIVE_PRICE_PLAN, DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN),

@@ -8,6 +8,17 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.26] - 2026-09-21
+
+### Changed
+- **`number.ess_manager_maximum_soc`** now ranges 50-150% (was 0-150%). The
+  setup/options-flow field for the same underlying value (Maximum SOC %)
+  is now bounded 50-150 as well, so the one-time setup form and the live
+  dashboard entity can never disagree.
+- **`number.ess_manager_minimum_charge_target`** now ranges 0-10 kWh (was
+  0-100 kWh) - a much more usable slider step for a value that's realistically
+  only ever a few kWh.
+
 ## [0.1.25] - 2026-09-21
 
 ### Changed
