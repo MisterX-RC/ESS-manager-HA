@@ -654,6 +654,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "discharge_start_time": discharge_start_text,
             "discharge_stop_time": discharge_stop_text,
             "spike_status_text": display.spike_status_text(self._spike_plan),
+            "negative_price_status_text": display.negative_price_status_text(self._negative_price_plan),
             "next_full_charge_in_days": display.next_full_charge_in_days(
                 full_charge_interval_days, time_since_full_days
             ),

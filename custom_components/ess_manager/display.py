@@ -91,6 +91,12 @@ def spike_status_text(spike: dict) -> str:
     return "Inactive"
 
 
+def negative_price_status_text(neg: dict) -> str:
+    if neg.get("active"):
+        return f"Active (below €{neg['threshold']}, {neg['achievable_charge_kwh']} kWh)"
+    return "Inactive"
+
+
 def next_full_charge_in_days(interval_days: float, time_since_days: float) -> float:
     return round(max(interval_days - time_since_days, 0), 1)
 

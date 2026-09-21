@@ -81,6 +81,16 @@ async def async_setup_entry(
             coordinator, entry, device_info, "spike_status", "Spike status", "spike_status_text", None, "mdi:flash-alert"
         ),
         EssManagerValueSensor(
+            coordinator,
+            entry,
+            device_info,
+            "negative_price_status",
+            "Negative price status",
+            "negative_price_status_text",
+            None,
+            "mdi:sale",
+        ),
+        EssManagerValueSensor(
             coordinator, entry, device_info, "charge_amount", "Charge amount", "charge_energy_kwh", "kWh", "mdi:battery-plus"
         ),
         EssManagerValueSensor(

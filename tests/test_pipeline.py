@@ -1238,6 +1238,20 @@ check(
     display.cell_voltage_differential_mv(low_v=3.285, high_v=None) is None,
 )
 
+# negative_price_status_text - mirrors spike_status_text, exposed as its
+# own "Negative price status" sensor the same way spike already was.
+neg_status_active = display.negative_price_status_text(
+    {"active": True, "threshold": -0.02, "achievable_charge_kwh": 4.5}
+)
+check(
+    "negative_price_status_text shows the threshold and achievable charge while active",
+    neg_status_active == "Active (below €-0.02, 4.5 kWh)",
+)
+check(
+    "negative_price_status_text is 'Inactive' when the plan isn't active",
+    display.negative_price_status_text({"active": False}) == "Inactive",
+)
+
 # ---------------------------------------------------------------------------
 # usage_forecast.py - calculated household usage forecast (no HA needed:
 # operates on a plain dict of pre-fetched hourly cumulative sums, the same

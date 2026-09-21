@@ -8,6 +8,15 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.27] - 2026-09-21
+
+### Added
+- **A new `sensor.ess_manager_negative_price_status` sensor**, mirroring
+  the existing `sensor.ess_manager_spike_status`: shows "Active (below
+  €<threshold>, <achievable charge> kWh)" while the negative price plan
+  is active, "Inactive" otherwise. The negative price plan previously had
+  no standalone status sensor at all - only `spike_plan` did.
+
 ## [0.1.26] - 2026-09-21
 
 ### Changed
