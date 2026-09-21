@@ -22,7 +22,7 @@
         offset: +0h
       apex_config:
         chart:
-          height: 300px
+          height: 270px
       yaxis:
         - id: energy
           min: 0

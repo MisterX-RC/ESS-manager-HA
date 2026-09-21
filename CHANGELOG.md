@@ -8,6 +8,12 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.29] - 2026-09-21
+
+### Changed
+- **`dashboard/battery_forecast_chart.yaml`**'s chart height reduced from
+  300px to 270px.
+
 ## [0.1.28] - 2026-09-21
 
 ### Changed
