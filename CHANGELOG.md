@@ -8,6 +8,21 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.30] - 2026-09-21
+
+### Fixed
+- **The charge sensors (`charge_energy_kwh`/`charge_start_time`/
+  `charge_stop_time`) could show a spike plan's charge window well after
+  it had already passed.** `display.charge_display`'s spike branch was
+  gating on the spike plan's `discharge_end_unit` (the same check
+  `discharge_display` correctly uses for the *discharge* side) instead of
+  its own `charge_end_unit` - so for the entire gap between a spike
+  plan's charge window ending and its later discharge window starting,
+  the charge sensors kept echoing the now-stale charge window instead of
+  falling through to the low charge plan (or showing nothing). Now checks
+  `charge_end_unit`, matching the pattern already used for the negative
+  price plan's own charge branch just above it.
+
 ## [0.1.29] - 2026-09-21
 
 ### Changed

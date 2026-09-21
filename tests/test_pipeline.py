@@ -463,6 +463,31 @@ check(
     energy_holding == round(low_plan["target_kwh"], 2),
 )
 
+spike_charge_window = {
+    "active": True,
+    "charge_start_unit": 60,
+    "charge_end_unit": 62,
+    "charge_needed_kwh": 1.91,
+    "discharge_start_unit": 172,
+    "discharge_end_unit": 176,
+}
+energy_spike_upcoming, start_spike_upcoming, stop_spike_upcoming = display.charge_display(
+    {"active": False, "phase": None}, {"active": False}, spike_charge_window, low_plan, cur_unit=50, now=now_top_of_hour
+)
+check(
+    "charge_display shows the spike plan's own charge window while it's still upcoming",
+    energy_spike_upcoming == 1.91,
+)
+energy_spike_past, start_spike_past, stop_spike_past = display.charge_display(
+    {"active": False, "phase": None}, {"active": False}, spike_charge_window, low_plan, cur_unit=74, now=now_top_of_hour
+)
+check(
+    "charge_display falls through to the low charge plan once the spike plan's own charge window has "
+    "passed, even though the spike plan is still 'active' waiting for its later discharge phase "
+    "(regression: a live dump showed a past charge_start_time/charge_stop_time here)",
+    energy_spike_past == round(low_plan["target_kwh"], 2),
+)
+
 next_days = display.next_full_charge_in_days(interval_days=14, time_since_days=20)
 check("next_full_charge_in_days floors at 0 when overdue", next_days == 0)
 

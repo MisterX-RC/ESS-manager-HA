@@ -43,7 +43,14 @@ def charge_display(
             _format_time(now, cur_unit, neg["charge_start_unit"]),
             _format_time(now, cur_unit, neg["charge_end_unit"]),
         )
-    if spike.get("active") and cur_unit < spike.get("discharge_end_unit", -1):
+    # The spike plan stays "active" for its whole lifetime, charge phase
+    # through discharge phase (compute_spike_plan only clears it once
+    # cur_unit reaches discharge_end_unit), so this checks the plan's own
+    # charge_end_unit here - not discharge_end_unit - otherwise the charge
+    # window would still display as upcoming (with a stale, already-past
+    # start/stop time) for the entire gap between the charge window ending
+    # and the discharge window beginning.
+    if spike.get("active") and cur_unit < spike.get("charge_end_unit", -1):
         return (
             round(spike["charge_needed_kwh"], 2),
             _format_time(now, cur_unit, spike["charge_start_unit"]),
