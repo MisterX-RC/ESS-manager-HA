@@ -955,6 +955,108 @@ check(
 )
 
 # ---------------------------------------------------------------------------
+# compute_full_charge_plan - "full" (the trigger to enter holding) is
+# satisfied by SOC>=99.5% OR battery pack voltage within 1.0V of target,
+# either one on its own - added per Timo: SOC can drift over time, so pack
+# voltage is a second, independent way to notice a genuinely full battery.
+# ---------------------------------------------------------------------------
+
+# SOC well below 99.5% (drifted low), but pack voltage already within 1.0V
+# of target - should trigger holding on voltage alone, same as due_and_full_plan
+# above does via SOC.
+voltage_triggered_full_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=10,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=90.0,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=15.0,
+    high_threshold_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+    battery_forecast=[15.0] * 5,
+    battery_voltage=54.3,
+    target_voltage=55.2,
+)
+check(
+    "compute_full_charge_plan starts holding on pack voltage alone (within 1.0V of target) even though SOC is only 90%",
+    voltage_triggered_full_plan["phase"] == "holding",
+)
+
+# Just below that 1.0V trigger margin, with SOC still well under 99.5% -
+# neither leg fires, so nothing should be forced.
+voltage_not_yet_full_plan = plans.compute_full_charge_plan(
+    prev=None,
+    cur_unit=10,
+    now=now_top_of_hour,
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=90.0,
+    max_hold_minutes=120.0,
+    voltage_diff=None,
+    battery_now_kwh=13.0,
+    high_threshold_kwh=15.0,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+    battery_forecast=[13.0] * 5,
+    battery_voltage=54.1,
+    target_voltage=55.2,
+)
+check(
+    "compute_full_charge_plan does not start holding when pack voltage is still more than 1.0V under target and SOC is under 99.5%",
+    voltage_not_yet_full_plan["phase"] != "holding",
+)
+
+# A holding phase already in progress (entered via voltage alone, SOC
+# still under 99.5%) must NOT auto-confirm balance just because that same
+# loose 1.0V voltage reading persists - balance_confirmed_now still
+# requires genuine SOC>=99.5% (is_full), which the looser holding-entry
+# margin deliberately never substitutes for. It should keep holding,
+# waiting for real SOC (or a tighter voltage reading) to confirm.
+voltage_triggered_holding_prev = {
+    "active": True,
+    "phase": "holding",
+    "hold_start": now_top_of_hour.isoformat(),
+    "hold_minutes": 5.0,
+    "hold_start_unit": 10,
+    "hold_end_unit": 18,
+}
+voltage_triggered_still_holding_plan = plans.compute_full_charge_plan(
+    prev=voltage_triggered_holding_prev,
+    cur_unit=11,
+    now=now_top_of_hour + timedelta(minutes=5),
+    interval_days=14.0,
+    time_since_days=20.0,
+    soc_now_percent=90.0,
+    max_hold_minutes=120.0,
+    voltage_diff=2.0,
+    battery_now_kwh=15.0,
+    high_threshold_kwh=16.5,
+    usage=[0.3] * 120,
+    charge_speed_kw=3.0,
+    all_price=[0.10] * 20,
+    battery_forecast=[15.0] * 5,
+    battery_voltage=54.3,
+    target_voltage=55.2,
+)
+check(
+    "compute_full_charge_plan's looser 1.0V holding-entry margin doesn't also satisfy balance_confirmed, which still needs genuine SOC>=99.5%",
+    voltage_triggered_still_holding_plan == {
+        "active": True,
+        "phase": "holding",
+        "hold_start": voltage_triggered_holding_prev["hold_start"],
+        "hold_minutes": 5.0,
+        "hold_start_unit": 10,
+        "hold_end_unit": 18,
+    },
+)
+
+# ---------------------------------------------------------------------------
 # compute_full_charge_plan - balance_confirmed (three-way AND: SOC, cell
 # voltage differential, battery pack voltage vs. target) and
 # retry_after_timeout (a timed-out hold defers to the normal flow instead

@@ -226,7 +226,20 @@ via the integration's options):
   BMS already does this and you'd rather trust its own tracking than have
   the integration keep a second, independent clock.
 
-Once the battery reaches 100% SOC (>=99.5%), "genuinely balanced" is
+The battery is considered "full" - the trigger that starts the holding
+phase - the moment *either* of these is true, so a problem with one
+doesn't block the other:
+
+- SOC >= 99.5%, or
+- the battery pack voltage is within 1.0V of the full-charge target voltage
+
+SOC on most BMS/inverter setups is coulomb-counted and can drift over days
+or weeks, so pack voltage is a second, independent way to notice a
+genuinely full battery even if SOC has under- or over-reported. This 1.0V
+margin only starts holding - it's deliberately looser than the 0.1V margin
+below, so it never loosens what actually counts as "genuinely balanced."
+
+Once the battery is full by either signal, "genuinely balanced" is
 confirmed only once all three of these hold together:
 
 - SOC >= 99.5%

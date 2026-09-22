@@ -673,6 +673,27 @@ def compute_full_charge_plan(
     voltage_at_target = battery_voltage is not None and battery_voltage >= (target_voltage - VOLTAGE_MARGIN)
     balance_confirmed_now = is_full and voltage_diff < balance_threshold and voltage_at_target
 
+    # Entering the holding phase, separately, is triggered by *either* of
+    # two independent signals - SOC reaching 99.5% (is_full, above) or the
+    # battery pack's own measured voltage getting within 1.0V of its
+    # configured full-charge target - so a problem with one doesn't block
+    # the other. SOC on most BMS/inverter setups is coulomb-counted and can
+    # drift over days/weeks (Timo's own report: "sometimes the SOC
+    # drifts"); pack voltage is a second, independent way to notice a
+    # genuinely full battery even if SOC under- or over-reports. This
+    # margin (1.0V) is deliberately much looser than VOLTAGE_MARGIN above
+    # (0.1V) - it only needs to catch "the pack is essentially full", not to
+    # confirm balance by itself. Deliberately kept separate from `is_full`
+    # itself (rather than folded into it) so it can never loosen
+    # balance_confirmed_now above: that still requires genuine SOC>=99.5%,
+    # since resetting the "days since last full charge" clock on voltage
+    # alone - without SOC ever actually confirming full - would be a much
+    # bigger, less reversible claim than just deciding it's time to stop
+    # pushing more energy in and start holding/watching for balance.
+    FULL_VOLTAGE_TRIGGER_MARGIN = 1.0
+    voltage_near_full = battery_voltage is not None and battery_voltage >= (target_voltage - FULL_VOLTAGE_TRIGGER_MARGIN)
+    should_enter_holding = is_full or voltage_near_full
+
     # Once a holding attempt times out without ever confirming balance,
     # `retry_after_timeout` carries the instruction "don't shortcut
     # straight back into holding just because SOC still happens to be
@@ -726,7 +747,7 @@ def compute_full_charge_plan(
         }
 
     if prev.get("active") and prev.get("phase") == "charging":
-        if is_full:
+        if should_enter_holding:
             return _start_holding()
         if cur_unit < prev.get("end_unit", -1):
             return prev
@@ -778,7 +799,7 @@ def compute_full_charge_plan(
         # toward becoming genuinely due, same as always.
         return {"active": False, "phase": None, "balance_confirmed": balance_confirmed_now}
 
-    if is_full and not retry_after_timeout:
+    if should_enter_holding and not retry_after_timeout:
         return _start_holding()
 
     # Don't necessarily base the deficit on right now. battery_forecast is

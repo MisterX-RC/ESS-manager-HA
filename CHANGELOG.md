@@ -8,6 +8,25 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.34] - 2026-09-22
+
+### Added
+- **A second, independent trigger for entering the full-charge plan's
+  holding phase**: SOC reaching 99.5% (unchanged) or the battery pack's
+  own measured voltage getting within 1.0V of the configured full-charge
+  target voltage - either one on its own is now enough. SOC (coulomb
+  counted on most BMS/inverter setups) can drift over time, so pack
+  voltage gives the plan a second, independent way to notice a genuinely
+  full battery even when SOC under- or over-reports, and start commanding
+  a charge setpoint before household loads can erode a battery that's
+  really already full. This 1.0V margin only decides when *holding
+  starts* - it's deliberately much looser than the existing 0.1V margin
+  used to confirm genuine balance, so it never lets balance_confirmed
+  (which still requires real SOC>=99.5%, alongside the cell voltage
+  differential and the stricter 0.1V pack-voltage check) fire on voltage
+  alone. See the README's "Full-charge balancing" section for the updated
+  spec.
+
 ## [0.1.33] - 2026-09-21
 
 ### Added
