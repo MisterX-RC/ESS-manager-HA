@@ -214,6 +214,17 @@ that inverter's own integration, an MQTT topic, ...).
 automation that turns `Status` into an actual command - adapt the
 `target: entity_id:` lines to whatever your inverter setup actually uses.
 
+For the low charge plan and the high discharge plan, `Stop` can now arrive
+*before* the window's own end time, not only at it: every window is sized
+in whole 15-minute units at the full configured charge/discharge rate, so a
+genuinely smaller need can finish early, and continuing to command the full
+rate for the rest of the window would overshoot past what was actually
+needed (buying or selling more energy than intended). Both plans track a
+calculated target battery level alongside their own timer and report `Stop`
+as soon as either one is reached, whichever comes first - so an automation
+reacting to `Stop` should always idle the setpoint, regardless of how much
+of the window's nominal duration has actually elapsed.
+
 ## Full-charge balancing
 
 "Days since last full charge" - the clock that decides when a full-balance

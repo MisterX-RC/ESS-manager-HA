@@ -461,9 +461,30 @@ def compute_low_charge_plan(
     usage: list[float],
     all_price: list[float],
     planning_horizon_hours: int,
+    battery_now_kwh: float,
 ) -> dict:
     prev = prev or {"active": False}
     if prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
+        # Live-target early stop (Timo's proposal): the window's own length
+        # (units_needed, below) is always rounded UP to a whole 15-minute
+        # unit at the full configured charge rate, so a small target_kwh
+        # can finish well before the unit's 15 minutes are up - continuing
+        # to command the full rate for the rest of the window overshoots
+        # past what was actually needed. target_energy_kwh (set once below,
+        # the moment this window was found - which, since this function
+        # keeps re-searching fresh every cycle right up until start_unit
+        # actually arrives, is always genuinely "now") gives
+        # compute_system_status a second stop condition alongside the
+        # existing end_unit timeout: whichever comes first. Once reached,
+        # target_reached latches permanently for the rest of this window
+        # (checked here, not recomputed live in compute_system_status)
+        # specifically so a brief post-stop dip in the setpoint readback
+        # can never flip it back to "Actief"/"Start charge" and restart
+        # the session - see the same reasoning in compute_high_discharge_plan.
+        if not prev.get("target_reached") and battery_now_kwh >= prev.get("target_energy_kwh", float("inf")):
+            updated = dict(prev)
+            updated["target_reached"] = True
+            return updated
         return prev
 
     forecast = forecast_with_spike[0 : planning_horizon_hours + 1]
@@ -508,6 +529,17 @@ def compute_low_charge_plan(
         "breach_unit": breach_unit,
         "start_unit": best_start,
         "end_unit": best_start + units_needed,
+        # See the live-target early-stop comment above: computed here,
+        # every single fresh (non-echoed) cycle, using whatever
+        # battery_now_kwh genuinely is *right now* - and since this
+        # function keeps recomputing fresh every cycle until cur_unit
+        # actually reaches start_unit (only then does the echo branch
+        # above start firing), the LAST fresh computation before that
+        # happens always has start_unit == cur_unit, so battery_now_kwh
+        # here is already accurate for "right as the window begins," with
+        # no separate re-anchoring step needed.
+        "target_energy_kwh": round(battery_now_kwh + target_kwh, 3),
+        "target_reached": False,
     }
 
 
@@ -522,6 +554,7 @@ def compute_high_discharge_plan(
     usage: list[float],
     all_price: list[float],
     planning_horizon_hours: int,
+    battery_now_kwh: float,
     suppress_new: bool = False,
 ) -> dict:
     """`suppress_new` blocks scheduling a brand-new discharge window - used
@@ -541,6 +574,24 @@ def compute_high_discharge_plan(
     """
     prev = prev or {"active": False}
     if prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
+        # Live-target early stop (Timo's proposal, mirroring
+        # compute_low_charge_plan above): units_needed is always rounded UP
+        # to a whole 15-minute unit at the full configured discharge rate,
+        # so a small surplus (e.g. a live report: 0.96 kWh target against a
+        # 10kW discharge speed) finishes well before the unit's 15 minutes
+        # are up, and continuing to discharge at full rate for the rest of
+        # the window sells off far more stored energy than the surplus
+        # calculation ever called for. target_energy_kwh (set once below,
+        # always genuinely "now" for the same reason described in
+        # compute_low_charge_plan) gives compute_system_status a second
+        # stop condition alongside the existing end_unit timeout - whichever
+        # comes first. target_reached latches permanently once crossed, so
+        # a setpoint readback dip right after stopping can't flip this back
+        # to "Actief"/"Start discharge" and reopen the session.
+        if not prev.get("target_reached") and battery_now_kwh <= prev.get("target_energy_kwh", float("-inf")):
+            updated = dict(prev)
+            updated["target_reached"] = True
+            return updated
         return prev
     if suppress_new:
         return {"active": False, "breach_unit": 999999, "suppressed_by_full_charge": True}
@@ -589,6 +640,8 @@ def compute_high_discharge_plan(
         "start_unit": best_start,
         "end_unit": best_start + units_needed,
         "units_needed": units_needed,
+        "target_energy_kwh": round(battery_now_kwh - surplus, 3),
+        "target_reached": False,
     }
 
 
@@ -1100,6 +1153,14 @@ def _compute_system_status_raw(
 
     if low.get("active") and (not high.get("active") or low.get("breach_unit", 999999) <= high.get("breach_unit", 999999)):
         if low["start_unit"] <= cur_unit < low["end_unit"]:
+            # Live-target early stop: the window itself is sized in whole
+            # 15-minute units at full charge rate, so a small target_kwh can
+            # genuinely be delivered before the unit's 15 minutes are up -
+            # target_reached (compute_low_charge_plan) latches the moment
+            # battery_now_kwh crosses target_energy_kwh, stopping here
+            # rather than riding out the rest of the window at full rate.
+            if low.get("target_reached"):
+                return "Stop"
             return "Actief" if setpoint_w >= charge_engaged_at else "Start charge"
         if cur_unit >= low["end_unit"] and not is_idle:
             return "Stop"
@@ -1109,6 +1170,10 @@ def _compute_system_status_raw(
 
     if high.get("active"):
         if high["start_unit"] <= cur_unit < high["end_unit"]:
+            # Same live-target early stop as the low charge plan above,
+            # mirrored for discharge - see compute_high_discharge_plan.
+            if high.get("target_reached"):
+                return "Stop"
             return "Actief" if setpoint_w <= -discharge_engaged_at else "Start discharge"
         if cur_unit >= high["end_unit"] and not is_idle:
             return "Stop"

@@ -7,6 +7,44 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.2] - 2026-09-22
+
+### Added
+- **Live target-energy stop, alongside the existing timer, for the low
+  charge plan and the high discharge plan.** Every plan window is sized in
+  whole 15-minute price units at the full configured charge/discharge rate
+  (`math.ceil(...)`), so a genuine need smaller than one unit's capacity
+  finishes well before the unit's 15 minutes are up - caught from a live
+  report of a 0.96 kWh discharge target against a ~10kW discharge speed
+  (2.72 kWh/unit), which meant continuing to discharge at full rate for the
+  rest of the window sold off far more stored energy than intended, an
+  overshoot that can force buying back energy later at a worse price.
+  Rather than only ever stopping when the window's own timer runs out,
+  `compute_low_charge_plan` and `compute_high_discharge_plan` now also
+  compute a `target_energy_kwh` the moment a window is found (the battery
+  level, plus or minus the plan's own sizing, that corresponds to "target
+  reached") and `compute_system_status` reports **Stop** the instant the
+  live battery level (`battery_now_kwh`) crosses it - whichever of the two
+  triggers, timer or target, comes first. Once crossed, `target_reached`
+  latches permanently for the rest of that window (checked here, not
+  recomputed live) so a brief post-stop dip or bounce in the setpoint
+  readback can't flip the status back to "Actief"/"Start charge" (or the
+  discharge equivalents) and reopen a session that already finished. 6 new
+  tests (102 -> 108): both plans latch `target_reached` once the target is
+  crossed mid-window, both keep the latch even when a later reading moves
+  back the other way, and `compute_system_status` reports "Stop" for both
+  once latched.
+- **Scoped out for now:** the spike plan and the negative-price plan have
+  the same whole-unit overshoot risk, but their *entire* plan (both the
+  charge leg and the discharge leg) locks in the moment it's first found -
+  which can be hours or days before either leg's own window actually
+  begins - so a naive single anchor taken at lock-in time would use a
+  stale battery reading for whichever leg runs later. The negative-price
+  plan additionally reuses its `discharge_needed_kwh` field name for the
+  already-whole-unit-quantized amount rather than the true continuous
+  need, which would need a new field before a target could be anchored
+  correctly. Left as a follow-up.
+
 ## [0.2.1] - 2026-09-22
 
 ### Added

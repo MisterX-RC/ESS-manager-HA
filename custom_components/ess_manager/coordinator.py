@@ -564,6 +564,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             usage_forecast,
             all_price,
             planning_horizon_hours,
+            battery_now_kwh,
         )
         # A full charge relying on a future solar peak (either genuinely
         # scheduled to buy up to it, or silently skipped because that peak
@@ -598,6 +599,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             usage_forecast,
             all_price,
             planning_horizon_hours,
+            battery_now_kwh,
             suppress_high_discharge,
         )
 

@@ -149,6 +149,7 @@ low_plan = plans.compute_low_charge_plan(
     usage=usage_flat,
     all_price=all_price,
     planning_horizon_hours=72,
+    battery_now_kwh=10.0,
 )
 check("low charge plan detects the breach", low_plan["active"] is True)
 # breach_offset_units = units_to_next_hour (4, since now is exactly on the
@@ -170,6 +171,7 @@ low_plan_inactive = plans.compute_low_charge_plan(
     usage=usage_flat,
     all_price=all_price,
     planning_horizon_hours=72,
+    battery_now_kwh=10.0,
 )
 check("low charge plan reports inactive with no breach", low_plan_inactive["active"] is False)
 
@@ -185,6 +187,7 @@ high_plan = plans.compute_high_discharge_plan(
     usage=usage_flat,
     all_price=all_price,
     planning_horizon_hours=72,
+    battery_now_kwh=10.0,
 )
 check("high discharge plan detects the breach", high_plan["active"] is True)
 
@@ -202,8 +205,138 @@ locked_again = plans.compute_low_charge_plan(
     usage=usage_flat,
     all_price=all_price,
     planning_horizon_hours=72,
+    battery_now_kwh=10.0,  # unchanged from low_plan's own reading, well under its target_energy_kwh (30.0) - target_reached must stay False so this stays a pure echo
 )
 check("an active plan locks in and ignores new input mid-window", locked_again == low_plan)
+
+# ---------------------------------------------------------------------------
+# plans.py - live-target early stop (target_energy_kwh / target_reached)
+# ---------------------------------------------------------------------------
+# low_plan's own target_energy_kwh is 30.0 (battery_now_kwh=10.0 + target_kwh=20.0,
+# see the comment on its battery_now_kwh= above). Feeding that reading back in
+# while still inside the window must latch target_reached, still echoing every
+# other field from prev unchanged.
+low_plan_target_reached = plans.compute_low_charge_plan(
+    low_plan,
+    cur_unit=low_plan["start_unit"],
+    forecast_with_spike=[999.0] * 25,  # deliberately different input data - must be ignored
+    now=now_top_of_hour,
+    charge_speed_kw=7.0,
+    low_threshold_kwh=3.0,
+    minimum_charge_target_kwh=5.0,
+    upper_limit_kwh=30.0,
+    usage=usage_flat,
+    all_price=all_price,
+    planning_horizon_hours=72,
+    battery_now_kwh=low_plan["target_energy_kwh"],
+)
+check(
+    "compute_low_charge_plan latches target_reached once battery_now_kwh reaches target_energy_kwh mid-window",
+    low_plan_target_reached == {**low_plan, "target_reached": True},
+)
+
+# Once latched, a later cycle reporting a lower battery_now_kwh (e.g. a
+# setpoint-readback dip right after stopping) must NOT unlatch it - the plan
+# keeps echoing target_reached=True for the rest of the window.
+low_plan_stays_latched = plans.compute_low_charge_plan(
+    low_plan_target_reached,
+    cur_unit=low_plan["start_unit"],
+    forecast_with_spike=[999.0] * 25,
+    now=now_top_of_hour,
+    charge_speed_kw=7.0,
+    low_threshold_kwh=3.0,
+    minimum_charge_target_kwh=5.0,
+    upper_limit_kwh=30.0,
+    usage=usage_flat,
+    all_price=all_price,
+    planning_horizon_hours=72,
+    battery_now_kwh=low_plan["target_energy_kwh"] - 5.0,  # dipped back below target
+)
+check(
+    "compute_low_charge_plan's target_reached latch survives a later reading dropping back below target_energy_kwh",
+    low_plan_stays_latched == low_plan_target_reached,
+)
+
+# Mirror both cases for compute_high_discharge_plan (high_plan's own
+# target_energy_kwh is 3.0: battery_now_kwh=10.0 - surplus=7.0).
+high_plan_target_reached = plans.compute_high_discharge_plan(
+    high_plan,
+    cur_unit=high_plan["start_unit"],
+    forecast_with_spike=[999.0] * 25,
+    now=now_top_of_hour,
+    discharge_speed_kw=10.0,
+    high_threshold_kwh=33.0,
+    low_threshold_kwh=3.0,
+    usage=usage_flat,
+    all_price=all_price,
+    planning_horizon_hours=72,
+    battery_now_kwh=high_plan["target_energy_kwh"],
+)
+check(
+    "compute_high_discharge_plan latches target_reached once battery_now_kwh drops to target_energy_kwh mid-window",
+    high_plan_target_reached == {**high_plan, "target_reached": True},
+)
+
+high_plan_stays_latched = plans.compute_high_discharge_plan(
+    high_plan_target_reached,
+    cur_unit=high_plan["start_unit"],
+    forecast_with_spike=[999.0] * 25,
+    now=now_top_of_hour,
+    discharge_speed_kw=10.0,
+    high_threshold_kwh=33.0,
+    low_threshold_kwh=3.0,
+    usage=usage_flat,
+    all_price=all_price,
+    planning_horizon_hours=72,
+    battery_now_kwh=high_plan["target_energy_kwh"] + 5.0,  # bounced back above target
+)
+check(
+    "compute_high_discharge_plan's target_reached latch survives a later reading rising back above target_energy_kwh",
+    high_plan_stays_latched == high_plan_target_reached,
+)
+
+# compute_system_status must report "Stop" the moment target_reached is set,
+# instead of riding out the rest of the window as "Actief"/"Start charge" (or
+# the discharge equivalents) - this is the whole point of the second trigger.
+status_low_target_reached = plans.compute_system_status(
+    setpoint_w=4000.0,
+    idle_setpoint_w=0.0,
+    cur_unit=21,
+    full={"active": False, "phase": None},
+    neg={"active": False},
+    spike={"active": False},
+    low={"active": True, "start_unit": 20, "end_unit": 24, "breach_unit": 30, "target_reached": True},
+    high={"active": False, "breach_unit": 999999},
+    battery_now_kwh=10.0,
+    low_threshold_kwh=3.0,
+    charge_speed_kw=7.0,
+    discharge_speed_kw=10.0,
+    all_price=[0.20] * 96,
+)
+check(
+    "system_status reports Stop for a low charge plan once target_reached, even mid-window with the setpoint still engaged",
+    status_low_target_reached == "Stop",
+)
+
+status_high_target_reached = plans.compute_system_status(
+    setpoint_w=-8000.0,
+    idle_setpoint_w=0.0,
+    cur_unit=21,
+    full={"active": False, "phase": None},
+    neg={"active": False},
+    spike={"active": False},
+    low={"active": False, "breach_unit": 999999},
+    high={"active": True, "start_unit": 20, "end_unit": 24, "breach_unit": 30, "target_reached": True},
+    battery_now_kwh=10.0,
+    low_threshold_kwh=3.0,
+    charge_speed_kw=7.0,
+    discharge_speed_kw=10.0,
+    all_price=[0.20] * 96,
+)
+check(
+    "system_status reports Stop for a high discharge plan once target_reached, even mid-window with the setpoint still engaged",
+    status_high_target_reached == "Stop",
+)
 
 # ---------------------------------------------------------------------------
 # plans.py - negative price plan + spike plan + composition chain smoke test
@@ -1338,6 +1471,7 @@ suppressed_discharge_plan = plans.compute_high_discharge_plan(
     usage=[1.0] * 120,
     all_price=[0.10] * 96,
     planning_horizon_hours=72,
+    battery_now_kwh=6.0,  # irrelevant: suppress_new short-circuits before this is used
     suppress_new=True,
 )
 check(
@@ -1355,6 +1489,7 @@ unsuppressed_discharge_plan = plans.compute_high_discharge_plan(
     usage=[1.0] * 120,
     all_price=[0.10] * 96,
     planning_horizon_hours=72,
+    battery_now_kwh=discharge_forecast_with_spike[0],
 )
 check(
     "compute_high_discharge_plan schedules normally when suppress_new is left at its default (False)",
@@ -1371,6 +1506,10 @@ locked_in_discharge_plan = plans.compute_high_discharge_plan(
     usage=[1.0] * 120,
     all_price=[0.10] * 96,
     planning_horizon_hours=72,
+    # Same reading as unsuppressed_discharge_plan's own - stays above its
+    # target_energy_kwh (target not yet reached), so target_reached is
+    # still False on both sides and the exact-equality check below holds.
+    battery_now_kwh=discharge_forecast_with_spike[0],
     suppress_new=True,
 )
 check(
