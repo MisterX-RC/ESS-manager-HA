@@ -336,11 +336,21 @@ sync-and-push.command            macOS helper - see "Keeping this repo in sync" 
 (the patch digit) on every push - see `CHANGELOG.md` for what changed at
 each version. This is what lets HACS tell installed instances an update
 exists: it compares the tag on your most recent GitHub Release against
-whatever version they currently have installed. Cutting a release is a
-separate, manual step (GitHub -> Releases -> Draft a new release -> tag it
-`vX.Y.Z` to match the manifest version -> Publish) - do it whenever you
-want HACS to pick up everything pushed since the last release, not
-necessarily after every single patch bump.
+whatever version they currently have installed - note that this means an
+actual GitHub *Release*, not just a git tag; HACS's own docs are explicit
+that "just publishing tags is not enough, you need to publish releases,"
+and without any release at all it falls back to tracking raw commits on
+the default branch instead.
+
+As of v0.2.0, cutting that release is no longer a manual step: the last
+thing `sync-and-push.command` does after every push is read the version
+out of `manifest.json`, check GitHub for a release already tagged
+`vX.Y.Z`, and publish one via the GitHub API if there isn't one yet,
+reusing the same personal access token macOS Keychain already has saved
+for pushing. HACS re-checks custom repositories roughly every 6 hours and
+at Home Assistant startup; to see an update right after syncing instead of
+waiting, use HACS's own repository menu -> "Redownload" or "Update
+information."
 
 ## Keeping this repo in sync (macOS)
 
@@ -349,9 +359,11 @@ in GitHub: `sync-and-push.command` is a double-clickable script that lives
 in this same folder. Each time it runs, it looks in your Downloads folder
 for the newest `ess-manager-ha-repo*.zip`, copies its contents over this
 folder (leaving this script and this folder's own `.git` history/remote
-alone), commits whatever changed, and pushes to GitHub - so picking up an
-update is one double-click instead of unzipping and typing git commands by
-hand.
+alone), commits whatever changed, pushes to GitHub, and publishes a
+matching GitHub Release if the version in `manifest.json` doesn't have one
+yet - so picking up an update, and making sure HACS actually notices it,
+is one double-click instead of unzipping, typing git commands, and
+drafting a release by hand.
 
 The first time it runs, git will ask for your GitHub username and a
 personal access token right there in the Terminal window it opens; macOS

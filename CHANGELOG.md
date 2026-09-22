@@ -2,11 +2,32 @@
 
 Every push to this repo bumps `custom_components/ess_manager/manifest.json`'s
 `version` by 0.0.1 (the patch digit) and gets an entry here - this is what
-lets HACS reliably tell installed instances an update exists. Cutting an
-actual GitHub Release with a matching `vX.Y.Z` tag is a separate, manual
-step (see the README) - do that whenever you want HACS to pick up
-everything published since the last release, not necessarily after every
-single patch bump.
+lets HACS reliably tell installed instances an update exists, since
+`sync-and-push.command` now publishes a matching GitHub Release (tag
+`vX.Y.Z`) automatically as the last step of every push (see the README) -
+a plain git tag on its own isn't enough for HACS to notice.
+
+## [0.2.0] - 2026-09-22
+
+### Changed
+- **No functional change from 0.1.35** - this release exists to mark the
+  switch to actually-published GitHub Releases. Every version up through
+  0.1.35 was pushed to GitHub but never had a matching Release cut for it
+  (that was previously a separate, manual "GitHub -> Releases -> Draft a
+  new release" step - see the old wording in the README/this file's
+  header - which never actually got done), so HACS had no release to
+  compare against and could only fall back to tracking raw commits on the
+  default branch, missing every one of those 36 pushes as a proper
+  "update available."
+- `sync-and-push.command` now cuts the release itself: after pushing, it
+  reads the version straight out of `manifest.json`, checks GitHub for a
+  release already tagged `vX.Y.Z`, and if there isn't one, publishes it
+  via the GitHub API using the same personal access token macOS Keychain
+  already has saved for the push - no separate manual step anymore.
+- Renumbered to 0.2.0 (rather than continuing as 0.1.36) simply to mark
+  this as the first version with a real release behind it. Versioning
+  continues in 0.0.1 steps from here (0.2.0 -> 0.2.1 -> 0.2.2 -> ...),
+  exactly as before.
 
 ## [0.1.35] - 2026-09-22
 

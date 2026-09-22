@@ -9,6 +9,11 @@
 #      folder's own git history, and its GitHub remote untouched)
 #   3. Commit whatever changed
 #   4. Push to GitHub
+#   5. Publish a matching GitHub Release (tag vX.Y.Z, from manifest.json)
+#      if one doesn't already exist - HACS's own docs are explicit that a
+#      plain git tag alone isn't enough for it to notice an update, it
+#      needs an actual Release, so this is what makes the version bump
+#      above actually show up as an update in HACS
 #
 # This script must live INSIDE your ess-manager-ha folder (the one with
 # the .git folder in it) - it finds everything else relative to itself.
@@ -123,13 +128,71 @@ fi
 # a plain `git push` fails with an unrelated "no upstream branch" error.
 echo "Pushing to GitHub..."
 CURRENT_BRANCH="$(git branch --show-current)"
+PUSH_OK=true
 if git push -u origin "$CURRENT_BRANCH"; then
-  echo "Done - pushed successfully."
+  echo "Pushed successfully."
 else
+  PUSH_OK=false
   echo
   echo "Push failed - see the error above."
   echo "(If this is the very first run, git may have needed a username/token"
   echo "and none was entered in time - just run this script again.)"
+fi
+
+# --- cut a GitHub Release for this version, if there isn't one yet -------
+# A bare git tag is NOT enough for HACS to detect an update - its own docs
+# say so directly ("Just publishing tags is not enough, you need to
+# publish releases"). So instead of `git tag` + `git push --tags`, this
+# calls the GitHub REST API to create an actual Release, which brings its
+# own tag along automatically. It reuses the same personal access token
+# macOS Keychain already saved for the git push above (read via `git
+# credential fill`, the same mechanism git itself uses), so there's
+# nothing new to type in.
+if [ "$PUSH_OK" = true ]; then
+  VERSION=$(grep -m1 '"version"' custom_components/ess_manager/manifest.json | sed -E 's/.*"version": *"([^"]+)".*/\1/')
+  if [ -z "$VERSION" ]; then
+    echo "Could not read a version out of manifest.json - skipping the release."
+  else
+    TAG="v$VERSION"
+    echo "Checking GitHub for a $TAG release..."
+    CRED_OUTPUT=$(printf 'protocol=https\nhost=github.com\n' | git credential fill 2>/dev/null)
+    GH_TOKEN_FOR_API=$(printf '%s\n' "$CRED_OUTPUT" | sed -n 's/^password=//p')
+
+    if [ -z "$GH_TOKEN_FOR_API" ]; then
+      echo "Could not retrieve a saved GitHub token from Keychain to cut a release - skipping."
+      echo "(Code was still pushed above; you can draft the $TAG release by hand on GitHub if you want HACS to see it sooner.)"
+    else
+      EXISTING_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+        -H "Authorization: Bearer $GH_TOKEN_FOR_API" \
+        -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/MisterX-RC/ESS-manager-HA/releases/tags/$TAG")
+
+      if [ "$EXISTING_STATUS" = "200" ]; then
+        echo "Release $TAG already exists on GitHub - nothing to do."
+      else
+        RELEASE_RESPONSE="$(mktemp)"
+        CREATE_STATUS=$(curl -s -o "$RELEASE_RESPONSE" -w "%{http_code}" \
+          -X POST \
+          -H "Authorization: Bearer $GH_TOKEN_FOR_API" \
+          -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/repos/MisterX-RC/ESS-manager-HA/releases" \
+          -d "{\"tag_name\":\"$TAG\",\"name\":\"$TAG\",\"target_commitish\":\"$CURRENT_BRANCH\",\"body\":\"See CHANGELOG.md for details on this release.\",\"draft\":false,\"prerelease\":false}")
+
+        if [ "$CREATE_STATUS" = "201" ]; then
+          echo "Published GitHub release $TAG."
+          echo "HACS checks custom repos roughly every 6h and at HA startup - or use HACS's own 'Redownload'/'Update information' to see it right now."
+        else
+          echo "Could not create release $TAG (HTTP $CREATE_STATUS):"
+          cat "$RELEASE_RESPONSE"
+          echo
+          echo "(Code was still pushed above. A common cause is a saved token"
+          echo "that's missing the 'repo' scope needed to create releases -"
+          echo "you can draft the $TAG release by hand on GitHub instead.)"
+        fi
+        rm -f "$RELEASE_RESPONSE"
+      fi
+    fi
+  fi
 fi
 
 echo
