@@ -443,6 +443,51 @@ check(
     adjusted == [round(v, 2) for v in composed_spike],
 )
 
+# compose_forecast_adjusted must use the plan's own target_kwh, not its
+# effective_discharge_per_unit/effective_charge_per_unit rate - a live report
+# showed a genuine 0.09 kWh discharge target (against a much larger
+# effective_discharge_per_unit, since units_needed always rounds up to at
+# least one whole 15-minute unit) rendering as a ~2.72 kWh drop on the SOC
+# forecast/chart - an apparent undershoot that never actually happens once
+# the live target-energy stop (commit 39) halts the real discharge at 0.09
+# kWh. A tiny target_kwh over a whole-unit window must show up as only that
+# tiny amount, not the full per-unit rate times the window length.
+adjusted_undersized_discharge = plans.compose_forecast_adjusted(
+    [10.0] * 4,
+    {"active": False},
+    {
+        "active": True,
+        "start_unit": 0,
+        "end_unit": 1,
+        "target_kwh": 0.09,
+        "effective_discharge_per_unit": 2.7183,
+    },
+    cur_unit=0,
+    now=now_top_of_hour,
+)
+check(
+    "forecast_adjusted charts an undersized discharge plan's real target_kwh, not its whole-unit effective rate (no phantom overshoot/undershoot)",
+    adjusted_undersized_discharge == [9.91, 9.91, 9.91, 9.91],
+)
+
+adjusted_undersized_charge = plans.compose_forecast_adjusted(
+    [10.0] * 4,
+    {
+        "active": True,
+        "start_unit": 0,
+        "end_unit": 1,
+        "target_kwh": 0.12,
+        "effective_charge_per_unit": 1.75,
+    },
+    {"active": False},
+    cur_unit=0,
+    now=now_top_of_hour,
+)
+check(
+    "forecast_adjusted mirrors the same fix for an undersized low charge plan",
+    adjusted_undersized_charge == [10.12, 10.12, 10.12, 10.12],
+)
+
 # The full-charge plan's "scheduled"/"charging" phases add energy the same
 # way the low charge plan does (v0.1.14) - a per-unit rate over its own
 # start_unit/end_unit, unaffected by whether low/high are active.

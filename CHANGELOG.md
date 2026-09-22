@@ -7,6 +7,39 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.3] - 2026-09-22
+
+### Fixed
+- **The battery/SOC forecast (`battery_forecast_adjusted`) charted a
+  discharge or charge plan's full per-unit rate for its whole committed
+  window, instead of the plan's real, intended amount - producing a
+  phantom overshoot/undershoot on the forecast and dashboard that never
+  actually happens.** Caught from a live report: a genuine `high_discharge_plan`
+  target of just 0.09 kWh (against an ~10kW discharge speed, whose
+  `effective_discharge_per_unit` for one whole 15-minute unit is 2.72 kWh)
+  showed up on the SOC forecast as a ~2.72 kWh drop reaching below
+  `low_threshold_kwh` - looking like the discharge plan was creating an
+  undershoot before the far-future price peak it was scheduled against.
+  Investigating confirmed the plan's own sizing was already safe (the
+  existing `max_safe_surplus` cap in `compute_high_discharge_plan` already
+  limits how much surplus can be sold so the raw forecast's own low point
+  can't be pushed under `low_threshold_kwh` - which is exactly why the real
+  target came out to a tiny, safe 0.09 kWh here); the bug was entirely in
+  `compose_forecast_adjusted` assuming the full configured rate gets
+  delivered for the whole rounded-up unit, rather than the plan's own
+  `target_kwh`. Since v0.2.2's live target-energy stop now halts the real
+  hardware at `target_kwh` (not the whole unit), the forecast needed the
+  same correction to match reality: `compose_forecast_adjusted` now derives
+  each plan's per-unit rate from `target_kwh` spread evenly over its own
+  committed window, so the total delta by the window's end always equals
+  the plan's real, intended amount - not an inflated, whole-unit-rounded
+  one. Applies to both the low charge plan and the high discharge plan;
+  `compute_full_charge_plan` is unaffected (it stops on live SOC, not a
+  per-unit floor, so it never had this overshoot to begin with). 2 new
+  tests (108 -> 110): an undersized discharge plan and an undersized
+  charge plan each chart only their real `target_kwh`, not their much
+  larger effective per-unit rate.
+
 ## [0.2.2] - 2026-09-22
 
 ### Added

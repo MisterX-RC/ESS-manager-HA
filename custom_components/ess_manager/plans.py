@@ -667,10 +667,30 @@ def compose_forecast_adjusted(
     `compute_full_charge_plan`) rather than drawing it down by the usage
     forecast like every other hour - so those hours are pinned outright to
     `upper_limit_kwh` instead of receiving a delta.
+
+    The low/high plans' own rates are deliberately NOT their
+    `effective_charge_per_unit`/`effective_discharge_per_unit` fields -
+    those are the full configured rate for a WHOLE 15-minute unit, and
+    since `units_needed` always rounds up to at least one whole unit
+    (see commit 38/39's overshoot notes in plans.py), that rate times the
+    window length is usually MORE than the plan's own genuine
+    `target_kwh`. As of commit 39 the real hardware stops early once
+    `target_energy_kwh` is reached, so charting the full per-unit rate
+    for the whole window paints a deeper swing than what actually
+    happens (a live report: a 0.09 kWh discharge target showed up here
+    as a ~2.72 kWh drop, an apparent - but not real - undershoot).
+    Deriving the rate from `target_kwh` spread evenly over the plan's own
+    committed window instead means the total delta by the window's own
+    end always equals the plan's real, intended amount, matching the
+    live target-energy stop. `compute_full_charge_plan` is unaffected -
+    it doesn't have this floor-rounding overshoot (it stops on live SOC,
+    not a per-unit target), so its own rate is left as-is.
     """
     full = full or {"active": False, "phase": None}
-    charge_rate = low.get("effective_charge_per_unit", 0) if low.get("active") else 0
-    discharge_rate = high.get("effective_discharge_per_unit", 0) if high.get("active") else 0
+    low_window_units = max(low.get("end_unit", 0) - low.get("start_unit", 0), 0) if low.get("active") else 0
+    charge_rate = (low.get("target_kwh", 0) / low_window_units) if low_window_units > 0 else 0
+    high_window_units = max(high.get("end_unit", 0) - high.get("start_unit", 0), 0) if high.get("active") else 0
+    discharge_rate = (high.get("target_kwh", 0) / high_window_units) if high_window_units > 0 else 0
     hour0_start_unit = _hour0_start_unit(cur_unit, now)
     low_start = low.get("start_unit", 0) if low.get("active") else 0
     low_end = low.get("end_unit", 0) if low.get("active") else 0
