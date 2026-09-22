@@ -7,6 +7,29 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.1] - 2026-09-22
+
+### Added
+- **Spike plan skips a sub-minimum pre-peak top-up instead of scheduling it.**
+  Before its price-spike discharge, the spike plan tops the battery back up
+  to full if the forecast expects a small natural dip beforehand (so
+  there's more to sell at the peak price) - caught from a live report where
+  a 1.16 kWh top-up showed up as a real "Start charge" trigger and a real
+  entry on the charge sensors, purely to counteract a forecasted dip that
+  small. `compute_spike_plan` now takes the same **Minimum charge target**
+  value the low charge plan already uses, and if the forecasted gap is
+  smaller than it, treats the battery as "close enough to full" and
+  schedules nothing - no charge window, nothing on `charge_start_time`/
+  `charge_stop_time`/`charge_energy_kwh`, no "Start charge" status. Applied
+  differently than in the low charge plan, deliberately: there, the value
+  raises the *target level* charged up to (the spike plan's target is
+  already the top of the battery, so there's no floor to raise); here it's
+  a floor on whether the resulting top-up is worth doing at all. The
+  discharge side is unaffected - its sizing was already independent of the
+  charge top-up. 2 new tests (100 -> 102): a sub-minimum gap is skipped
+  entirely (zero-length charge window), a gap just above the minimum still
+  schedules a real charge.
+
 ## [0.2.0] - 2026-09-22
 
 ### Changed

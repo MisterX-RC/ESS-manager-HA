@@ -243,8 +243,59 @@ spike_plan = plans.compute_spike_plan(
     charge_speed_kw=7.0,
     spike_discharge_speed_kw=15.0,
     neg_plan={"active": False},
+    minimum_charge_target_kwh=5.0,
 )
 check("spike plan detects the qualifying spread", spike_plan["active"] is True)
+
+# ---------------------------------------------------------------------------
+# compute_spike_plan - a forecasted top-up smaller than minimum_charge_target_kwh
+# is treated as "close enough to full" and not scheduled at all, same threshold
+# the low charge plan uses to avoid trivial charges - added per Timo, who caught
+# a live 1.16 kWh top-up (well under a 5.0 kWh minimum) showing up as a real
+# "Start charge" trigger just to counteract a small forecasted pre-peak dip.
+# ---------------------------------------------------------------------------
+tiny_gap_forecast = [29.5] * 30  # only 0.5 kWh under upper_limit_kwh (30.0)
+spike_plan_below_minimum = plans.compute_spike_plan(
+    None,
+    cur_unit=0,
+    all_price=spike_price,
+    battery_forecast=tiny_gap_forecast,
+    usage=usage_flat,
+    low_threshold_kwh=3.0,
+    upper_limit_kwh=30.0,
+    high_threshold_kwh=33.0,
+    spike_margin=0.40,
+    charge_speed_kw=7.0,
+    spike_discharge_speed_kw=15.0,
+    neg_plan={"active": False},
+    minimum_charge_target_kwh=5.0,
+)
+check(
+    "spike plan skips a sub-minimum top-up entirely (charge_needed_kwh forced to 0, zero-length window)",
+    spike_plan_below_minimum["charge_needed_kwh"] == 0
+    and spike_plan_below_minimum["charge_start_unit"] == spike_plan_below_minimum["charge_end_unit"],
+)
+
+spike_plan_above_minimum = plans.compute_spike_plan(
+    None,
+    cur_unit=0,
+    all_price=spike_price,
+    battery_forecast=[24.5] * 30,  # 5.5 kWh under upper_limit_kwh - just above the 5.0 minimum
+    usage=usage_flat,
+    low_threshold_kwh=3.0,
+    upper_limit_kwh=30.0,
+    high_threshold_kwh=33.0,
+    spike_margin=0.40,
+    charge_speed_kw=7.0,
+    spike_discharge_speed_kw=15.0,
+    neg_plan={"active": False},
+    minimum_charge_target_kwh=5.0,
+)
+check(
+    "spike plan still schedules a genuine top-up once it clears the minimum",
+    spike_plan_above_minimum["charge_needed_kwh"] == 5.5
+    and spike_plan_above_minimum["charge_start_unit"] < spike_plan_above_minimum["charge_end_unit"],
+)
 
 composed_spike = plans.compose_forecast_with_spike(
     composed_neg, spike_plan, cur_unit=0, now=now_top_of_hour, cap=33.0 - 0.01

@@ -249,6 +249,7 @@ def compute_spike_plan(
     charge_speed_kw: float,
     spike_discharge_speed_kw: float,
     neg_plan: Optional[dict],
+    minimum_charge_target_kwh: float,
 ) -> dict:
     prev = prev or {"active": False}
     if prev.get("active") and prev.get("charge_start_unit", -1) <= cur_unit < prev.get("discharge_end_unit", -1):
@@ -303,6 +304,19 @@ def compute_spike_plan(
     else:
         charge_target_level = upper_limit_kwh
     charge_needed_kwh = max(charge_target_level - solar_only_level, 0)
+    # Unlike the low charge plan - where minimum_charge_target_kwh raises the
+    # *target level* it charges up to, so the plan never bothers charging to
+    # just barely above low_threshold_kwh - the spike plan's target is
+    # already the top of the battery (charge_target_level, above), so
+    # there's no floor to raise. The equivalent, and what was actually asked
+    # for, is a floor on whether the resulting top-up is worth doing at all:
+    # a forecasted gap smaller than minimum_charge_target_kwh is treated as
+    # "close enough to full," so no charge window is scheduled and nothing
+    # shows up on the charge sensors for it (Timo's reported case: a 1.16
+    # kWh top-up scheduled purely to counteract a small forecasted dip
+    # before the day's price peak).
+    if charge_needed_kwh < minimum_charge_target_kwh:
+        charge_needed_kwh = 0.0
 
     charge_per_unit = charge_speed_kw / 4
     hour_index_low = min(max((low_abs - cur_unit) // 4, 0), len(usage) - 1) if usage else 0

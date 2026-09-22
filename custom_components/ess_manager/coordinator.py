@@ -542,6 +542,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 charge_speed_kw,
                 spike_discharge_speed_kw,
                 self._negative_price_plan,
+                minimum_charge_target_kwh,
             )
         else:
             self._spike_plan = {"active": False}

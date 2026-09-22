@@ -28,7 +28,11 @@ Five planning engines, all documented in detail in the code
    configurable interval.
 4. **Spike arbitrage plan** - on a day with a large enough price spread,
    deliberately charges cheap and discharges into the peak instead of just
-   capping at your normal SOC band.
+   capping at your normal SOC band. Before a discharge, it tops the battery
+   back up to full if the forecast expects it to have drifted down a bit by
+   then (so there's more to sell at the peak) - but skips that top-up
+   entirely if the gap is smaller than **Minimum charge target**, rather
+   than scheduling a trivial charge just to close a tiny forecasted dip.
 5. **Negative price plan** - when the price goes low enough that charging
    pays you outright, buys as much as your hardware can take in that
    window, clearing room beforehand if needed.
@@ -173,7 +177,7 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Spike discharge speed | Rate used specifically during a spike-arbitrage discharge |
 | Negative price threshold | Price (EUR/kWh) below which charging is considered "getting paid" |
 | Spike margin | Minimum day price spread (EUR/kWh) to treat a day as spike-worthy |
-| Minimum charge target | Always charge at least this many kWh once a charge session starts |
+| Minimum charge target | Low charge plan: always charge at least this many kWh once a charge session starts. Spike plan: skip its pre-peak top-up entirely if the forecasted gap is smaller than this (as of v0.2.1) - see "What it does" above |
 | Planning horizon | How many hours ahead the low/high plans are allowed to react to (price data usually doesn't exist much beyond ~48h anyway) |
 | Full charge interval | Days between full-charge/balance cycles |
 | Full charge max hold | Safety timeout (minutes) for the 100%-hold/balance phase |
