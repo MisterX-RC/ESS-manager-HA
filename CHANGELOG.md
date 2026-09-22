@@ -8,6 +8,26 @@ step (see the README) - do that whenever you want HACS to pick up
 everything published since the last release, not necessarily after every
 single patch bump.
 
+## [0.1.35] - 2026-09-22
+
+### Fixed
+- **`sensor.ess_manager_status` could stay stuck on "Standby" right at a low
+  charge plan's own start time**, if the spike plan happened to still be
+  "active" (waiting on a later discharge phase, or - as in the reported
+  case - reduced to a zero-length/zero-kWh no-op charge window) with
+  neither its own charge nor discharge window currently applicable.
+  `compute_system_status`'s spike branch unconditionally returned "Standby"
+  in that gap instead of falling through to check the low charge plan below
+  it - the same root cause already fixed in `display.charge_display`
+  (v0.1.30) and the dashboard charts (v0.1.31), just never carried over to
+  this function, and never covered by this suite's existing
+  `compute_system_status` tests (none of which included an active spike
+  plan). Fixed by letting the spike branch fall through instead of
+  returning early when neither of its own windows currently applies. 3 new
+  tests (97 → 100): the regression itself, plus confirming the spike
+  plan's own charge and discharge windows still correctly take priority
+  when genuinely current.
+
 ## [0.1.34] - 2026-09-22
 
 ### Added

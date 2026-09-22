@@ -1067,12 +1067,22 @@ def _compute_system_status_raw(
             return "Solar export"
         return "Standby"
 
-    if spike.get("active") and cur_unit < spike.get("discharge_end_unit", -1):
+    if spike.get("active"):
         if spike["charge_start_unit"] <= cur_unit < spike["charge_end_unit"]:
             return "Actief" if setpoint_w >= charge_engaged_at else "Start charge"
-        if cur_unit >= spike["discharge_start_unit"]:
+        if spike["discharge_start_unit"] <= cur_unit < spike["discharge_end_unit"]:
             return "Spike discharge" if setpoint_w <= -discharge_engaged_at else "Start spike discharge"
-        return "Standby"
+        # The spike plan stays "active" for its whole lifecycle, charge
+        # phase through discharge phase (compute_spike_plan only clears it
+        # once cur_unit reaches discharge_end_unit) - so once its own charge
+        # window has passed (or, as here, was a zero-length/zero-kWh no-op
+        # window) and its discharge window hasn't started yet, this must NOT
+        # return "Standby" outright: that would mask a genuinely due low
+        # charge plan sitting in that same gap, which is exactly this bug
+        # class already fixed in display.charge_display (v0.1.30) and the
+        # dashboard charts (v0.1.31) - just never carried over to this
+        # function until now. Falling through (no return here) lets the low
+        # charge plan below get its turn instead.
 
     if low.get("active") and (not high.get("active") or low.get("breach_unit", 999999) <= high.get("breach_unit", 999999)):
         if low["start_unit"] <= cur_unit < low["end_unit"]:

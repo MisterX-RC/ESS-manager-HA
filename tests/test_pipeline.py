@@ -1362,6 +1362,101 @@ check(
     ext5_end == 6,
 )
 
+# ---------------------------------------------------------------------------
+# compute_system_status - regression for a live report: at exactly a low
+# charge plan's own start_unit, with a spike plan still nominally "active"
+# (waiting on a later discharge phase, its own charge window already past
+# or - as in the live report - a zero-length/zero-kWh no-op window), the
+# state stayed "Standby" instead of "Start charge". Same root cause already
+# fixed in display.charge_display (v0.1.30) and the dashboard charts
+# (v0.1.31), just never carried over to this function - previously untested
+# by this suite at all.
+# ---------------------------------------------------------------------------
+status_full = {"active": False, "phase": None, "balance_confirmed": False}
+status_neg = {"active": False}
+status_high = {"active": False, "breach_unit": 999999}
+status_all_price = [0.10] * 160
+
+spike_gap_plan = {
+    "active": True,
+    "charge_start_unit": 34,
+    "charge_end_unit": 34,
+    "discharge_start_unit": 76,
+    "discharge_end_unit": 81,
+}
+low_plan_starting_now = {"active": True, "start_unit": 55, "end_unit": 56, "breach_unit": 128}
+status_at_low_start = plans.compute_system_status(
+    setpoint_w=0.0,
+    idle_setpoint_w=0.0,
+    cur_unit=55,
+    full=status_full,
+    neg=status_neg,
+    spike=spike_gap_plan,
+    low=low_plan_starting_now,
+    high=status_high,
+    battery_now_kwh=24.87,
+    low_threshold_kwh=3,
+    charge_speed_kw=7.0,
+    discharge_speed_kw=10.0,
+    all_price=status_all_price,
+)
+check(
+    "compute_system_status falls through a spike plan's own charge/discharge gap to report the low charge plan's 'Start charge', "
+    "instead of masking it with a blanket 'Standby' (regression: a live dump showed Standby exactly at the low plan's start_unit)",
+    status_at_low_start == "Start charge",
+)
+
+# The spike plan's own charge window must still take priority and report
+# correctly while it's genuinely current, unaffected by the fix above.
+spike_charging_now = {
+    "active": True,
+    "charge_start_unit": 50,
+    "charge_end_unit": 56,
+    "discharge_start_unit": 76,
+    "discharge_end_unit": 81,
+}
+status_spike_charging = plans.compute_system_status(
+    setpoint_w=0.0,
+    idle_setpoint_w=0.0,
+    cur_unit=55,
+    full=status_full,
+    neg=status_neg,
+    spike=spike_charging_now,
+    low={"active": False, "breach_unit": 999999},
+    high=status_high,
+    battery_now_kwh=24.87,
+    low_threshold_kwh=3,
+    charge_speed_kw=7.0,
+    discharge_speed_kw=10.0,
+    all_price=status_all_price,
+)
+check(
+    "compute_system_status still reports 'Start charge' for the spike plan's own currently-active charge window",
+    status_spike_charging == "Start charge",
+)
+
+# And its discharge window, once reached, still takes priority over the
+# fallthrough - the fix only changes what happens in the gap between them.
+status_spike_discharging = plans.compute_system_status(
+    setpoint_w=0.0,
+    idle_setpoint_w=0.0,
+    cur_unit=78,
+    full=status_full,
+    neg=status_neg,
+    spike=spike_gap_plan,
+    low={"active": False, "breach_unit": 999999},
+    high=status_high,
+    battery_now_kwh=24.87,
+    low_threshold_kwh=3,
+    charge_speed_kw=7.0,
+    discharge_speed_kw=10.0,
+    all_price=status_all_price,
+)
+check(
+    "compute_system_status still reports 'Start spike discharge' for the spike plan's own currently-active discharge window",
+    status_spike_discharging == "Start spike discharge",
+)
+
 # cell_voltage_differential_mv - the low/high individual-cell-voltage
 # alternative to a BMS's own differential sensor (added with the
 # low/high cell voltage config option).
