@@ -7,6 +7,23 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.7] - 2026-09-23
+
+### Fixed
+- **The statistics-based usage forecast ran one hour behind for most of
+  every hour.** It's cached and recomputed at most every 55 minutes, but the
+  array is anchored to the hour it was computed in (h0 = that hour). Reused
+  after the clock moved into the next hour, every value landed one hour
+  early - a live dump at 19:04 showed the 18:00 value at h0 (confirmed by
+  comparing it with an earlier dump: identical values, shifted exactly one
+  hour). This shifted usage an hour against the solar forecast in every
+  battery forecast and plan built from it. Affects all three
+  statistics-based sources (manual calculated, consumption sensor, Energy
+  dashboard) and has been there since the calculated source was added. The
+  cache is now also refreshed as soon as the hour changes; that's safe to
+  do right at the top of the hour, because the forecast only looks at the
+  same hour one or more weeks back. 3 new tests (122 -> 125).
+
 ## [0.2.6] - 2026-09-23
 
 ### Fixed

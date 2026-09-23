@@ -80,6 +80,7 @@ from .usage_forecast import (
     compute_usage_forecast,
     compute_usage_forecast_from_consumption,
     energy_prefs_to_sources,
+    usage_cache_is_stale,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -189,10 +190,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         every USAGE_FORECAST_RECALC_MINUTES, since the underlying long-term
         statistics only ever land once per hour anyway.
         """
-        stale = (
-            self._usage_forecast_cache is None
-            or self._usage_forecast_computed_at is None
-            or (now - self._usage_forecast_computed_at) >= timedelta(minutes=USAGE_FORECAST_RECALC_MINUTES)
+        stale = self._usage_forecast_cache is None or usage_cache_is_stale(
+            self._usage_forecast_computed_at, now, USAGE_FORECAST_RECALC_MINUTES
         )
         if not stale:
             return self._usage_forecast_cache
@@ -262,10 +261,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         behavior) rather than a shared helper, so a future change to one
         source's fetch/caching logic can't accidentally change the other's.
         """
-        stale = (
-            self._usage_forecast_cache is None
-            or self._usage_forecast_computed_at is None
-            or (now - self._usage_forecast_computed_at) >= timedelta(minutes=USAGE_FORECAST_RECALC_MINUTES)
+        stale = self._usage_forecast_cache is None or usage_cache_is_stale(
+            self._usage_forecast_computed_at, now, USAGE_FORECAST_RECALC_MINUTES
         )
         if not stale:
             return self._usage_forecast_cache
@@ -322,10 +319,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         detected is kept in self._energy_dashboard_sources and exposed on the
         Status sensor, so it can be checked against the Energy dashboard.
         """
-        stale = (
-            self._usage_forecast_cache is None
-            or self._usage_forecast_computed_at is None
-            or (now - self._usage_forecast_computed_at) >= timedelta(minutes=USAGE_FORECAST_RECALC_MINUTES)
+        stale = self._usage_forecast_cache is None or usage_cache_is_stale(
+            self._usage_forecast_computed_at, now, USAGE_FORECAST_RECALC_MINUTES
         )
         if not stale:
             return self._usage_forecast_cache

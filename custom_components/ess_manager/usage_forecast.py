@@ -249,3 +249,25 @@ def energy_prefs_to_sources(prefs: Optional[dict[str, Any]]) -> dict[str, list[s
             add("battery_discharge", source.get("stat_energy_from"))
             add("battery_charge", source.get("stat_energy_to"))
     return out
+
+
+def usage_cache_is_stale(
+    computed_at: Optional[datetime], now: datetime, max_age_minutes: float
+) -> bool:
+    """Whether a cached usage forecast must be recomputed.
+
+    The forecast array is anchored to the hour it was computed in: h0 is
+    *that* hour. Reusing it after the clock has moved into the next hour
+    shifts every value one hour early (a live dump at 19:04 still showed
+    the 18:00 value at h0, computed ~18:10 and reused under the plain
+    55-minute age limit) - so besides the age limit, the cache is stale as
+    soon as the current hour differs from the hour it was computed in.
+    Recomputing right at the top of the hour is fine: the forecast only
+    looks at the same hour one or more weeks back, never at the hour that
+    just ended.
+    """
+    if computed_at is None:
+        return True
+    if (now - computed_at) >= timedelta(minutes=max_age_minutes):
+        return True
+    return now.replace(minute=0, second=0, microsecond=0) != computed_at.replace(minute=0, second=0, microsecond=0)
