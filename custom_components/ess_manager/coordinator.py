@@ -69,7 +69,6 @@ from .const import (
     STORAGE_VERSION,
     STORAGE_KEY_SUFFIX,
     UPDATE_INTERVAL_SECONDS,
-    USAGE_FORECAST_RECALC_MINUTES,
     USAGE_SOURCE_CALCULATED,
     USAGE_SOURCE_CONSUMPTION_SENSOR,
     USAGE_SOURCE_ENERGY_DASHBOARD,
@@ -138,9 +137,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_full_reached: Optional[datetime] = None
         self._restored = False
 
-        # Calculated-usage-forecast cache - recomputed at most once every
-        # USAGE_FORECAST_RECALC_MINUTES, not every 30s cycle (see
-        # _async_get_calculated_usage_forecast).
+        # Statistics-based usage-forecast cache - recomputed once per hour,
+        # on the first cycle after the hour changes, not every 30s cycle
+        # (see usage_forecast.usage_cache_is_stale).
         self._usage_forecast_cache: Optional[list[float]] = None
         self._usage_forecast_computed_at: Optional[datetime] = None
         # What the Energy-dashboard usage source last detected (see
@@ -186,12 +185,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- calculated usage forecast --------------------------------------------
     async def _async_get_calculated_usage_forecast(self, conf: dict[str, Any], now: datetime) -> list[float]:
         """The h0..h120 usage forecast, computed from recorder statistics
-        instead of an external sensor - cached and only recomputed once
-        every USAGE_FORECAST_RECALC_MINUTES, since the underlying long-term
+        instead of an external sensor - cached and only recomputed once per
+        hour (when the hour changes), since the underlying long-term
         statistics only ever land once per hour anyway.
         """
         stale = self._usage_forecast_cache is None or usage_cache_is_stale(
-            self._usage_forecast_computed_at, now, USAGE_FORECAST_RECALC_MINUTES
+            self._usage_forecast_computed_at, now
         )
         if not stale:
             return self._usage_forecast_cache
@@ -256,13 +255,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cross-sensor resolution mismatches the calculated identity can run
         into). Deliberately structured as a standalone twin of
         _async_get_calculated_usage_forecast above (same caching, same
-        USAGE_FORECAST_RECALC_MINUTES cadence, same "not enough
+        once-per-hour cadence, same "not enough
         history/data yet -> fall back to zeros or the last good cache"
         behavior) rather than a shared helper, so a future change to one
         source's fetch/caching logic can't accidentally change the other's.
         """
         stale = self._usage_forecast_cache is None or usage_cache_is_stale(
-            self._usage_forecast_computed_at, now, USAGE_FORECAST_RECALC_MINUTES
+            self._usage_forecast_computed_at, now
         )
         if not stale:
             return self._usage_forecast_cache
@@ -320,7 +319,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Status sensor, so it can be checked against the Energy dashboard.
         """
         stale = self._usage_forecast_cache is None or usage_cache_is_stale(
-            self._usage_forecast_computed_at, now, USAGE_FORECAST_RECALC_MINUTES
+            self._usage_forecast_computed_at, now
         )
         if not stale:
             return self._usage_forecast_cache

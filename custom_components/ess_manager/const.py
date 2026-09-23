@@ -114,13 +114,6 @@ CONF_USAGE_CONSUMPTION_ENTITIES = "usage_consumption_entities"
 CONF_USAGE_LOOKBACK_WEEKS = "usage_lookback_weeks"
 DEFAULT_USAGE_LOOKBACK_WEEKS = 6
 
-# The calculated usage forecast queries long-term recorder statistics, which
-# only ever land once per hour - recomputing it every 30-second coordinator
-# cycle (like the rest of the pipeline) would just hammer the database for
-# an answer that can't have changed. Recomputed at most this often; cached
-# in between (see coordinator.py's _async_get_calculated_usage_forecast).
-USAGE_FORECAST_RECALC_MINUTES = 55
-
 CONF_ENABLE_FULL_CHARGE_PLAN = "enable_full_charge_plan"
 CONF_ENABLE_SPIKE_PLAN = "enable_spike_plan"
 CONF_ENABLE_NEGATIVE_PRICE_PLAN = "enable_negative_price_plan"

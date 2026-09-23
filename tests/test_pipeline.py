@@ -2089,20 +2089,21 @@ two_battery_result = usage_forecast.compute_usage_forecast(
 check("compute_usage_forecast sums every battery's charge/discharge when given lists", two_battery_result[0] == 3.5)
 
 # Usage-forecast cache: h0 is the hour the forecast was computed in, so it
-# must be recomputed as soon as the hour changes, not only after 55 minutes
-# (a live dump at 19:04 still showed the 18:00 value at h0).
+# must be recomputed exactly when the hour changes - not before (nothing it
+# depends on changes within the hour), and not later (a live dump at 19:04
+# still showed the 18:00 value at h0 under the old 55-minute age limit).
 computed_1810 = datetime(2026, 9, 23, 18, 10)
 check(
-    "usage cache is still fresh later in the same hour",
-    usage_forecast.usage_cache_is_stale(computed_1810, datetime(2026, 9, 23, 18, 55), 55) is False,
+    "usage cache is still fresh later in the same hour, even past the old 55-minute limit",
+    usage_forecast.usage_cache_is_stale(computed_1810, datetime(2026, 9, 23, 18, 59, 59)) is False,
 )
 check(
-    "usage cache goes stale as soon as the hour changes, even within 55 minutes",
-    usage_forecast.usage_cache_is_stale(computed_1810, datetime(2026, 9, 23, 19, 4), 55) is True,
+    "usage cache goes stale as soon as the hour changes",
+    usage_forecast.usage_cache_is_stale(computed_1810, datetime(2026, 9, 23, 19, 0, 5)) is True,
 )
 check(
     "usage cache with no computation yet is stale",
-    usage_forecast.usage_cache_is_stale(None, datetime(2026, 9, 23, 19, 4), 55) is True,
+    usage_forecast.usage_cache_is_stale(None, datetime(2026, 9, 23, 19, 4)) is True,
 )
 
 print()

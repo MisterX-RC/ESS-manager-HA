@@ -7,6 +7,17 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.8] - 2026-09-23
+
+### Changed
+- **The statistics-based usage forecast is now recomputed exactly once per
+  hour**, on the first cycle after the hour changes. v0.2.7 added the
+  hour-change refresh but kept the old 55-minute age limit as well, which
+  caused a second, pointless recalculation around xx:55 (same hour, same
+  inputs, same result). Nothing the forecast depends on changes within an
+  hour, so the age limit (`USAGE_FORECAST_RECALC_MINUTES`) is removed.
+  No change in results - just one database query per hour instead of two.
+
 ## [0.2.7] - 2026-09-23
 
 ### Fixed
