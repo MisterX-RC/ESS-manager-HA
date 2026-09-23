@@ -632,21 +632,67 @@ def compute_high_discharge_plan(
     breach_unit = cur_unit + breach_offset_units
     future_peak = max(forecast) if forecast else high_threshold_kwh
     raw_surplus = round(future_peak - high_threshold_kwh, 3)
-    forecast_min = min(forecast) if forecast else low_threshold_kwh
-    max_safe_surplus = round(forecast_min - low_threshold_kwh, 3)
-    surplus = max(min(raw_surplus, max_safe_surplus), 0)
-
-    if surplus <= 0:
+    if raw_surplus <= 0:
         return {"active": False, "breach_unit": 999999}
 
     relevant_usage = usage[0 : hour_index + 1]
     avg_usage_kwh = sum(relevant_usage) / len(relevant_usage) if relevant_usage else 0
     avg_usage_per_unit = avg_usage_kwh / 4
     effective_discharge_per_unit = discharge_per_unit + avg_usage_per_unit
-    units_needed = max(math.ceil(surplus / effective_discharge_per_unit), 1)
-
     search_end = min(breach_unit, len(all_price))
-    best_start = _best_price_window(all_price, cur_unit, search_end, units_needed, cheapest=False)
+    hour0_unit = _hour0_start_unit(cur_unit, now)
+
+    # Low-threshold safety cap, based on WHERE the sale actually lands.
+    # Selling energy lowers the battery for every hour from the sale onward,
+    # never for hours before it - so only low points from the sale's own
+    # hour onward can be pushed under low_threshold_kwh by it. (Previously
+    # the cap used the lowest point anywhere in the horizon: a live report
+    # had it capped at 0.84 kWh because of a 05:00 low point, while the sale
+    # itself was scheduled for 19:45 that evening - long after that low
+    # point - and the lowest point after the sale left room for the full
+    # 1.79 kWh surplus.) Everything after the sale up to the end of the
+    # horizon is still checked, including after the peak: with a max SOC
+    # below 100% the peak isn't clipped, so the sold energy really is
+    # missing from every later hour too.
+    #
+    # Size and placement depend on each other (the amount sets how many
+    # units the window needs, the window sets which low points count), so
+    # start from the full surplus and only ever shrink it until the window
+    # it lands in is safe - a few rounds at most.
+    def _size_from(search_start: int) -> Optional[tuple[float, int, int, float]]:
+        amount = raw_surplus
+        low_point = None
+        for _ in range(6):
+            units = max(math.ceil(amount / effective_discharge_per_unit), 1)
+            start = _best_price_window(all_price, search_start, search_end, units, cheapest=False)
+            sale_hour = min(max((start - hour0_unit) // 4, 0), len(forecast) - 1)
+            low_point = min(forecast[sale_hour:])
+            capped = round(min(amount, low_point - low_threshold_kwh), 3)
+            if capped <= 0:
+                return None
+            if capped >= amount:
+                return amount, units, start, low_point
+            amount = capped
+        units = max(math.ceil(amount / effective_discharge_per_unit), 1)
+        start = _best_price_window(all_price, search_start, search_end, units, cheapest=False)
+        return amount, units, start, low_point
+
+    best = _size_from(cur_unit)
+    # If the best-priced window lands before a low point that caps (or
+    # blocks) the sale, also try selling only after the lowest point before
+    # the breach - a slightly cheaper slot that can sell more (or at all)
+    # can be worth more than an expensive slot that has to sell less.
+    if best is None or best[0] < raw_surplus:
+        pre_breach = forecast[0 : hour_index + 1]
+        low_h = pre_breach.index(min(pre_breach))
+        after_low_start = hour0_unit + (low_h + 1) * 4
+        if cur_unit < after_low_start < search_end:
+            alt = _size_from(after_low_start)
+            if alt is not None and (best is None or alt[0] > best[0]):
+                best = alt
+    if best is None:
+        return {"active": False, "breach_unit": 999999}
+    surplus, units_needed, best_start, low_point_after_sale = best
 
     return {
         "active": True,
@@ -655,6 +701,7 @@ def compute_high_discharge_plan(
         "avg_home_load_kw": round(avg_usage_kwh, 3),
         "effective_discharge_per_unit": round(effective_discharge_per_unit, 4),
         "capped_by_low_limit": surplus < raw_surplus,
+        "low_point_after_sale_kwh": round(low_point_after_sale, 3),
         "breach_unit": breach_unit,
         "start_unit": best_start,
         "end_unit": best_start + units_needed,

@@ -7,6 +7,27 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.6] - 2026-09-23
+
+### Fixed
+- **The high discharge plan's low-threshold cap counted low points that
+  happen before the sale.** It limited how much could be sold by the lowest
+  point anywhere in the planning horizon - but selling only lowers the
+  battery from the moment of the sale onward, so a low point earlier than
+  the sale can't be affected by it. Caught from a live dump: the cap was
+  0.84 kWh because of a 5.34 kWh low point at 05:00, while the sale itself
+  was scheduled for 19:45 that evening; the lowest point after the sale was
+  9.5 kWh, leaving room for the full 1.79 kWh surplus. The cap now uses the
+  lowest point from the sale's own hour to the end of the horizon (still
+  including hours after the peak - with a max SOC below 100% the peak isn't
+  clipped, so the sold energy really is missing from later hours too).
+  Because the amount and the time depend on each other, it starts from the
+  full surplus and shrinks it until the window it lands in is safe. If the
+  best-priced window is capped by a low point right after it, it also tries
+  selling only after the lowest point before the breach, and uses that if
+  it can sell more. New plan field `low_point_after_sale_kwh`. A low point
+  after the sale still caps it exactly as before. 3 new tests (119 -> 122).
+
 ## [0.2.5] - 2026-09-23
 
 ### Fixed

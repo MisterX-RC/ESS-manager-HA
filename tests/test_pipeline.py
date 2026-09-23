@@ -1614,6 +1614,83 @@ check(
     locked_in_discharge_plan == unsuppressed_discharge_plan,
 )
 
+# The discharge plan's low-threshold cap must only count low points from the
+# sale onward. Live report (15 kWh battery, thresholds 4.5/16.5, 3 kW
+# discharge): the lowest point anywhere was 5.34 kWh at 05:00, capping the
+# sale at 0.84 kWh - but the sale itself was at 19:45 that evening, and the
+# lowest point after it was 9.5 kWh, leaving room for the full 1.79 kWh.
+live_sale_forecast = [7.55, 8.01, 8.19, 7.99, 7.3, 6.76, 6.44, 6.27, 6.18, 6.1, 6.02, 5.94, 5.85, 5.77, 5.7, 5.63,
+                      5.5, 5.34, 6.02, 7.31, 8.65, 10.08, 11.39, 12.49, 13.16, 13.42, 13.32, 12.9, 12.05, 11.43, 10.9,
+                      10.61, 10.51, 10.41, 10.32, 10.24, 10.15, 10.06, 9.98, 9.91, 9.72, 9.5, 10.3, 11.69, 13.21, 14.81,
+                      16.18, 17.34, 18.07, 18.29, 18.1, 17.66, 17.01, 16.6, 16.27, 15.89, 15.74, 15.65, 15.58, 15.51,
+                      15.42, 15.34, 15.27, 15.2, 15.13, 15.06, 14.98, 14.97, 15.17, 15.22, 15.47, 15.6, 15.94, 16.11]
+live_sale_prices = [0.10] * 192
+live_sale_prices[174:177] = [0.259, 0.288, 0.273]  # the evening's priciest 45 minutes, well after the 05:00 low point
+live_sale_plan = plans.compute_high_discharge_plan(
+    None,
+    cur_unit=59,
+    forecast_with_spike=live_sale_forecast,
+    now=datetime(2026, 9, 23, 14, 49),
+    discharge_speed_kw=3.0,
+    high_threshold_kwh=16.5,
+    low_threshold_kwh=4.5,
+    usage=[0.234] * 121,
+    all_price=live_sale_prices,
+    planning_horizon_hours=72,
+    battery_now_kwh=7.46,
+)
+check(
+    "discharge plan ignores low points before the sale: sells the full 1.79 kWh surplus at 19:30-20:15, not a 0.84 kWh capped amount",
+    live_sale_plan["surplus_kwh"] == 1.79
+    and live_sale_plan["capped_by_low_limit"] is False
+    and live_sale_plan["low_point_after_sale_kwh"] == 9.5
+    and live_sale_plan["start_unit"] == 174,
+)
+
+# ...but a low point AFTER the sale still caps it: priciest slot in hour 0,
+# followed by a 6.0 kWh night dip before the peak (20.0 vs a 16.5 ceiling).
+dip_after_sale_prices = [0.50] * 4 + [0.10] * 44
+dip_after_sale_plan = plans.compute_high_discharge_plan(
+    None,
+    cur_unit=0,
+    forecast_with_spike=[10.0, 10.0, 6.0, 6.0, 6.0, 6.0, 12.0, 18.0, 20.0],
+    now=now_top_of_hour,
+    discharge_speed_kw=10.0,
+    high_threshold_kwh=16.5,
+    low_threshold_kwh=4.5,
+    usage=usage_flat,
+    all_price=dip_after_sale_prices,
+    planning_horizon_hours=72,
+    battery_now_kwh=10.0,
+)
+check(
+    "discharge plan still caps the sale by a low point that comes after it (6.0 - 4.5 = 1.5 kWh, not the full 3.5)",
+    dip_after_sale_plan["surplus_kwh"] == 1.5
+    and dip_after_sale_plan["capped_by_low_limit"] is True
+    and dip_after_sale_plan["low_point_after_sale_kwh"] == 6.0,
+)
+
+# When the priciest slot sits just before a low point that almost blocks the
+# sale, selling after that low point instead (a cheaper slot) can sell the
+# full surplus - that option wins.
+after_dip_plan = plans.compute_high_discharge_plan(
+    None,
+    cur_unit=0,
+    forecast_with_spike=[8.0, 4.6, 8.0, 12.0, 18.0, 20.0, 19.0],
+    now=now_top_of_hour,
+    discharge_speed_kw=10.0,
+    high_threshold_kwh=16.5,
+    low_threshold_kwh=4.5,
+    usage=usage_flat,
+    all_price=dip_after_sale_prices,
+    planning_horizon_hours=72,
+    battery_now_kwh=8.0,
+)
+check(
+    "discharge plan moves the sale after a blocking low point when that lets it sell the full surplus",
+    after_dip_plan["surplus_kwh"] == 3.5 and after_dip_plan["start_unit"] >= 8 and after_dip_plan["capped_by_low_limit"] is False,
+)
+
 # _extend_flat_price_window - the houseboat-style "extend into a flat
 # block" heuristic (8% relative OR EUR 0.02 absolute, whichever is easier).
 ext_start, ext_end = plans._extend_flat_price_window([1.00, 1.03], start=0, end=1, min_start=0)
