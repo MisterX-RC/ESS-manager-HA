@@ -575,8 +575,19 @@ def compute_high_discharge_plan(
     planning_horizon_hours: int,
     battery_now_kwh: float,
     suppress_new: bool = False,
+    minimum_charge_target_kwh: float = 0.0,
 ) -> dict:
-    """`suppress_new` blocks scheduling a brand-new discharge window - used
+    """`minimum_charge_target_kwh` raises the lowest level a sale may leave
+    the battery at: a sale is capped so the forecast never drops below
+    max(low_threshold_kwh, minimum_charge_target_kwh) after it - the same
+    level the low charge plan tops the battery back up to. Selling right
+    down to the bare low threshold (the old behavior, and still what a
+    default of 0.0 gives) means any forecast error - a bit more evening
+    usage, a bit less morning solar - pushes the battery under the
+    threshold and makes the low charge plan buy energy back, possibly
+    energy it just sold.
+
+    `suppress_new` blocks scheduling a brand-new discharge window - used
     when the full-charge plan is relying on a future solar peak (or is
     actively charging/holding) to reach/hold the same high_threshold_kwh
     ceiling this function would otherwise sell surplus down from. This
@@ -641,11 +652,14 @@ def compute_high_discharge_plan(
     effective_discharge_per_unit = discharge_per_unit + avg_usage_per_unit
     search_end = min(breach_unit, len(all_price))
     hour0_unit = _hour0_start_unit(cur_unit, now)
+    sale_floor_kwh = max(low_threshold_kwh, minimum_charge_target_kwh)
 
-    # Low-threshold safety cap, based on WHERE the sale actually lands.
-    # Selling energy lowers the battery for every hour from the sale onward,
-    # never for hours before it - so only low points from the sale's own
-    # hour onward can be pushed under low_threshold_kwh by it. (Previously
+    # Safety cap, based on WHERE the sale actually lands: the battery may not
+    # be forecast to drop below sale_floor_kwh (the higher of the low
+    # threshold and the Minimum charge target) after the sale. Selling
+    # energy lowers the battery for every hour from the sale onward, never
+    # for hours before it - so only low points from the sale's own hour
+    # onward can be pushed under the floor by it. (Previously
     # the cap used the lowest point anywhere in the horizon: a live report
     # had it capped at 0.84 kWh because of a 05:00 low point, while the sale
     # itself was scheduled for 19:45 that evening - long after that low
@@ -667,7 +681,7 @@ def compute_high_discharge_plan(
             start = _best_price_window(all_price, search_start, search_end, units, cheapest=False)
             sale_hour = min(max((start - hour0_unit) // 4, 0), len(forecast) - 1)
             low_point = min(forecast[sale_hour:])
-            capped = round(min(amount, low_point - low_threshold_kwh), 3)
+            capped = round(min(amount, low_point - sale_floor_kwh), 3)
             if capped <= 0:
                 return None
             if capped >= amount:
@@ -702,6 +716,7 @@ def compute_high_discharge_plan(
         "effective_discharge_per_unit": round(effective_discharge_per_unit, 4),
         "capped_by_low_limit": surplus < raw_surplus,
         "low_point_after_sale_kwh": round(low_point_after_sale, 3),
+        "sale_floor_kwh": round(sale_floor_kwh, 3),
         "breach_unit": breach_unit,
         "start_unit": best_start,
         "end_unit": best_start + units_needed,

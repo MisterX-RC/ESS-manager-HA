@@ -681,6 +681,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             planning_horizon_hours,
             battery_now_kwh,
             suppress_high_discharge,
+            minimum_charge_target_kwh=minimum_charge_target_kwh,
         )
 
         battery_forecast_adjusted = plans.compose_forecast_adjusted(

@@ -1670,6 +1670,47 @@ check(
     and dip_after_sale_plan["low_point_after_sale_kwh"] == 6.0,
 )
 
+# The sale floor is max(low threshold, Minimum charge target): with a 5.0 kWh
+# Minimum charge target the same scenario may only sell down to 5.0, so
+# 6.0 - 5.0 = 1.0 kWh - never down to the bare 4.5 kWh low threshold.
+dip_after_sale_mct_plan = plans.compute_high_discharge_plan(
+    None,
+    cur_unit=0,
+    forecast_with_spike=[10.0, 10.0, 6.0, 6.0, 6.0, 6.0, 12.0, 18.0, 20.0],
+    now=now_top_of_hour,
+    discharge_speed_kw=10.0,
+    high_threshold_kwh=16.5,
+    low_threshold_kwh=4.5,
+    usage=usage_flat,
+    all_price=dip_after_sale_prices,
+    planning_horizon_hours=72,
+    battery_now_kwh=10.0,
+    minimum_charge_target_kwh=5.0,
+)
+check(
+    "discharge plan never sells below the Minimum charge target when it's above the low threshold (1.0 kWh, not 1.5)",
+    dip_after_sale_mct_plan["surplus_kwh"] == 1.0 and dip_after_sale_mct_plan["sale_floor_kwh"] == 5.0,
+)
+# ...and a Minimum charge target below the low threshold changes nothing.
+dip_after_sale_low_mct_plan = plans.compute_high_discharge_plan(
+    None,
+    cur_unit=0,
+    forecast_with_spike=[10.0, 10.0, 6.0, 6.0, 6.0, 6.0, 12.0, 18.0, 20.0],
+    now=now_top_of_hour,
+    discharge_speed_kw=10.0,
+    high_threshold_kwh=16.5,
+    low_threshold_kwh=4.5,
+    usage=usage_flat,
+    all_price=dip_after_sale_prices,
+    planning_horizon_hours=72,
+    battery_now_kwh=10.0,
+    minimum_charge_target_kwh=2.0,
+)
+check(
+    "discharge plan's sale floor stays the low threshold when the Minimum charge target is lower",
+    dip_after_sale_low_mct_plan["surplus_kwh"] == 1.5 and dip_after_sale_low_mct_plan["sale_floor_kwh"] == 4.5,
+)
+
 # When the priciest slot sits just before a low point that almost blocks the
 # sale, selling after that low point instead (a cheaper slot) can sell the
 # full surplus - that option wins.

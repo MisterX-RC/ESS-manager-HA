@@ -7,6 +7,23 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.9] - 2026-09-23
+
+### Changed
+- **A planned sale no longer drains the battery right down to the bare low
+  threshold.** The high discharge plan's safety cap now keeps the forecast
+  after the sale at or above the higher of the low threshold and the
+  **Minimum charge target** - the same level the low charge plan tops the
+  battery back up to. Before, a sale could be sized to land exactly on the
+  low threshold, so any forecast error (a bit more evening usage, a bit
+  less morning solar) pushed the battery under it and made the low charge
+  plan buy energy back - possibly the energy it had just sold. No new
+  setting: it reuses the existing Minimum charge target. If that's set at
+  or below the low threshold, nothing changes. New plan field
+  `sale_floor_kwh` shows the floor in use. README tunables row corrected
+  (the low charge plan uses Minimum charge target as a target level, not a
+  minimum session size). 2 new tests (125 -> 127).
+
 ## [0.2.8] - 2026-09-23
 
 ### Changed
