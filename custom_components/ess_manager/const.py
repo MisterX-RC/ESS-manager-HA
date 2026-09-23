@@ -75,7 +75,28 @@ USAGE_SOURCE_CONSUMPTION_SENSOR = "consumption_sensor"
 # dashboard configuration (energy_source.py) instead of being picked by hand
 # - so they can never drift out of sync with what the Energy dashboard uses.
 USAGE_SOURCE_ENERGY_DASHBOARD = "energy_dashboard"
-DEFAULT_USAGE_SOURCE = USAGE_SOURCE_EXTERNAL_SENSOR
+DEFAULT_USAGE_SOURCE = USAGE_SOURCE_ENERGY_DASHBOARD
+
+# DEPRECATED - REMOVE IN 0.3.0: the external h0..h120 sensor and the
+# hand-picked "calculated" source. Since 0.2.10 they can no longer be chosen
+# for a new installation (setup only offers the Energy dashboard and the
+# consumption sensor), but installations already using one keep working
+# unchanged and get a Repairs notice asking them to switch (see
+# __init__.py). In 0.3.0 their code paths, config fields and translations
+# are deleted - see the project notes for the full removal checklist.
+DEPRECATED_USAGE_SOURCES = (USAGE_SOURCE_EXTERNAL_SENSOR, USAGE_SOURCE_CALCULATED)
+# What an entry that has no usage_source stored at all (only possible for
+# installs from before usage_source existed, v0.1.0) has always been treated
+# as. Kept separate from DEFAULT_USAGE_SOURCE (what new installs get) so
+# changing the new-install default can't silently change such an entry.
+# REMOVE IN 0.3.0 along with the deprecated sources.
+LEGACY_DEFAULT_USAGE_SOURCE = USAGE_SOURCE_EXTERNAL_SENSOR
+USAGE_SOURCE_LABELS = {
+    USAGE_SOURCE_ENERGY_DASHBOARD: "Calculate it using the entities from my Energy dashboard",
+    USAGE_SOURCE_CONSUMPTION_SENSOR: "Use a home energy consumption sensor I already have",
+    USAGE_SOURCE_EXTERNAL_SENSOR: "An existing sensor with h0..h120 attributes",
+    USAGE_SOURCE_CALCULATED: "Calculate it from hand-picked energy statistics",
+}
 
 CONF_USAGE_FORECAST_ENTITY = "usage_forecast_entity"
 

@@ -77,20 +77,33 @@ from .const import (
     USAGE_SOURCE_CONSUMPTION_SENSOR,
     USAGE_SOURCE_ENERGY_DASHBOARD,
     USAGE_SOURCE_EXTERNAL_SENSOR,
+    DEPRECATED_USAGE_SOURCES,
+    LEGACY_DEFAULT_USAGE_SOURCE,
+    USAGE_SOURCE_LABELS,
 )
 from .energy_source import async_get_energy_prefs
 from .usage_forecast import energy_prefs_to_sources
 
-USAGE_SOURCE_OPTIONS = [
-    selector.SelectOptionDict(value=USAGE_SOURCE_EXTERNAL_SENSOR, label="An existing sensor with h0..h120 attributes"),
-    selector.SelectOptionDict(value=USAGE_SOURCE_CALCULATED, label="Calculate it from my energy statistics"),
-    selector.SelectOptionDict(
-        value=USAGE_SOURCE_CONSUMPTION_SENSOR, label="Use a home energy consumption sensor I already have"
-    ),
-    selector.SelectOptionDict(
-        value=USAGE_SOURCE_ENERGY_DASHBOARD, label="Calculate it using the entities from my Energy dashboard"
-    ),
-]
+# Only the two supported sources are offered for a new installation. The
+# deprecated ones (external h0..h120 sensor, hand-picked calculated) are
+# only ever shown in Configure, and only to an installation still using one,
+# so it can keep saving its other settings until it switches.
+# DEPRECATED handling - REMOVE IN 0.3.0.
+SUPPORTED_USAGE_SOURCES = (USAGE_SOURCE_ENERGY_DASHBOARD, USAGE_SOURCE_CONSUMPTION_SENSOR)
+
+
+def _usage_source_options(current: str | None = None) -> list[selector.SelectOptionDict]:
+    options = [
+        selector.SelectOptionDict(value=value, label=USAGE_SOURCE_LABELS[value]) for value in SUPPORTED_USAGE_SOURCES
+    ]
+    if current in DEPRECATED_USAGE_SOURCES:
+        options.append(
+            selector.SelectOptionDict(
+                value=current, label=f"{USAGE_SOURCE_LABELS[current]} (deprecated - removed in 0.3.0)"
+            )
+        )
+    return options
+
 
 FULL_CHARGE_TRACKING_SOURCE_OPTIONS = [
     selector.SelectOptionDict(value=FULL_CHARGE_TRACKING_INTERNAL, label="Track internally (default)"),
@@ -148,7 +161,7 @@ def _main_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_USAGE_SOURCE, default=defaults.get(CONF_USAGE_SOURCE, DEFAULT_USAGE_SOURCE)
             ): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=USAGE_SOURCE_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+                selector.SelectSelectorConfig(options=_usage_source_options(), mode=selector.SelectSelectorMode.LIST)
             ),
             vol.Optional(
                 CONF_GRID_SETPOINT_ENTITY, default=defaults.get(CONF_GRID_SETPOINT_ENTITY)
@@ -487,9 +500,12 @@ class EssManagerOptionsFlow(config_entries.OptionsFlow):
                     CONF_SOLAR_FORECAST_ENTITIES, default=current.get(CONF_SOLAR_FORECAST_ENTITIES, [])
                 ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
                 vol.Required(
-                    CONF_USAGE_SOURCE, default=current.get(CONF_USAGE_SOURCE, DEFAULT_USAGE_SOURCE)
+                    CONF_USAGE_SOURCE, default=current.get(CONF_USAGE_SOURCE, LEGACY_DEFAULT_USAGE_SOURCE)
                 ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=USAGE_SOURCE_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+                    selector.SelectSelectorConfig(
+                        options=_usage_source_options(current.get(CONF_USAGE_SOURCE, LEGACY_DEFAULT_USAGE_SOURCE)),
+                        mode=selector.SelectSelectorMode.LIST,
+                    )
                 ),
                 vol.Optional(
                     CONF_GRID_SETPOINT_ENTITY, default=current.get(CONF_GRID_SETPOINT_ENTITY)

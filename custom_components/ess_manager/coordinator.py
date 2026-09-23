@@ -48,7 +48,7 @@ from .const import (
     DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW,
     DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW,
     DEFAULT_USAGE_LOOKBACK_WEEKS,
-    DEFAULT_USAGE_SOURCE,
+    LEGACY_DEFAULT_USAGE_SOURCE,
     DOMAIN,
     FORECAST_HOURS,
     FULL_CHARGE_TRACKING_EXTERNAL_SENSOR,
@@ -146,6 +146,17 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # _async_get_energy_dashboard_usage_forecast) - exposed on the Status
         # sensor so it can be checked against the Energy dashboard itself.
         self._energy_dashboard_sources: Optional[dict[str, list[str]]] = None
+
+    def invalidate_usage_forecast(self) -> None:
+        """Drop the cached usage forecast so the next cycle recomputes it.
+        Called when Configure is saved: options changes don't reload the
+        integration (only refresh it), so without this a switch of usage
+        source - or new entities/lookback weeks - would keep showing the old
+        cached forecast until the hour changed.
+        """
+        self._usage_forecast_cache = None
+        self._usage_forecast_computed_at = None
+        self._energy_dashboard_sources = None
 
     # -- wiring from number.py --------------------------------------------------
     def register_number(self, key: str, entity: Any) -> None:
@@ -438,7 +449,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         tomorrow_price = list(price_state.attributes.get("tomorrow") or [])
         all_price = [float(p) for p in (today_price + tomorrow_price)]
 
-        usage_source = conf.get(CONF_USAGE_SOURCE, DEFAULT_USAGE_SOURCE)
+        # LEGACY_DEFAULT_USAGE_SOURCE, not DEFAULT_USAGE_SOURCE: an entry with
+        # no usage_source stored predates the choice and has always meant the
+        # external sensor - see const.py. The external-sensor and calculated
+        # branches below are DEPRECATED - REMOVE IN 0.3.0.
+        usage_source = conf.get(CONF_USAGE_SOURCE, LEGACY_DEFAULT_USAGE_SOURCE)
         if usage_source == USAGE_SOURCE_CALCULATED:
             usage_forecast = await self._async_get_calculated_usage_forecast(conf, now)
         elif usage_source == USAGE_SOURCE_CONSUMPTION_SENSOR:

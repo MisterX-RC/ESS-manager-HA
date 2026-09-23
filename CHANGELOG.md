@@ -7,6 +7,29 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.10] - 2026-09-23
+
+### Deprecated
+- **Two household-usage sources are deprecated and will be removed in
+  0.3.0: "An existing sensor with h0..h120 attributes" and "Calculate it
+  from my energy statistics" (hand-picked sensors).** The setup wizard now
+  only offers the two supported sources - **the Energy dashboard**
+  (recommended, and the new default) and **a home energy consumption
+  sensor**. Installations already on a deprecated source keep working
+  exactly as before for the rest of 0.2.x; Configure still shows their
+  current source (marked "deprecated") so other settings can be saved
+  without switching. Home Assistant shows a warning under
+  Settings -> System -> Repairs on those installations, explaining how to
+  switch; it disappears as soon as a supported source is saved (it's
+  re-checked at startup and on every Configure save), and is removed if the
+  installation is deleted. A warning is also written to the log.
+
+### Fixed
+- **Saving Configure now recomputes the usage forecast straight away.**
+  Options changes only refresh the integration (they don't reload it), so
+  switching usage source - or changing its entities or lookback weeks -
+  kept the old cached forecast until the next hour change.
+
 ## [0.2.9] - 2026-09-23
 
 ### Changed

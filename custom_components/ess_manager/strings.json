@@ -31,14 +31,14 @@
         }
       },
       "usage_sensor": {
-        "title": "Household usage forecast sensor",
+        "title": "Household usage forecast sensor (deprecated - removed in 0.3.0)",
         "description": "Point this at an existing sensor exposing h0..h120 attributes (one float per forecast hour).",
         "data": {
           "usage_forecast_entity": "Household usage forecast sensor"
         }
       },
       "usage_calculated": {
-        "title": "Calculate the household usage forecast",
+        "title": "Calculate the household usage forecast (deprecated - removed in 0.3.0)",
         "description": "Pick the energy entities that make up your household's net consumption. Each import/export field accepts one or more entities - use two when your meter has separate day/night (tariff 1/2) sensors, or just one if it doesn't. Consumption for each historical hour is derived as: solar produced + grid imported + battery discharged - grid exported - battery charged, then averaged across the same hour/weekday over your chosen lookback window. If your grid/solar/battery sensors don't all update at similar resolution, this per-hour breakdown can look noisy or even briefly negative even though the daily total is fine - if you have a sensor that already reports whole-home consumption directly, picking that as the usage source instead avoids this.",
         "data": {
           "grid_import_entities": "Grid import energy sensor(s) (cumulative kWh - one per tariff, if your meter has more than one)",
@@ -102,13 +102,13 @@
         }
       },
       "usage_sensor": {
-        "title": "Household usage forecast sensor",
+        "title": "Household usage forecast sensor (deprecated - removed in 0.3.0)",
         "data": {
           "usage_forecast_entity": "Household usage forecast sensor"
         }
       },
       "usage_calculated": {
-        "title": "Calculate the household usage forecast",
+        "title": "Calculate the household usage forecast (deprecated - removed in 0.3.0)",
         "data": {
           "grid_import_entities": "Grid import energy sensor(s)",
           "grid_export_entities": "Grid export energy sensor(s) (optional)",
@@ -139,6 +139,12 @@
       "usage_calculated_entities_required": "Select at least one grid import entity and at least one solar production entity.",
       "usage_consumption_entities_required": "Select at least one home energy consumption entity.",
       "energy_dashboard_not_configured": "No grid import is configured in the Energy dashboard. Add your grid source there first (Settings > Dashboards > Energy), or pick another usage source."
+    }
+  },
+  "issues": {
+    "deprecated_usage_source": {
+      "title": "ESS Manager: usage source will be removed in 0.3.0",
+      "description": "**{entry_title}** calculates its household usage forecast with **{source}**. This option is deprecated and will be removed in ESS Manager 0.3.0 - it keeps working until then, but after that the integration can't plan without a supported usage source.\n\nTo switch: Settings > Devices & services > ESS Manager > **Configure**, and pick **Calculate it using the entities from my Energy dashboard** (uses the same grid, solar and battery sensors your Energy dashboard already has) or **Use a home energy consumption sensor I already have**. This notice disappears as soon as you save."
     }
   }
 }

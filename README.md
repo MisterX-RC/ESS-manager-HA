@@ -58,14 +58,11 @@ integration producing the same shape works):
   the Nordpool HACS integration produces for markets settled at 15-minute
   resolution. A sensor with hourly-only prices will not line up correctly
   with the planning engines' 15-minute unit indexing.
-- **Household usage forecast**: either an existing sensor exposing `h0`
-  through `h120` attributes (one float per forecast hour, h0 = current
-  hour), or nothing at all - the integration can calculate this forecast
-  itself directly from Home Assistant's own recorder statistics (using
-  sensors you pick, the ones already configured in your Energy dashboard,
-  or a direct home consumption sensor). See
-  "Household usage forecast" below for how the built-in calculation works
-  and what it needs.
+- **Household usage forecast**: nothing extra if your Home Assistant
+  Energy dashboard is set up (at least a grid source) - the integration
+  calculates the forecast itself from the statistics the Energy dashboard
+  already uses. Alternatively, a sensor reporting your home's total energy
+  consumption (cumulative kWh). See "Household usage forecast" below.
 - **Solar forecast**: one or more sensors exposing a `detailedHourly`
   attribute shaped like Solcast's: a list of
   `{"period_start": <ISO timestamp>, "pv_estimate": <kWh>}` objects. Add as
@@ -90,16 +87,26 @@ integration producing the same shape works):
 ## Household usage forecast
 
 Every planning engine needs a household usage forecast, but there's no one
-right way to produce it, so the setup wizard offers four:
+right way to produce it. The setup wizard offers two sources: **your Energy
+dashboard** (recommended) and **a home energy consumption sensor** - both
+described further down. Two older sources, **an existing h0..h120 sensor**
+and **calculated from hand-picked sensors**, are **deprecated**: they can't
+be chosen for a new installation any more and **will be removed in 0.3.0**.
+Installations already using one keep working until then, and Home
+Assistant shows a notice under Settings -> System -> Repairs explaining how
+to switch (Configure -> pick one of the two supported sources); the notice
+disappears as soon as you save.
 
-**An existing sensor** - point the integration at any sensor exposing
+The deprecated ones first, for reference:
+
+**An existing sensor** *(deprecated - removed in 0.3.0)* - point the integration at any sensor exposing
 `h0`..`h120` attributes, however you produce it. This is the original
 system's approach: a hand-written SQL sensor averaging the same calendar
 hour/weekday over several weeks of recorder history (see
 `legacy-yaml-config/` for that exact query, if you're curious or want to
 build your own variant).
 
-**Calculated internally** *(no external sensor needed)* - the integration
+**Calculated from hand-picked sensors** *(deprecated - removed in 0.3.0; use the Energy dashboard source below, which does the same calculation)* - the integration
 queries Home Assistant's own long-term recorder statistics itself and
 computes the same kind of forecast, using the energy-balance identity:
 
@@ -130,7 +137,7 @@ anyway), and - unlike the original query - a week with a genuine gap in the
 data (an entity that didn't exist yet, a recorder outage) is excluded from
 that hour's average rather than silently counted as a zero.
 
-**Calculated from your Energy dashboard** *(new in 0.2.4 - being verified)* -
+**Calculated from your Energy dashboard** *(recommended)* -
 exactly the same calculation as above, but instead of picking the grid,
 solar and battery sensors by hand, the integration reads them straight from
 Home Assistant's own Energy dashboard configuration (Settings -> Dashboards
