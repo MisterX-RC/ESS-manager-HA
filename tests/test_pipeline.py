@@ -209,6 +209,58 @@ locked_again = plans.compute_low_charge_plan(
 )
 check("an active plan locks in and ignores new input mid-window", locked_again == low_plan)
 
+# Live report (v0.2.3): the forecast first dips under the 3.0 kWh threshold
+# at hour 14 (2.89) but keeps falling to -0.38 at hour 19 before solar
+# recovers it at hour 23. The plan used to size the charge against the
+# first-crossing hour only (a 0.11 kWh "charge"); it must cover the lowest
+# point of the dip (3.0 - -0.38 = 3.38 kWh), with the deadline still at the
+# first crossing.
+live_dip_forecast = [7.81, 9.11, 9.93, 10.61, 10.74, 9.83, 8.67, 7.14, 6.13, 5.56, 5.01, 4.45, 3.91, 3.4,
+                     2.89, 2.37, 1.85, 1.33, 0.66, -0.38, -0.18, 0.55, 1.91, 4.44, 7.09, 10.01]
+live_dip_plan = plans.compute_low_charge_plan(
+    None,
+    cur_unit=48,
+    forecast_with_spike=live_dip_forecast,
+    now=now_top_of_hour,
+    charge_speed_kw=10.0,
+    low_threshold_kwh=3.0,
+    minimum_charge_target_kwh=3.0,
+    upper_limit_kwh=10.74,  # no headroom term, so the dip alone decides target_kwh
+    usage=usage_flat,
+    all_price=[0.20] * 192,
+    planning_horizon_hours=72,
+    battery_now_kwh=7.38,
+)
+check(
+    "low charge plan sizes the charge against the dip's lowest point, not the first hour it crosses the threshold",
+    live_dip_plan["dip_min_kwh"] == -0.38 and live_dip_plan["deficit_kwh"] == 3.38 and live_dip_plan["target_kwh"] == 3.38,
+)
+check(
+    "low charge plan's deadline (breach_unit) is still the dip's first crossing",
+    live_dip_plan["breach_unit"] == 48 + 4 + 14 * 4,
+)
+# A separate, later dip (after the forecast climbs back above the threshold)
+# must NOT inflate this plan - it gets its own plan once this one is behind us.
+two_dip_forecast = [8.0] * 3 + [2.5, 2.0, 2.5] + [8.0] * 5 + [-5.0] + [8.0] * 5
+two_dip_plan = plans.compute_low_charge_plan(
+    None,
+    cur_unit=0,
+    forecast_with_spike=two_dip_forecast,
+    now=now_top_of_hour,
+    charge_speed_kw=10.0,
+    low_threshold_kwh=3.0,
+    minimum_charge_target_kwh=3.0,
+    upper_limit_kwh=8.0,
+    usage=usage_flat,
+    all_price=[0.20] * 192,
+    planning_horizon_hours=72,
+    battery_now_kwh=8.0,
+)
+check(
+    "low charge plan only sizes against the first dip, not a separate later one",
+    two_dip_plan["dip_min_kwh"] == 2.0 and two_dip_plan["deficit_kwh"] == 1.0,
+)
+
 # ---------------------------------------------------------------------------
 # plans.py - live-target early stop (target_energy_kwh / target_reached)
 # ---------------------------------------------------------------------------

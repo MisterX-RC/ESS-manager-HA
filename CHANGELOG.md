@@ -7,6 +7,25 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.5] - 2026-09-23
+
+### Fixed
+- **The low charge plan sized its charge against the first hour the
+  forecast dipped under the low threshold, not the lowest point of that
+  dip.** Caught from a live dump: the forecast first crossed the 3.0 kWh
+  threshold at 2.89 kWh, so the plan scheduled a 0.11 kWh "charge" - but
+  the same dip kept falling for five more hours to -0.38 kWh before solar
+  recovered it, so the real shortfall was 3.38 kWh and the battery would
+  have run empty overnight. `compute_low_charge_plan` now finds where the
+  dip ends (the forecast climbing back to the threshold, or the end of the
+  horizon) and sizes `deficit_kwh`/`target_kwh` against the lowest point
+  in between; the deadline (`breach_unit`) is still the first crossing, so
+  the charge still has to be in before the battery first runs short. A
+  separate, later dip is not lumped in - it gets its own plan once this
+  one is behind us. The plan gains a `dip_min_kwh` field showing the low
+  point it sized against. This first-crossing sizing came straight from
+  the original template sensor. 3 new tests (116 -> 119).
+
 ## [0.2.4] - 2026-09-23
 
 ### Added

@@ -491,15 +491,33 @@ def compute_low_charge_plan(
     charge_per_unit = charge_speed_kw / 4
 
     hour_index = None
-    value = 0.0
     for h in range(len(forecast)):
         if forecast[h] < low_threshold_kwh:
             hour_index = h
-            value = forecast[h]
             break
 
     if hour_index is None:
         return {"active": False, "breach_unit": 999999}
+
+    # Size the charge against the LOWEST point of this dip, not the first
+    # hour it crosses below the threshold. The forecast usually keeps falling
+    # for hours after that first crossing (evening/night usage with no
+    # solar), so topping up only to cover the first-crossing hour leaves the
+    # battery short again a few hours later. Live report: first crossing
+    # 2.89 kWh (-> a 0.11 kWh "charge"), but the same dip kept falling to
+    # -0.38 kWh five hours later, before solar recovered it - the real
+    # shortfall was 3.38 kWh. The dip ends where the forecast climbs back
+    # to the threshold (or at the end of the horizon); a later, separate dip
+    # gets its own plan once this one is behind us. breach_unit (the
+    # deadline) still comes from the FIRST crossing - the charge has to be
+    # in before the battery first runs short. (The original template sensor
+    # had this same first-crossing-only sizing; it was ported as-is.)
+    dip_end = len(forecast)
+    for h in range(hour_index + 1, len(forecast)):
+        if forecast[h] >= low_threshold_kwh:
+            dip_end = h
+            break
+    value = min(forecast[hour_index:dip_end])
 
     units_to_next_hour = 4 - (now.minute // 15)
     breach_offset_units = units_to_next_hour + (hour_index * 4)
@@ -522,6 +540,7 @@ def compute_low_charge_plan(
     return {
         "active": True,
         "deficit_kwh": deficit,
+        "dip_min_kwh": round(value, 3),
         "target_kwh": target_kwh,
         "avg_home_load_kw": round(avg_usage_kwh, 3),
         "effective_charge_per_unit": round(effective_charge_per_unit, 4),
