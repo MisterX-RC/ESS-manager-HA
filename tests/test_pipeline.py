@@ -1841,6 +1841,124 @@ check(
     consumption_result[1] == 0.0 and consumption_result[2] == 0.0,
 )
 
+# ---------------------------------------------------------------------------
+# usage_forecast.py - Energy-dashboard usage source: mapping HA's Energy
+# dashboard preferences onto the energy-balance identity's statistic lists
+# ---------------------------------------------------------------------------
+# Legacy grid shape: one "grid" entry with flow_from/flow_to arrays (here a
+# dual-tariff meter - two imports, two exports).
+legacy_prefs = {
+    "energy_sources": [
+        {
+            "type": "grid",
+            "flow_from": [{"stat_energy_from": "sensor.import_t1"}, {"stat_energy_from": "sensor.import_t2"}],
+            "flow_to": [{"stat_energy_to": "sensor.export_t1"}, {"stat_energy_to": "sensor.export_t2"}],
+        },
+        {"type": "solar", "stat_energy_from": "sensor.solar"},
+        {"type": "battery", "stat_energy_from": "sensor.batt_discharge", "stat_energy_to": "sensor.batt_charge"},
+        {"type": "gas", "stat_energy_from": "sensor.gas"},
+    ],
+    "device_consumption": [{"stat_consumption": "sensor.fridge"}],
+}
+check(
+    "energy_prefs_to_sources maps the legacy flow_from/flow_to grid shape, solar and battery (battery from = discharge, to = charge), and ignores gas/devices",
+    usage_forecast.energy_prefs_to_sources(legacy_prefs)
+    == {
+        "import": ["sensor.import_t1", "sensor.import_t2"],
+        "export": ["sensor.export_t1", "sensor.export_t2"],
+        "solar": ["sensor.solar"],
+        "battery_charge": ["sensor.batt_charge"],
+        "battery_discharge": ["sensor.batt_discharge"],
+    },
+)
+
+# Current grid shape: one "grid" entry per connection, stat_energy_from/_to
+# directly on it (export optional); multiple solar arrays and batteries;
+# an external statistic id (colon form) passes straight through.
+unified_prefs = {
+    "energy_sources": [
+        {"type": "grid", "stat_energy_from": "tibber:energy_consumption", "stat_energy_to": "sensor.export"},
+        {"type": "grid", "stat_energy_from": "sensor.import_annex"},
+        {"type": "solar", "stat_energy_from": "sensor.solar_east"},
+        {"type": "solar", "stat_energy_from": "sensor.solar_west"},
+        {"type": "battery", "stat_energy_from": "sensor.b1_out", "stat_energy_to": "sensor.b1_in"},
+        {"type": "battery", "stat_energy_from": "sensor.b2_out", "stat_energy_to": "sensor.b2_in"},
+        {"type": "water", "stat_energy_from": "sensor.water"},
+    ],
+}
+check(
+    "energy_prefs_to_sources maps the current one-entry-per-grid-connection shape, multiple solar arrays/batteries, and external statistic ids",
+    usage_forecast.energy_prefs_to_sources(unified_prefs)
+    == {
+        "import": ["tibber:energy_consumption", "sensor.import_annex"],
+        "export": ["sensor.export"],
+        "solar": ["sensor.solar_east", "sensor.solar_west"],
+        "battery_charge": ["sensor.b1_in", "sensor.b2_in"],
+        "battery_discharge": ["sensor.b1_out", "sensor.b2_out"],
+    },
+)
+check(
+    "energy_prefs_to_sources returns empty lists (not a crash) when the Energy dashboard can't be read or is unconfigured",
+    usage_forecast.energy_prefs_to_sources(None)
+    == {"import": [], "export": [], "solar": [], "battery_charge": [], "battery_discharge": []}
+    and usage_forecast.energy_prefs_to_sources({"energy_sources": []})["import"] == [],
+)
+check(
+    "energy_prefs_to_sources drops duplicates and blanks",
+    usage_forecast.energy_prefs_to_sources(
+        {
+            "energy_sources": [
+                {"type": "grid", "flow_from": [{"stat_energy_from": "sensor.import"}, {"stat_energy_from": ""}]},
+                {"type": "grid", "stat_energy_from": "sensor.import", "stat_energy_to": None},
+            ]
+        }
+    )["import"]
+    == ["sensor.import"],
+)
+
+# End-to-end: the Energy-dashboard mapping fed into compute_usage_forecast
+# gives exactly the same answer as the equivalent hand-picked config (week
+# 1's complete sample from the calculated-usage fixtures above: 3.7).
+dashboard_sources = usage_forecast.energy_prefs_to_sources(
+    {
+        "energy_sources": [
+            {"type": "grid", "stat_energy_from": "sensor.import", "stat_energy_to": "sensor.export"},
+            {"type": "solar", "stat_energy_from": "sensor.solar"},
+            {"type": "battery", "stat_energy_from": "sensor.batt_discharge", "stat_energy_to": "sensor.batt_charge"},
+        ]
+    }
+)
+dashboard_result = usage_forecast.compute_usage_forecast(
+    hourly_sums,
+    dashboard_sources["import"],
+    dashboard_sources["export"],
+    dashboard_sources["solar"],
+    dashboard_sources["battery_charge"],
+    dashboard_sources["battery_discharge"],
+    now=usage_now,
+    forecast_hours=1,
+    lookback_weeks=1,
+)
+check("the Energy-dashboard source gives the same usage as the equivalent hand-picked config", dashboard_result[0] == 3.7)
+
+# Multiple batteries (only possible via the Energy dashboard): every
+# battery's charge is subtracted and every battery's discharge added.
+hourly_sums["sensor.batt2_charge"] = {e1: 3.5, e1 - HOUR_S: 3.0}  # delta 0.5
+hourly_sums["sensor.batt2_discharge"] = {e1: 1.3, e1 - HOUR_S: 1.0}  # delta 0.3
+two_battery_result = usage_forecast.compute_usage_forecast(
+    hourly_sums,
+    import_entities=["sensor.import"],
+    export_entities=["sensor.export"],
+    solar_entities=["sensor.solar"],
+    battery_charge_entity=["sensor.batt_charge", "sensor.batt2_charge"],
+    battery_discharge_entity=["sensor.batt_discharge", "sensor.batt2_discharge"],
+    now=usage_now,
+    forecast_hours=1,
+    lookback_weeks=1,
+)
+# 2.0 solar + 3.0 import + (0.2 + 0.3) discharge - 0.5 export - (1.0 + 0.5) charge = 3.5
+check("compute_usage_forecast sums every battery's charge/discharge when given lists", two_battery_result[0] == 3.5)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

@@ -40,10 +40,24 @@ entirely rather than treated as zero.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional, Union
 
 HOUR_SECONDS = 3600
 WEEK_SECONDS = 7 * 24 * HOUR_SECONDS
+
+# A battery energy term can be a single statistic id (the manual
+# "calculated" config, which only ever had one charge/one discharge field),
+# a list of them (the Energy-dashboard source, since HA's Energy dashboard
+# lets you configure any number of batteries), or None/empty.
+BatteryTerm = Union[None, str, list[str]]
+
+
+def _as_list(term: BatteryTerm) -> list[str]:
+    if not term:
+        return []
+    if isinstance(term, str):
+        return [term]
+    return [t for t in term if t]
 
 
 def _hour_delta(
@@ -68,8 +82,8 @@ def _week_sample(
     import_entities: list[str],
     export_entities: list[str],
     solar_entities: list[str],
-    battery_charge_entity: Optional[str],
-    battery_discharge_entity: Optional[str],
+    battery_charge_entity: BatteryTerm,
+    battery_discharge_entity: BatteryTerm,
     hour_start_epoch: int,
 ) -> Optional[float]:
     """One historical hour's household consumption via the energy-balance
@@ -78,28 +92,15 @@ def _week_sample(
     silently default to 0 - see module docstring).
     """
     total = 0.0
-    for entity_id in solar_entities:
+    added = list(solar_entities) + list(import_entities) + _as_list(battery_discharge_entity)
+    subtracted = list(export_entities) + _as_list(battery_charge_entity)
+    for entity_id in added:
         delta = _hour_delta(hourly_sums, entity_id, hour_start_epoch)
         if delta is None:
             return None
         total += delta
-    for entity_id in import_entities:
+    for entity_id in subtracted:
         delta = _hour_delta(hourly_sums, entity_id, hour_start_epoch)
-        if delta is None:
-            return None
-        total += delta
-    if battery_discharge_entity:
-        delta = _hour_delta(hourly_sums, battery_discharge_entity, hour_start_epoch)
-        if delta is None:
-            return None
-        total += delta
-    for entity_id in export_entities:
-        delta = _hour_delta(hourly_sums, entity_id, hour_start_epoch)
-        if delta is None:
-            return None
-        total -= delta
-    if battery_charge_entity:
-        delta = _hour_delta(hourly_sums, battery_charge_entity, hour_start_epoch)
         if delta is None:
             return None
         total -= delta
@@ -111,8 +112,8 @@ def compute_usage_forecast(
     import_entities: list[str],
     export_entities: list[str],
     solar_entities: list[str],
-    battery_charge_entity: Optional[str],
-    battery_discharge_entity: Optional[str],
+    battery_charge_entity: BatteryTerm,
+    battery_discharge_entity: BatteryTerm,
     now: datetime,
     forecast_hours: int,
     lookback_weeks: int,
@@ -188,3 +189,63 @@ def compute_usage_forecast_from_consumption(
         forecast_hours=forecast_hours,
         lookback_weeks=lookback_weeks,
     )
+
+
+def energy_prefs_to_sources(prefs: Optional[dict[str, Any]]) -> dict[str, list[str]]:
+    """Map Home Assistant's Energy dashboard preferences (what
+    `homeassistant.components.energy.data.async_get_manager(hass).data`
+    holds) onto the five statistic-id lists compute_usage_forecast's
+    energy-balance identity needs: grid import, grid export, solar
+    production, battery charged, battery discharged.
+
+    Kept pure (a plain dict in, plain lists out) so it can be unit-tested
+    without Home Assistant - the only HA-dependent part is fetching the
+    prefs dict itself (coordinator.py).
+
+    Handles BOTH shapes HA has used for grid sources:
+      - legacy: one "grid" entry with `flow_from: [{stat_energy_from}, ...]`
+        and `flow_to: [{stat_energy_to}, ...]` arrays (one item per tariff/
+        meter);
+      - current: one "grid" entry per connection, carrying its own
+        `stat_energy_from` (import) and optional `stat_energy_to` (export)
+        directly.
+    Solar: `stat_energy_from` = production. Battery: `stat_energy_from` =
+    energy discharged OUT of the battery, `stat_energy_to` = energy charged
+    INTO it (HA's naming is from the house's point of view). Gas/water and
+    device-level consumption are ignored - they're not part of the
+    electricity balance. Duplicates and blanks are dropped, order kept.
+    These are statistic ids, not necessarily entity ids - an external
+    statistic like "tibber:energy_consumption" is valid and is fetched the
+    same way by statistics_source.py.
+    """
+    out: dict[str, list[str]] = {
+        "import": [],
+        "export": [],
+        "solar": [],
+        "battery_charge": [],
+        "battery_discharge": [],
+    }
+
+    def add(key: str, value: Any) -> None:
+        if isinstance(value, str) and value and value not in out[key]:
+            out[key].append(value)
+
+    for source in (prefs or {}).get("energy_sources") or []:
+        if not isinstance(source, dict):
+            continue
+        kind = source.get("type")
+        if kind == "grid":
+            for flow in source.get("flow_from") or []:
+                if isinstance(flow, dict):
+                    add("import", flow.get("stat_energy_from"))
+            for flow in source.get("flow_to") or []:
+                if isinstance(flow, dict):
+                    add("export", flow.get("stat_energy_to"))
+            add("import", source.get("stat_energy_from"))
+            add("export", source.get("stat_energy_to"))
+        elif kind == "solar":
+            add("solar", source.get("stat_energy_from"))
+        elif kind == "battery":
+            add("battery_discharge", source.get("stat_energy_from"))
+            add("battery_charge", source.get("stat_energy_to"))
+    return out

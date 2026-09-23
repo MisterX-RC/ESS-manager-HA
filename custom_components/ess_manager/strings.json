@@ -56,6 +56,13 @@
           "usage_consumption_entities": "Home energy consumption sensor(s) (cumulative kWh - more than one if consumption is split across multiple monitors/circuits)",
           "usage_lookback_weeks": "How many weeks back to average (same hour, same day of week)"
         }
+      },
+      "usage_energy_dashboard": {
+        "title": "Household usage from the Energy dashboard",
+        "description": "The grid, solar and battery statistics are read straight from your Home Assistant Energy dashboard (Settings > Dashboards > Energy) and kept in sync with it automatically - edit them there, not here. Currently detected:\n\n{detected}\n\nEach hour's forecast is the same hour/weekday's household consumption (solar + grid import + battery discharge - grid export - battery charge), averaged over your chosen lookback window.",
+        "data": {
+          "usage_lookback_weeks": "How many weeks back to average (same hour, same day of week)"
+        }
       }
     },
     "error": {
@@ -63,7 +70,8 @@
       "battery_voltage_entity_required": "Select a battery pack voltage sensor - required alongside the full-charge balancing plan.",
       "days_since_full_charge_entity_required": "Select a days-since-full-charge sensor - required when using the external-sensor tracking option.",
       "usage_calculated_entities_required": "Select at least one grid import entity and at least one solar production entity.",
-      "usage_consumption_entities_required": "Select at least one home energy consumption entity."
+      "usage_consumption_entities_required": "Select at least one home energy consumption entity.",
+      "energy_dashboard_not_configured": "No grid import is configured in the Energy dashboard. Add your grid source there first (Settings > Dashboards > Energy), or pick another usage source."
     },
     "abort": {
       "already_configured": "An ESS Manager instance with this name already exists."
@@ -116,13 +124,21 @@
           "usage_consumption_entities": "Home energy consumption sensor(s)",
           "usage_lookback_weeks": "How many weeks back to average"
         }
+      },
+      "usage_energy_dashboard": {
+        "title": "Household usage from the Energy dashboard",
+        "description": "The grid, solar and battery statistics are read straight from your Home Assistant Energy dashboard (Settings > Dashboards > Energy) and kept in sync with it automatically - edit them there, not here. Currently detected:\n\n{detected}\n\nEach hour's forecast is the same hour/weekday's household consumption (solar + grid import + battery discharge - grid export - battery charge), averaged over your chosen lookback window.",
+        "data": {
+          "usage_lookback_weeks": "How many weeks back to average"
+        }
       }
     },
     "error": {
       "battery_voltage_entity_required": "Select a battery pack voltage sensor - required alongside the full-charge balancing plan.",
       "days_since_full_charge_entity_required": "Select a days-since-full-charge sensor - required when using the external-sensor tracking option.",
       "usage_calculated_entities_required": "Select at least one grid import entity and at least one solar production entity.",
-      "usage_consumption_entities_required": "Select at least one home energy consumption entity."
+      "usage_consumption_entities_required": "Select at least one home energy consumption entity.",
+      "energy_dashboard_not_configured": "No grid import is configured in the Energy dashboard. Add your grid source there first (Settings > Dashboards > Energy), or pick another usage source."
     }
   }
 }

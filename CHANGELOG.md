@@ -7,6 +7,42 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.4] - 2026-09-23
+
+### Added
+- **Fourth household-usage source: "Calculate it using the entities from my
+  Energy dashboard".** The same energy-balance calculation as the existing
+  "Calculate it from my energy statistics" option (solar + grid import +
+  battery discharge - grid export - battery charge, averaged over the same
+  hour/weekday), but the grid, solar and battery statistics are read live
+  from Home Assistant's own Energy dashboard configuration instead of being
+  picked by hand - re-read about once an hour, so edits in the Energy
+  dashboard carry over automatically. Handles both shapes HA has used for
+  grid sources (the older `flow_from`/`flow_to` arrays and the current one
+  entry per grid connection), any number of grid connections/solar arrays/
+  batteries, and external statistics (e.g. `tibber:...`); gas, water and
+  device-level entries are ignored. The setup/Configure step shows exactly
+  which statistics were detected and refuses to continue if the Energy
+  dashboard has no grid import configured; the Status sensor gains
+  `usage_source` and `energy_dashboard_sources` attributes so what's
+  actually in use can be checked live. Reading the Energy dashboard uses an
+  internal Home Assistant interface, so any failure to read it is logged
+  and the last good forecast is kept rather than failing the update.
+  Added alongside the existing three options (none removed yet) so it can
+  be verified first. The manual "calculated" option's battery fields are
+  unchanged; internally the battery terms now also accept lists (needed
+  for multiple Energy-dashboard batteries). 6 new tests (110 -> 116):
+  legacy and current Energy-dashboard shapes, unreadable/empty config,
+  duplicate/blank handling, same result as the equivalent hand-picked
+  config, and multiple batteries summed.
+
+### Fixed
+- **Energy statistics are now always read in kWh.** The recorder statistics
+  fetch used by all three statistics-based usage sources didn't request a
+  unit, so a sensor reporting in Wh (or MWh) was read in its own unit -
+  1000x off from the kWh everything downstream assumes. Now asks the
+  recorder to convert to kWh.
+
 ## [0.2.3] - 2026-09-22
 
 ### Fixed

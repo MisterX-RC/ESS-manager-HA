@@ -72,9 +72,15 @@ from .const import (
     USAGE_FORECAST_RECALC_MINUTES,
     USAGE_SOURCE_CALCULATED,
     USAGE_SOURCE_CONSUMPTION_SENSOR,
+    USAGE_SOURCE_ENERGY_DASHBOARD,
 )
+from .energy_source import async_get_energy_prefs
 from .statistics_source import async_fetch_hourly_sums
-from .usage_forecast import compute_usage_forecast, compute_usage_forecast_from_consumption
+from .usage_forecast import (
+    compute_usage_forecast,
+    compute_usage_forecast_from_consumption,
+    energy_prefs_to_sources,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -136,6 +142,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # _async_get_calculated_usage_forecast).
         self._usage_forecast_cache: Optional[list[float]] = None
         self._usage_forecast_computed_at: Optional[datetime] = None
+        # What the Energy-dashboard usage source last detected (see
+        # _async_get_energy_dashboard_usage_forecast) - exposed on the Status
+        # sensor so it can be checked against the Energy dashboard itself.
+        self._energy_dashboard_sources: Optional[dict[str, list[str]]] = None
 
     # -- wiring from number.py --------------------------------------------------
     def register_number(self, key: str, entity: Any) -> None:
@@ -297,6 +307,80 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._usage_forecast_computed_at = now
         return self._usage_forecast_cache
 
+    async def _async_get_energy_dashboard_usage_forecast(self, conf: dict[str, Any], now: datetime) -> list[float]:
+        """The h0..h120 usage forecast via the same energy-balance identity as
+        _async_get_calculated_usage_forecast, but with the grid/solar/battery
+        statistics read live from Home Assistant's own Energy dashboard
+        configuration (energy_source.py) instead of picked by hand in this
+        integration's setup. Re-read on every recompute (not copied at setup),
+        so an edit to the Energy dashboard is picked up automatically.
+
+        A standalone twin of the calculated path (same caching cadence, same
+        fall-back-to-last-good-cache behavior) rather than a shared helper,
+        so this new, not-yet-verified-live source can't accidentally change
+        the behavior of the already-live calculated one. What was actually
+        detected is kept in self._energy_dashboard_sources and exposed on the
+        Status sensor, so it can be checked against the Energy dashboard.
+        """
+        stale = (
+            self._usage_forecast_cache is None
+            or self._usage_forecast_computed_at is None
+            or (now - self._usage_forecast_computed_at) >= timedelta(minutes=USAGE_FORECAST_RECALC_MINUTES)
+        )
+        if not stale:
+            return self._usage_forecast_cache
+
+        prefs = await async_get_energy_prefs(self.hass)
+        sources = energy_prefs_to_sources(prefs)
+        self._energy_dashboard_sources = sources
+        lookback_weeks = int(conf.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS))
+
+        if not sources["import"]:
+            # No grid import configured in the Energy dashboard (or it couldn't
+            # be read at all) - there's no balance to compute. Keep the last
+            # good forecast if there is one, otherwise zeros, rather than
+            # failing the whole coordinator update.
+            _LOGGER.warning(
+                "ESS Manager: usage source is the Energy dashboard, but no grid import "
+                "statistic was found there - configure the Energy dashboard's grid source"
+            )
+            if self._usage_forecast_cache is not None:
+                return self._usage_forecast_cache
+            return [0.0] * FORECAST_HOURS
+
+        all_ids = [
+            *sources["solar"],
+            *sources["import"],
+            *sources["export"],
+            *sources["battery_charge"],
+            *sources["battery_discharge"],
+        ]
+        base_hour = now.replace(minute=0, second=0, microsecond=0)
+        range_start = base_hour - timedelta(weeks=lookback_weeks, hours=1)
+        range_end = base_hour + timedelta(hours=1)
+
+        try:
+            hourly_sums = await async_fetch_hourly_sums(self.hass, all_ids, range_start, range_end)
+        except Exception as err:  # noqa: BLE001 - a statistics/DB hiccup shouldn't fail the whole update
+            _LOGGER.warning("ESS Manager: could not fetch usage-forecast statistics: %s", err)
+            if self._usage_forecast_cache is not None:
+                return self._usage_forecast_cache
+            return [0.0] * FORECAST_HOURS
+
+        self._usage_forecast_cache = compute_usage_forecast(
+            hourly_sums,
+            sources["import"],
+            sources["export"],
+            sources["solar"],
+            sources["battery_charge"],
+            sources["battery_discharge"],
+            now,
+            FORECAST_HOURS,
+            lookback_weeks,
+        )
+        self._usage_forecast_computed_at = now
+        return self._usage_forecast_cache
+
     def _get_voltage_diff(self, conf: dict[str, Any]) -> Optional[float]:
         """The cell voltage differential (millivolts) fed to the full-charge
         balancing plan, from whichever of the two configured sources
@@ -365,6 +449,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             usage_forecast = await self._async_get_calculated_usage_forecast(conf, now)
         elif usage_source == USAGE_SOURCE_CONSUMPTION_SENSOR:
             usage_forecast = await self._async_get_measured_usage_forecast(conf, now)
+        elif usage_source == USAGE_SOURCE_ENERGY_DASHBOARD:
+            usage_forecast = await self._async_get_energy_dashboard_usage_forecast(conf, now)
         else:
             usage_entity = conf.get(CONF_USAGE_FORECAST_ENTITY)
             usage_state = self.hass.states.get(usage_entity) if usage_entity else None
@@ -656,6 +742,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "today_price_units": len(today_price),
             "solar_120h": solar_forecast,
             "energy_usage_120h": usage_forecast,
+            "usage_source": usage_source,
+            "energy_dashboard_sources": (
+                self._energy_dashboard_sources if usage_source == USAGE_SOURCE_ENERGY_DASHBOARD else None
+            ),
             "net_energy_120h": net_energy,
             "battery_forecast": battery_forecast,
             "battery_forecast_with_negative_price": forecast_with_negative_price,

@@ -1,6 +1,7 @@
 {
   "domain": "ess_manager",
   "name": "ESS Manager",
+  "after_dependencies": ["energy", "recorder"],
   "codeowners": ["@MisterX-RC"],
   "config_flow": true,
   "documentation": "https://github.com/MisterX-RC/ESS-manager-HA",
@@ -8,5 +9,5 @@
   "iot_class": "calculated",
   "integration_type": "hub",
   "requirements": [],
-  "version": "0.2.3"
+  "version": "0.2.4"
 }

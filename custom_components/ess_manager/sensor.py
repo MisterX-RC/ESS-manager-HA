@@ -33,6 +33,8 @@ STATUS_ATTRIBUTES = [
     "today_price_units",
     "solar_120h",
     "energy_usage_120h",
+    "usage_source",
+    "energy_dashboard_sources",
     "net_energy_120h",
     "battery_forecast",
     "battery_forecast_with_negative_price",

@@ -61,7 +61,9 @@ integration producing the same shape works):
 - **Household usage forecast**: either an existing sensor exposing `h0`
   through `h120` attributes (one float per forecast hour, h0 = current
   hour), or nothing at all - the integration can calculate this forecast
-  itself directly from Home Assistant's own recorder statistics. See
+  itself directly from Home Assistant's own recorder statistics (using
+  sensors you pick, the ones already configured in your Energy dashboard,
+  or a direct home consumption sensor). See
   "Household usage forecast" below for how the built-in calculation works
   and what it needs.
 - **Solar forecast**: one or more sensors exposing a `detailedHourly`
@@ -88,7 +90,7 @@ integration producing the same shape works):
 ## Household usage forecast
 
 Every planning engine needs a household usage forecast, but there's no one
-right way to produce it, so the setup wizard offers two:
+right way to produce it, so the setup wizard offers four:
 
 **An existing sensor** - point the integration at any sensor exposing
 `h0`..`h120` attributes, however you produce it. This is the original
@@ -127,6 +129,35 @@ an hour internally (long-term statistics only ever land once an hour
 anyway), and - unlike the original query - a week with a genuine gap in the
 data (an entity that didn't exist yet, a recorder outage) is excluded from
 that hour's average rather than silently counted as a zero.
+
+**Calculated from your Energy dashboard** *(new in 0.2.4 - being verified)* -
+exactly the same calculation as above, but instead of picking the grid,
+solar and battery sensors by hand, the integration reads them straight from
+Home Assistant's own Energy dashboard configuration (Settings -> Dashboards
+-> Energy). They're re-read about once an hour, so any change you make in
+the Energy dashboard is picked up automatically - there's nothing to keep in
+sync. The setup step shows exactly which statistics it detected before you
+confirm, and the Status sensor's `energy_dashboard_sources` attribute shows
+what's currently in use. Multiple grid connections, solar arrays and
+batteries are all supported (every one is summed into its term), as are
+external statistics that have no sensor behind them (e.g. `tibber:...`). The
+Energy dashboard needs at least a grid source configured; gas, water and
+individual-device entries are ignored. This relies on an internal Home
+Assistant interface - if a future HA version changes it and the
+configuration can't be read, the integration logs a warning and keeps using
+the last good forecast rather than failing.
+
+**A home energy consumption sensor** - if you already have a sensor that
+reports your home's total energy consumed (cumulative kWh), point the
+integration at it directly. No energy balance is derived at all, which also
+avoids a failure mode the calculated options can hit when one of the grid/
+solar/battery sensors reports much more coarsely than the others (e.g. a
+grid meter that only ticks in 0.1 kWh steps a few times an hour) - Home
+Assistant's hourly statistics then lump that sensor's flow into whichever
+hour it happened to tick over in, giving odd (even negative) hourly swings.
+
+All three statistics-based options read the recorder's statistics converted
+to kWh, so sensors reporting in Wh or MWh work too.
 
 ## Installation
 

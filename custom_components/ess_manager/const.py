@@ -70,6 +70,11 @@ CONF_USAGE_SOURCE = "usage_source"
 USAGE_SOURCE_EXTERNAL_SENSOR = "external_sensor"
 USAGE_SOURCE_CALCULATED = "calculated"
 USAGE_SOURCE_CONSUMPTION_SENSOR = "consumption_sensor"
+# Same energy-balance calculation as USAGE_SOURCE_CALCULATED, but the grid/
+# solar/battery statistics are read live from Home Assistant's own Energy
+# dashboard configuration (energy_source.py) instead of being picked by hand
+# - so they can never drift out of sync with what the Energy dashboard uses.
+USAGE_SOURCE_ENERGY_DASHBOARD = "energy_dashboard"
 DEFAULT_USAGE_SOURCE = USAGE_SOURCE_EXTERNAL_SENSOR
 
 CONF_USAGE_FORECAST_ENTITY = "usage_forecast_entity"

@@ -39,6 +39,11 @@ async def async_fetch_hourly_sums(
         return {}
 
     recorder = get_instance(hass)
+    # units: ask the recorder to convert every energy statistic to kWh on
+    # the way out. Without this, values come back in each statistic's own
+    # native unit - a Wh or MWh meter (both allowed by HA's Energy
+    # dashboard) would be read 1000x too high/low, since everything
+    # downstream (the energy-balance identity, the battery forecast) is kWh.
     raw = await recorder.async_add_executor_job(
         statistics_during_period,
         hass,
@@ -46,7 +51,7 @@ async def async_fetch_hourly_sums(
         end,
         ids,
         "hour",
-        None,
+        {"energy": "kWh"},
         {"sum"},
     )
 
