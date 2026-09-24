@@ -7,6 +7,14 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.3.1] - 2026-09-25
+
+### Changed
+- README: status badges for the validation workflow, the latest release
+  and the license. No change to the integration itself; this release is
+  the first one published after the repository passed the full HACS and
+  hassfest validation (needed for the HACS default list).
+
 ## [0.3.0] - 2026-09-24
 
 ### Removed

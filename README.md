@@ -1,5 +1,9 @@
 # ESS Manager
 
+[![Validate](https://github.com/MisterX-RC/ESS-manager-HA/actions/workflows/validate.yaml/badge.svg)](https://github.com/MisterX-RC/ESS-manager-HA/actions/workflows/validate.yaml)
+[![GitHub release](https://img.shields.io/github/v/release/MisterX-RC/ESS-manager-HA)](https://github.com/MisterX-RC/ESS-manager-HA/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A Home Assistant custom integration for battery/solar/price-aware charge and
 discharge planning: it watches your battery's state of charge, a solar
 production forecast, a household usage forecast, and dynamic electricity
