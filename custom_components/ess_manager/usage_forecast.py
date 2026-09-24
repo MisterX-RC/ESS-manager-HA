@@ -1,14 +1,14 @@
 """Pure-Python household usage forecasting from raw energy statistics.
 
-This is the calculated alternative to reading an existing "h0..h120"
-usage-forecast sensor (see forecasting.build_usage_forecast): instead of
-depending on an external sensor, derive the same shape of forecast directly
-from Home Assistant's own long-term recorder statistics (imported via
-statistics_source.py, which is the only HA-dependent half of this feature).
+Derives the hourly household usage forecast from Home Assistant's own
+long-term recorder statistics (fetched via statistics_source.py, which is
+the only HA-dependent half of this feature) - either through the
+energy-balance identity with the Energy dashboard's grid/solar/battery
+statistics, or directly from consumption meters.
 
 Ported from the original hand-written system's SQL sensor (a single query
-against MySQL's `statistics`/`statistics_meta` tables - see
-legacy-yaml-config/ and the project handoff notes), but reimplemented here
+against MySQL's `statistics`/`statistics_meta` tables - still in the git
+history, v0.2.x releases), but reimplemented here
 in plain Python against a pre-fetched dict of hourly cumulative sums rather
 than a raw SQL query, for two reasons: it works against any recorder
 backend (the original query used MySQL-specific syntax like
@@ -39,7 +39,7 @@ entirely rather than treated as zero.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Optional, Union
 
 HOUR_SECONDS = 3600
@@ -119,9 +119,8 @@ def compute_usage_forecast(
     lookback_weeks: int,
 ) -> list[float]:
     """Build the h0..h(forecast_hours-1) usage forecast array. h0 is the
-    current (floor-aligned) hour, matching forecasting.build_usage_forecast
-    and build_net_energy's expectations exactly - this is a drop-in
-    alternative source for the same array, not a different shape.
+    current (floor-aligned) hour, matching forecasting.build_net_energy's
+    expectations exactly.
     """
     base_hour = now.replace(minute=0, second=0, microsecond=0)
     result: list[float] = []

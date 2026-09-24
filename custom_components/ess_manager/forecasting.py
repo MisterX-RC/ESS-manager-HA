@@ -75,24 +75,6 @@ def build_solar_forecast(
     return values
 
 
-def build_usage_forecast(
-    hourly_values: dict, hours: int = FORECAST_HOURS
-) -> list[float]:
-    """Hourly usage forecast, index 0 = current hour.
-
-    `hourly_values` is expected to be a mapping like {"h0": 1.23, "h1":
-    0.98, ...} - the attribute shape exposed by the SQL-based
-    sensor.predicted_energy_forecast this was originally built against.
-    Missing/None entries fall back to 0, matching the original's
-    `value | float(0) if value is not none else 0`.
-    """
-    values: list[float] = []
-    for h in range(hours):
-        value = hourly_values.get(f"h{h}")
-        values.append(float(value) if value is not None else 0.0)
-    return values
-
-
 def build_net_energy(
     solar: list[Optional[float]], usage: list[float]
 ) -> list[float]:
