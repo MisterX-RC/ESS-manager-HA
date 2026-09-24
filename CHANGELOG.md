@@ -7,6 +7,38 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.3.0] - 2026-09-24
+
+### Removed
+- **The two old household usage sources**, deprecated since 0.2.10: an
+  existing sensor with h0..h120 attributes, and calculating it from
+  hand-picked energy statistics. The usage forecast now always comes from
+  your Energy dashboard or from a home energy consumption sensor.
+- The leftover "script" direct-control setting from 0.2.14.
+
+### Changed
+- **Automatic migration on update.** An installation that still used a
+  removed source is switched to the Energy dashboard source automatically
+  when the Energy dashboard has a grid source, and Settings > Repairs shows
+  a notice asking you to check the forecast (it disappears once you save
+  Configure, or when you ignore it). If that's not possible, planning
+  pauses and Repairs shows an error until you pick a source in Configure;
+  it never plans with zero household usage. Settings that only the removed
+  sources used are cleaned up.
+- **After updating you can't go back to a 0.2.x version** without removing
+  and re-adding the integration: the stored configuration moved to a new
+  format (version 2).
+- **The repository is smaller:** the original template-sensor YAML
+  (`legacy-yaml-config/`) and the maintainer's sync script are no longer
+  part of it. Both are still in the git history.
+
+## [0.2.20] - 2026-09-24
+
+### Added
+- **MIT license.** ESS Manager is now published under the MIT license
+  (see `LICENSE`): anyone may use, change and share it, as long as the
+  copyright notice stays with it. No change to the integration itself.
+
 ## [0.2.19] - 2026-09-24
 
 ### Added

@@ -29,25 +29,6 @@
           "usage_lookback_weeks": "How many weeks back to average (same hour, same day of week)"
         }
       },
-      "usage_sensor": {
-        "title": "Household usage forecast sensor (deprecated - removed in 0.3.0)",
-        "description": "Point this at an existing sensor exposing h0..h120 attributes (one float per forecast hour).",
-        "data": {
-          "usage_forecast_entity": "Household usage forecast sensor"
-        }
-      },
-      "usage_calculated": {
-        "title": "Calculate the household usage forecast (deprecated - removed in 0.3.0)",
-        "description": "Pick the energy entities that make up your household's net consumption. Each import/export field accepts one or more entities - use two when your meter has separate day/night (tariff 1/2) sensors, or just one if it doesn't. Consumption for each historical hour is derived as: solar produced + grid imported + battery discharged - grid exported - battery charged, then averaged across the same hour/weekday over your chosen lookback window. If your grid/solar/battery sensors don't all update at similar resolution, this per-hour breakdown can look noisy or even briefly negative even though the daily total is fine - if you have a sensor that already reports whole-home consumption directly, picking that as the usage source instead avoids this.",
-        "data": {
-          "grid_import_entities": "Grid import energy sensor(s) (cumulative kWh - one per tariff, if your meter has more than one)",
-          "grid_export_entities": "Grid export energy sensor(s) (cumulative kWh, optional - leave empty if you never export)",
-          "solar_production_entities": "Solar production energy sensor(s) (cumulative kWh - one per inverter/array, if you have more than one)",
-          "battery_charge_energy_entity": "Battery charged energy sensor (cumulative kWh, optional)",
-          "battery_discharge_energy_entity": "Battery discharged energy sensor (cumulative kWh, optional)",
-          "usage_lookback_weeks": "How many weeks back to average (same hour, same day of week)"
-        }
-      },
       "full_charge": {
         "title": "Full-charge balancing",
         "description": "Sensors for full-charge balancing. The balance is only confirmed when SOC is at least 99.5%, the cell voltage differential is small enough, and the pack voltage has reached the target voltage minus 0.1 V. For the cell voltage differential, use either a differential sensor or the lowest/highest cell voltage pair.",
@@ -104,7 +85,6 @@
       "solar_forecast_required": "Select at least one solar forecast entity.",
       "battery_voltage_entity_required": "Select a battery pack voltage sensor - required alongside the full-charge balancing plan.",
       "days_since_full_charge_entity_required": "Select a days-since-full-charge sensor - required when using the external-sensor tracking option.",
-      "usage_calculated_entities_required": "Select at least one grid import entity and at least one solar production entity.",
       "usage_consumption_entities_required": "Select at least one home energy consumption entity.",
       "energy_dashboard_not_configured": "No grid import is configured in the Energy dashboard. Add your grid source there first (Settings > Dashboards > Energy), or pick another usage source.",
       "control_target_wrong_type": "Pick a number or input_number entity."
@@ -138,23 +118,6 @@
         "title": "Household consumption sensor",
         "data": {
           "usage_consumption_entities": "Home energy consumption sensor(s)",
-          "usage_lookback_weeks": "How many weeks back to average"
-        }
-      },
-      "usage_sensor": {
-        "title": "Household usage forecast sensor (deprecated - removed in 0.3.0)",
-        "data": {
-          "usage_forecast_entity": "Household usage forecast sensor"
-        }
-      },
-      "usage_calculated": {
-        "title": "Calculate the household usage forecast (deprecated - removed in 0.3.0)",
-        "data": {
-          "grid_import_entities": "Grid import energy sensor(s)",
-          "grid_export_entities": "Grid export energy sensor(s) (optional)",
-          "solar_production_entities": "Solar production energy sensor(s)",
-          "battery_charge_energy_entity": "Battery charged energy sensor (optional)",
-          "battery_discharge_energy_entity": "Battery discharged energy sensor (optional)",
           "usage_lookback_weeks": "How many weeks back to average"
         }
       },
@@ -207,16 +170,19 @@
     "error": {
       "battery_voltage_entity_required": "Select a battery pack voltage sensor - required alongside the full-charge balancing plan.",
       "days_since_full_charge_entity_required": "Select a days-since-full-charge sensor - required when using the external-sensor tracking option.",
-      "usage_calculated_entities_required": "Select at least one grid import entity and at least one solar production entity.",
       "usage_consumption_entities_required": "Select at least one home energy consumption entity.",
       "energy_dashboard_not_configured": "No grid import is configured in the Energy dashboard. Add your grid source there first (Settings > Dashboards > Energy), or pick another usage source.",
       "control_target_wrong_type": "Pick a number or input_number entity."
     }
   },
   "issues": {
-    "deprecated_usage_source": {
-      "title": "ESS Manager: usage source will be removed in 0.3.0",
-      "description": "**{entry_title}** calculates its household usage forecast with **{source}**. This option is deprecated and will be removed in ESS Manager 0.3.0 - it keeps working until then, but after that the integration can't plan without a supported usage source.\n\nTo switch: Settings > Devices & services > ESS Manager > **Configure**, and pick **Calculate it using the entities from my Energy dashboard** (uses the same grid, solar and battery sensors your Energy dashboard already has) or **Use a home energy consumption sensor I already have**. This notice disappears as soon as you save."
+    "usage_source_switched": {
+      "title": "ESS Manager: usage source switched to the Energy dashboard",
+      "description": "**{entry_title}** used {source} for its household usage forecast. That option was removed in 0.3.0, so it now uses the grid, solar and battery statistics from your Energy dashboard instead.\n\nCheck that the forecast (the `energy_usage_120h` attribute of the Status sensor) looks right, or pick a consumption sensor in Configure. You can ignore this notice once you've checked it."
+    },
+    "usage_source_removed": {
+      "title": "ESS Manager: choose a household usage source",
+      "description": "**{entry_title}** used {source} for its household usage forecast, which was removed in 0.3.0. It couldn't be switched automatically because your Energy dashboard has no grid source.\n\nPlanning is paused until you pick a source: open Settings > Devices & services > ESS Manager > Configure and choose the Energy dashboard or a consumption sensor."
     }
   }
 }

@@ -18,18 +18,13 @@ from homeassistant.util import dt as dt_util
 
 from . import control, display, forecasting, plans
 from .const import (
-    CONF_BATTERY_CHARGE_ENERGY_ENTITY,
-    CONF_BATTERY_DISCHARGE_ENERGY_ENTITY,
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_VOLTAGE_ENTITY,
     CONF_DAYS_SINCE_FULL_CHARGE_ENTITY,
     CONF_ENABLE_FULL_CHARGE_PLAN,
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
-    CONF_FULL_CHARGE_TARGET_VOLTAGE,
     CONF_FULL_CHARGE_TRACKING_SOURCE,
-    CONF_GRID_EXPORT_ENTITIES,
-    CONF_GRID_IMPORT_ENTITIES,
     CONF_GRID_SETPOINT_ENTITY,
     CONF_HIGH_CELL_VOLTAGE_ENTITY,
     CONF_LOW_CELL_VOLTAGE_ENTITY,
@@ -37,9 +32,7 @@ from .const import (
     CONF_MAX_BATTERY_DISCHARGE_SPEED_KW,
     CONF_PRICE_ENTITY,
     CONF_SOLAR_FORECAST_ENTITIES,
-    CONF_SOLAR_PRODUCTION_ENTITIES,
     CONF_USAGE_CONSUMPTION_ENTITIES,
-    CONF_USAGE_FORECAST_ENTITY,
     CONF_USAGE_LOOKBACK_WEEKS,
     CONF_USAGE_SOURCE,
     CONF_VOLTAGE_DIFF_ENTITY,
@@ -48,7 +41,6 @@ from .const import (
     DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW,
     DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW,
     DEFAULT_USAGE_LOOKBACK_WEEKS,
-    LEGACY_DEFAULT_USAGE_SOURCE,
     DOMAIN,
     FORECAST_HOURS,
     FULL_CHARGE_TRACKING_EXTERNAL_SENSOR,
@@ -70,7 +62,6 @@ from .const import (
     STORAGE_VERSION,
     STORAGE_KEY_SUFFIX,
     UPDATE_INTERVAL_SECONDS,
-    USAGE_SOURCE_CALCULATED,
     USAGE_SOURCE_CONSUMPTION_SENSOR,
     USAGE_SOURCE_ENERGY_DASHBOARD,
 )
@@ -213,70 +204,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             }
         )
 
-    # -- calculated usage forecast --------------------------------------------
-    async def _async_get_calculated_usage_forecast(self, conf: dict[str, Any], now: datetime) -> list[float]:
-        """The h0..h120 usage forecast, computed from recorder statistics
-        instead of an external sensor - cached and only recomputed once per
-        hour (when the hour changes), since the underlying long-term
-        statistics only ever land once per hour anyway.
-        """
-        stale = self._usage_forecast_cache is None or usage_cache_is_stale(
-            self._usage_forecast_computed_at, now
-        )
-        if not stale:
-            return self._usage_forecast_cache
-
-        import_entities = [e for e in conf.get(CONF_GRID_IMPORT_ENTITIES, []) or [] if e]
-        export_entities = [e for e in conf.get(CONF_GRID_EXPORT_ENTITIES, []) or [] if e]
-        solar_entities = [e for e in conf.get(CONF_SOLAR_PRODUCTION_ENTITIES, []) or [] if e]
-        battery_charge_entity = conf.get(CONF_BATTERY_CHARGE_ENERGY_ENTITY) or None
-        battery_discharge_entity = conf.get(CONF_BATTERY_DISCHARGE_ENERGY_ENTITY) or None
-        lookback_weeks = int(conf.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS))
-
-        all_entities = [*solar_entities, *import_entities, *export_entities]
-        if battery_charge_entity:
-            all_entities.append(battery_charge_entity)
-        if battery_discharge_entity:
-            all_entities.append(battery_discharge_entity)
-
-        if not all_entities:
-            # Nothing configured yet (e.g. mid-setup) - fall back to zeros
-            # rather than failing the whole coordinator update over it.
-            self._usage_forecast_cache = [0.0] * FORECAST_HOURS
-            self._usage_forecast_computed_at = now
-            return self._usage_forecast_cache
-
-        base_hour = now.replace(minute=0, second=0, microsecond=0)
-        # Need every hour from (lookback_weeks weeks + 1 hour) before the
-        # current hour through the current hour itself - every historical
-        # sample this feature ever looks up falls somewhere in that range,
-        # since it only ever looks *backward* in time regardless of how far
-        # forward the forecast itself projects.
-        range_start = base_hour - timedelta(weeks=lookback_weeks, hours=1)
-        range_end = base_hour + timedelta(hours=1)
-
-        try:
-            hourly_sums = await async_fetch_hourly_sums(self.hass, all_entities, range_start, range_end)
-        except Exception as err:  # noqa: BLE001 - a statistics/DB hiccup shouldn't fail the whole update
-            _LOGGER.warning("ESS Manager: could not fetch usage-forecast statistics: %s", err)
-            if self._usage_forecast_cache is not None:
-                return self._usage_forecast_cache
-            return [0.0] * FORECAST_HOURS
-
-        self._usage_forecast_cache = compute_usage_forecast(
-            hourly_sums,
-            import_entities,
-            export_entities,
-            solar_entities,
-            battery_charge_entity,
-            battery_discharge_entity,
-            now,
-            FORECAST_HOURS,
-            lookback_weeks,
-        )
-        self._usage_forecast_computed_at = now
-        return self._usage_forecast_cache
-
+    # -- usage forecast sources ---------------------------------------------------
     async def _async_get_measured_usage_forecast(self, conf: dict[str, Any], now: datetime) -> list[float]:
         """The h0..h120 usage forecast, read directly from one or more
         home-energy-consumption sensors instead of derived from the
@@ -284,12 +212,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         usage_forecast.compute_usage_forecast_from_consumption for why this
         is a separate, simpler path (no derivation, so none of the
         cross-sensor resolution mismatches the calculated identity can run
-        into). Deliberately structured as a standalone twin of
-        _async_get_calculated_usage_forecast above (same caching, same
-        once-per-hour cadence, same "not enough
-        history/data yet -> fall back to zeros or the last good cache"
-        behavior) rather than a shared helper, so a future change to one
-        source's fetch/caching logic can't accidentally change the other's.
+        into). Cached and recomputed once per hour, like the Energy
+        dashboard source below; not enough history/data yet -> falls back to
+        zeros or the last good cache.
         """
         stale = self._usage_forecast_cache is None or usage_cache_is_stale(
             self._usage_forecast_computed_at, now
@@ -308,7 +233,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return self._usage_forecast_cache
 
         base_hour = now.replace(minute=0, second=0, microsecond=0)
-        # Same backward-looking range as the calculated path: every
+        # Backward-looking range: every
         # historical sample this feature ever looks up falls somewhere in
         # [now - lookback_weeks - 1h, now + 1h], since it only ever looks
         # backward regardless of how far forward the forecast itself
@@ -335,17 +260,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._usage_forecast_cache
 
     async def _async_get_energy_dashboard_usage_forecast(self, conf: dict[str, Any], now: datetime) -> list[float]:
-        """The h0..h120 usage forecast via the same energy-balance identity as
-        _async_get_calculated_usage_forecast, but with the grid/solar/battery
+        """The h0..h120 usage forecast via the energy-balance identity
+        (usage_forecast.compute_usage_forecast), with the grid/solar/battery
         statistics read live from Home Assistant's own Energy dashboard
-        configuration (energy_source.py) instead of picked by hand in this
-        integration's setup. Re-read on every recompute (not copied at setup),
-        so an edit to the Energy dashboard is picked up automatically.
-
-        A standalone twin of the calculated path (same caching cadence, same
-        fall-back-to-last-good-cache behavior) rather than a shared helper,
-        so this new, not-yet-verified-live source can't accidentally change
-        the behavior of the already-live calculated one. What was actually
+        configuration (energy_source.py). Re-read on every recompute (not
+        copied at setup), so an edit to the Energy dashboard is picked up
+        automatically. Cached and recomputed once per hour; on a statistics
+        error it falls back to the last good cache. What was actually
         detected is kept in self._energy_dashboard_sources and exposed on the
         Status sensor, so it can be checked against the Energy dashboard.
         """
@@ -479,22 +400,21 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         tomorrow_price = list(price_state.attributes.get("tomorrow") or [])
         all_price = [float(p) for p in (today_price + tomorrow_price)]
 
-        # LEGACY_DEFAULT_USAGE_SOURCE, not DEFAULT_USAGE_SOURCE: an entry with
-        # no usage_source stored predates the choice and has always meant the
-        # external sensor - see const.py. The external-sensor and calculated
-        # branches below are DEPRECATED - REMOVE IN 0.3.0.
-        usage_source = conf.get(CONF_USAGE_SOURCE, LEGACY_DEFAULT_USAGE_SOURCE)
-        if usage_source == USAGE_SOURCE_CALCULATED:
-            usage_forecast = await self._async_get_calculated_usage_forecast(conf, now)
-        elif usage_source == USAGE_SOURCE_CONSUMPTION_SENSOR:
+        # Only the two supported sources exist (v0.3.0). Anything else - an
+        # entry still on a removed source that the v2 migration couldn't
+        # switch automatically - stops planning with a clear error (and a
+        # Repairs issue, see __init__.py) rather than planning with zero
+        # household usage, which would schedule wildly wrong sales.
+        usage_source = conf.get(CONF_USAGE_SOURCE)
+        if usage_source == USAGE_SOURCE_CONSUMPTION_SENSOR:
             usage_forecast = await self._async_get_measured_usage_forecast(conf, now)
         elif usage_source == USAGE_SOURCE_ENERGY_DASHBOARD:
             usage_forecast = await self._async_get_energy_dashboard_usage_forecast(conf, now)
         else:
-            usage_entity = conf.get(CONF_USAGE_FORECAST_ENTITY)
-            usage_state = self.hass.states.get(usage_entity) if usage_entity else None
-            usage_attrs = usage_state.attributes if usage_state else {}
-            usage_forecast = forecasting.build_usage_forecast(usage_attrs, FORECAST_HOURS)
+            raise UpdateFailed(
+                f"Household usage source '{usage_source}' is no longer supported - choose the Energy "
+                "dashboard or a consumption sensor in Configure (see Settings > Repairs)"
+            )
 
         solar_points: list[list[dict]] = []
         for entity_id in conf.get(CONF_SOLAR_FORECAST_ENTITIES, []):

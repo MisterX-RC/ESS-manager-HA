@@ -1,6 +1,6 @@
 """Fetches raw hourly long-term statistics from Home Assistant's recorder.
 
-This is the only Home Assistant-dependent half of the calculated usage
+This is the only Home Assistant-dependent half of the statistics-based usage
 forecast feature - it just pulls data out of the recorder and hands it to
 usage_forecast.py (pure Python, unit-tested) to do the actual math. Kept
 deliberately thin so there's as little here as possible that can't be
