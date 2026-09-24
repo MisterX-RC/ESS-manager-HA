@@ -7,6 +7,20 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.19] - 2026-09-24
+
+### Added
+- **Integration icon.** ESS Manager now ships its own icon (a battery
+  between the sun and the grid, with charge/discharge arrows), shown in
+  Home Assistant 2026.3 and newer and in HACS.
+- **Validation on GitHub**: a workflow that runs the HACS action and
+  Home Assistant's hassfest on every push, as required for the HACS
+  default list. It only checks; nothing is published or changed.
+
+### Fixed
+- `manifest.json` keys are now in the order Home Assistant's validator
+  requires (domain, name, then alphabetical).
+
 ## [0.2.18] - 2026-09-24
 
 ### Fixed
