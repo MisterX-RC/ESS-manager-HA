@@ -7,6 +7,39 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.14] - 2026-09-24
+
+### Added
+- **Direct control (optional).** ESS Manager can now send the
+  charge/discharge setpoint to your inverter itself, instead of an external
+  automation reacting to the Status sensor. Choose it on the new **Battery
+  control** page in Configure:
+  - **Set a number / input_number entity** (e.g. your inverter's grid
+    setpoint), or **Run a script** that gets `setpoint`, `power_kw`,
+    `action` and `reason` as variables.
+  - Set the unit (W or kW), the sign convention and the idle value (sent
+    as-is, e.g. 0 or -30).
+  - Each action uses the speed its plan was sized with (charge,
+    discharge, negative price charge, spike discharge), limited to your max
+    battery speeds and to the target entity's own min/max.
+  - "Status sensor only" stays the default, so nothing changes until you
+    switch it on.
+- **Safety** around direct control:
+  - A new **Automatic control** switch lets you take over by hand at any
+    time: it sends idle once, then leaves the target alone.
+  - It also sends idle when an update fails (for example the SOC sensor is
+    unavailable), when the integration is unloaded or removed, and when
+    Home Assistant stops.
+  - Changing the target in Configure idles the old one first.
+  - A failed send is logged once and shown in the Status sensor, and never
+    stops the planning.
+- **Planned setpoint** sensor (kW, positive = charge), plus
+  `control_action` / `control` attributes on the Status sensor. They show
+  what direct control sends, or would send while it's off, so you can
+  compare it with your own automation before switching over. When you do
+  switch, disable your own ESS automation.
+- The setup now ends with the Battery control page(s).
+
 ## [0.2.13] - 2026-09-24
 
 ### Changed

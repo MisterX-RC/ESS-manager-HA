@@ -16,7 +16,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from . import display, forecasting, plans
+from . import control, display, forecasting, plans
 from .const import (
     CONF_BATTERY_CHARGE_ENERGY_ENTITY,
     CONF_BATTERY_DISCHARGE_ENERGY_ENTITY,
@@ -73,6 +73,7 @@ from .const import (
     USAGE_SOURCE_CONSUMPTION_SENSOR,
     USAGE_SOURCE_ENERGY_DASHBOARD,
 )
+from .controller import ControlSettings, EssController
 from .energy_source import async_get_energy_prefs
 from .statistics_source import async_fetch_hourly_sums
 from .usage_forecast import (
@@ -146,6 +147,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # _async_get_energy_dashboard_usage_forecast) - exposed on the Status
         # sensor so it can be checked against the Energy dashboard itself.
         self._energy_dashboard_sources: Optional[dict[str, list[str]]] = None
+        # Direct control (as of v0.2.14) - see controller.py.
+        self.controller = EssController(hass, entry.title)
+
+    def control_settings(self) -> ControlSettings:
+        return ControlSettings({**self.entry.data, **self.entry.options})
 
     def invalidate_usage_forecast(self) -> None:
         """Drop the cached usage forecast so the next cycle recomputes it.
@@ -439,6 +445,16 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- main update ----------------------------------------------------------
     async def _async_update_data(self) -> dict[str, Any]:
+        try:
+            return await self._async_compute()
+        except Exception as err:
+            # Fail-safe for direct control: never leave the last command
+            # running while the integration can't see what's happening.
+            # Does nothing unless direct control is on.
+            await self.controller.async_idle(self.control_settings(), f"update failed: {err}")
+            raise
+
+    async def _async_compute(self) -> dict[str, Any]:
         if not self._restored:
             await self._async_restore()
 
@@ -485,7 +501,18 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if state is not None:
                 solar_points.append(list(state.attributes.get("detailedHourly") or []))
 
-        setpoint_w = _get_float_state(self.hass, conf.get(CONF_GRID_SETPOINT_ENTITY), default=0.0)
+        control_settings = ControlSettings(conf)
+        if conf.get(CONF_GRID_SETPOINT_ENTITY):
+            setpoint_w = _get_float_state(self.hass, conf.get(CONF_GRID_SETPOINT_ENTITY), default=0.0)
+        else:
+            # No separate readback sensor: with direct control, the target
+            # itself (a number entity's value, or what was last sent to a
+            # script) is the best readback there is.
+            readback = self.controller.readback_power_w(control_settings)
+            setpoint_w = readback if readback is not None else 0.0
+        # With direct control, "idle" is whatever idle value is sent (e.g.
+        # -30 W), so the Status's idle check uses that instead of 0 W.
+        idle_setpoint_w = control_settings.idle_power_w if control_settings.active else IDLE_SETPOINT_W
         voltage_diff = self._get_voltage_diff(conf)
         # Third full-charge confirmation leg - the battery pack's own
         # measured voltage, checked against the adjustable target-voltage
@@ -724,9 +751,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             upper_limit_kwh=upper_limit_kwh,
         )
 
-        system_status = plans.compute_system_status(
+        system_status, control_action = plans.compute_system_status_and_action(
             setpoint_w,
-            IDLE_SETPOINT_W,
+            idle_setpoint_w,
             current_price_unit,
             self._full_charge_plan,
             self._negative_price_plan,
@@ -749,8 +776,27 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self._async_persist()
 
+        # -- direct control ----------------------------------------------------
+        # Always worked out (and shown), even with control off, so the
+        # planned setpoint can be compared against an existing automation
+        # before switching over. Only sent when a control mode is chosen and
+        # the "Automatic control" switch is on.
+        control_power_kw = control.action_power_kw(
+            control_action,
+            charge_speed_kw,
+            discharge_speed_kw,
+            negative_price_charge_speed_kw,
+            spike_discharge_speed_kw,
+            max_battery_charge_speed_kw,
+            max_battery_discharge_speed_kw,
+        )
+        await self.controller.async_apply(control_settings, control_action, control_power_kw, system_status)
+
         return {
             "system_status": system_status,
+            "control_action": control_action,
+            "control_power_kw": round(control_power_kw, 3),
+            "control": self.controller.as_attribute(control_settings, control_action, control_power_kw),
             "battery_energy_kwh": battery_now_kwh,
             "battery_soc_percent": soc_now_percent,
             "low_threshold_kwh": low_threshold_kwh,

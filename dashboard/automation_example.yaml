@@ -1,7 +1,11 @@
-# Example automation - the integration only ever DECIDES what should
-# happen (via the "Status" sensor's state); it deliberately does not
-# actuate your inverter/battery itself, since every make/model exposes a
-# different control surface. Adapt the `target: entity_id:` lines below to
+# Example automation - for when the integration only DECIDES what should
+# happen (via the "Status" sensor's state), which is the default. As of
+# v0.2.14 it can also send the setpoint itself ("Direct control" in the
+# README, chosen on the Battery control page) - then you don't need this
+# automation at all, and should disable it so the two don't fight.
+#
+# Otherwise the integration doesn't actuate your inverter/battery itself,
+# since every make/model exposes a different control surface. Adapt the `target: entity_id:` lines below to
 # whatever your own setup uses to command a charge/discharge rate (an
 # input_number your own inverter automation reads, a number entity exposed
 # by your inverter's own integration, an MQTT topic via mqtt.publish, etc).

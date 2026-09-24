@@ -29,6 +29,7 @@ def _load(name):
 
 
 _load("const")
+control = _load("control")
 forecasting = _load("forecasting")
 plans = _load("plans")
 display = _load("display")
@@ -2146,6 +2147,104 @@ check(
     "usage cache with no computation yet is stale",
     usage_forecast.usage_cache_is_stale(None, datetime(2026, 9, 23, 19, 4)) is True,
 )
+
+# ---------------------------------------------------------------------------
+# Direct control (v0.2.14): the action behind the Status, and control.py
+# ---------------------------------------------------------------------------
+def _status_action(setpoint_w=0.0, cur_unit=21, full=None, neg=None, spike=None, low=None, high=None, idle_setpoint_w=0.0):
+    return plans.compute_system_status_and_action(
+        setpoint_w=setpoint_w,
+        idle_setpoint_w=idle_setpoint_w,
+        cur_unit=cur_unit,
+        full=full or {"active": False, "phase": None},
+        neg=neg or {"active": False},
+        spike=spike or {"active": False},
+        low=low or {"active": False, "breach_unit": 999999},
+        high=high or {"active": False, "breach_unit": 999999},
+        battery_now_kwh=10.0,
+        low_threshold_kwh=3.0,
+        charge_speed_kw=7.0,
+        discharge_speed_kw=10.0,
+        all_price=[0.20] * 96,
+    )
+
+
+LOW_WINDOW = {"active": True, "start_unit": 20, "end_unit": 24, "breach_unit": 30}
+HIGH_WINDOW = {"active": True, "start_unit": 20, "end_unit": 24, "breach_unit": 30}
+check("action: idle when nothing is going on", _status_action() == ("Standby", "idle"))
+check("action: charge when a low charge window opens", _status_action(low=LOW_WINDOW) == ("Start charge", "charge"))
+check(
+    "action: 'Actief' in a charge window keeps charging",
+    _status_action(setpoint_w=7000.0, low=LOW_WINDOW) == ("Actief", "charge"),
+)
+check(
+    "action: 'Actief' in a discharge window keeps discharging",
+    _status_action(setpoint_w=-10000.0, high=HIGH_WINDOW) == ("Actief", "discharge"),
+)
+check(
+    "action: idle once the charge target is reached mid-window",
+    _status_action(setpoint_w=7000.0, low={**LOW_WINDOW, "target_reached": True}) == ("Stop", "idle"),
+)
+check(
+    "action: idle after the discharge window with the setpoint still engaged",
+    _status_action(setpoint_w=-10000.0, cur_unit=25, high=HIGH_WINDOW) == ("Stop", "idle"),
+)
+NEG = {
+    "active": True,
+    "charge_start_unit": 40, "charge_end_unit": 44,
+    "discharge_start_unit": 30, "discharge_end_unit": 32,
+    "solar_export_start_unit": 34, "solar_export_end_unit": 36,
+}
+check("action: negative price charge", _status_action(cur_unit=41, neg=NEG)[1] == "negative_price_charge")
+check("action: negative plan's pre-discharge is a normal discharge", _status_action(cur_unit=30, neg=NEG)[1] == "discharge")
+check("action: negative plan's solar export is idle", _status_action(cur_unit=35, neg=NEG) == ("Solar export", "idle"))
+SPIKE = {"active": True, "charge_start_unit": 10, "charge_end_unit": 12, "discharge_start_unit": 70, "discharge_end_unit": 72}
+check("action: spike charge leg is a normal charge", _status_action(cur_unit=11, spike=SPIKE)[1] == "charge")
+check("action: spike discharge", _status_action(cur_unit=70, spike=SPIKE) == ("Start spike discharge", "spike_discharge"))
+check(
+    "action: full charge holding keeps charging",
+    _status_action(full={"active": True, "phase": "holding"}) == ("Start charge", "charge"),
+)
+check(
+    "action: full charge scheduled is idle",
+    _status_action(full={"active": True, "phase": "scheduled"}) == ("Full charge scheduled", "idle"),
+)
+check(
+    "action: awaiting solar (full charge) is idle",
+    _status_action(full={"active": False, "phase": None, "relying_on_peak_unit": 60}) == ("Awaiting solar (full charge)", "idle"),
+)
+check(
+    "compute_system_status still returns only the Status string",
+    plans.compute_system_status(0.0, 0.0, 21, {"active": False, "phase": None}, {"active": False}, {"active": False},
+                                LOW_WINDOW, {"active": False, "breach_unit": 999999}, 10.0, 3.0, 7.0, 10.0, [0.2] * 96)
+    == "Start charge",
+)
+check(
+    "a non-zero idle value (-300 W) counts as idle for the Status",
+    _status_action(setpoint_w=-300.0, cur_unit=25, low=LOW_WINDOW, idle_setpoint_w=-300.0) == ("Standby", "idle")
+    and _status_action(setpoint_w=-300.0, cur_unit=25, low=LOW_WINDOW, idle_setpoint_w=0.0) == ("Stop", "idle"),
+)
+
+speeds = dict(charge_speed_kw=7.0, discharge_speed_kw=10.0, negative_price_charge_speed_kw=14.0,
+              spike_discharge_speed_kw=15.0, max_charge_kw=10.0, max_discharge_kw=12.0)
+check("power: charge uses the charge speed", control.action_power_kw("charge", **speeds) == 7.0)
+check("power: discharge is negative at the discharge speed", control.action_power_kw("discharge", **speeds) == -10.0)
+check("power: negative price charge is clamped to the max charge speed", control.action_power_kw("negative_price_charge", **speeds) == 10.0)
+check("power: spike discharge is clamped to the max discharge speed", control.action_power_kw("spike_discharge", **speeds) == -12.0)
+check("power: idle and unknown actions are 0", control.action_power_kw("idle", **speeds) == 0.0 and control.action_power_kw("bogus", **speeds) == 0.0)
+check("output: W, charge positive", control.command_value("charge", 7.0, "W", "charge_positive", 0) == 7000.0)
+check("output: kW, discharge positive", control.command_value("discharge", -10.0, "kW", "discharge_positive", 0) == 10.0)
+check("output: idle sends the idle value as-is", control.command_value("idle", 0.0, "W", "discharge_positive", -30) == -30.0)
+check("output: no negative zero", str(control.power_to_output(0.0, "kW", "discharge_positive")) == "0.0")
+check("readback: output_to_power_w reverses the conversion", control.output_to_power_w(10.0, "kW", "discharge_positive") == -10000.0)
+check("clamp: inside a number entity's min/max", control.clamp_to_range(20000, -15000, 15000) == 15000)
+check("tolerance: half the entity's step", control.write_tolerance(100.0, 10) == 5.0)
+check("needs_write: first send", control.needs_write(7000, None, 0, 0.5, None) is True)
+check("needs_write: new value", control.needs_write(-10000, 7000, 7000, 0.5, 5) is True)
+check("needs_write: entity already has it", control.needs_write(7000, 7000, 7000, 0.5, 5) is False)
+check("needs_write: changed by someone else, too soon", control.needs_write(7000, 7000, 0, 0.5, 30) is False)
+check("needs_write: changed by someone else, re-send after a minute", control.needs_write(7000, 7000, 0, 0.5, 61) is True)
+check("needs_write: script (no readback) only on change", control.needs_write(7000, 7000, None, 1e-6, 999) is False)
 
 print()
 if FAILURES:

@@ -3,9 +3,10 @@
 A Home Assistant custom integration for battery/solar/price-aware charge and
 discharge planning: it watches your battery's state of charge, a solar
 production forecast, a household usage forecast, and dynamic electricity
-prices, and decides when to charge, when to discharge, and how much - so a
-separate, small automation (or your inverter integration's own automation)
-can act on that decision.
+prices, and decides when to charge, when to discharge, and how much. It can send the
+charge/discharge setpoint to your inverter itself (optional, as of v0.2.14 -
+see "Direct control"), or leave that to a separate, small automation that
+acts on its Status sensor.
 
 This started as a hand-written Home Assistant template sensor (see
 `legacy-yaml-config/` in this repo for that exact, still-in-production
@@ -42,8 +43,10 @@ forecast minus usage forecast, cumulatively summed into a projected battery
 level, compensated for the fact that the current hour is only partially
 elapsed (see the code comments in `forecasting.py` for why that matters).
 
-The integration's own sensor (`Status`) never writes to your inverter
-directly - see "Wiring it to your inverter" below.
+By default the integration only decides: its `Status` sensor says what
+should happen and your own automation acts on it - see "Wiring it to your
+inverter" below. Optionally it sends the setpoint itself - see "Direct
+control".
 
 ## Requirements
 
@@ -199,6 +202,11 @@ The setup wizard walks through these pages:
    battery charge/discharge speed, min/max SOC.
 5. **Price plans** - a short explanation of the negative price and spike
    arbitrage plans, with a switch for each.
+6. **Battery control** - whether ESS Manager sends the setpoint itself
+   (see "Direct control"). "Status sensor only" is the default.
+7. **Battery control - target** - only when direct control is chosen: the
+   number/input_number entity or script, its unit (W/kW), sign convention
+   and idle value.
 
 Capacity, normal charge/discharge speed, min/max SOC and the full charge
 target voltage seed a set of `number` entities (see below) that you
@@ -239,10 +247,10 @@ Manager device in Settings -> Devices & Services -> Entities:
 Max battery charge speed and max battery discharge speed are set during
 setup and re-editable later from **Configure** (see above) rather than
 appearing in this table - they're a fixed hardware property (the battery's
-own physical power limit, in kW), not a live dashboard setpoint, and they
-only cap the passive, solar/usage-driven battery energy forecast; anything
-solar or usage implies faster than this is assumed to flow to/from the grid
-instead.
+own physical power limit, in kW), not a live dashboard setpoint. They cap
+the passive, solar/usage-driven battery energy forecast (anything solar or
+usage implies faster than this is assumed to flow to/from the grid
+instead), and, with direct control, every setpoint that is sent.
 
 ## Wiring it to your inverter
 
@@ -258,10 +266,11 @@ ceiling on its own, so nothing is being bought - it's the visible version of
 what would otherwise be an indistinguishable `Standby` while
 `full_charge_plan.relying_on_peak_unit` is quietly set (see
 `high_discharge_plan.suppressed_by_full_charge`, which is also active
-during this same wait). It deliberately does **not** write to any inverter
-or battery control entity itself, since every make/model exposes a
-different control surface (an `input_number`, a native `number` entity from
-that inverter's own integration, an MQTT topic, ...).
+during this same wait). Unless you switch on "Direct control" (below), it
+does **not** write to any inverter or battery control entity itself, since
+every make/model exposes a different control surface (an `input_number`, a
+native `number` entity from that inverter's own integration, an MQTT
+topic, ...).
 
 `dashboard/automation_example.yaml` is a starting point for the small glue
 automation that turns `Status` into an actual command - adapt the
@@ -277,6 +286,68 @@ calculated target battery level alongside their own timer and report `Stop`
 as soon as either one is reached, whichever comes first - so an automation
 reacting to `Stop` should always idle the setpoint, regardless of how much
 of the window's nominal duration has actually elapsed.
+
+## Direct control
+
+*(Optional, as of v0.2.14.)* Instead of an external automation, ESS Manager
+can send the setpoint itself. Choose it on the **Battery control** page
+(setup or Configure):
+
+- **Set a number / input_number entity** - e.g. your inverter's own grid
+  setpoint `number` entity (Victron Modbus/MQTT integrations expose one), or
+  the `input_number` your existing inverter automation already reads.
+- **Run a script** - for anything else (MQTT, several entities, extra
+  steps). The script is started with these variables: `setpoint` (the value
+  in your unit and sign convention), `power_kw` (battery power in kW,
+  positive = charge), `action` (`idle` / `charge` / `discharge` /
+  `negative_price_charge` / `spike_discharge`) and `reason` (the Status
+  that caused it).
+
+What gets sent: each action uses the speed its plan was sized with -
+Charge speed for normal charges (low charge, spike top-up, full charge),
+Discharge speed for normal discharges, Negative price charge speed and
+Spike discharge speed for those plans - always limited to your max battery
+charge/discharge speed, and to the target entity's own min/max. Every
+Status that means "do nothing" (`Stop`, `Standby`, `Grid usage`,
+`Solar export`, `Full charge scheduled`, `Awaiting solar (full charge)`)
+sends your **idle value** exactly as entered (usually 0; some Victron
+systems idle at -30 W). This is the same mapping as
+`dashboard/automation_example.yaml`, with the speeds taken from the
+integration instead of typed into the automation. The action is decided
+together with the Status, so "Actief" is never ambiguous: it means keep
+charging in a charge window and keep discharging in a discharge window.
+
+A number entity is only written when the value changes, or when something
+else changed it (then at most once a minute). A script is only run when the
+value changes.
+
+Safety:
+
+- **Automatic control** switch (a new entity on the device): turn it off to
+  take over by hand - it sends idle once, then leaves the target alone
+  until you turn it back on. Its state survives restarts; on by default.
+- **Fail-safe**: when an update fails (SOC sensor unavailable, price sensor
+  missing, an unexpected error), idle is sent instead of leaving the last
+  command running.
+- Idle is also sent when the integration is unloaded, reloaded, disabled
+  or removed, and when Home Assistant stops.
+- Changing the target in Configure (or switching control off) idles the
+  old target first if it was charging or discharging.
+- A failed send never stops the planning; it's logged once and shown in
+  the Status sensor's `control` attribute (`last_error`), and retried next
+  cycle.
+
+**Planned setpoint** (a new sensor, kW, positive = charge) and the Status
+sensor's `control_action` / `control` attributes show what would be sent -
+also while direct control is off. That's the easy way to switch over:
+leave control on "Status sensor only", compare Planned setpoint with what
+your automation does for a few days, then choose direct control and
+**disable your own ESS automation** so the two don't fight over the
+setpoint.
+
+If you leave the grid/inverter setpoint sensor on the first page empty, the
+number entity you control is used as the setpoint readback for the Status
+(`Start charge` vs `Actief`); with a script, what was last sent is.
 
 ## Full-charge balancing
 
@@ -394,7 +465,7 @@ project handoff notes on every design decision made along the way.
 
 ```
 custom_components/ess_manager/   the integration itself
-dashboard/                       adapted Lovelace cards + example automation
+dashboard/                       adapted Lovelace cards + example automation (not needed with direct control)
 legacy-yaml-config/              the original template-sensor config, preserved as-is
 sync-and-push.command            macOS helper - see "Keeping this repo in sync" below
 ```

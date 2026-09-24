@@ -15,6 +15,14 @@ import math
 from datetime import datetime
 from typing import Optional
 
+from .control import (
+    ACTION_CHARGE,
+    ACTION_DISCHARGE,
+    ACTION_IDLE,
+    ACTION_NEGATIVE_PRICE_CHARGE,
+    ACTION_SPIKE_DISCHARGE,
+)
+
 
 def _hour0_start_unit(cur_unit: int, now: datetime) -> int:
     """Absolute unit at the top of the current hour."""
@@ -1138,7 +1146,12 @@ def compute_full_charge_plan(
 # ---------------------------------------------------------------------------
 # system_status
 # ---------------------------------------------------------------------------
-def compute_system_status(
+def compute_system_status(*args, **kwargs) -> str:
+    """The Status sensor's state - see compute_system_status_and_action."""
+    return compute_system_status_and_action(*args, **kwargs)[0]
+
+
+def compute_system_status_and_action(
     setpoint_w: float,
     idle_setpoint_w: float,
     cur_unit: int,
@@ -1152,8 +1165,15 @@ def compute_system_status(
     charge_speed_kw: float,
     discharge_speed_kw: float,
     all_price: list[float],
-) -> str:
-    status = _compute_system_status_raw(
+) -> tuple[str, str]:
+    """The Status (what the dashboard and an external automation see) plus
+    the control action behind it (control.ACTION_*), which direct control
+    turns into a setpoint. The action is decided by the same branch as the
+    Status, but never depends on the setpoint readback: "Actief" means
+    "keep charging" in a charge window and "keep discharging" in a discharge
+    window, which a Status string alone can't tell apart.
+    """
+    status, action = _compute_system_status_raw(
         setpoint_w,
         idle_setpoint_w,
         cur_unit,
@@ -1178,8 +1198,8 @@ def compute_system_status(
     # genuine "Standby" (nothing else going on) - never overrides a real
     # in-progress action from another plan.
     if status == "Standby" and not full.get("active") and full.get("relying_on_peak_unit") is not None:
-        return "Awaiting solar (full charge)"
-    return status
+        return "Awaiting solar (full charge)", ACTION_IDLE
+    return status, action
 
 
 def _compute_system_status_raw(
@@ -1196,7 +1216,7 @@ def _compute_system_status_raw(
     charge_speed_kw: float,
     discharge_speed_kw: float,
     all_price: list[float],
-) -> str:
+) -> tuple[str, str]:
     is_idle = abs(setpoint_w - idle_setpoint_w) < 50
     near_low_limit = (battery_now_kwh - low_threshold_kwh) <= 1
     charge_engaged_at = charge_speed_kw * 1000 * 0.5
@@ -1210,7 +1230,7 @@ def _compute_system_status_raw(
 
     if full.get("active") and full.get("phase") in ("charging", "holding"):
         if full.get("phase") == "charging":
-            return "Actief" if setpoint_w >= charge_engaged_at else "Start charge"
+            return ("Actief" if setpoint_w >= charge_engaged_at else "Start charge"), ACTION_CHARGE
         # Holding: keep commanding a charge setpoint for the WHOLE hold,
         # regardless of what the setpoint readback shows. Solar alone can
         # already be holding the battery at 100% with zero grid setpoint
@@ -1221,25 +1241,29 @@ def _compute_system_status_raw(
         # balance. "Balancing" was display-only and never an automation
         # trigger (see dashboard/automation_example.yaml), so nothing is
         # lost by retiring it here.
-        return "Start charge"
+        return "Start charge", ACTION_CHARGE
 
     if full.get("active") and full.get("phase") == "scheduled":
-        return "Full charge scheduled"
+        return "Full charge scheduled", ACTION_IDLE
 
     if neg.get("active") and cur_unit < neg.get("charge_end_unit", -1):
         if neg["charge_start_unit"] <= cur_unit < neg["charge_end_unit"]:
-            return "Negative price charge" if setpoint_w >= charge_engaged_at else "Start negative price charge"
+            return (
+                "Negative price charge" if setpoint_w >= charge_engaged_at else "Start negative price charge"
+            ), ACTION_NEGATIVE_PRICE_CHARGE
         if neg["discharge_start_unit"] <= cur_unit < neg["discharge_end_unit"]:
-            return "Actief" if setpoint_w <= -discharge_engaged_at else "Start discharge"
+            return ("Actief" if setpoint_w <= -discharge_engaged_at else "Start discharge"), ACTION_DISCHARGE
         if neg["solar_export_start_unit"] <= cur_unit < neg["solar_export_end_unit"]:
-            return "Solar export"
-        return "Standby"
+            return "Solar export", ACTION_IDLE
+        return "Standby", ACTION_IDLE
 
     if spike.get("active"):
         if spike["charge_start_unit"] <= cur_unit < spike["charge_end_unit"]:
-            return "Actief" if setpoint_w >= charge_engaged_at else "Start charge"
+            return ("Actief" if setpoint_w >= charge_engaged_at else "Start charge"), ACTION_CHARGE
         if spike["discharge_start_unit"] <= cur_unit < spike["discharge_end_unit"]:
-            return "Spike discharge" if setpoint_w <= -discharge_engaged_at else "Start spike discharge"
+            return (
+                "Spike discharge" if setpoint_w <= -discharge_engaged_at else "Start spike discharge"
+            ), ACTION_SPIKE_DISCHARGE
         # The spike plan stays "active" for its whole lifecycle, charge
         # phase through discharge phase (compute_spike_plan only clears it
         # once cur_unit reaches discharge_end_unit) - so once its own charge
@@ -1261,25 +1285,25 @@ def _compute_system_status_raw(
             # battery_now_kwh crosses target_energy_kwh, stopping here
             # rather than riding out the rest of the window at full rate.
             if low.get("target_reached"):
-                return "Stop"
-            return "Actief" if setpoint_w >= charge_engaged_at else "Start charge"
+                return "Stop", ACTION_IDLE
+            return ("Actief" if setpoint_w >= charge_engaged_at else "Start charge"), ACTION_CHARGE
         if cur_unit >= low["end_unit"] and not is_idle:
-            return "Stop"
+            return "Stop", ACTION_IDLE
         if cur_unit < low["start_unit"] and near_low_limit:
-            return "Grid usage"
-        return "Standby"
+            return "Grid usage", ACTION_IDLE
+        return "Standby", ACTION_IDLE
 
     if high.get("active"):
         if high["start_unit"] <= cur_unit < high["end_unit"]:
             # Same live-target early stop as the low charge plan above,
             # mirrored for discharge - see compute_high_discharge_plan.
             if high.get("target_reached"):
-                return "Stop"
-            return "Actief" if setpoint_w <= -discharge_engaged_at else "Start discharge"
+                return "Stop", ACTION_IDLE
+            return ("Actief" if setpoint_w <= -discharge_engaged_at else "Start discharge"), ACTION_DISCHARGE
         if cur_unit >= high["end_unit"] and not is_idle:
-            return "Stop"
+            return "Stop", ACTION_IDLE
         if cur_unit < high["start_unit"] and near_low_limit and same_day_breach and export_favorable:
-            return "Solar export"
-        return "Standby"
+            return "Solar export", ACTION_IDLE
+        return "Standby", ACTION_IDLE
 
-    return "Stop" if not is_idle else "Standby"
+    return ("Stop" if not is_idle else "Standby"), ACTION_IDLE

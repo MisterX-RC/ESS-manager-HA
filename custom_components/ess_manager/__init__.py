@@ -7,7 +7,8 @@ from __future__ import annotations
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity import DeviceInfo
 
@@ -93,12 +94,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
+    async def _async_idle_on_stop(_event: Event) -> None:
+        # Direct control: nobody supervises the battery while Home Assistant
+        # is down, so don't leave a charge/discharge command running.
+        await coordinator.controller.async_idle(coordinator.control_settings(), "Home Assistant stopping")
+
+    entry.async_on_unload(hass.bus.async_listen(EVENT_HOMEASSISTANT_STOP, _async_idle_on_stop))
+
     _async_update_deprecation_issue(hass, entry)
 
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # Direct control: idle the target before the integration stops
+    # supervising it (unload, reload, disable, remove).
+    coordinator: EssManagerCoordinator | None = hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("coordinator")
+    if coordinator is not None:
+        await coordinator.controller.async_idle(coordinator.control_settings(), "integration unloaded")
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)

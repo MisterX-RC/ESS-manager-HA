@@ -55,6 +55,11 @@ STATUS_ATTRIBUTES = [
     "discharge_energy_kwh",
     "discharge_start_time",
     "discharge_stop_time",
+    # Direct control (as of v0.2.14): the action behind the Status, the
+    # battery power it stands for (kW, + = charge), and what was sent.
+    "control_action",
+    "control_power_kw",
+    "control",
 ]
 
 
@@ -116,6 +121,18 @@ async def async_setup_entry(
         ),
         EssManagerValueSensor(
             coordinator, entry, device_info, "discharge_stop", "Discharge stop", "discharge_stop_time", None, "mdi:clock-end"
+        ),
+        # What direct control sends (or would send, with control off):
+        # battery power in kW, + = charge, - = discharge, 0 = idle.
+        EssManagerValueSensor(
+            coordinator,
+            entry,
+            device_info,
+            "planned_setpoint",
+            "Planned setpoint",
+            "control_power_kw",
+            "kW",
+            "mdi:transmission-tower",
         ),
     ]
     async_add_entities(entities)

@@ -9,7 +9,7 @@
           "battery_soc_entity": "Battery state-of-charge sensor (%)",
           "price_entity": "Electricity price sensor (Nordpool-style, with today/tomorrow quarter-hour price lists)",
           "solar_forecast_entities": "Solar forecast sensor(s) (Solcast-style, with a detailedHourly attribute) - add as many as needed to cover your forecast horizon",
-          "grid_setpoint_entity": "Grid/inverter setpoint sensor (optional, improves status accuracy)",
+          "grid_setpoint_entity": "Grid/inverter setpoint sensor (optional, improves status accuracy - with direct control of a number entity it can be left empty)",
           "usage_source": "Household usage forecast source - the next page sets it up",
           "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page"
         }
@@ -81,6 +81,23 @@
           "enable_negative_price_plan": "Enable the negative price plan",
           "enable_spike_plan": "Enable the spike arbitrage plan"
         }
+      },
+      "control": {
+        "title": "Battery control",
+        "description": "Should ESS Manager send the charge/discharge setpoint to your inverter itself?\n\n**Status sensor only** (default) - nothing is sent. ESS Manager only decides, via its Status sensor, and your own automation (see dashboard/automation_example.yaml) turns that into a command. This is how it has always worked.\n\n**Set a number / input_number entity** or **Run a script** - ESS Manager sends the setpoint itself every cycle, using the charge/discharge speeds the plans were sized with (limited to your battery's max speeds). A new \"Automatic control\" switch lets you pause it at any time; it also sends idle when an update fails, when the integration is unloaded, and when Home Assistant stops. If you switch this on, disable your own ESS automation so the two don't fight.\n\nThe \"Planned setpoint\" sensor shows what would be sent even while this is off, so you can compare it with your automation first.",
+        "data": {
+          "control_mode": "Control"
+        }
+      },
+      "control_target": {
+        "title": "Battery control - target",
+        "description": "Where to send the setpoint. A script gets these variables: `setpoint` (the value in your unit and sign convention below), `power_kw` (battery power in kW, positive = charge), `action` (idle / charge / discharge / negative_price_charge / spike_discharge) and `reason` (the Status that caused it).\n\nThe idle value is sent exactly as entered whenever the battery should do nothing (usually 0; some Victron systems idle at -30 W).\n\nIf you leave the grid/inverter setpoint sensor on the first page empty, the number entity chosen here is used as the readback for the Status.",
+        "data": {
+          "control_target_entity": "Setpoint entity (number / input_number) or script",
+          "control_unit": "Unit the target expects",
+          "control_sign": "Sign convention",
+          "control_idle_value": "Idle value (in the unit above)"
+        }
       }
     },
     "error": {
@@ -89,7 +106,8 @@
       "days_since_full_charge_entity_required": "Select a days-since-full-charge sensor - required when using the external-sensor tracking option.",
       "usage_calculated_entities_required": "Select at least one grid import entity and at least one solar production entity.",
       "usage_consumption_entities_required": "Select at least one home energy consumption entity.",
-      "energy_dashboard_not_configured": "No grid import is configured in the Energy dashboard. Add your grid source there first (Settings > Dashboards > Energy), or pick another usage source."
+      "energy_dashboard_not_configured": "No grid import is configured in the Energy dashboard. Add your grid source there first (Settings > Dashboards > Energy), or pick another usage source.",
+      "control_target_wrong_type": "The selected entity doesn't match the chosen control type - pick a number/input_number entity, or a script."
     },
     "abort": {
       "already_configured": "An ESS Manager instance with this name already exists."
@@ -104,7 +122,7 @@
           "battery_soc_entity": "Battery state-of-charge sensor (%)",
           "price_entity": "Electricity price sensor (Nordpool-style, with today/tomorrow quarter-hour price lists)",
           "solar_forecast_entities": "Solar forecast sensor(s) (Solcast-style, with a detailedHourly attribute) - add as many as needed to cover your forecast horizon",
-          "grid_setpoint_entity": "Grid/inverter setpoint sensor (optional, improves status accuracy)",
+          "grid_setpoint_entity": "Grid/inverter setpoint sensor (optional, improves status accuracy - with direct control of a number entity it can be left empty)",
           "usage_source": "Household usage forecast source - the next page sets it up",
           "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page"
         }
@@ -167,6 +185,23 @@
           "enable_negative_price_plan": "Enable the negative price plan",
           "enable_spike_plan": "Enable the spike arbitrage plan"
         }
+      },
+      "control": {
+        "title": "Battery control",
+        "description": "Should ESS Manager send the charge/discharge setpoint to your inverter itself?\n\n**Status sensor only** (default) - nothing is sent. ESS Manager only decides, via its Status sensor, and your own automation (see dashboard/automation_example.yaml) turns that into a command. This is how it has always worked.\n\n**Set a number / input_number entity** or **Run a script** - ESS Manager sends the setpoint itself every cycle, using the charge/discharge speeds the plans were sized with (limited to your battery's max speeds). A new \"Automatic control\" switch lets you pause it at any time; it also sends idle when an update fails, when the integration is unloaded, and when Home Assistant stops. If you switch this on, disable your own ESS automation so the two don't fight.\n\nThe \"Planned setpoint\" sensor shows what would be sent even while this is off, so you can compare it with your automation first.",
+        "data": {
+          "control_mode": "Control"
+        }
+      },
+      "control_target": {
+        "title": "Battery control - target",
+        "description": "Where to send the setpoint. A script gets these variables: `setpoint` (the value in your unit and sign convention below), `power_kw` (battery power in kW, positive = charge), `action` (idle / charge / discharge / negative_price_charge / spike_discharge) and `reason` (the Status that caused it).\n\nThe idle value is sent exactly as entered whenever the battery should do nothing (usually 0; some Victron systems idle at -30 W).\n\nIf you leave the grid/inverter setpoint sensor on the first page empty, the number entity chosen here is used as the readback for the Status.",
+        "data": {
+          "control_target_entity": "Setpoint entity (number / input_number) or script",
+          "control_unit": "Unit the target expects",
+          "control_sign": "Sign convention",
+          "control_idle_value": "Idle value (in the unit above)"
+        }
       }
     },
     "error": {
@@ -174,7 +209,8 @@
       "days_since_full_charge_entity_required": "Select a days-since-full-charge sensor - required when using the external-sensor tracking option.",
       "usage_calculated_entities_required": "Select at least one grid import entity and at least one solar production entity.",
       "usage_consumption_entities_required": "Select at least one home energy consumption entity.",
-      "energy_dashboard_not_configured": "No grid import is configured in the Energy dashboard. Add your grid source there first (Settings > Dashboards > Energy), or pick another usage source."
+      "energy_dashboard_not_configured": "No grid import is configured in the Energy dashboard. Add your grid source there first (Settings > Dashboards > Energy), or pick another usage source.",
+      "control_target_wrong_type": "The selected entity doesn't match the chosen control type - pick a number/input_number entity, or a script."
     }
   },
   "issues": {

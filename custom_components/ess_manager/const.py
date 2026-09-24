@@ -4,7 +4,9 @@ from __future__ import annotations
 DOMAIN = "ess_manager"
 # number entities must be created before the coordinator's first refresh so
 # that coordinator.get_number() has something to read - keep number first.
-PLATFORMS = ["number", "sensor"]
+# switch.py (the "Automatic control" switch) must also be set up before the
+# first refresh, so direct control knows whether it's allowed to send.
+PLATFORMS = ["number", "switch", "sensor"]
 
 UPDATE_INTERVAL_SECONDS = 30
 
@@ -61,6 +63,26 @@ FULL_CHARGE_TRACKING_EXTERNAL_SENSOR = "external_sensor"
 DEFAULT_FULL_CHARGE_TRACKING_SOURCE = FULL_CHARGE_TRACKING_INTERNAL
 
 CONF_DAYS_SINCE_FULL_CHARGE_ENTITY = "days_since_full_charge_entity"
+
+# -- direct control (as of v0.2.14) --------------------------------------
+# Optional: instead of (or before switching away from) an external
+# automation that reacts to the Status sensor, the integration sends the
+# setpoint itself - to a number/input_number entity, or by running a script
+# with the setpoint as a variable. "Status sensor only" (off) is the default,
+# so nothing changes for an installation until it's switched on in
+# Configure. See control.py (the pure mapping) and controller.py (sending).
+CONF_CONTROL_MODE = "control_mode"
+CONTROL_MODE_OFF = "off"
+CONTROL_MODE_NUMBER = "number"
+CONTROL_MODE_SCRIPT = "script"
+DEFAULT_CONTROL_MODE = CONTROL_MODE_OFF
+CONF_CONTROL_TARGET_ENTITY = "control_target_entity"
+CONF_CONTROL_UNIT = "control_unit"
+DEFAULT_CONTROL_UNIT = "W"
+CONF_CONTROL_SIGN = "control_sign"
+DEFAULT_CONTROL_SIGN = "charge_positive"
+CONF_CONTROL_IDLE_VALUE = "control_idle_value"
+DEFAULT_CONTROL_IDLE_VALUE = 0.0
 
 # -- household usage forecast: an existing "h0..h120" sensor, calculated --
 # -- internally from HA's own long-term recorder statistics (the full --

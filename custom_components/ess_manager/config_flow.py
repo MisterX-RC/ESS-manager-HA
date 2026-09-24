@@ -30,6 +30,18 @@ from .const import (
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_VOLTAGE_ENTITY,
     CONF_CHARGE_SPEED_KW,
+    CONF_CONTROL_IDLE_VALUE,
+    CONF_CONTROL_MODE,
+    CONF_CONTROL_SIGN,
+    CONF_CONTROL_TARGET_ENTITY,
+    CONF_CONTROL_UNIT,
+    CONTROL_MODE_NUMBER,
+    CONTROL_MODE_OFF,
+    CONTROL_MODE_SCRIPT,
+    DEFAULT_CONTROL_IDLE_VALUE,
+    DEFAULT_CONTROL_MODE,
+    DEFAULT_CONTROL_SIGN,
+    DEFAULT_CONTROL_UNIT,
     CONF_DAYS_SINCE_FULL_CHARGE_ENTITY,
     CONF_DISCHARGE_SPEED_KW,
     CONF_ENABLE_FULL_CHARGE_PLAN,
@@ -80,6 +92,7 @@ from .const import (
     LEGACY_DEFAULT_USAGE_SOURCE,
     USAGE_SOURCE_LABELS,
 )
+from .control import SIGN_CHARGE_POSITIVE, SIGN_DISCHARGE_POSITIVE, UNIT_KW, UNIT_W
 from .energy_source import async_get_energy_prefs
 from .usage_forecast import energy_prefs_to_sources
 
@@ -103,6 +116,29 @@ def _usage_source_options(current: str | None = None) -> list[selector.SelectOpt
         )
     return options
 
+
+CONTROL_MODE_OPTIONS = [
+    selector.SelectOptionDict(
+        value=CONTROL_MODE_OFF, label="Status sensor only - my own automation controls the battery (default)"
+    ),
+    selector.SelectOptionDict(value=CONTROL_MODE_NUMBER, label="Set a number / input_number entity"),
+    selector.SelectOptionDict(value=CONTROL_MODE_SCRIPT, label="Run a script with the setpoint"),
+]
+
+CONTROL_UNIT_OPTIONS = [
+    selector.SelectOptionDict(value=UNIT_W, label="W"),
+    selector.SelectOptionDict(value=UNIT_KW, label="kW"),
+]
+
+CONTROL_SIGN_OPTIONS = [
+    selector.SelectOptionDict(value=SIGN_CHARGE_POSITIVE, label="Positive = charge the battery, negative = discharge"),
+    selector.SelectOptionDict(value=SIGN_DISCHARGE_POSITIVE, label="Positive = discharge the battery, negative = charge"),
+]
+
+CONTROL_TARGET_DOMAINS = {
+    CONTROL_MODE_NUMBER: ["number", "input_number"],
+    CONTROL_MODE_SCRIPT: ["script"],
+}
 
 FULL_CHARGE_TRACKING_SOURCE_OPTIONS = [
     selector.SelectOptionDict(value=FULL_CHARGE_TRACKING_INTERNAL, label="Track internally (default)"),
@@ -295,6 +331,55 @@ def _plans_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
+def _control_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Page 4 - whether ESS Manager sends the setpoint itself (explained in
+    the page text). Off ("Status sensor only") is the default."""
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_CONTROL_MODE, default=defaults.get(CONF_CONTROL_MODE) or DEFAULT_CONTROL_MODE
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=CONTROL_MODE_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+            ),
+        }
+    )
+
+
+def _control_target_schema(defaults: dict[str, Any], mode: str) -> vol.Schema:
+    """Only when a control mode is chosen: where to send the setpoint, and
+    in which unit/sign convention. The previous target is only pre-filled
+    if it fits the chosen mode (a script can't be a number target)."""
+    domains = CONTROL_TARGET_DOMAINS[mode]
+    current_target = defaults.get(CONF_CONTROL_TARGET_ENTITY)
+    if current_target and current_target.split(".", 1)[0] in domains:
+        target_key = vol.Required(CONF_CONTROL_TARGET_ENTITY, default=current_target)
+    else:
+        target_key = vol.Required(CONF_CONTROL_TARGET_ENTITY)
+    return vol.Schema(
+        {
+            target_key: selector.EntitySelector(selector.EntitySelectorConfig(domain=domains)),
+            vol.Required(
+                CONF_CONTROL_UNIT, default=defaults.get(CONF_CONTROL_UNIT) or DEFAULT_CONTROL_UNIT
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=CONTROL_UNIT_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+            ),
+            vol.Required(
+                CONF_CONTROL_SIGN, default=defaults.get(CONF_CONTROL_SIGN) or DEFAULT_CONTROL_SIGN
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=CONTROL_SIGN_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+            ),
+            vol.Required(
+                CONF_CONTROL_IDLE_VALUE,
+                default=defaults.get(CONF_CONTROL_IDLE_VALUE, DEFAULT_CONTROL_IDLE_VALUE),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=-100000, max=100000, step="any", mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+        }
+    )
+
+
 def _usage_sensor_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
@@ -399,6 +484,10 @@ class _EssManagerSteps:
       3. `full_charge` - only when full-charge balancing is switched on
       4. `system` - battery/system values
       5. `plans` - the negative-price and spike plan switches, explained
+      6. `control` - whether ESS Manager sends the setpoint itself
+      7. `control_target` - only when it does: where to, unit, sign, idle
+
+    The flow ends after `control` (Status sensor only) or `control_target`.
 
     Subclasses provide `_defaults()` (empty at setup, the current settings in
     Configure), `_seed_values` (whether the system page includes the values
@@ -519,13 +608,38 @@ class _EssManagerSteps:
     async def async_step_plans(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
             self._data.update(user_input)
-            return await self._async_finish(self._data)
+            return await self.async_step_control()
         return self.async_show_form(step_id="plans", data_schema=_plans_schema(self._defaults()))
+
+    async def async_step_control(self, user_input: dict[str, Any] | None = None):
+        if user_input is not None:
+            self._data.update(user_input)
+            if user_input.get(CONF_CONTROL_MODE) in CONTROL_TARGET_DOMAINS:
+                return await self.async_step_control_target()
+            return await self._async_finish(self._data)
+        return self.async_show_form(step_id="control", data_schema=_control_schema(self._defaults()))
+
+    async def async_step_control_target(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
+        mode = self._data[CONF_CONTROL_MODE]
+        if user_input is not None:
+            target = user_input.get(CONF_CONTROL_TARGET_ENTITY) or ""
+            if target.split(".", 1)[0] not in CONTROL_TARGET_DOMAINS[mode]:
+                errors["base"] = "control_target_wrong_type"
+            else:
+                self._data.update(user_input)
+                return await self._async_finish(self._data)
+        return self.async_show_form(
+            step_id="control_target",
+            data_schema=_control_target_schema({**self._defaults(), **self._data}, mode),
+            errors=errors,
+        )
 
 
 class EssManagerConfigFlow(_EssManagerSteps, config_entries.ConfigFlow, domain=DOMAIN):
     """Initial setup of one ESS Manager instance - see _EssManagerSteps for
-    the page order. The last page (`plans`) creates the config entry.
+    the page order. The last page (`control`, or `control_target` when direct
+    control is chosen) creates the config entry.
     """
 
     VERSION = 1
