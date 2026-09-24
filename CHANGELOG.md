@@ -7,6 +7,25 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.18] - 2026-09-24
+
+### Fixed
+- **The adjusted battery forecast (the chart line) showed a running sale
+  going deeper than it really does.** Mid-sale it subtracted the full
+  rate for every remaining quarter of the window, even when the battery
+  was ahead of schedule and would reach its stop target sooner. It also
+  counted the house use during the window twice. A live sale at 20:07
+  showed the battery dipping to 3.76 kWh at 07:00, below the 4.5 kWh
+  safety floor; the realistic low point was about 6.4 kWh. Now:
+  - A running charge/discharge draws only what's left, the distance
+    from the battery now to its target level, and nothing once the target
+    is reached.
+  - Planned and running windows take into account that the stop target
+    is a battery level: the house's own use during a sale counts toward
+    it (so the line drops a little less), and during a charge it comes on
+    top.
+  - Only the chart line changes; what the system does is unchanged.
+
 ## [0.2.17] - 2026-09-24
 
 ### Added

@@ -760,6 +760,69 @@ def compute_high_discharge_plan(
     }
 
 
+def _plan_draw_window(
+    plan: dict, cur_unit: int, battery_now_kwh: Optional[float], charging: bool
+) -> tuple[float, float, float]:
+    """(start_unit, end_unit, kWh per unit) to draw a low charge (charging)
+    or high discharge plan on top of the forecast. Units may be fractional.
+
+    Two corrections (v0.2.18), both so the chart shows what really happens:
+
+    1. The plan stops on a battery LEVEL (target_energy_kwh), so the
+       house's own use during the window counts toward it. The forecast
+       line already subtracts that use, so relative to the forecast a sale
+       lowers the battery by (amount - house use during it) and a charge
+       raises it by (amount + house use). The window is drawn only as long
+       as it really runs: amount / effective per-unit rate, which may end
+       before end_unit.
+    2. A window that's already running (and battery_now_kwh is known)
+       draws only what's left - the distance from the battery now to
+       target_energy_kwh, from the current unit on - and nothing once
+       target_reached. Before, it drew the full rate for every remaining
+       unit, which showed a live sale that was ahead of schedule dipping
+       below the safety floor at night when it wasn't going to.
+
+    Plans without avg_home_load_kw / effective_*_per_unit (older tests)
+    draw exactly as before.
+    """
+    if not plan.get("active"):
+        return 0.0, 0.0, 0.0
+    start = plan.get("start_unit", 0)
+    end = plan.get("end_unit", 0)
+    window_units = max(end - start, 0)
+    if window_units <= 0 or cur_unit >= end:
+        return 0.0, 0.0, 0.0
+    target_kwh = plan.get("target_kwh", 0) or 0
+    house_per_unit = (plan.get("avg_home_load_kw") or 0) / 4
+    effective = plan.get("effective_charge_per_unit" if charging else "effective_discharge_per_unit") or 0
+
+    if start <= cur_unit and battery_now_kwh is not None:
+        if plan.get("target_reached"):
+            return 0.0, 0.0, 0.0
+        target_level = plan.get("target_energy_kwh")
+        draw_start = float(cur_unit)
+        available = float(end - cur_unit)
+        if target_level is None:
+            amount = (target_kwh / window_units) * available
+        elif charging:
+            amount = max(target_level - battery_now_kwh, 0.0)
+        else:
+            amount = max(battery_now_kwh - target_level, 0.0)
+    else:
+        draw_start = float(start)
+        available = float(window_units)
+        amount = target_kwh
+
+    if amount <= 0:
+        return 0.0, 0.0, 0.0
+    units_used = min(available, amount / effective) if effective > 0 else available
+    if units_used <= 0:
+        return 0.0, 0.0, 0.0
+    house = house_per_unit * units_used
+    relative = amount + house if charging else max(amount - house, 0.0)
+    return draw_start, draw_start + units_used, relative / units_used
+
+
 def compose_forecast_adjusted(
     base: list[float],
     low: dict,
@@ -768,8 +831,16 @@ def compose_forecast_adjusted(
     now: datetime,
     full: Optional[dict] = None,
     upper_limit_kwh: float = 0.0,
+    battery_now_kwh: Optional[float] = None,
 ) -> list[float]:
-    """`full` (the full-charge plan) is optional, keyword-only in practice,
+    """How the low/high plans are drawn (as of v0.2.18) - see
+    _plan_draw_window. `battery_now_kwh` lets a window that's already
+    running draw only what's really left (the distance to its
+    target_energy_kwh, nothing once target_reached) instead of the full
+    per-unit rate for every remaining unit. Without it, a running window is
+    drawn the old way.
+
+    `full` (the full-charge plan) is optional, keyword-only in practice,
     and defaults to inactive - existing callers/tests that only care about
     the low/high plans can keep calling with just `base`/`low`/`high`/
     `cur_unit`/`now` and get the pre-v0.1.14 behavior unchanged.
@@ -802,15 +873,9 @@ def compose_forecast_adjusted(
     not a per-unit target), so its own rate is left as-is.
     """
     full = full or {"active": False, "phase": None}
-    low_window_units = max(low.get("end_unit", 0) - low.get("start_unit", 0), 0) if low.get("active") else 0
-    charge_rate = (low.get("target_kwh", 0) / low_window_units) if low_window_units > 0 else 0
-    high_window_units = max(high.get("end_unit", 0) - high.get("start_unit", 0), 0) if high.get("active") else 0
-    discharge_rate = (high.get("target_kwh", 0) / high_window_units) if high_window_units > 0 else 0
+    low_start, low_end, charge_rate = _plan_draw_window(low, cur_unit, battery_now_kwh, charging=True)
+    high_start, high_end, discharge_rate = _plan_draw_window(high, cur_unit, battery_now_kwh, charging=False)
     hour0_start_unit = _hour0_start_unit(cur_unit, now)
-    low_start = low.get("start_unit", 0) if low.get("active") else 0
-    low_end = low.get("end_unit", 0) if low.get("active") else 0
-    high_start = high.get("start_unit", 0) if high.get("active") else 0
-    high_end = high.get("end_unit", 0) if high.get("active") else 0
 
     full_charging = full.get("active") and full.get("phase") in ("scheduled", "charging")
     full_charge_rate = full.get("effective_charge_per_unit", 0) if full_charging else 0
@@ -826,8 +891,8 @@ def compose_forecast_adjusted(
     for h in range(len(base)):
         hour_start = hour0_start_unit + (h * 4)
         hour_end = hour_start + 4
-        charge_overlap = max(min(hour_end, low_end) - max(hour_start, low_start), 0)
-        discharge_overlap = max(min(hour_end, high_end) - max(hour_start, high_start), 0)
+        charge_overlap = max(min(hour_end, low_end) - max(hour_start, low_start), 0.0)
+        discharge_overlap = max(min(hour_end, high_end) - max(hour_start, high_start), 0.0)
         full_overlap = max(min(hour_end, full_end) - max(hour_start, full_start), 0)
         delta += (charge_overlap * charge_rate) - (discharge_overlap * discharge_rate) + (full_overlap * full_charge_rate)
         value = base[h] + delta

@@ -2318,6 +2318,48 @@ check("no minimum: buys just the deficit", _p_min0["target_kwh"] == 0.5 and _p_m
 _p_big = _small_dip_plan(0.3, 12.0)
 check("a need above the minimum isn't changed", _p_big["target_kwh"] == 0.5 and _p_big["rounded_up_to_minimum"] is False)
 
+# ---------------------------------------------------------------------------
+# v0.2.18: battery_forecast_adjusted draws a running window by what's really
+# left (distance to target_energy_kwh), and takes the house use during a
+# window into account (the stop is a battery level, the forecast already
+# subtracts house use). Live dump 2026-09-24 20:07, mid-sale.
+# ---------------------------------------------------------------------------
+_f2007 = [18.2, 17.42, 16.86, 16.31, 15.77, 15.25, 14.73, 14.21, 13.71, 13.16, 12.49, 11.81, 12.37, 13.38, 14.92]
+_high2007 = {
+    "active": True, "surplus_kwh": 16.1, "target_kwh": 16.1, "avg_home_load_kw": 0.735,
+    "effective_discharge_per_unit": 2.6837, "start_unit": 77, "end_unit": 83, "units_needed": 6,
+    "target_energy_kwh": 13.15, "target_reached": False,
+}
+_now2007 = datetime(2026, 9, 24, 20, 7)
+_adj2007 = plans.compose_forecast_adjusted(
+    _f2007, {"active": False}, _high2007, 80, _now2007, battery_now_kwh=18.99
+)
+# 5.84 kWh left to the target, ~0.40 of it is house use already in the
+# forecast -> 5.44 below the 11.81 no-sale low point = 6.37 (was drawn as 3.76).
+check("running sale draws only what's left to its target (07:00 low 6.37, not 3.76)", _adj2007[11] == 6.37)
+check("running sale's remainder all lands in the current hour", _adj2007[0] == round(18.2 - (5.84 - 0.735 / 4 * 5.84 / 2.6837), 2))
+_adj2007_done = plans.compose_forecast_adjusted(
+    _f2007, {"active": False}, {**_high2007, "target_reached": True}, 82, _now2007, battery_now_kwh=13.1
+)
+check("a sale that reached its target draws nothing more", _adj2007_done == _f2007)
+# Before the window starts: target_kwh minus the house use while it runs.
+_adj_pre = plans.compose_forecast_adjusted(
+    [20.0] * 4, {"active": False}, {**_high2007, "start_unit": 81, "end_unit": 87}, 80, datetime(2026, 9, 24, 20, 0),
+    battery_now_kwh=29.0,
+)
+_units = 16.1 / 2.6837
+check("a planned sale is drawn as target minus house use during it", _adj_pre[-1] == round(20.0 - (16.1 - 0.735 / 4 * _units), 2))
+# Charging mirrors it: house use during the window adds to the lift.
+_low_run = {
+    "active": True, "target_kwh": 4.0, "avg_home_load_kw": 0.8, "effective_charge_per_unit": 1.8,
+    "start_unit": 78, "end_unit": 81, "target_energy_kwh": 9.0, "target_reached": False,
+}
+_adj_chg = plans.compose_forecast_adjusted(
+    [6.0, 5.5, 5.0], _low_run, {"active": False}, 80, datetime(2026, 9, 24, 20, 0), battery_now_kwh=8.1
+)
+_left = 0.9
+check("running charge draws what's left to its target plus house use", _adj_chg[0] == round(6.0 + _left + 0.2 * (_left / 1.8), 2))
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

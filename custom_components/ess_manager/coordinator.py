@@ -754,6 +754,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             now,
             full=self._full_charge_plan,
             upper_limit_kwh=upper_limit_kwh,
+            battery_now_kwh=battery_now_kwh,
         )
 
         system_status, control_action = plans.compute_system_status_and_action(
