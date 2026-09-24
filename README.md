@@ -415,7 +415,10 @@ thing `sync-and-push.command` does after every push is read the version
 out of `manifest.json`, check GitHub for a release already tagged
 `vX.Y.Z`, and publish one via the GitHub API if there isn't one yet,
 reusing the same personal access token macOS Keychain already has saved
-for pushing. HACS re-checks custom repositories roughly every 6 hours and
+for pushing. The release notes are that version's own section of
+`CHANGELOG.md` (as of v0.2.12), so HACS's update dialog shows what
+actually changed; if the release already exists, its notes are refreshed
+from `CHANGELOG.md`. HACS re-checks custom repositories roughly every 6 hours and
 at Home Assistant startup; to see an update right after syncing instead of
 waiting, use HACS's own repository menu -> "Redownload" or "Update
 information."

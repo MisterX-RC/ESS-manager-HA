@@ -7,6 +7,20 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.12] - 2026-09-24
+
+### Changed
+- **HACS now shows the real release notes when updating.** The GitHub
+  release that `sync-and-push.command` publishes used to say only "See
+  CHANGELOG.md for details on this release." It now contains that
+  version's own section of this changelog, which is what HACS shows in its
+  update dialog. Re-running the script for a version that already has a
+  release refreshes that release's notes the same way. No change to the
+  integration itself.
+- **One-time step:** the sync script never overwrites itself, so copy the
+  new `sync-and-push.command` from this zip into your ess-manager-ha folder
+  by hand (replacing the old one) before running it.
+
 ## [0.2.11] - 2026-09-24
 
 ### Changed

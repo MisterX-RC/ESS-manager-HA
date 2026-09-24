@@ -13,7 +13,10 @@
 #      if one doesn't already exist - HACS's own docs are explicit that a
 #      plain git tag alone isn't enough for it to notice an update, it
 #      needs an actual Release, so this is what makes the version bump
-#      above actually show up as an update in HACS
+#      above actually show up as an update in HACS. The release notes are
+#      that version's own section of CHANGELOG.md, so HACS's update dialog
+#      shows what actually changed (an existing release for the version
+#      gets its notes refreshed the same way).
 #
 # This script must live INSIDE your ess-manager-ha folder (the one with
 # the .git folder in it) - it finds everything else relative to itself.
@@ -139,6 +142,35 @@ else
   echo "and none was entered in time - just run this script again.)"
 fi
 
+# --- release notes: this version's own section of CHANGELOG.md -------------
+# Prints it as a ready-to-use JSON string (quotes included), so it can go
+# straight into the API request without any shell-quoting surprises: awk
+# escapes backslashes, double quotes and tabs and joins the lines with \n.
+# Only plain POSIX awk features (macOS ships BSD awk, not gawk). Falls back
+# to a short pointer to CHANGELOG.md if the section can't be found.
+release_notes_json() {
+  awk -v heading="## [$1]" '
+    index($0, heading) == 1 { found = 1; next }
+    found && index($0, "## [") == 1 { exit }
+    found {
+      line = $0
+      gsub(/\r/, "", line)
+      gsub(/\\/, "\\\\", line)
+      gsub(/"/, "\\\"", line)
+      gsub(/\t/, "\\t", line)
+      if (line ~ /^[ ]*$/ && n == 0) next
+      lines[++n] = line
+    }
+    END {
+      while (n > 0 && lines[n] ~ /^[ ]*$/) n--
+      if (n == 0) { printf "\"See CHANGELOG.md for details on this release.\""; exit }
+      printf "\""
+      for (i = 1; i <= n; i++) { printf "%s", lines[i]; if (i < n) printf "\\n" }
+      printf "\""
+    }
+  ' CHANGELOG.md 2>/dev/null
+}
+
 # --- cut a GitHub Release for this version, if there isn't one yet -------
 # A bare git tag is NOT enough for HACS to detect an update - its own docs
 # say so directly ("Just publishing tags is not enough, you need to
@@ -162,13 +194,34 @@ if [ "$PUSH_OK" = true ]; then
       echo "Could not retrieve a saved GitHub token from Keychain to cut a release - skipping."
       echo "(Code was still pushed above; you can draft the $TAG release by hand on GitHub if you want HACS to see it sooner.)"
     else
-      EXISTING_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+      NOTES_JSON="$(release_notes_json "$VERSION")"
+      [ -z "$NOTES_JSON" ] && NOTES_JSON='"See CHANGELOG.md for details on this release."'
+      EXISTING_RESPONSE="$(mktemp)"
+      EXISTING_STATUS=$(curl -s -o "$EXISTING_RESPONSE" -w "%{http_code}" \
         -H "Authorization: Bearer $GH_TOKEN_FOR_API" \
         -H "Accept: application/vnd.github+json" \
         "https://api.github.com/repos/MisterX-RC/ESS-manager-HA/releases/tags/$TAG")
 
       if [ "$EXISTING_STATUS" = "200" ]; then
-        echo "Release $TAG already exists on GitHub - nothing to do."
+        # Already published (e.g. a re-run) - refresh its notes from
+        # CHANGELOG.md, so an older "See CHANGELOG.md" placeholder gets
+        # replaced too. The first "id" in the response is the release's own.
+        RELEASE_ID=$(grep -m1 '"id":' "$EXISTING_RESPONSE" | sed -E 's/[^0-9]*([0-9]+).*/\1/')
+        if [ -n "$RELEASE_ID" ]; then
+          UPDATE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN_FOR_API" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/MisterX-RC/ESS-manager-HA/releases/$RELEASE_ID" \
+            -d "{\"body\":$NOTES_JSON}")
+          if [ "$UPDATE_STATUS" = "200" ]; then
+            echo "Release $TAG already exists - refreshed its notes from CHANGELOG.md."
+          else
+            echo "Release $TAG already exists (could not refresh its notes, HTTP $UPDATE_STATUS - harmless)."
+          fi
+        else
+          echo "Release $TAG already exists on GitHub - nothing to do."
+        fi
       else
         RELEASE_RESPONSE="$(mktemp)"
         CREATE_STATUS=$(curl -s -o "$RELEASE_RESPONSE" -w "%{http_code}" \
@@ -176,7 +229,7 @@ if [ "$PUSH_OK" = true ]; then
           -H "Authorization: Bearer $GH_TOKEN_FOR_API" \
           -H "Accept: application/vnd.github+json" \
           "https://api.github.com/repos/MisterX-RC/ESS-manager-HA/releases" \
-          -d "{\"tag_name\":\"$TAG\",\"name\":\"$TAG\",\"target_commitish\":\"$CURRENT_BRANCH\",\"body\":\"See CHANGELOG.md for details on this release.\",\"draft\":false,\"prerelease\":false}")
+          -d "{\"tag_name\":\"$TAG\",\"name\":\"$TAG\",\"target_commitish\":\"$CURRENT_BRANCH\",\"body\":$NOTES_JSON,\"draft\":false,\"prerelease\":false}")
 
         if [ "$CREATE_STATUS" = "201" ]; then
           echo "Published GitHub release $TAG."
@@ -191,6 +244,7 @@ if [ "$PUSH_OK" = true ]; then
         fi
         rm -f "$RELEASE_RESPONSE"
       fi
+      rm -f "$EXISTING_RESPONSE"
     fi
   fi
 fi
