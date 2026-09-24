@@ -48,8 +48,8 @@ CONF_BATTERY_VOLTAGE_ENTITY = "battery_voltage_entity"
 # enabled: either this integration tracks it itself (internal - the original,
 # and still default, behavior: it remembers the last time
 # compute_full_charge_plan reported balance_confirmed and measures forward
-# from there, so a fresh install with no observed full charge yet is treated
-# as already overdue), or an external sensor already tracks it (e.g. a BMS's
+# from there; a new installation starts that clock at setup, as if the
+# battery had just been balanced - as of v0.2.13), or an external sensor already tracks it (e.g. a BMS's
 # own "days since full charge" entity, which resets to 0 the moment it
 # observes a genuine full charge) and is read directly instead.
 # CONF_DAYS_SINCE_FULL_CHARGE_ENTITY is required alongside the external

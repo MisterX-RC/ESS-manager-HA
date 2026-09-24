@@ -286,8 +286,9 @@ via the integration's options):
 
 - **Internal tracking** *(default)*: the integration remembers the last time
   it confirmed the battery genuinely balanced (see below) and measures
-  forward from there. Until it has observed a full charge once, it treats a
-  cycle as overdue, so expect one shortly after first setup.
+  forward from there. A new installation assumes the battery has just been
+  balanced, so the first full-charge cycle comes after the normal interval
+  (the "Full charge interval" setting), not right after setup.
 - **External sensor**: point it at a sensor you already have that tracks
   this itself (e.g. a BMS's own "days since full charge" entity), which
   resets to 0 the moment *it* observes a genuine full charge. Useful if your

@@ -7,6 +7,19 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.13] - 2026-09-24
+
+### Changed
+- **A new installation no longer starts with a full charge.** Until now a
+  fresh install with full-charge balancing on (and internal tracking)
+  treated the battery as overdue for a balance, so the first thing it did
+  was charge to 100%. A new installation now assumes the battery has just
+  been balanced: the "days since last full charge" clock starts at 0 on
+  setup, and the first full-charge cycle comes after the normal "Full
+  charge interval". Existing installations are not affected; their clock
+  keeps running as before. If you track this with an external sensor
+  (e.g. your BMS), that sensor still decides.
+
 ## [0.2.12] - 2026-09-24
 
 ### Changed

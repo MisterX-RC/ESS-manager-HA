@@ -179,6 +179,19 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._full_charge_plan = data.get("full_charge_plan")
             last_full = data.get("last_full_reached")
             self._last_full_reached = dt_util.parse_datetime(last_full) if last_full else None
+        else:
+            # Nothing stored yet: a brand-new installation (as of v0.2.13).
+            # Assume the battery has just been balanced, so the internal
+            # "days since last full" clock starts at 0 and the first
+            # full-charge cycle comes after the normal interval, instead of
+            # the system spending its first hours on a forced full charge.
+            # Existing installations always have stored data, so upgrading
+            # doesn't move their clock.
+            self._last_full_reached = dt_util.now()
+            _LOGGER.info(
+                "New ESS Manager installation: assuming the battery was just fully charged; "
+                "the first full-charge balance is planned after the normal interval"
+            )
         self._restored = True
 
     async def _async_persist(self) -> None:
@@ -556,8 +569,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif self._last_full_reached is not None:
             time_since_full_days = (now - self._last_full_reached).total_seconds() / 86400
         else:
-            # Never observed full since this integration was set up - treat
-            # as overdue so an initial calibration charge gets scheduled.
+            # Never observed full and no install time recorded - only an
+            # installation from before v0.2.13 that has never balanced (new
+            # installations start the clock at setup, see _async_restore).
+            # Treat as overdue so a calibration charge gets scheduled.
             time_since_full_days = full_charge_interval_days
 
         if conf.get(CONF_ENABLE_FULL_CHARGE_PLAN, False):
