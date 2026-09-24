@@ -11,7 +11,8 @@ a plain git tag on its own isn't enough for HACS to notice.
 
 ### Changed
 - README: status badges for the validation workflow, the latest release
-  and the license. No change to the integration itself; this release is
+  and the license, and screenshots of the battery forecast chart, the
+  price chart and the status card. No change to the integration itself; this release is
   the first one published after the repository passed the full HACS and
   hassfest validation (needed for the HACS default list).
 

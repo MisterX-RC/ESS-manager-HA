@@ -19,6 +19,29 @@ integration so it can be shared and installed on other systems via HACS,
 without every install needing to hand-edit Jinja templates or hardcode
 someone else's entity IDs.
 
+## Screenshots
+
+**Battery forecast** - the forecast battery level (SOC) for the coming days,
+without and with the planned actions (SOC new), next to the solar forecast
+and the household usage forecast. The green lines are your min/max SOC, the
+shaded bands are planned buy / sell / balancing windows (here: a sale on the
+evening of 25 Sep that keeps the battery from overshooting the next day).
+
+![Battery forecast chart](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/battery-forecast-chart.jpg)
+
+**Prices** - today's and tomorrow's quarter-hour prices, with the planned
+buy and sell windows highlighted (here the sale lands on the evening peak).
+
+![Price chart](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/price-chart.jpg)
+
+**Status** - what's planned next (start, amount and stop of the next charge
+or discharge), the price plans, and the status history.
+
+![Status card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/status-card.jpg)
+
+The cards are in [`dashboard/`](dashboard/) (`battery_forecast_chart.yaml`,
+`price_apexcharts_card.yaml`, `entities_card.yaml`) - see "Dashboard" below.
+
 ## What it does
 
 Five planning engines, all documented in detail in the code
@@ -435,6 +458,7 @@ and the original project notes) is in the git history up to v0.2.20.
 ```
 custom_components/ess_manager/   the integration itself
 dashboard/                       adapted Lovelace cards + example automation (not needed with direct control)
+docs/images/                     screenshots used in this README
 tests/                           standalone tests (no Home Assistant needed)
 .github/workflows/validate.yaml  HACS + hassfest validation on every push
 LICENSE                          MIT
