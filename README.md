@@ -462,6 +462,7 @@ custom_components/ess_manager/   the integration itself
 dashboard/                       adapted Lovelace cards + example automation (not needed with direct control)
 legacy-yaml-config/              the original template-sensor config, preserved as-is
 sync-and-push.command            macOS helper - see "Keeping this repo in sync" below
+LICENSE                          MIT
 ```
 
 ## Versioning
@@ -508,3 +509,7 @@ Keychain remembers it after that, so every run after the first is silent.
 If macOS refuses to run it the very first time ("cannot be opened because
 it is from an unidentified developer"), right-click the file, choose
 **Open**, and confirm once - after that, double-clicking works normally.
+
+## License
+
+MIT - see [LICENSE](LICENSE).

@@ -7,6 +7,13 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.20] - 2026-09-24
+
+### Added
+- **MIT license.** ESS Manager is now published under the MIT license
+  (see `LICENSE`): anyone may use, change and share it, as long as the
+  copyright notice stays with it. No change to the integration itself.
+
 ## [0.2.19] - 2026-09-24
 
 ### Added
