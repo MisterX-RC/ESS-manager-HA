@@ -3,10 +3,16 @@ entities and seed values for the tunables (which then become `number`
 entities - see number.py) instead of anything being hardcoded to one
 person's Victron/Nordpool/Solcast setup.
 
-The household usage forecast has two sources (as of v0.3.0): the Energy
-dashboard's grid/solar/battery statistics (energy_source.py), or one or
-more home-energy-consumption sensors. Each gets its own page after the
-first one - see _EssManagerSteps for the page order.
+The household usage forecast has four mutually-exclusive sources, so this
+flow branches after the main step: an existing "h0..h120" sensor (the
+original behavior), calculated internally from Home Assistant's own
+recorder statistics via the full solar/import/export/battery energy-balance
+identity, or read directly from one or more home-energy-consumption
+sensors, if the user already has one, or the same energy-balance
+calculation using whatever Home Assistant's own Energy dashboard is
+configured with (energy_source.py) - see usage_forecast.py/
+statistics_source.py. Each needs its own second step to collect the right
+entities (or, for the Energy dashboard, to show what was detected).
 """
 from __future__ import annotations
 
@@ -19,6 +25,8 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_BATTERY_CAPACITY_KWH,
+    CONF_BATTERY_CHARGE_ENERGY_ENTITY,
+    CONF_BATTERY_DISCHARGE_ENERGY_ENTITY,
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_VOLTAGE_ENTITY,
     CONF_CHARGE_SPEED_KW,
@@ -40,6 +48,8 @@ from .const import (
     CONF_ENABLE_SPIKE_PLAN,
     CONF_FULL_CHARGE_TARGET_VOLTAGE,
     CONF_FULL_CHARGE_TRACKING_SOURCE,
+    CONF_GRID_EXPORT_ENTITIES,
+    CONF_GRID_IMPORT_ENTITIES,
     CONF_GRID_SETPOINT_ENTITY,
     CONF_HIGH_CELL_VOLTAGE_ENTITY,
     CONF_LOW_CELL_VOLTAGE_ENTITY,
@@ -50,7 +60,9 @@ from .const import (
     CONF_NAME,
     CONF_PRICE_ENTITY,
     CONF_SOLAR_FORECAST_ENTITIES,
+    CONF_SOLAR_PRODUCTION_ENTITIES,
     CONF_USAGE_CONSUMPTION_ENTITIES,
+    CONF_USAGE_FORECAST_ENTITY,
     CONF_USAGE_LOOKBACK_WEEKS,
     CONF_USAGE_SOURCE,
     CONF_VOLTAGE_DIFF_ENTITY,
@@ -72,18 +84,36 @@ from .const import (
     DOMAIN,
     FULL_CHARGE_TRACKING_EXTERNAL_SENSOR,
     FULL_CHARGE_TRACKING_INTERNAL,
+    USAGE_SOURCE_CALCULATED,
+    USAGE_SOURCE_CONSUMPTION_SENSOR,
     USAGE_SOURCE_ENERGY_DASHBOARD,
-    SUPPORTED_USAGE_SOURCES,
+    DEPRECATED_USAGE_SOURCES,
+    LEGACY_DEFAULT_USAGE_SOURCE,
     USAGE_SOURCE_LABELS,
 )
 from .control import SIGN_CHARGE_POSITIVE, SIGN_DISCHARGE_POSITIVE, UNIT_KW, UNIT_W
 from .energy_source import async_get_energy_prefs
 from .usage_forecast import energy_prefs_to_sources
 
-def _usage_source_options() -> list[selector.SelectOptionDict]:
-    return [
+# Only the two supported sources are offered for a new installation. The
+# deprecated ones (external h0..h120 sensor, hand-picked calculated) are
+# only ever shown in Configure, and only to an installation still using one,
+# so it can keep saving its other settings until it switches.
+# DEPRECATED handling - REMOVE IN 0.3.0.
+SUPPORTED_USAGE_SOURCES = (USAGE_SOURCE_ENERGY_DASHBOARD, USAGE_SOURCE_CONSUMPTION_SENSOR)
+
+
+def _usage_source_options(current: str | None = None) -> list[selector.SelectOptionDict]:
+    options = [
         selector.SelectOptionDict(value=value, label=USAGE_SOURCE_LABELS[value]) for value in SUPPORTED_USAGE_SOURCES
     ]
+    if current in DEPRECATED_USAGE_SOURCES:
+        options.append(
+            selector.SelectOptionDict(
+                value=current, label=f"{USAGE_SOURCE_LABELS[current]} (deprecated - removed in 0.3.0)"
+            )
+        )
+    return options
 
 
 CONTROL_MODE_OPTIONS = [
@@ -158,8 +188,6 @@ def _sensors_schema(defaults: dict[str, Any], include_name: bool) -> vol.Schema:
     if include_name:
         fields[vol.Required(CONF_NAME, default=defaults.get(CONF_NAME, DEFAULT_NAME))] = str
     current_source = defaults.get(CONF_USAGE_SOURCE)
-    if current_source not in SUPPORTED_USAGE_SOURCES:
-        current_source = None  # e.g. a removed source the v2 migration couldn't switch
     fields.update(
         {
             vol.Required(CONF_BATTERY_SOC_ENTITY, default=defaults.get(CONF_BATTERY_SOC_ENTITY)): selector.EntitySelector(
@@ -178,7 +206,7 @@ def _sensors_schema(defaults: dict[str, Any], include_name: bool) -> vol.Schema:
                 CONF_USAGE_SOURCE, default=current_source or DEFAULT_USAGE_SOURCE
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=_usage_source_options(), mode=selector.SelectSelectorMode.LIST
+                    options=_usage_source_options(current_source), mode=selector.SelectSelectorMode.LIST
                 )
             ),
             vol.Required(
@@ -350,6 +378,41 @@ def _control_target_schema(defaults: dict[str, Any], mode: str) -> vol.Schema:
     )
 
 
+def _usage_sensor_schema(defaults: dict[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_USAGE_FORECAST_ENTITY, default=defaults.get(CONF_USAGE_FORECAST_ENTITY)
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+        }
+    )
+
+
+def _usage_calculated_schema(defaults: dict[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_GRID_IMPORT_ENTITIES, default=defaults.get(CONF_GRID_IMPORT_ENTITIES, [])
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
+            vol.Optional(
+                CONF_GRID_EXPORT_ENTITIES, default=defaults.get(CONF_GRID_EXPORT_ENTITIES, [])
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
+            vol.Required(
+                CONF_SOLAR_PRODUCTION_ENTITIES, default=defaults.get(CONF_SOLAR_PRODUCTION_ENTITIES, [])
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
+            vol.Optional(
+                CONF_BATTERY_CHARGE_ENERGY_ENTITY, default=defaults.get(CONF_BATTERY_CHARGE_ENERGY_ENTITY)
+            ): _optional_entity_selector(),
+            vol.Optional(
+                CONF_BATTERY_DISCHARGE_ENERGY_ENTITY, default=defaults.get(CONF_BATTERY_DISCHARGE_ENERGY_ENTITY)
+            ): _optional_entity_selector(),
+            vol.Required(
+                CONF_USAGE_LOOKBACK_WEEKS, default=defaults.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS)
+            ): selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=12, step=1, unit_of_measurement="weeks")),
+        }
+    )
+
+
 def _usage_consumption_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
@@ -398,6 +461,8 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
         CONF_VOLTAGE_DIFF_ENTITY,
         CONF_LOW_CELL_VOLTAGE_ENTITY,
         CONF_HIGH_CELL_VOLTAGE_ENTITY,
+        CONF_BATTERY_CHARGE_ENERGY_ENTITY,
+        CONF_BATTERY_DISCHARGE_ENERGY_ENTITY,
         CONF_BATTERY_VOLTAGE_ENTITY,
         CONF_DAYS_SINCE_FULL_CHARGE_ENTITY,
     ):
@@ -412,7 +477,8 @@ class _EssManagerSteps:
       1. `user` (setup) / `init` (Configure) - sensors, usage source, and the
          full-charge balancing switch
       2. the usage-source page for the chosen source (`usage_energy_dashboard`
-         / `usage_consumption`)
+         / `usage_consumption`; the deprecated `usage_sensor` /
+         `usage_calculated` only for installations still on one)
       3. `full_charge` - only when full-charge balancing is switched on
       4. `system` - battery/system values
       5. `plans` - the negative-price and spike plan switches, explained
@@ -439,7 +505,12 @@ class _EssManagerSteps:
         source = self._data[CONF_USAGE_SOURCE]
         if source == USAGE_SOURCE_ENERGY_DASHBOARD:
             return await self.async_step_usage_energy_dashboard()
-        return await self.async_step_usage_consumption()
+        if source == USAGE_SOURCE_CONSUMPTION_SENSOR:
+            return await self.async_step_usage_consumption()
+        # DEPRECATED - REMOVE IN 0.3.0
+        if source == USAGE_SOURCE_CALCULATED:
+            return await self.async_step_usage_calculated()
+        return await self.async_step_usage_sensor()
 
     async def _async_after_usage(self):
         if self._data.get(CONF_ENABLE_FULL_CHARGE_PLAN):
@@ -478,6 +549,28 @@ class _EssManagerSteps:
                 return await self._async_after_usage()
         return self.async_show_form(
             step_id="usage_consumption", data_schema=_usage_consumption_schema(self._defaults()), errors=errors
+        )
+
+    # DEPRECATED - REMOVE IN 0.3.0 (only reachable from Configure, for an
+    # installation still using one of these sources).
+    async def async_step_usage_sensor(self, user_input: dict[str, Any] | None = None):
+        if user_input is not None:
+            self._data.update(_clean(user_input))
+            return await self._async_after_usage()
+        return self.async_show_form(step_id="usage_sensor", data_schema=_usage_sensor_schema(self._defaults()))
+
+    # DEPRECATED - REMOVE IN 0.3.0
+    async def async_step_usage_calculated(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            cleaned = _clean(user_input)
+            if not cleaned.get(CONF_GRID_IMPORT_ENTITIES) or not cleaned.get(CONF_SOLAR_PRODUCTION_ENTITIES):
+                errors["base"] = "usage_calculated_entities_required"
+            else:
+                self._data.update(cleaned)
+                return await self._async_after_usage()
+        return self.async_show_form(
+            step_id="usage_calculated", data_schema=_usage_calculated_schema(self._defaults()), errors=errors
         )
 
     async def async_step_full_charge(self, user_input: dict[str, Any] | None = None):
@@ -547,8 +640,7 @@ class EssManagerConfigFlow(_EssManagerSteps, config_entries.ConfigFlow, domain=D
     control is chosen) creates the config entry.
     """
 
-    # 2 as of v0.3.0 - see __init__.async_migrate_entry.
-    VERSION = 2
+    VERSION = 1
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
@@ -599,7 +691,9 @@ class EssManagerOptionsFlow(_EssManagerSteps, config_entries.OptionsFlow):
         self._seed_values = False
 
     def _defaults(self) -> dict[str, Any]:
-        return {**self.config_entry.data, **self.config_entry.options}
+        current = {**self.config_entry.data, **self.config_entry.options}
+        current.setdefault(CONF_USAGE_SOURCE, LEGACY_DEFAULT_USAGE_SOURCE)
+        return current
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}

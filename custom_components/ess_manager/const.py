@@ -68,13 +68,14 @@ CONF_DAYS_SINCE_FULL_CHARGE_ENTITY = "days_since_full_charge_entity"
 # Optional: instead of (or before switching away from) an external
 # automation that reacts to the Status sensor, the integration sends the
 # setpoint itself, to a number/input_number entity. (v0.2.14 also offered
-# running a script; removed in v0.2.15 - the v0.3.0 migration turns a stored
-# "script" mode into off.) "Status sensor only" (off) is the default,
+# running a script; removed in v0.2.15 - a stored "script" mode counts as
+# off.) "Status sensor only" (off) is the default,
 # so nothing changes for an installation until it's switched on in
 # Configure. See control.py (the pure mapping) and controller.py (sending).
 CONF_CONTROL_MODE = "control_mode"
 CONTROL_MODE_OFF = "off"
 CONTROL_MODE_NUMBER = "number"
+CONTROL_MODE_REMOVED_SCRIPT = "script"  # v0.2.14 only - see controller.ControlSettings.active
 DEFAULT_CONTROL_MODE = CONTROL_MODE_OFF
 CONF_CONTROL_TARGET_ENTITY = "control_target_entity"
 CONF_CONTROL_UNIT = "control_unit"
@@ -84,43 +85,62 @@ DEFAULT_CONTROL_SIGN = "charge_positive"
 CONF_CONTROL_IDLE_VALUE = "control_idle_value"
 DEFAULT_CONTROL_IDLE_VALUE = 0.0
 
-# -- household usage forecast ---------------------------------------------
-# Two sources (as of v0.3.0): the grid/solar/battery statistics Home
-# Assistant's Energy dashboard is configured with (energy_source.py, the
-# energy-balance identity in usage_forecast.compute_usage_forecast), or one
-# or more home-energy-consumption sensors read directly. The external
-# h0..h120 sensor ("external_sensor") and the hand-picked statistics
-# ("calculated") were deprecated in v0.2.10 and removed in v0.3.0 - see
-# REMOVED_USAGE_SOURCES and the config-entry migration in __init__.py.
+# -- household usage forecast: an existing "h0..h120" sensor, calculated --
+# -- internally from HA's own long-term recorder statistics (the full --
+# -- solar/import/export/battery energy-balance identity), or read --
+# -- directly from a home-energy-consumption meter, if one is available --
 CONF_USAGE_SOURCE = "usage_source"
+USAGE_SOURCE_EXTERNAL_SENSOR = "external_sensor"
+USAGE_SOURCE_CALCULATED = "calculated"
 USAGE_SOURCE_CONSUMPTION_SENSOR = "consumption_sensor"
+# Same energy-balance calculation as USAGE_SOURCE_CALCULATED, but the grid/
+# solar/battery statistics are read live from Home Assistant's own Energy
+# dashboard configuration (energy_source.py) instead of being picked by hand
+# - so they can never drift out of sync with what the Energy dashboard uses.
 USAGE_SOURCE_ENERGY_DASHBOARD = "energy_dashboard"
 DEFAULT_USAGE_SOURCE = USAGE_SOURCE_ENERGY_DASHBOARD
-SUPPORTED_USAGE_SOURCES = (USAGE_SOURCE_ENERGY_DASHBOARD, USAGE_SOURCE_CONSUMPTION_SENSOR)
+
+# DEPRECATED - REMOVE IN 0.3.0: the external h0..h120 sensor and the
+# hand-picked "calculated" source. Since 0.2.10 they can no longer be chosen
+# for a new installation (setup only offers the Energy dashboard and the
+# consumption sensor), but installations already using one keep working
+# unchanged and get a Repairs notice asking them to switch (see
+# __init__.py). In 0.3.0 their code paths, config fields and translations
+# are deleted - see the project notes for the full removal checklist.
+DEPRECATED_USAGE_SOURCES = (USAGE_SOURCE_EXTERNAL_SENSOR, USAGE_SOURCE_CALCULATED)
+# What an entry that has no usage_source stored at all (only possible for
+# installs from before usage_source existed, v0.1.0) has always been treated
+# as. Kept separate from DEFAULT_USAGE_SOURCE (what new installs get) so
+# changing the new-install default can't silently change such an entry.
+# REMOVE IN 0.3.0 along with the deprecated sources.
+LEGACY_DEFAULT_USAGE_SOURCE = USAGE_SOURCE_EXTERNAL_SENSOR
 USAGE_SOURCE_LABELS = {
     USAGE_SOURCE_ENERGY_DASHBOARD: "Calculate it using the entities from my Energy dashboard",
     USAGE_SOURCE_CONSUMPTION_SENSOR: "Use a home energy consumption sensor I already have",
+    USAGE_SOURCE_EXTERNAL_SENSOR: "An existing sensor with h0..h120 attributes",
+    USAGE_SOURCE_CALCULATED: "Calculate it from hand-picked energy statistics",
 }
-# Only for the v1 -> v2 config-entry migration (__init__.async_migrate_entry):
-# the removed sources, and the config keys only they used. An entry with no
-# usage_source stored at all predates the choice and meant the external
-# sensor.
-REMOVED_USAGE_SOURCES = ("external_sensor", "calculated")
-REMOVED_USAGE_SOURCE_LABELS = {
-    "external_sensor": "an existing sensor with h0..h120 attributes",
-    "calculated": "hand-picked energy statistics",
-}
-REMOVED_CONFIG_KEYS = (
-    "usage_forecast_entity",
-    "grid_import_entities",
-    "grid_export_entities",
-    "solar_production_entities",
-    "battery_charge_energy_entity",
-    "battery_discharge_energy_entity",
-)
+
+CONF_USAGE_FORECAST_ENTITY = "usage_forecast_entity"
+
+# Calculated-usage-forecast inputs. Import/export are lists, not single
+# entities, because meters vary: a single-tariff meter exposes one
+# cumulative import/export sensor, a dual-tariff meter (common e.g. for
+# day/night rates) exposes two - every configured entity in each list is
+# summed together for that side of the energy balance, so either shape
+# works without the user needing to combine them into one sensor first.
+# Solar production is a list for the same reason (multiple inverters/arrays).
+# Battery charge/discharge energy are optional single entities (only some
+# battery monitors expose lifetime charged/discharged energy) - when
+# omitted, that term of the energy-balance identity is simply treated as 0.
+CONF_GRID_IMPORT_ENTITIES = "grid_import_entities"
+CONF_GRID_EXPORT_ENTITIES = "grid_export_entities"
+CONF_SOLAR_PRODUCTION_ENTITIES = "solar_production_entities"
+CONF_BATTERY_CHARGE_ENERGY_ENTITY = "battery_charge_energy_entity"
+CONF_BATTERY_DISCHARGE_ENERGY_ENTITY = "battery_discharge_energy_entity"
 
 # Direct-consumption-meter usage-forecast input (USAGE_SOURCE_CONSUMPTION_SENSOR).
-# A list - some homes split
+# A list, same reasoning as solar/import/export above - some homes split
 # whole-house consumption across more than one energy monitor/circuit. This
 # sidesteps the energy-balance identity entirely (nothing to derive - a
 # direct consumption meter already *is* the household's usage), which also

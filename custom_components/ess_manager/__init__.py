@@ -16,122 +16,58 @@ from .const import (
     CONF_CONTROL_MODE,
     CONF_NAME,
     CONF_USAGE_SOURCE,
-    CONTROL_MODE_OFF,
-    CONTROL_MODE_NUMBER,
+    CONTROL_MODE_REMOVED_SCRIPT,
     DEFAULT_NAME,
+    DEPRECATED_USAGE_SOURCES,
     DOMAIN,
+    LEGACY_DEFAULT_USAGE_SOURCE,
     PLATFORMS,
-    REMOVED_CONFIG_KEYS,
-    REMOVED_USAGE_SOURCE_LABELS,
-    REMOVED_USAGE_SOURCES,
-    SUPPORTED_USAGE_SOURCES,
-    USAGE_SOURCE_ENERGY_DASHBOARD,
+    USAGE_SOURCE_LABELS,
 )
 from .coordinator import EssManagerCoordinator
-from .energy_source import async_get_energy_prefs
-from .usage_forecast import energy_prefs_to_sources
 
 _LOGGER = logging.getLogger(__name__)
 
 README_USAGE_URL = "https://github.com/MisterX-RC/ESS-manager-HA#household-usage-forecast"
 
 
-def _issue_id(kind: str, entry: ConfigEntry) -> str:
-    return f"{kind}_{entry.entry_id}"
+def _deprecated_source_issue_id(entry: ConfigEntry) -> str:
+    return f"deprecated_usage_source_{entry.entry_id}"
 
 
-# Repairs issue ids used by this integration, per entry. The v0.2.10-0.2.20
-# "deprecated_usage_source" notice is only listed so it gets cleaned up.
-_ISSUE_KINDS = ("usage_source_switched", "usage_source_removed", "deprecated_usage_source")
-
-
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """v1 -> v2 (ESS Manager 0.3.0): the external h0..h120 sensor and the
-    hand-picked statistics usage sources are gone.
-
-    - Their config keys are dropped from data and options.
-    - An entry on one of them (or with no usage_source at all, which has
-      always meant the external sensor) is switched to the Energy dashboard
-      source when the Energy dashboard has a grid source, with a Repairs
-      notice asking to check the forecast. Otherwise its source stays as it
-      was, so setup shows a Repairs error until a source is picked in
-      Configure (see _async_update_usage_source_issue) - it never silently
-      plans with zero household usage.
-    - The v0.2.14-only "script" control mode becomes "off" (it has counted
-      as off since v0.2.15).
+def _async_update_deprecation_issue(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Show a Repairs notice (Settings -> System -> Repairs) while this
+    installation uses a deprecated usage source, and remove it as soon as it
+    doesn't. Runs at setup and after every Configure change, so switching
+    source clears the notice straight away. DEPRECATED handling - in 0.3.0
+    this becomes a hard error for any entry still on a removed source.
     """
-    if entry.version > 2:
-        return False  # a newer ESS Manager was installed before - don't guess
-    if entry.version == 2:
-        return True
-
-    data = {k: v for k, v in entry.data.items() if k not in REMOVED_CONFIG_KEYS}
-    options = {k: v for k, v in entry.options.items() if k not in REMOVED_CONFIG_KEYS}
-    for part in (data, options):
-        if part.get(CONF_CONTROL_MODE) not in (None, CONTROL_MODE_OFF, CONTROL_MODE_NUMBER):
-            part[CONF_CONTROL_MODE] = CONTROL_MODE_OFF
-
-    source = {**entry.data, **entry.options}.get(CONF_USAGE_SOURCE) or "external_sensor"
-    if source in REMOVED_USAGE_SOURCES:
-        sources = energy_prefs_to_sources(await async_get_energy_prefs(hass))
-        if sources["import"]:
-            data[CONF_USAGE_SOURCE] = USAGE_SOURCE_ENERGY_DASHBOARD
-            if CONF_USAGE_SOURCE in options:
-                options[CONF_USAGE_SOURCE] = USAGE_SOURCE_ENERGY_DASHBOARD
-            _LOGGER.warning(
-                "ESS Manager (%s): usage source '%s' was removed in 0.3.0 - switched to the Energy dashboard",
-                entry.title,
-                source,
-            )
-            ir.async_create_issue(
-                hass,
-                DOMAIN,
-                _issue_id("usage_source_switched", entry),
-                is_fixable=False,
-                is_persistent=True,
-                severity=ir.IssueSeverity.WARNING,
-                translation_key="usage_source_switched",
-                translation_placeholders={
-                    "entry_title": entry.title,
-                    "source": REMOVED_USAGE_SOURCE_LABELS.get(source, source),
-                },
-                learn_more_url=README_USAGE_URL,
-            )
-        else:
-            # Keep it explicit, so the Repairs error can name it.
-            data[CONF_USAGE_SOURCE] = source
-
-    hass.config_entries.async_update_entry(entry, data=data, options=options, version=2)
-    _LOGGER.info("ESS Manager (%s): configuration migrated to version 2", entry.title)
-    return True
-
-
-def _async_update_usage_source_issue(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """A Repairs error while this entry has no supported usage source (only
-    possible after a v2 migration that couldn't switch automatically);
-    removed as soon as one is chosen. Also clears the pre-0.3.0 deprecation
-    notice.
-    """
-    ir.async_delete_issue(hass, DOMAIN, _issue_id("deprecated_usage_source", entry))
-    source = {**entry.data, **entry.options}.get(CONF_USAGE_SOURCE)
-    issue_id = _issue_id("usage_source_removed", entry)
-    if source in SUPPORTED_USAGE_SOURCES:
+    conf = {**entry.data, **entry.options}
+    source = conf.get(CONF_USAGE_SOURCE, LEGACY_DEFAULT_USAGE_SOURCE)
+    issue_id = _deprecated_source_issue_id(entry)
+    if source in DEPRECATED_USAGE_SOURCES:
+        _LOGGER.warning(
+            "ESS Manager (%s): usage source '%s' is deprecated and will be removed in 0.3.0 - "
+            "switch to the Energy dashboard or a consumption sensor in Configure",
+            entry.title,
+            source,
+        )
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="deprecated_usage_source",
+            translation_placeholders={
+                "entry_title": entry.title,
+                "source": USAGE_SOURCE_LABELS.get(source, source),
+            },
+            learn_more_url=README_USAGE_URL,
+        )
+    else:
         ir.async_delete_issue(hass, DOMAIN, issue_id)
-        return
-    ir.async_create_issue(
-        hass,
-        DOMAIN,
-        issue_id,
-        is_fixable=False,
-        is_persistent=False,
-        severity=ir.IssueSeverity.ERROR,
-        translation_key="usage_source_removed",
-        translation_placeholders={
-            "entry_title": entry.title,
-            "source": REMOVED_USAGE_SOURCE_LABELS.get(source, str(source)),
-        },
-        learn_more_url=README_USAGE_URL,
-    )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -156,11 +92,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # PLATFORMS ordering note in const.py.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Before the first refresh: with no supported usage source that refresh
-    # fails (setup is then retried), and the Repairs error must already be
-    # there to say why.
-    _async_update_usage_source_issue(hass, entry)
-
     await coordinator.async_config_entry_first_refresh()
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
@@ -171,6 +102,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.controller.async_idle(coordinator.control_settings(), "Home Assistant stopping")
 
     entry.async_on_unload(hass.bus.async_listen(EVENT_HOMEASSISTANT_STOP, _async_idle_on_stop))
+
+    _async_update_deprecation_issue(hass, entry)
+
+    if {**entry.data, **entry.options}.get(CONF_CONTROL_MODE) == CONTROL_MODE_REMOVED_SCRIPT:
+        _LOGGER.warning(
+            "ESS Manager (%s): the 'Run a script' control option was removed in 0.2.15, so direct control "
+            "is off - choose a number / input_number entity in Configure to turn it back on",
+            entry.title,
+        )
 
     return True
 
@@ -188,9 +128,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Deleting the installation also clears its Repairs notices, if any."""
-    for kind in _ISSUE_KINDS:
-        ir.async_delete_issue(hass, DOMAIN, _issue_id(kind, entry))
+    """Deleting the installation also clears its Repairs notice, if any."""
+    ir.async_delete_issue(hass, DOMAIN, _deprecated_source_issue_id(entry))
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -199,9 +138,6 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     no reload is needed.
     """
     coordinator: EssManagerCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    _async_update_usage_source_issue(hass, entry)
-    # Saving Configure means the usage source has been looked at - the
-    # "switched automatically" notice from the v2 migration has done its job.
-    ir.async_delete_issue(hass, DOMAIN, _issue_id("usage_source_switched", entry))
+    _async_update_deprecation_issue(hass, entry)
     coordinator.invalidate_usage_forecast()
     await coordinator.async_request_refresh()

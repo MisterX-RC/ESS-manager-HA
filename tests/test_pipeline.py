@@ -60,7 +60,10 @@ check("solar forecast is 121 long", len(solar) == 121)
 check("solar[0] resolved from source data", solar[0] == 1.5)
 check("solar[120] is None (no source data that far out)", solar[120] is None)
 
-usage = [1.0] * 121  # a flat 1 kWh/h household usage forecast
+usage_attrs = {f"h{h}": 1.0 for h in range(0, 121)}
+usage = forecasting.build_usage_forecast(usage_attrs, hours=121)
+check("usage forecast is 121 long", len(usage) == 121)
+check("usage[0] == 1.0", usage[0] == 1.0)
 
 net = forecasting.build_net_energy(solar, usage)
 check("net energy length matches solar length", len(net) == len(solar))

@@ -8,9 +8,9 @@ charge/discharge setpoint to your inverter itself (optional, as of v0.2.14 -
 see "Direct control"), or leave that to a separate, small automation that
 acts on its Status sensor.
 
-This started as a hand-written Home Assistant template sensor (that
-original configuration is still in this repository's git history, up to
-v0.2.20) and was rebuilt here as a proper, configurable custom
+This started as a hand-written Home Assistant template sensor (see
+`legacy-yaml-config/` in this repo for that exact, still-in-production
+configuration) and was rebuilt here as a proper, configurable custom
 integration so it can be shared and installed on other systems via HACS,
 without every install needing to hand-edit Jinja templates or hardcode
 someone else's entity IDs.
@@ -73,7 +73,7 @@ integration producing the same shape works):
   many forecast-day sensors as you need to cover 121 hours from whatever
   time of day updates happen to run (Solcast typically needs
   today/tomorrow/day_3 at minimum, more if you want headroom late in the
-  day).
+  day - see the original's notes in `legacy-yaml-config/ess_manager_sensor.yaml`).
 - **Grid/inverter setpoint** *(optional but recommended)*: a sensor
   reporting your current commanded charge/discharge power, used to make the
   "Status" sensor's engaged-vs-starting distinction accurate.
@@ -90,27 +90,60 @@ integration producing the same shape works):
 
 ## Household usage forecast
 
-Every planning engine needs a household usage forecast. There are two
-sources: **your Energy dashboard** (recommended) and **a home energy
-consumption sensor**. Both average the same hour-of-day/day-of-week over
-however many weeks back you choose (default 6), from Home Assistant's own
-long-term statistics. That works the same whether your recorder is SQLite,
-MariaDB/MySQL or Postgres, is recomputed about once an hour (statistics only
-land once an hour anyway), and a week with a genuine gap in the data (an
-entity that didn't exist yet, a recorder outage) is left out of that hour's
-average rather than counted as zero.
+Every planning engine needs a household usage forecast, but there's no one
+right way to produce it. The setup wizard offers two sources: **your Energy
+dashboard** (recommended) and **a home energy consumption sensor** - both
+described further down. Two older sources, **an existing h0..h120 sensor**
+and **calculated from hand-picked sensors**, are **deprecated**: they can't
+be chosen for a new installation any more and **will be removed in 0.3.0**.
+Installations already using one keep working until then, and Home
+Assistant shows a notice under Settings -> System -> Repairs explaining how
+to switch (Configure -> pick one of the two supported sources); the notice
+disappears as soon as you save.
 
-*Removed in 0.3.0:* the older **existing h0..h120 sensor** and **calculated
-from hand-picked sensors** sources (deprecated since 0.2.10). When an
-installation that still used one updates to 0.3.0, it's switched to the
-Energy dashboard source automatically if the Energy dashboard has a grid
-source, with a notice under Settings -> System -> Repairs asking you to
-check the forecast. If that's not possible, planning pauses and Repairs
-shows an error until you pick a source in Configure - it never plans with
-zero household usage.
+The deprecated ones first, for reference:
 
-**Calculated from your Energy dashboard** *(recommended)* - the
-integration reads the grid, solar and battery statistics straight from
+**An existing sensor** *(deprecated - removed in 0.3.0)* - point the integration at any sensor exposing
+`h0`..`h120` attributes, however you produce it. This is the original
+system's approach: a hand-written SQL sensor averaging the same calendar
+hour/weekday over several weeks of recorder history (see
+`legacy-yaml-config/` for that exact query, if you're curious or want to
+build your own variant).
+
+**Calculated from hand-picked sensors** *(deprecated - removed in 0.3.0; use the Energy dashboard source below, which does the same calculation)* - the integration
+queries Home Assistant's own long-term recorder statistics itself and
+computes the same kind of forecast, using the energy-balance identity:
+
+```
+consumption = solar produced + grid imported + battery discharged
+              - grid exported - battery charged
+```
+
+averaged across the same hour-of-day/day-of-week for however many weeks
+back you choose (default 6). You provide:
+
+- One or more **grid import** energy sensors (cumulative kWh) - use two if
+  your meter has separate day/night (tariff 1/2) sensors, or just one if it
+  doesn't; every sensor you list is summed together.
+- **Grid export** energy sensor(s), same idea, optional if you never export.
+- One or more **solar production** energy sensors (cumulative kWh) - one
+  per inverter/array if you have more than one.
+- Optionally, **battery charged/discharged energy** sensors, if your
+  battery monitor tracks those cumulatively (Victron shunts typically do).
+  Leave either blank if you don't have one - that term is just treated as 0.
+
+This queries Home Assistant's statistics API rather than running raw SQL
+against the recorder database directly, so it works the same regardless of
+whether your recorder is SQLite, MariaDB/MySQL, or Postgres (the original
+hand-written query was MySQL-specific). It also only recomputes about once
+an hour internally (long-term statistics only ever land once an hour
+anyway), and - unlike the original query - a week with a genuine gap in the
+data (an entity that didn't exist yet, a recorder outage) is excluded from
+that hour's average rather than silently counted as a zero.
+
+**Calculated from your Energy dashboard** *(recommended)* -
+exactly the same calculation as above, but instead of picking the grid,
+solar and battery sensors by hand, the integration reads them straight from
 Home Assistant's own Energy dashboard configuration (Settings -> Dashboards
 -> Energy). They're re-read about once an hour, so any change you make in
 the Energy dashboard is picked up automatically - there's nothing to keep in
@@ -119,14 +152,7 @@ confirm, and the Status sensor's `energy_dashboard_sources` attribute shows
 what's currently in use. Multiple grid connections, solar arrays and
 batteries are all supported (every one is summed into its term), as are
 external statistics that have no sensor behind them (e.g. `tibber:...`). The
-household usage is derived with the energy balance
-
-```
-consumption = solar produced + grid imported + battery discharged
-              - grid exported - battery charged
-```
-
-The Energy dashboard needs at least a grid source configured; gas, water and
+Energy dashboard needs at least a grid source configured; gas, water and
 individual-device entries are ignored. This relies on an internal Home
 Assistant interface - if a future HA version changes it and the
 configuration can't be read, the integration logs a warning and keeps using
@@ -135,14 +161,14 @@ the last good forecast rather than failing.
 **A home energy consumption sensor** - if you already have a sensor that
 reports your home's total energy consumed (cumulative kWh), point the
 integration at it directly. No energy balance is derived at all, which also
-avoids a failure mode the Energy dashboard option can hit when one of the grid/
+avoids a failure mode the calculated options can hit when one of the grid/
 solar/battery sensors reports much more coarsely than the others (e.g. a
 grid meter that only ticks in 0.1 kWh steps a few times an hour) - Home
 Assistant's hourly statistics then lump that sensor's flow into whichever
 hour it happened to tick over in, giving odd (even negative) hourly swings.
 
-Both options read the recorder's statistics converted to kWh, so sensors
-reporting in Wh or MWh work too.
+All three statistics-based options read the recorder's statistics converted
+to kWh, so sensors reporting in Wh or MWh work too.
 
 ## Installation
 
@@ -393,11 +419,13 @@ you're the one who ran the original on a live system:
 - **Every entity reference is configurable** - the original hardcoded
   Victron/Nordpool/Solcast entity IDs; this version only assumes the
   *shape* of data described under Requirements above.
-- **The household usage forecast is calculated internally**, with no
-  external SQL sensor - see "Household usage forecast" above. It also
-  fixes a flagged correctness issue in the original's MySQL-specific SQL
-  sensor (a week with missing data was silently averaged in as a 0 instead
-  of being excluded).
+- **The household usage forecast can be calculated internally**, with no
+  external SQL sensor required - see "Household usage forecast" above. The
+  original's approach (a hand-written, MySQL-specific SQL sensor) still
+  works too if you'd rather keep using it, but isn't required anymore, and
+  the built-in version also fixes a flagged correctness issue in the
+  original (a week with missing data was silently averaged in as a 0
+  instead of being excluded).
 - **Min/max SOC are direct % tunables**, not derived from an external
   "inverter's own minimum SOC" sensor plus a hardcoded margin. If you want
   that margin back, just set Minimum SOC a few points above your inverter's
@@ -423,17 +451,17 @@ you're the one who ran the original on a live system:
   automations or history graphs (battery level, charge/discharge amount and
   timing, days to next full charge) are now their own entities.
 
-The exact YAML this was ported from (the heavily-commented Jinja2 source
-and the original project notes) is in the git history up to v0.2.20.
+See `legacy-yaml-config/` for the exact, byte-for-byte YAML this was ported
+from, including the full, heavily-commented Jinja2 source and the original
+project handoff notes on every design decision made along the way.
 
 ## Repository layout
 
 ```
 custom_components/ess_manager/   the integration itself
 dashboard/                       adapted Lovelace cards + example automation (not needed with direct control)
-tests/                           standalone tests (no Home Assistant needed)
-.github/workflows/validate.yaml  HACS + hassfest validation on every push
-LICENSE                          MIT
+legacy-yaml-config/              the original template-sensor config, preserved as-is
+sync-and-push.command            macOS helper - see "Keeping this repo in sync" below
 ```
 
 ## Versioning
@@ -448,13 +476,35 @@ that "just publishing tags is not enough, you need to publish releases,"
 and without any release at all it falls back to tracking raw commits on
 the default branch instead.
 
-Every version gets a GitHub Release tagged `vX.Y.Z` whose notes are that
-version's own section of `CHANGELOG.md`, so HACS's update dialog shows what
-actually changed. HACS re-checks custom repositories roughly every 6 hours and
+As of v0.2.0, cutting that release is no longer a manual step: the last
+thing `sync-and-push.command` does after every push is read the version
+out of `manifest.json`, check GitHub for a release already tagged
+`vX.Y.Z`, and publish one via the GitHub API if there isn't one yet,
+reusing the same personal access token macOS Keychain already has saved
+for pushing. The release notes are that version's own section of
+`CHANGELOG.md` (as of v0.2.12), so HACS's update dialog shows what
+actually changed; if the release already exists, its notes are refreshed
+from `CHANGELOG.md`. HACS re-checks custom repositories roughly every 6 hours and
 at Home Assistant startup; to see an update right after syncing instead of
 waiting, use HACS's own repository menu -> "Redownload" or "Update
 information."
 
-## License
+## Keeping this repo in sync (macOS)
 
-MIT - see [LICENSE](LICENSE).
+If you're developing this alongside Claude rather than editing it directly
+in GitHub: `sync-and-push.command` is a double-clickable script that lives
+in this same folder. Each time it runs, it looks in your Downloads folder
+for the newest `ess-manager-ha-repo*.zip`, copies its contents over this
+folder (leaving this script and this folder's own `.git` history/remote
+alone), commits whatever changed, pushes to GitHub, and publishes a
+matching GitHub Release if the version in `manifest.json` doesn't have one
+yet - so picking up an update, and making sure HACS actually notices it,
+is one double-click instead of unzipping, typing git commands, and
+drafting a release by hand.
+
+The first time it runs, git will ask for your GitHub username and a
+personal access token right there in the Terminal window it opens; macOS
+Keychain remembers it after that, so every run after the first is silent.
+If macOS refuses to run it the very first time ("cannot be opened because
+it is from an unidentified developer"), right-click the file, choose
+**Open**, and confirm once - after that, double-clicking works normally.
