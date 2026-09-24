@@ -76,7 +76,6 @@ from .const import (
     USAGE_SOURCE_CALCULATED,
     USAGE_SOURCE_CONSUMPTION_SENSOR,
     USAGE_SOURCE_ENERGY_DASHBOARD,
-    USAGE_SOURCE_EXTERNAL_SENSOR,
     DEPRECATED_USAGE_SOURCES,
     LEGACY_DEFAULT_USAGE_SOURCE,
     USAGE_SOURCE_LABELS,
@@ -141,14 +140,23 @@ def _optional_entity_selector() -> vol.Maybe:
     return vol.Maybe(selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")))
 
 
-def _main_schema(defaults: dict[str, Any]) -> vol.Schema:
-    """Everything except the usage-forecast source, which is its own
-    branching step (see async_step_usage_sensor/async_step_usage_calculated
-    below) since the calculated path needs a whole extra set of fields.
+def _number(minimum: float, maximum: float, step: float, unit: str) -> selector.NumberSelector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(min=minimum, max=maximum, step=step, unit_of_measurement=unit)
+    )
+
+
+def _sensors_schema(defaults: dict[str, Any], include_name: bool) -> vol.Schema:
+    """Page 1 - the sensors ESS Manager reads, which usage source to use, and
+    whether to enable full-charge balancing (its own sensors get their own
+    page next, only when it's switched on). The name is only asked at setup.
     """
-    return vol.Schema(
+    fields: dict[Any, Any] = {}
+    if include_name:
+        fields[vol.Required(CONF_NAME, default=defaults.get(CONF_NAME, DEFAULT_NAME))] = str
+    current_source = defaults.get(CONF_USAGE_SOURCE)
+    fields.update(
         {
-            vol.Required(CONF_NAME, default=defaults.get(CONF_NAME, DEFAULT_NAME)): str,
             vol.Required(CONF_BATTERY_SOC_ENTITY, default=defaults.get(CONF_BATTERY_SOC_ENTITY)): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
@@ -158,85 +166,130 @@ def _main_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_SOLAR_FORECAST_ENTITIES, default=defaults.get(CONF_SOLAR_FORECAST_ENTITIES, [])
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
-            vol.Required(
-                CONF_USAGE_SOURCE, default=defaults.get(CONF_USAGE_SOURCE, DEFAULT_USAGE_SOURCE)
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=_usage_source_options(), mode=selector.SelectSelectorMode.LIST)
-            ),
             vol.Optional(
                 CONF_GRID_SETPOINT_ENTITY, default=defaults.get(CONF_GRID_SETPOINT_ENTITY)
             ): _optional_entity_selector(),
-            vol.Optional(
-                CONF_VOLTAGE_DIFF_ENTITY, default=defaults.get(CONF_VOLTAGE_DIFF_ENTITY)
-            ): _optional_entity_selector(),
-            vol.Optional(
-                CONF_LOW_CELL_VOLTAGE_ENTITY, default=defaults.get(CONF_LOW_CELL_VOLTAGE_ENTITY)
-            ): _optional_entity_selector(),
-            vol.Optional(
-                CONF_HIGH_CELL_VOLTAGE_ENTITY, default=defaults.get(CONF_HIGH_CELL_VOLTAGE_ENTITY)
-            ): _optional_entity_selector(),
-            # Optional at the schema level (like the entity fields above) but
-            # validated as conditionally required in async_step_user/
-            # async_step_init - see battery_voltage_entity_required - since
-            # it's only mandatory when the full-charge plan is enabled, a
-            # relationship voluptuous can't express as cleanly as a
-            # submit-time check.
-            vol.Optional(
-                CONF_BATTERY_VOLTAGE_ENTITY, default=defaults.get(CONF_BATTERY_VOLTAGE_ENTITY)
-            ): _optional_entity_selector(),
             vol.Required(
-                CONF_FULL_CHARGE_TRACKING_SOURCE,
-                default=defaults.get(CONF_FULL_CHARGE_TRACKING_SOURCE, DEFAULT_FULL_CHARGE_TRACKING_SOURCE),
+                CONF_USAGE_SOURCE, default=current_source or DEFAULT_USAGE_SOURCE
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=FULL_CHARGE_TRACKING_SOURCE_OPTIONS, mode=selector.SelectSelectorMode.LIST
+                    options=_usage_source_options(current_source), mode=selector.SelectSelectorMode.LIST
                 )
             ),
-            # Optional at the schema level, same reasoning as
-            # CONF_BATTERY_VOLTAGE_ENTITY above - only mandatory when
-            # CONF_FULL_CHARGE_TRACKING_SOURCE is set to the external-sensor
-            # option, validated at submit time (see
-            # days_since_full_charge_entity_required).
-            vol.Optional(
-                CONF_DAYS_SINCE_FULL_CHARGE_ENTITY, default=defaults.get(CONF_DAYS_SINCE_FULL_CHARGE_ENTITY)
-            ): _optional_entity_selector(),
+            vol.Required(
+                CONF_ENABLE_FULL_CHARGE_PLAN,
+                default=defaults.get(CONF_ENABLE_FULL_CHARGE_PLAN, DEFAULT_ENABLE_FULL_CHARGE_PLAN),
+            ): selector.BooleanSelector(),
+        }
+    )
+    return vol.Schema(fields)
+
+
+def _full_charge_schema(defaults: dict[str, Any], include_target_voltage: bool) -> vol.Schema:
+    """Only shown when full-charge balancing is switched on. The target
+    voltage is only asked at setup: it then becomes an adjustable number
+    entity, so in Configure it's changed there instead.
+    """
+    fields: dict[Any, Any] = {
+        vol.Optional(
+            CONF_VOLTAGE_DIFF_ENTITY, default=defaults.get(CONF_VOLTAGE_DIFF_ENTITY)
+        ): _optional_entity_selector(),
+        vol.Optional(
+            CONF_LOW_CELL_VOLTAGE_ENTITY, default=defaults.get(CONF_LOW_CELL_VOLTAGE_ENTITY)
+        ): _optional_entity_selector(),
+        vol.Optional(
+            CONF_HIGH_CELL_VOLTAGE_ENTITY, default=defaults.get(CONF_HIGH_CELL_VOLTAGE_ENTITY)
+        ): _optional_entity_selector(),
+        # Optional at the schema level but required at submit time on this
+        # page (battery_voltage_entity_required) - an empty required
+        # entity field can't be expressed cleanly in voluptuous, see
+        # _optional_entity_selector.
+        vol.Optional(
+            CONF_BATTERY_VOLTAGE_ENTITY, default=defaults.get(CONF_BATTERY_VOLTAGE_ENTITY)
+        ): _optional_entity_selector(),
+        vol.Required(
+            CONF_FULL_CHARGE_TRACKING_SOURCE,
+            default=defaults.get(CONF_FULL_CHARGE_TRACKING_SOURCE, DEFAULT_FULL_CHARGE_TRACKING_SOURCE),
+        ): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=FULL_CHARGE_TRACKING_SOURCE_OPTIONS, mode=selector.SelectSelectorMode.LIST
+            )
+        ),
+        # Required at submit time only with the external-sensor tracking
+        # option (days_since_full_charge_entity_required).
+        vol.Optional(
+            CONF_DAYS_SINCE_FULL_CHARGE_ENTITY, default=defaults.get(CONF_DAYS_SINCE_FULL_CHARGE_ENTITY)
+        ): _optional_entity_selector(),
+    }
+    if include_target_voltage:
+        fields[
             vol.Required(
                 CONF_FULL_CHARGE_TARGET_VOLTAGE,
                 default=defaults.get(CONF_FULL_CHARGE_TARGET_VOLTAGE, DEFAULT_FULL_CHARGE_TARGET_VOLTAGE),
-            ): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=1000, step=0.1, unit_of_measurement="V")),
-            vol.Required(
-                CONF_BATTERY_CAPACITY_KWH, default=defaults.get(CONF_BATTERY_CAPACITY_KWH, DEFAULT_BATTERY_CAPACITY_KWH)
-            ): selector.NumberSelector(selector.NumberSelectorConfig(min=0.5, max=400, step=0.5, unit_of_measurement="kWh")),
-            vol.Required(
-                CONF_CHARGE_SPEED_KW, default=defaults.get(CONF_CHARGE_SPEED_KW, DEFAULT_CHARGE_SPEED_KW)
-            ): selector.NumberSelector(selector.NumberSelectorConfig(min=0.1, max=100, step=0.1, unit_of_measurement="kW")),
-            vol.Required(
-                CONF_DISCHARGE_SPEED_KW, default=defaults.get(CONF_DISCHARGE_SPEED_KW, DEFAULT_DISCHARGE_SPEED_KW)
-            ): selector.NumberSelector(selector.NumberSelectorConfig(min=0.1, max=100, step=0.1, unit_of_measurement="kW")),
+            )
+        ] = _number(0, 1000, 0.1, "V")
+    return vol.Schema(fields)
+
+
+def _system_schema(defaults: dict[str, Any], seed_values: bool) -> vol.Schema:
+    """Page 2 - the battery/system. At setup (seed_values=True) this includes
+    the values that then become adjustable `number` entities (capacity,
+    normal speeds, min/max SOC); in Configure those are adjusted on the
+    number entities instead, so only the max battery speeds (a fixed
+    hardware property with no number entity) are asked there.
+    """
+    fields: dict[Any, Any] = {}
+    if seed_values:
+        fields.update(
+            {
+                vol.Required(
+                    CONF_BATTERY_CAPACITY_KWH,
+                    default=defaults.get(CONF_BATTERY_CAPACITY_KWH, DEFAULT_BATTERY_CAPACITY_KWH),
+                ): _number(0.5, 400, 0.5, "kWh"),
+                vol.Required(
+                    CONF_CHARGE_SPEED_KW, default=defaults.get(CONF_CHARGE_SPEED_KW, DEFAULT_CHARGE_SPEED_KW)
+                ): _number(0.1, 100, 0.1, "kW"),
+                vol.Required(
+                    CONF_DISCHARGE_SPEED_KW, default=defaults.get(CONF_DISCHARGE_SPEED_KW, DEFAULT_DISCHARGE_SPEED_KW)
+                ): _number(0.1, 100, 0.1, "kW"),
+            }
+        )
+    fields.update(
+        {
             vol.Required(
                 CONF_MAX_BATTERY_CHARGE_SPEED_KW,
                 default=defaults.get(CONF_MAX_BATTERY_CHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW),
-            ): selector.NumberSelector(selector.NumberSelectorConfig(min=0.1, max=200, step=0.1, unit_of_measurement="kW")),
+            ): _number(0.1, 200, 0.1, "kW"),
             vol.Required(
                 CONF_MAX_BATTERY_DISCHARGE_SPEED_KW,
                 default=defaults.get(CONF_MAX_BATTERY_DISCHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW),
-            ): selector.NumberSelector(selector.NumberSelectorConfig(min=0.1, max=200, step=0.1, unit_of_measurement="kW")),
-            vol.Required(
-                CONF_MIN_SOC_PERCENT, default=defaults.get(CONF_MIN_SOC_PERCENT, DEFAULT_MIN_SOC_PERCENT)
-            ): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=100, step=1, unit_of_measurement="%")),
-            vol.Required(
-                CONF_MAX_SOC_PERCENT, default=defaults.get(CONF_MAX_SOC_PERCENT, DEFAULT_MAX_SOC_PERCENT)
-            ): selector.NumberSelector(selector.NumberSelectorConfig(min=50, max=150, step=1, unit_of_measurement="%")),
+            ): _number(0.1, 200, 0.1, "kW"),
+        }
+    )
+    if seed_values:
+        fields.update(
+            {
+                vol.Required(
+                    CONF_MIN_SOC_PERCENT, default=defaults.get(CONF_MIN_SOC_PERCENT, DEFAULT_MIN_SOC_PERCENT)
+                ): _number(0, 100, 1, "%"),
+                vol.Required(
+                    CONF_MAX_SOC_PERCENT, default=defaults.get(CONF_MAX_SOC_PERCENT, DEFAULT_MAX_SOC_PERCENT)
+                ): _number(50, 150, 1, "%"),
+            }
+        )
+    return vol.Schema(fields)
+
+
+def _plans_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Page 3 - the two optional price plans (explained in the page text)."""
+    return vol.Schema(
+        {
             vol.Required(
                 CONF_ENABLE_NEGATIVE_PRICE_PLAN,
                 default=defaults.get(CONF_ENABLE_NEGATIVE_PRICE_PLAN, DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN),
             ): selector.BooleanSelector(),
             vol.Required(
                 CONF_ENABLE_SPIKE_PLAN, default=defaults.get(CONF_ENABLE_SPIKE_PLAN, DEFAULT_ENABLE_SPIKE_PLAN)
-            ): selector.BooleanSelector(),
-            vol.Required(
-                CONF_ENABLE_FULL_CHARGE_PLAN,
-                default=defaults.get(CONF_ENABLE_FULL_CHARGE_PLAN, DEFAULT_ENABLE_FULL_CHARGE_PLAN),
             ): selector.BooleanSelector(),
         }
     )
@@ -335,78 +388,52 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-class EssManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle the initial setup flow for one ESS Manager instance.
+class _EssManagerSteps:
+    """The pages shared by setup and Configure, in order:
 
-    Five possible steps: `user` (always), then whichever of
-    `usage_sensor` / `usage_calculated` / `usage_consumption` /
-    `usage_energy_dashboard` matches what
-    was picked for CONF_USAGE_SOURCE in `user` - whichever one runs is what
-    actually creates the config entry.
+      1. `user` (setup) / `init` (Configure) - sensors, usage source, and the
+         full-charge balancing switch
+      2. the usage-source page for the chosen source (`usage_energy_dashboard`
+         / `usage_consumption`; the deprecated `usage_sensor` /
+         `usage_calculated` only for installations still on one)
+      3. `full_charge` - only when full-charge balancing is switched on
+      4. `system` - battery/system values
+      5. `plans` - the negative-price and spike plan switches, explained
+
+    Subclasses provide `_defaults()` (empty at setup, the current settings in
+    Configure), `_seed_values` (whether the system page includes the values
+    that become number entities) and `_async_finish(data)`.
     """
 
-    VERSION = 1
+    _data: dict[str, Any]
+    _seed_values: bool
 
-    def __init__(self) -> None:
-        self._data: dict[str, Any] = {}
+    def _defaults(self) -> dict[str, Any]:
+        raise NotImplementedError
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None):
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            data = _clean(user_input)
-            if not data.get(CONF_SOLAR_FORECAST_ENTITIES):
-                errors["base"] = "solar_forecast_required"
-            elif data.get(CONF_ENABLE_FULL_CHARGE_PLAN) and not data.get(CONF_BATTERY_VOLTAGE_ENTITY):
-                # The battery-voltage confirmation leg is required alongside
-                # the full-charge plan - it's a core leg of "genuinely
-                # balanced" now, not an optional extra like the voltage-diff/
-                # cell-voltage fields above.
-                errors["base"] = "battery_voltage_entity_required"
-            elif (
-                data.get(CONF_ENABLE_FULL_CHARGE_PLAN)
-                and data.get(CONF_FULL_CHARGE_TRACKING_SOURCE) == FULL_CHARGE_TRACKING_EXTERNAL_SENSOR
-                and not data.get(CONF_DAYS_SINCE_FULL_CHARGE_ENTITY)
-            ):
-                errors["base"] = "days_since_full_charge_entity_required"
-            else:
-                self._data = data
-                if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CALCULATED:
-                    return await self.async_step_usage_calculated()
-                if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CONSUMPTION_SENSOR:
-                    return await self.async_step_usage_consumption()
-                if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_ENERGY_DASHBOARD:
-                    return await self.async_step_usage_energy_dashboard()
-                return await self.async_step_usage_sensor()
+    async def _async_finish(self, data: dict[str, Any]):
+        raise NotImplementedError
 
-        return self.async_show_form(step_id="user", data_schema=_main_schema({}), errors=errors)
+    async def _async_after_sensors(self):
+        source = self._data[CONF_USAGE_SOURCE]
+        if source == USAGE_SOURCE_ENERGY_DASHBOARD:
+            return await self.async_step_usage_energy_dashboard()
+        if source == USAGE_SOURCE_CONSUMPTION_SENSOR:
+            return await self.async_step_usage_consumption()
+        # DEPRECATED - REMOVE IN 0.3.0
+        if source == USAGE_SOURCE_CALCULATED:
+            return await self.async_step_usage_calculated()
+        return await self.async_step_usage_sensor()
 
-    async def async_step_usage_sensor(self, user_input: dict[str, Any] | None = None):
-        if user_input is not None:
-            data = {**self._data, **_clean(user_input)}
-            return await self._async_create(data)
-        return self.async_show_form(step_id="usage_sensor", data_schema=_usage_sensor_schema({}))
+    async def _async_after_usage(self):
+        if self._data.get(CONF_ENABLE_FULL_CHARGE_PLAN):
+            return await self.async_step_full_charge()
+        return await self.async_step_system()
 
-    async def async_step_usage_calculated(self, user_input: dict[str, Any] | None = None):
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            data = {**self._data, **_clean(user_input)}
-            if not data.get(CONF_GRID_IMPORT_ENTITIES) or not data.get(CONF_SOLAR_PRODUCTION_ENTITIES):
-                errors["base"] = "usage_calculated_entities_required"
-            else:
-                return await self._async_create(data)
-        return self.async_show_form(step_id="usage_calculated", data_schema=_usage_calculated_schema({}), errors=errors)
-
-    async def async_step_usage_consumption(self, user_input: dict[str, Any] | None = None):
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            data = {**self._data, **_clean(user_input)}
-            if not data.get(CONF_USAGE_CONSUMPTION_ENTITIES):
-                errors["base"] = "usage_consumption_entities_required"
-            else:
-                return await self._async_create(data)
-        return self.async_show_form(
-            step_id="usage_consumption", data_schema=_usage_consumption_schema({}), errors=errors
-        )
+    def _sensors_errors(self, data: dict[str, Any]) -> dict[str, str]:
+        if not data.get(CONF_SOLAR_FORECAST_ENTITIES):
+            return {"base": "solar_forecast_required"}
+        return {}
 
     async def async_step_usage_energy_dashboard(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
@@ -415,16 +442,114 @@ class EssManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not sources["import"]:
                 errors["base"] = "energy_dashboard_not_configured"
             else:
-                data = {**self._data, **_clean(user_input)}
-                return await self._async_create(data)
+                self._data.update(_clean(user_input))
+                return await self._async_after_usage()
         return self.async_show_form(
             step_id="usage_energy_dashboard",
-            data_schema=_usage_energy_dashboard_schema({}),
+            data_schema=_usage_energy_dashboard_schema(self._defaults()),
             errors=errors,
             description_placeholders={"detected": detected},
         )
 
-    async def _async_create(self, data: dict[str, Any]):
+    async def async_step_usage_consumption(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            cleaned = _clean(user_input)
+            if not cleaned.get(CONF_USAGE_CONSUMPTION_ENTITIES):
+                errors["base"] = "usage_consumption_entities_required"
+            else:
+                self._data.update(cleaned)
+                return await self._async_after_usage()
+        return self.async_show_form(
+            step_id="usage_consumption", data_schema=_usage_consumption_schema(self._defaults()), errors=errors
+        )
+
+    # DEPRECATED - REMOVE IN 0.3.0 (only reachable from Configure, for an
+    # installation still using one of these sources).
+    async def async_step_usage_sensor(self, user_input: dict[str, Any] | None = None):
+        if user_input is not None:
+            self._data.update(_clean(user_input))
+            return await self._async_after_usage()
+        return self.async_show_form(step_id="usage_sensor", data_schema=_usage_sensor_schema(self._defaults()))
+
+    # DEPRECATED - REMOVE IN 0.3.0
+    async def async_step_usage_calculated(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            cleaned = _clean(user_input)
+            if not cleaned.get(CONF_GRID_IMPORT_ENTITIES) or not cleaned.get(CONF_SOLAR_PRODUCTION_ENTITIES):
+                errors["base"] = "usage_calculated_entities_required"
+            else:
+                self._data.update(cleaned)
+                return await self._async_after_usage()
+        return self.async_show_form(
+            step_id="usage_calculated", data_schema=_usage_calculated_schema(self._defaults()), errors=errors
+        )
+
+    async def async_step_full_charge(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            cleaned = _clean(user_input)
+            if not cleaned.get(CONF_BATTERY_VOLTAGE_ENTITY):
+                # A core leg of "genuinely balanced" - required whenever the
+                # full-charge plan is on.
+                errors["base"] = "battery_voltage_entity_required"
+            elif (
+                cleaned.get(CONF_FULL_CHARGE_TRACKING_SOURCE) == FULL_CHARGE_TRACKING_EXTERNAL_SENSOR
+                and not cleaned.get(CONF_DAYS_SINCE_FULL_CHARGE_ENTITY)
+            ):
+                errors["base"] = "days_since_full_charge_entity_required"
+            else:
+                self._data.update(cleaned)
+                return await self.async_step_system()
+        return self.async_show_form(
+            step_id="full_charge",
+            data_schema=_full_charge_schema(self._defaults(), include_target_voltage=self._seed_values),
+            errors=errors,
+        )
+
+    async def async_step_system(self, user_input: dict[str, Any] | None = None):
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self.async_step_plans()
+        return self.async_show_form(
+            step_id="system", data_schema=_system_schema(self._defaults(), seed_values=self._seed_values)
+        )
+
+    async def async_step_plans(self, user_input: dict[str, Any] | None = None):
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self._async_finish(self._data)
+        return self.async_show_form(step_id="plans", data_schema=_plans_schema(self._defaults()))
+
+
+class EssManagerConfigFlow(_EssManagerSteps, config_entries.ConfigFlow, domain=DOMAIN):
+    """Initial setup of one ESS Manager instance - see _EssManagerSteps for
+    the page order. The last page (`plans`) creates the config entry.
+    """
+
+    VERSION = 1
+
+    def __init__(self) -> None:
+        self._data: dict[str, Any] = {}
+        self._seed_values = True
+
+    def _defaults(self) -> dict[str, Any]:
+        return {}
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data = _clean(user_input)
+            errors = self._sensors_errors(data)
+            if not errors:
+                self._data = data
+                return await self._async_after_sensors()
+        return self.async_show_form(
+            step_id="user", data_schema=_sensors_schema({}, include_name=True), errors=errors
+        )
+
+    async def _async_finish(self, data: dict[str, Any]):
         await self.async_set_unique_id(f"{DOMAIN}_{data[CONF_NAME].lower().replace(' ', '_')}")
         self._abort_if_unique_id_configured()
         return self.async_create_entry(title=data[CONF_NAME], data=data)
@@ -435,177 +560,44 @@ class EssManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return EssManagerOptionsFlow()
 
 
-class EssManagerOptionsFlow(config_entries.OptionsFlow):
-    """Lets the user re-point entity references later (e.g. after renaming
-    a sensor, or swapping their price/solar/usage-statistics setup) without
-    deleting and recreating the whole config entry. Seed-only values
-    (capacity/speeds/min/max SOC) are intentionally NOT editable here once
-    their `number` entities exist - adjust those directly on the number
-    entities instead, the same way you'd adjust an input_number.
-
-    Max battery charge/discharge speed are the exception: they're a fixed
-    hardware property rather than a dashboard-adjustable setpoint, so they
-    have no `number` entity at all - they're editable only here, so a typo
-    or a battery/inverter upgrade doesn't require deleting and re-adding the
-    whole integration.
-
-    Same branching as the initial config flow: `init` always runs first,
-    then whichever of `usage_sensor` / `usage_calculated` /
-    `usage_consumption` / `usage_energy_dashboard` matches the chosen usage
-    source.
+class EssManagerOptionsFlow(_EssManagerSteps, config_entries.OptionsFlow):
+    """Configure - the same pages as setup (see _EssManagerSteps), pre-filled
+    with the current settings, except that the name and the values that
+    became `number` entities at setup (capacity, normal charge/discharge
+    speed, min/max SOC) aren't asked again - adjust those on the number
+    entities. Max battery charge/discharge speed are the exception: a fixed
+    hardware property with no number entity, so they're editable here.
 
     Does NOT store `config_entry` itself in `__init__` - recent Home
     Assistant core versions set `self.config_entry` automatically after
     constructing the flow, and an integration that assigns it manually
-    (the pattern used by older HA templates/tutorials) crashes the options
-    flow outright with an unhandled exception the frontend reports as a
-    generic 500 error.
+    crashes the options flow with a generic 500 error.
     """
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
+        self._seed_values = False
+
+    def _defaults(self) -> dict[str, Any]:
+        current = {**self.config_entry.data, **self.config_entry.options}
+        current.setdefault(CONF_USAGE_SOURCE, LEGACY_DEFAULT_USAGE_SOURCE)
+        return current
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
-        current = {**self.config_entry.data, **self.config_entry.options}
         errors: dict[str, str] = {}
         if user_input is not None:
             data = _clean(user_input)
-            if data.get(CONF_ENABLE_FULL_CHARGE_PLAN) and not data.get(CONF_BATTERY_VOLTAGE_ENTITY):
-                errors["base"] = "battery_voltage_entity_required"
-            elif (
-                data.get(CONF_ENABLE_FULL_CHARGE_PLAN)
-                and data.get(CONF_FULL_CHARGE_TRACKING_SOURCE) == FULL_CHARGE_TRACKING_EXTERNAL_SENSOR
-                and not data.get(CONF_DAYS_SINCE_FULL_CHARGE_ENTITY)
-            ):
-                errors["base"] = "days_since_full_charge_entity_required"
-            else:
+            errors = self._sensors_errors(data)
+            if not errors:
                 self._data = data
-                if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CALCULATED:
-                    return await self.async_step_usage_calculated()
-                if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_CONSUMPTION_SENSOR:
-                    return await self.async_step_usage_consumption()
-                if data[CONF_USAGE_SOURCE] == USAGE_SOURCE_ENERGY_DASHBOARD:
-                    return await self.async_step_usage_energy_dashboard()
-                return await self.async_step_usage_sensor()
-
-        schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_BATTERY_SOC_ENTITY, default=current.get(CONF_BATTERY_SOC_ENTITY)
-                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-                vol.Required(CONF_PRICE_ENTITY, default=current.get(CONF_PRICE_ENTITY)): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Required(
-                    CONF_SOLAR_FORECAST_ENTITIES, default=current.get(CONF_SOLAR_FORECAST_ENTITIES, [])
-                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
-                vol.Required(
-                    CONF_USAGE_SOURCE, default=current.get(CONF_USAGE_SOURCE, LEGACY_DEFAULT_USAGE_SOURCE)
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=_usage_source_options(current.get(CONF_USAGE_SOURCE, LEGACY_DEFAULT_USAGE_SOURCE)),
-                        mode=selector.SelectSelectorMode.LIST,
-                    )
-                ),
-                vol.Optional(
-                    CONF_GRID_SETPOINT_ENTITY, default=current.get(CONF_GRID_SETPOINT_ENTITY)
-                ): _optional_entity_selector(),
-                vol.Optional(
-                    CONF_VOLTAGE_DIFF_ENTITY, default=current.get(CONF_VOLTAGE_DIFF_ENTITY)
-                ): _optional_entity_selector(),
-                vol.Optional(
-                    CONF_LOW_CELL_VOLTAGE_ENTITY, default=current.get(CONF_LOW_CELL_VOLTAGE_ENTITY)
-                ): _optional_entity_selector(),
-                vol.Optional(
-                    CONF_HIGH_CELL_VOLTAGE_ENTITY, default=current.get(CONF_HIGH_CELL_VOLTAGE_ENTITY)
-                ): _optional_entity_selector(),
-                vol.Optional(
-                    CONF_BATTERY_VOLTAGE_ENTITY, default=current.get(CONF_BATTERY_VOLTAGE_ENTITY)
-                ): _optional_entity_selector(),
-                vol.Required(
-                    CONF_FULL_CHARGE_TRACKING_SOURCE,
-                    default=current.get(CONF_FULL_CHARGE_TRACKING_SOURCE, DEFAULT_FULL_CHARGE_TRACKING_SOURCE),
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=FULL_CHARGE_TRACKING_SOURCE_OPTIONS, mode=selector.SelectSelectorMode.LIST
-                    )
-                ),
-                vol.Optional(
-                    CONF_DAYS_SINCE_FULL_CHARGE_ENTITY, default=current.get(CONF_DAYS_SINCE_FULL_CHARGE_ENTITY)
-                ): _optional_entity_selector(),
-                vol.Required(
-                    CONF_MAX_BATTERY_CHARGE_SPEED_KW,
-                    default=current.get(CONF_MAX_BATTERY_CHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0.1, max=200, step=0.1, unit_of_measurement="kW")
-                ),
-                vol.Required(
-                    CONF_MAX_BATTERY_DISCHARGE_SPEED_KW,
-                    default=current.get(CONF_MAX_BATTERY_DISCHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=0.1, max=200, step=0.1, unit_of_measurement="kW")
-                ),
-                vol.Required(
-                    CONF_ENABLE_NEGATIVE_PRICE_PLAN,
-                    default=current.get(CONF_ENABLE_NEGATIVE_PRICE_PLAN, DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN),
-                ): selector.BooleanSelector(),
-                vol.Required(
-                    CONF_ENABLE_SPIKE_PLAN, default=current.get(CONF_ENABLE_SPIKE_PLAN, DEFAULT_ENABLE_SPIKE_PLAN)
-                ): selector.BooleanSelector(),
-                vol.Required(
-                    CONF_ENABLE_FULL_CHARGE_PLAN,
-                    default=current.get(CONF_ENABLE_FULL_CHARGE_PLAN, DEFAULT_ENABLE_FULL_CHARGE_PLAN),
-                ): selector.BooleanSelector(),
-            }
-        )
-        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
-
-    async def async_step_usage_sensor(self, user_input: dict[str, Any] | None = None):
-        current = {**self.config_entry.data, **self.config_entry.options}
-        if user_input is not None:
-            data = {**self._data, **_clean(user_input)}
-            return self.async_create_entry(title="", data=data)
-        return self.async_show_form(step_id="usage_sensor", data_schema=_usage_sensor_schema(current))
-
-    async def async_step_usage_calculated(self, user_input: dict[str, Any] | None = None):
-        current = {**self.config_entry.data, **self.config_entry.options}
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            data = {**self._data, **_clean(user_input)}
-            if not data.get(CONF_GRID_IMPORT_ENTITIES) or not data.get(CONF_SOLAR_PRODUCTION_ENTITIES):
-                errors["base"] = "usage_calculated_entities_required"
-            else:
-                return self.async_create_entry(title="", data=data)
+                return await self._async_after_sensors()
         return self.async_show_form(
-            step_id="usage_calculated", data_schema=_usage_calculated_schema(current), errors=errors
+            step_id="init", data_schema=_sensors_schema(self._defaults(), include_name=False), errors=errors
         )
 
-    async def async_step_usage_consumption(self, user_input: dict[str, Any] | None = None):
-        current = {**self.config_entry.data, **self.config_entry.options}
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            data = {**self._data, **_clean(user_input)}
-            if not data.get(CONF_USAGE_CONSUMPTION_ENTITIES):
-                errors["base"] = "usage_consumption_entities_required"
-            else:
-                return self.async_create_entry(title="", data=data)
-        return self.async_show_form(
-            step_id="usage_consumption", data_schema=_usage_consumption_schema(current), errors=errors
-        )
-
-    async def async_step_usage_energy_dashboard(self, user_input: dict[str, Any] | None = None):
-        current = {**self.config_entry.data, **self.config_entry.options}
-        errors: dict[str, str] = {}
-        sources, detected = await _async_detect_energy_dashboard(self.hass)
-        if user_input is not None:
-            if not sources["import"]:
-                errors["base"] = "energy_dashboard_not_configured"
-            else:
-                data = {**self._data, **_clean(user_input)}
-                return self.async_create_entry(title="", data=data)
-        return self.async_show_form(
-            step_id="usage_energy_dashboard",
-            data_schema=_usage_energy_dashboard_schema(current),
-            errors=errors,
-            description_placeholders={"detected": detected},
-        )
+    async def _async_finish(self, data: dict[str, Any]):
+        # Saving options replaces them entirely, so start from the previous
+        # options: settings on pages that were skipped this time (e.g. the
+        # full-charge sensors while that plan is switched off) are kept
+        # rather than silently dropped.
+        return self.async_create_entry(title="", data={**self.config_entry.options, **data})

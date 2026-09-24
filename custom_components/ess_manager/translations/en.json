@@ -2,32 +2,31 @@
   "config": {
     "step": {
       "user": {
-        "title": "Set up ESS Manager",
-        "description": "Point this at your own battery, price and solar-forecast entities. All of these can be changed later from the integration's options.",
+        "title": "ESS Manager - sensors",
+        "description": "Step 1: the sensors ESS Manager reads, where the household usage forecast comes from, and whether to use full-charge balancing. Everything except the name can be changed later in Configure.",
         "data": {
           "name": "Name",
           "battery_soc_entity": "Battery state-of-charge sensor (%)",
           "price_entity": "Electricity price sensor (Nordpool-style, with today/tomorrow quarter-hour price lists)",
           "solar_forecast_entities": "Solar forecast sensor(s) (Solcast-style, with a detailedHourly attribute) - add as many as needed to cover your forecast horizon",
-          "usage_source": "Household usage forecast source",
           "grid_setpoint_entity": "Grid/inverter setpoint sensor (optional, improves status accuracy)",
-          "voltage_diff_entity": "Cell voltage differential sensor (optional, only needed for the full-charge balancing plan - leave blank if your BMS doesn't expose this directly and use the lowest/highest cell voltage fields below instead)",
-          "low_cell_voltage_entity": "Lowest individual cell voltage sensor (V, optional - alternative to the differential sensor above; used together with the highest cell voltage sensor below)",
-          "high_cell_voltage_entity": "Highest individual cell voltage sensor (V, optional - the differential is calculated as (highest - lowest) x 1000 to get millivolts)",
-          "battery_voltage_entity": "Battery pack voltage sensor (V) - required for the full-charge balancing plan; a third confirmation leg alongside SOC and the cell voltage differential, checked against the target voltage below",
-          "full_charge_tracking_source": "Days-since-full-charge tracking - track it internally (default), or read it from an external sensor that already tracks it",
-          "days_since_full_charge_entity": "Days since full charge sensor (required if using the external-sensor tracking option above - resets to 0 when a full charge is performed)",
-          "full_charge_target_voltage": "Full charge target voltage (V) - your battery pack's own voltage setpoint when genuinely full; the balancing plan treats it as confirmed once the pack voltage reaches this minus 0.1V",
-          "battery_capacity_kwh": "Battery capacity",
-          "charge_speed_kw": "Normal charge speed",
-          "discharge_speed_kw": "Normal discharge speed",
-          "max_battery_charge_speed_kw": "Max battery charge speed (physical limit, used by the battery energy forecast - solar above this is assumed exported to the grid instead)",
-          "max_battery_discharge_speed_kw": "Max battery discharge speed (physical limit, used by the battery energy forecast - usage above this is assumed drawn from the grid instead)",
-          "min_soc_percent": "Minimum SOC (%)",
-          "max_soc_percent": "Maximum SOC (%) - can exceed 100% to allow deliberate solar overshoot before discharging",
-          "enable_negative_price_plan": "Enable negative price plan",
-          "enable_spike_plan": "Enable spike arbitrage plan",
-          "enable_full_charge_plan": "Enable periodic full-charge balancing plan"
+          "usage_source": "Household usage forecast source - the next page sets it up",
+          "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page"
+        }
+      },
+      "usage_energy_dashboard": {
+        "title": "Household usage from the Energy dashboard",
+        "description": "The grid, solar and battery statistics are read straight from your Home Assistant Energy dashboard (Settings > Dashboards > Energy) and kept in sync with it automatically - edit them there, not here. Currently detected:\n\n{detected}\n\nEach hour's forecast is the same hour/weekday's household consumption (solar + grid import + battery discharge - grid export - battery charge), averaged over your chosen lookback window.",
+        "data": {
+          "usage_lookback_weeks": "How many weeks back to average (same hour, same day of week)"
+        }
+      },
+      "usage_consumption": {
+        "title": "Household consumption sensor",
+        "description": "Point this at one or more sensors that already report your home's total energy consumed (cumulative kWh) - e.g. a whole-home energy monitor. Each hour's forecast value is that sensor's own historical usage for the same hour/weekday, averaged over your chosen lookback window - no derivation needed, and none of the sensor-resolution mismatches the calculated (energy-balance) option can run into.",
+        "data": {
+          "usage_consumption_entities": "Home energy consumption sensor(s) (cumulative kWh - more than one if consumption is split across multiple monitors/circuits)",
+          "usage_lookback_weeks": "How many weeks back to average (same hour, same day of week)"
         }
       },
       "usage_sensor": {
@@ -49,19 +48,38 @@
           "usage_lookback_weeks": "How many weeks back to average (same hour, same day of week)"
         }
       },
-      "usage_consumption": {
-        "title": "Household consumption sensor",
-        "description": "Point this at one or more sensors that already report your home's total energy consumed (cumulative kWh) - e.g. a whole-home energy monitor. Each hour's forecast value is that sensor's own historical usage for the same hour/weekday, averaged over your chosen lookback window - no derivation needed, and none of the sensor-resolution mismatches the calculated (energy-balance) option can run into.",
+      "full_charge": {
+        "title": "Full-charge balancing",
+        "description": "Sensors for full-charge balancing. The balance is only confirmed when SOC is at least 99.5%, the cell voltage differential is small enough, and the pack voltage has reached the target voltage minus 0.1 V. For the cell voltage differential, use either a differential sensor or the lowest/highest cell voltage pair.",
         "data": {
-          "usage_consumption_entities": "Home energy consumption sensor(s) (cumulative kWh - more than one if consumption is split across multiple monitors/circuits)",
-          "usage_lookback_weeks": "How many weeks back to average (same hour, same day of week)"
+          "voltage_diff_entity": "Cell voltage differential sensor (optional, only needed for the full-charge balancing plan - leave blank if your BMS doesn't expose this directly and use the lowest/highest cell voltage fields below instead)",
+          "low_cell_voltage_entity": "Lowest individual cell voltage sensor (V, optional - alternative to the differential sensor above; used together with the highest cell voltage sensor below)",
+          "high_cell_voltage_entity": "Highest individual cell voltage sensor (V, optional - the differential is calculated as (highest - lowest) x 1000 to get millivolts)",
+          "battery_voltage_entity": "Battery pack voltage sensor (V, required) - a third confirmation leg alongside SOC and the cell voltage differential, checked against the target voltage below",
+          "full_charge_tracking_source": "Days-since-full-charge tracking - track it internally (default), or read it from an external sensor that already tracks it",
+          "days_since_full_charge_entity": "Days since full charge sensor (required if using the external-sensor tracking option above - resets to 0 when a full charge is performed)",
+          "full_charge_target_voltage": "Full charge target voltage (V) - your battery pack's own voltage setpoint when genuinely full; the balancing plan treats it as confirmed once the pack voltage reaches this minus 0.1V"
         }
       },
-      "usage_energy_dashboard": {
-        "title": "Household usage from the Energy dashboard",
-        "description": "The grid, solar and battery statistics are read straight from your Home Assistant Energy dashboard (Settings > Dashboards > Energy) and kept in sync with it automatically - edit them there, not here. Currently detected:\n\n{detected}\n\nEach hour's forecast is the same hour/weekday's household consumption (solar + grid import + battery discharge - grid export - battery charge), averaged over your chosen lookback window.",
+      "system": {
+        "title": "Battery and system",
+        "description": "Your battery and inverter. Capacity, normal charge/discharge speed and min/max SOC become adjustable number entities after setup - you tune them there. The max battery speeds are a fixed hardware limit and can be changed later in Configure.",
         "data": {
-          "usage_lookback_weeks": "How many weeks back to average (same hour, same day of week)"
+          "battery_capacity_kwh": "Battery capacity",
+          "charge_speed_kw": "Normal charge speed",
+          "discharge_speed_kw": "Normal discharge speed",
+          "max_battery_charge_speed_kw": "Max battery charge speed (physical limit, used by the battery energy forecast - solar above this is assumed exported to the grid instead)",
+          "max_battery_discharge_speed_kw": "Max battery discharge speed (physical limit, used by the battery energy forecast - usage above this is assumed drawn from the grid instead)",
+          "min_soc_percent": "Minimum SOC (%)",
+          "max_soc_percent": "Maximum SOC (%) - can exceed 100% to allow deliberate solar overshoot before discharging"
+        }
+      },
+      "plans": {
+        "title": "Price plans",
+        "description": "Two optional plans that act on the electricity price. Both can be switched on or off later in Configure.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.",
+        "data": {
+          "enable_negative_price_plan": "Enable the negative price plan",
+          "enable_spike_plan": "Enable the spike arbitrage plan"
         }
       }
     },
@@ -80,25 +98,29 @@
   "options": {
     "step": {
       "init": {
-        "title": "ESS Manager options",
-        "description": "Re-point entities or toggle optional plans. SOC limits and grid-charge/discharge speeds are adjusted directly on their own number entities, not here - the max battery charge/discharge speed below is a fixed hardware property instead, so it lives here.",
+        "title": "ESS Manager - sensors",
+        "description": "The sensors ESS Manager reads, where the household usage forecast comes from, and whether to use full-charge balancing.",
         "data": {
           "battery_soc_entity": "Battery state-of-charge sensor (%)",
-          "price_entity": "Electricity price sensor",
-          "solar_forecast_entities": "Solar forecast sensor(s)",
-          "usage_source": "Household usage forecast source",
-          "grid_setpoint_entity": "Grid/inverter setpoint sensor (optional)",
-          "voltage_diff_entity": "Cell voltage differential sensor (optional)",
-          "low_cell_voltage_entity": "Lowest individual cell voltage sensor (V, optional - alternative to the differential sensor above)",
-          "high_cell_voltage_entity": "Highest individual cell voltage sensor (V, optional)",
-          "battery_voltage_entity": "Battery pack voltage sensor (V) - required for the full-charge balancing plan",
-          "full_charge_tracking_source": "Days-since-full-charge tracking - internal or external sensor",
-          "days_since_full_charge_entity": "Days since full charge sensor (required if using the external-sensor tracking option above)",
-          "max_battery_charge_speed_kw": "Max battery charge speed (physical limit, used by the battery energy forecast)",
-          "max_battery_discharge_speed_kw": "Max battery discharge speed (physical limit, used by the battery energy forecast)",
-          "enable_negative_price_plan": "Enable negative price plan",
-          "enable_spike_plan": "Enable spike arbitrage plan",
-          "enable_full_charge_plan": "Enable periodic full-charge balancing plan"
+          "price_entity": "Electricity price sensor (Nordpool-style, with today/tomorrow quarter-hour price lists)",
+          "solar_forecast_entities": "Solar forecast sensor(s) (Solcast-style, with a detailedHourly attribute) - add as many as needed to cover your forecast horizon",
+          "grid_setpoint_entity": "Grid/inverter setpoint sensor (optional, improves status accuracy)",
+          "usage_source": "Household usage forecast source - the next page sets it up",
+          "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page"
+        }
+      },
+      "usage_energy_dashboard": {
+        "title": "Household usage from the Energy dashboard",
+        "description": "The grid, solar and battery statistics are read straight from your Home Assistant Energy dashboard (Settings > Dashboards > Energy) and kept in sync with it automatically - edit them there, not here. Currently detected:\n\n{detected}\n\nEach hour's forecast is the same hour/weekday's household consumption (solar + grid import + battery discharge - grid export - battery charge), averaged over your chosen lookback window.",
+        "data": {
+          "usage_lookback_weeks": "How many weeks back to average"
+        }
+      },
+      "usage_consumption": {
+        "title": "Household consumption sensor",
+        "data": {
+          "usage_consumption_entities": "Home energy consumption sensor(s)",
+          "usage_lookback_weeks": "How many weeks back to average"
         }
       },
       "usage_sensor": {
@@ -118,18 +140,32 @@
           "usage_lookback_weeks": "How many weeks back to average"
         }
       },
-      "usage_consumption": {
-        "title": "Household consumption sensor",
+      "full_charge": {
+        "title": "Full-charge balancing",
+        "description": "Sensors for full-charge balancing. The balance is only confirmed when SOC is at least 99.5%, the cell voltage differential is small enough, and the pack voltage has reached the target voltage minus 0.1 V. For the cell voltage differential, use either a differential sensor or the lowest/highest cell voltage pair. The full charge target voltage is adjusted on its number entity.",
         "data": {
-          "usage_consumption_entities": "Home energy consumption sensor(s)",
-          "usage_lookback_weeks": "How many weeks back to average"
+          "voltage_diff_entity": "Cell voltage differential sensor (optional, only needed for the full-charge balancing plan - leave blank if your BMS doesn't expose this directly and use the lowest/highest cell voltage fields below instead)",
+          "low_cell_voltage_entity": "Lowest individual cell voltage sensor (V, optional - alternative to the differential sensor above; used together with the highest cell voltage sensor below)",
+          "high_cell_voltage_entity": "Highest individual cell voltage sensor (V, optional - the differential is calculated as (highest - lowest) x 1000 to get millivolts)",
+          "battery_voltage_entity": "Battery pack voltage sensor (V, required) - a third confirmation leg alongside SOC and the cell voltage differential, checked against the target voltage below",
+          "full_charge_tracking_source": "Days-since-full-charge tracking - track it internally (default), or read it from an external sensor that already tracks it",
+          "days_since_full_charge_entity": "Days since full charge sensor (required if using the external-sensor tracking option above - resets to 0 when a full charge is performed)"
         }
       },
-      "usage_energy_dashboard": {
-        "title": "Household usage from the Energy dashboard",
-        "description": "The grid, solar and battery statistics are read straight from your Home Assistant Energy dashboard (Settings > Dashboards > Energy) and kept in sync with it automatically - edit them there, not here. Currently detected:\n\n{detected}\n\nEach hour's forecast is the same hour/weekday's household consumption (solar + grid import + battery discharge - grid export - battery charge), averaged over your chosen lookback window.",
+      "system": {
+        "title": "Battery limits",
+        "description": "The battery's own physical charge/discharge limit. Capacity, normal speeds and min/max SOC are adjusted on their number entities, not here.",
         "data": {
-          "usage_lookback_weeks": "How many weeks back to average"
+          "max_battery_charge_speed_kw": "Max battery charge speed (physical limit, used by the battery energy forecast - solar above this is assumed exported to the grid instead)",
+          "max_battery_discharge_speed_kw": "Max battery discharge speed (physical limit, used by the battery energy forecast - usage above this is assumed drawn from the grid instead)"
+        }
+      },
+      "plans": {
+        "title": "Price plans",
+        "description": "Two optional plans that act on the electricity price. Both can be switched on or off later in Configure.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.",
+        "data": {
+          "enable_negative_price_plan": "Enable the negative price plan",
+          "enable_spike_plan": "Enable the spike arbitrage plan"
         }
       }
     },

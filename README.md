@@ -184,11 +184,26 @@ Settings -> Devices & Services as above.
 
 ## Configuration
 
-The setup wizard asks for the entities above, plus seed values for the
-initial battery capacity, charge/discharge speed, and min/max SOC - these
-seed a set of `number` entities (see below) that you actually tune
-afterward. Entity references (which sensors to read) can be changed later
-from the integration's **Configure** options; the number entities are
+The setup wizard walks through these pages:
+
+1. **Sensors** - name, battery SOC sensor, price sensor, solar forecast
+   sensor(s), grid/inverter setpoint sensor (optional), the household usage
+   source, and a switch for full-charge balancing.
+2. **Usage source** - for the Energy dashboard: shows which statistics it
+   found, plus the lookback weeks; for a consumption sensor: pick the
+   sensor(s), plus the lookback weeks.
+3. **Full-charge balancing** - only when that switch is on: cell voltage
+   differential (or lowest/highest cell voltage), battery pack voltage,
+   days-since-full-charge tracking, and the full charge target voltage.
+4. **Battery and system** - capacity, normal charge/discharge speed, max
+   battery charge/discharge speed, min/max SOC.
+5. **Price plans** - a short explanation of the negative price and spike
+   arbitrage plans, with a switch for each.
+
+Capacity, normal charge/discharge speed, min/max SOC and the full charge
+target voltage seed a set of `number` entities (see below) that you
+actually tune afterward. Everything else can be changed later from the integration's
+**Configure** options, which follows the same pages; the number entities are
 adjusted directly, the same way you'd adjust an `input_number` helper - no
 need to create separate helpers.
 

@@ -7,6 +7,31 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.11] - 2026-09-24
+
+### Changed
+- **Setup and Configure are split into separate pages** instead of one long
+  form:
+  1. **Sensors** - name (setup only), battery SOC, price, solar forecast(s),
+     grid/inverter setpoint, the usage source, and the full-charge
+     balancing switch.
+  2. **Usage source page** for the chosen source (Energy dashboard: what it
+     found + lookback weeks; consumption sensor: the sensor(s) + lookback
+     weeks).
+  3. **Full-charge balancing** - only shown when that switch is on: cell
+     voltage differential or lowest/highest cell voltage, battery pack
+     voltage (required), days-since-full-charge tracking and its sensor,
+     and (setup only - it's a number entity afterwards) the target voltage.
+  4. **Battery and system** - capacity, normal charge/discharge speed, max
+     battery charge/discharge speed, min/max SOC. In Configure only the max
+     battery speeds (the rest are number entities).
+  5. **Price plans** - a short explanation of the negative price and spike
+     arbitrage plans, with their switches.
+  No settings were added, removed or renamed, so existing installations
+  are unaffected. Saving Configure now keeps settings on pages that were
+  skipped (e.g. the full-charge sensors while that plan is off) instead of
+  dropping them.
+
 ## [0.2.10] - 2026-09-23
 
 ### Deprecated
