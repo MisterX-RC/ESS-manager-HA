@@ -2246,6 +2246,44 @@ check("needs_write: changed by someone else, too soon", control.needs_write(7000
 check("needs_write: changed by someone else, re-send after a minute", control.needs_write(7000, 7000, 0, 0.5, 61) is True)
 check("needs_write: script (no readback) only on change", control.needs_write(7000, 7000, None, 1e-6, 999) is False)
 
+# ---------------------------------------------------------------------------
+# High discharge plan: a capped evening sale vs. the fallback after the
+# overnight low point is compared by revenue, not kWh (v0.2.16). Live dump
+# 2026-09-24 15:27: the evening window (18:45, avg 0.267) is capped from
+# 18.65 to 18.23 kWh by the 07:00 low point; the fallback (tomorrow 08:00,
+# avg 0.210) sells the full 18.65 but earns less - it used to win anyway.
+# ---------------------------------------------------------------------------
+_d924 = {}
+exec('price="""0.176 0.147 0.149 0.15 0.151 0.156 0.152 0.152 0.122 0.126 0.135 0.139 0.151 0.153 0.155 0.153 0.155 0.153 0.154 0.154 0.151 0.155 0.16 0.167 0.155 0.169 0.178 0.192 0.206 0.221 0.227 0.218 0.221 0.214 0.204 0.187 0.194 0.177 0.144 0.129 0.135 0.121 0.106 0.099 0.101 0.098 0.078 0.064 0.054 0.056 0.05 0.052 0.043 0.037 0.037 0.041 0.03 0.035 0.04 0.051 0.043 0.07 0.097 0.11 0.086 0.109 0.132 0.155 0.134 0.163 0.182 0.207 0.177 0.209 0.236 0.262 0.25 0.264 0.268 0.288 0.273 0.266 0.254 0.248 0.24 0.23 0.223 0.21 0.221 0.205 0.201 0.193 0.197 0.189 0.186 0.181 0.197 0.184 0.176 0.171 0.175 0.172 0.171 0.17 0.167 0.166 0.165 0.162 0.164 0.165 0.165 0.164 0.165 0.161 0.16 0.159 0.158 0.16 0.168 0.177 0.167 0.177 0.183 0.193 0.199 0.202 0.204 0.226 0.221 0.222 0.21 0.198 0.23 0.202 0.189 0.158 0.179 0.162 0.148 0.131 0.133 0.119 0.099 0.072 0.083 0.063 0.053 0.047 0.044 0.041 0.031 0.024 0.028 0.04 0.045 0.061 0.044 0.074 0.104 0.122 0.116 0.133 0.153 0.179 0.156 0.19 0.201 0.234 0.201 0.23 0.248 0.283 0.285 0.298 0.308 0.299 0.27 0.255 0.247 0.237 0.244 0.231 0.218 0.203 0.22 0.209 0.202 0.195 0.2 0.189 0.166 0.153"""\nfws="""28.04 29.91 30.36 30.28 28.49 27.59 26.82 26.26 25.7 25.17 24.64 24.12 23.61 23.1 22.56 21.89 21.23 21.82 22.86 24.41 26.91 30.12 33.41 36.07 38.95 41.37 42.79 43.76 42.97 42.23 41.64 41.06 40.53 40.02 39.51 39.03 38.53 38.02 37.48 36.81 36.24 35.73 35.73 36.59 38.23 40.17 42.34 44.56 46.97 48.83 49.53 49.21 48.27 47.6 47.01 46.48 45.97 45.47 44.97 44.48 43.99 43.5 42.97 42.38 41.85 41.42 41.56 42.8 44.79 46.85 48.87 49.8 51.65 53.13 53.45 52.74 51.64 50.86 50.24 49.58 49.03 48.51 48.01 47.49 46.99 46.49 45.96 45.28 44.52 44.32 44.99 46.21 48.2 50.64 51.57 49.46 51.24 52.25 51.52 50.74 49.37 48.8 48.26 47.72 47.17 46.65 46.15 45.66 45.16 44.66 44.14 43.57 42.49 41.81 41.17 40.39 39.64 38.99 38.37 37.59 36.84"""\nusage="""1.567 1.481 2.26 1.184 1.824 0.898 0.775 0.561 0.551 0.538 0.524 0.519 0.514 0.506 0.547 0.667 0.756 0.59 0.704 0.846 0.854 0.783 1.002 1.535 0.915 1.081 1.529 0.959 1.002 0.739 0.589 0.58 0.529 0.516 0.502 0.487 0.499 0.506 0.538 0.669 0.589 0.687 0.723 0.622 0.529 0.732 0.949 1.103 0.644 0.731 1.077 0.81 0.964 0.677 0.59 0.53 0.504 0.498 0.508 0.482 0.492 0.489 0.532 0.593 0.546 1.031 1.257 0.839 0.642 0.899 1.208 2.212 0.821 0.876 1.292 1.115 1.118 0.779 0.621 0.656 0.552 0.52 0.505 0.514 0.502 0.505 0.528 0.677 0.777 0.556 0.547 0.618 0.535 0.679 2.212 5.069 0.742 0.665 1.48 0.94 1.379 0.572 0.541 0.541 0.546 0.522 0.5 0.492 0.495 0.503 0.522 0.568 1.084 0.679 0.636 0.783 0.752 0.642 0.626 0.775 0.751"""\nall_price=[float(x) for x in price.split()]\nforecast=[float(x) for x in fws.split()]\nusage=[float(x) for x in usage.split()]\n', _d924)
+plan_0924 = plans.compute_high_discharge_plan(
+    None, 61, _d924["forecast"], datetime(2026, 9, 24, 15, 27), 10.0, 33.0, 3.0,
+    _d924["usage"], _d924["all_price"], 72, 26.82, False, 3.0,
+)
+check("capped evening sale wins over a bigger but cheaper morning sale (starts today 18:45)", plan_0924["start_unit"] == 75)
+check("the evening sale is capped by the overnight low point (18.23 kWh)", plan_0924["surplus_kwh"] == 18.23 and plan_0924["capped_by_low_limit"])
+check("the capped sale keeps the battery above the floor after it", plan_0924["low_point_after_sale_kwh"] - plan_0924["surplus_kwh"] >= 3.0)
+
+# The fallback still wins when it earns more. Cap every price before
+# tomorrow 08:00 at X: the capped evening sale earns 18.23 * X, the full
+# 18.65 kWh at tomorrow 08:00 earns 3.922 - so X = 0.214 (3.90) must pick
+# tomorrow, X = 0.216 (3.94) must still pick this evening.
+def _plan_with_cap(x):
+    prices = list(_d924["all_price"])
+    for u in range(61, 128):
+        prices[u] = min(prices[u], x)
+    return plans.compute_high_discharge_plan(
+        None, 61, _d924["forecast"], datetime(2026, 9, 24, 15, 27), 10.0, 33.0, 3.0,
+        _d924["usage"], prices, 72, 26.82, False, 3.0,
+    )
+
+
+_p214 = _plan_with_cap(0.214)
+_p216 = _plan_with_cap(0.216)
+check("the after-low-point sale wins when it earns more (tomorrow 08:00, full 18.65 kWh)",
+      _p214["start_unit"] == 128 and _p214["surplus_kwh"] == 18.65)
+check("...and loses again as soon as the capped evening sale earns more",
+      _p216["start_unit"] < 96 and _p216["surplus_kwh"] == 18.23)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

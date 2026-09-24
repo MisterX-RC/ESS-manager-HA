@@ -7,6 +7,20 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.16] - 2026-09-24
+
+### Fixed
+- **A sale could move to a cheaper window just because it sold a little
+  more.** When the best-priced window is capped (the battery would
+  otherwise drop below the low threshold or Minimum charge target before
+  the next solar), the plan also tries selling after that low point. It
+  used to pick whichever option sold more kWh. It now picks whichever
+  earns more (kWh x the window's average price). Live example: this
+  evening 18:45 (18.23 kWh at 0.267 = 4.87) now wins over tomorrow 08:00
+  (18.65 kWh at 0.210 = 3.92). Whatever the capped sale leaves unsold is
+  still surplus, so the next plan after it sells that too, in the best
+  window left before the breach.
+
 ## [0.2.15] - 2026-09-24
 
 ### Removed

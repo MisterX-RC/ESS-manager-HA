@@ -699,18 +699,31 @@ def compute_high_discharge_plan(
         start = _best_price_window(all_price, search_start, search_end, units, cheapest=False)
         return amount, units, start, low_point
 
+    def _revenue(option: tuple[float, int, int, float]) -> float:
+        amount, units, start, _ = option
+        window = all_price[start : start + units]
+        return amount * (sum(window) / len(window)) if window else 0.0
+
     best = _size_from(cur_unit)
     # If the best-priced window lands before a low point that caps (or
     # blocks) the sale, also try selling only after the lowest point before
     # the breach - a slightly cheaper slot that can sell more (or at all)
     # can be worth more than an expensive slot that has to sell less.
+    #
+    # The two are compared by what they EARN (kWh x the window's average
+    # price), not by kWh (as of v0.2.16): a live dump picked tomorrow
+    # 08:00 (18.65 kWh at 0.210 = 3.92) over this evening (18.23 kWh at
+    # 0.267 = 4.87) only because it sold 0.42 kWh more. Whatever a capped
+    # sale leaves unsold is still above the high threshold, so once that
+    # window has run, the next cycle simply plans another (smaller) sale
+    # before the breach.
     if best is None or best[0] < raw_surplus:
         pre_breach = forecast[0 : hour_index + 1]
         low_h = pre_breach.index(min(pre_breach))
         after_low_start = hour0_unit + (low_h + 1) * 4
         if cur_unit < after_low_start < search_end:
             alt = _size_from(after_low_start)
-            if alt is not None and (best is None or alt[0] > best[0]):
+            if alt is not None and (best is None or _revenue(alt) > _revenue(best)):
                 best = alt
     if best is None:
         return {"active": False, "breach_unit": 999999}
