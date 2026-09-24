@@ -5,7 +5,7 @@ Every cycle the planning engines produce a Status plus a control *action*
 (see plans.compute_system_status_and_action). This module turns that action
 into the battery power it stands for, using the same speeds the plans were
 sized with, and then into the exact value to send to the user's setpoint
-entity or script (unit, sign convention, idle value). controller.py does the
+entity (unit, sign convention, idle value). controller.py does the
 actual sending.
 
 Power convention inside the integration: kW, positive = charge the battery,

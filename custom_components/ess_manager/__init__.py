@@ -13,8 +13,10 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import (
+    CONF_CONTROL_MODE,
     CONF_NAME,
     CONF_USAGE_SOURCE,
+    CONTROL_MODE_REMOVED_SCRIPT,
     DEFAULT_NAME,
     DEPRECATED_USAGE_SOURCES,
     DOMAIN,
@@ -102,6 +104,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(hass.bus.async_listen(EVENT_HOMEASSISTANT_STOP, _async_idle_on_stop))
 
     _async_update_deprecation_issue(hass, entry)
+
+    if {**entry.data, **entry.options}.get(CONF_CONTROL_MODE) == CONTROL_MODE_REMOVED_SCRIPT:
+        _LOGGER.warning(
+            "ESS Manager (%s): the 'Run a script' control option was removed in 0.2.15, so direct control "
+            "is off - choose a number / input_number entity in Configure to turn it back on",
+            entry.title,
+        )
 
     return True
 

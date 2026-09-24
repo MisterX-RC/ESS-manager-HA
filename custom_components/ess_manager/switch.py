@@ -1,7 +1,7 @@
 """Switch platform - "Automatic control" (as of v0.2.14).
 
-Only matters when direct control is set up in Configure (a number entity or
-a script to send the setpoint to). On: the integration sends the setpoint
+Only matters when direct control is set up in Configure (a number /
+input_number entity to send the setpoint to). On: the integration sends the setpoint
 every cycle. Off: it sends idle once and then leaves the target alone, so
 the battery can be controlled by hand (or by an existing automation) without
 reconfiguring anything. Restores its state across restarts; on by default.

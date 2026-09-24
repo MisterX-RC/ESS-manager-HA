@@ -506,8 +506,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             setpoint_w = _get_float_state(self.hass, conf.get(CONF_GRID_SETPOINT_ENTITY), default=0.0)
         else:
             # No separate readback sensor: with direct control, the target
-            # itself (a number entity's value, or what was last sent to a
-            # script) is the best readback there is.
+            # number entity's own value is the best readback there is.
             readback = self.controller.readback_power_w(control_settings)
             setpoint_w = readback if readback is not None else 0.0
         # With direct control, "idle" is whatever idle value is sent (e.g.

@@ -7,6 +7,15 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.15] - 2026-09-24
+
+### Removed
+- **The "Run a script" option for direct control.** Direct control now
+  always sets a number / input_number entity. An installation that had
+  chosen a script in 0.2.14 falls back to "Status sensor only" (nothing is
+  sent), with a warning in the log; pick a number / input_number entity in
+  Configure to turn direct control back on.
+
 ## [0.2.14] - 2026-09-24
 
 ### Added

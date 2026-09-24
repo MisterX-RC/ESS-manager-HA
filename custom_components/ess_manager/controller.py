@@ -1,6 +1,5 @@
 """Direct control - the Home Assistant side: sends the setpoint that
-control.py worked out to the user's number/input_number entity, or runs
-their script with it.
+control.py worked out to the user's number/input_number entity.
 
 Safety rules (as of v0.2.14):
 - Nothing is sent unless a control mode is chosen in Configure AND the
@@ -35,7 +34,6 @@ from .const import (
     CONF_CONTROL_UNIT,
     CONTROL_MODE_NUMBER,
     CONTROL_MODE_OFF,
-    CONTROL_MODE_SCRIPT,
     DEFAULT_CONTROL_IDLE_VALUE,
     DEFAULT_CONTROL_MODE,
     DEFAULT_CONTROL_SIGN,
@@ -59,7 +57,10 @@ class ControlSettings:
     (Configure changes don't reload the integration)."""
 
     def __init__(self, conf: dict[str, Any]) -> None:
-        self.mode: str = conf.get(CONF_CONTROL_MODE) or DEFAULT_CONTROL_MODE
+        # Only "off" and "number" exist; anything else stored (the "script"
+        # mode that existed only in v0.2.14) is treated as off.
+        stored_mode = conf.get(CONF_CONTROL_MODE) or DEFAULT_CONTROL_MODE
+        self.mode: str = stored_mode if stored_mode in (CONTROL_MODE_OFF, CONTROL_MODE_NUMBER) else CONTROL_MODE_OFF
         self.target: Optional[str] = conf.get(CONF_CONTROL_TARGET_ENTITY) or None
         self.unit: str = conf.get(CONF_CONTROL_UNIT) or DEFAULT_CONTROL_UNIT
         self.sign: str = conf.get(CONF_CONTROL_SIGN) or DEFAULT_CONTROL_SIGN
@@ -68,8 +69,8 @@ class ControlSettings:
 
     @property
     def active(self) -> bool:
-        """A mode that sends, with a target to send to."""
-        return self.mode in (CONTROL_MODE_NUMBER, CONTROL_MODE_SCRIPT) and bool(self.target)
+        """Sending to a number/input_number entity."""
+        return self.mode == CONTROL_MODE_NUMBER and bool(self.target)
 
     @property
     def idle_power_w(self) -> float:
@@ -99,19 +100,14 @@ class EssController:
     def readback_power_w(self, settings: ControlSettings) -> Optional[float]:
         """The target number entity's current value as a setpoint readback
         (W, + = charge) - used for the Status when no separate readback
-        sensor is configured. For a script, what was last sent (the only
-        thing known). None when there's nothing to go on.
+        sensor is configured. None when there's nothing to go on.
         """
         if not settings.active:
             return None
-        if settings.mode == CONTROL_MODE_NUMBER:
-            value = self._entity_value(settings.target)
-            if value is None:
-                return None
-            return control.output_to_power_w(value, settings.unit, settings.sign)
-        if self._last_sent is not None and self._last_target == settings.target:
-            return control.output_to_power_w(self._last_sent, settings.unit, settings.sign)
-        return None
+        value = self._entity_value(settings.target)
+        if value is None:
+            return None
+        return control.output_to_power_w(value, settings.unit, settings.sign)
 
     def _entity_value(self, entity_id: Optional[str]) -> Optional[float]:
         if not entity_id:
@@ -153,13 +149,9 @@ class EssController:
         if old_target is None or old_target == new_target:
             return
         if self._last_action not in (None, control.ACTION_IDLE):
-            old_domain = old_target.split(".", 1)[0]
             _LOGGER.info("ESS Manager (%s): control target changed - idling %s", self.name, old_target)
             try:
-                if old_domain == "script":
-                    await self._async_call_script(old_target, settings.idle_value, control.ACTION_IDLE, 0.0, "released")
-                else:
-                    await self._async_call_set_value(old_target, settings.idle_value)
+                await self._async_call_set_value(old_target, settings.idle_value)
             except Exception as err:  # noqa: BLE001 - best effort, logged
                 _LOGGER.warning("ESS Manager (%s): could not idle previous target %s: %s", self.name, old_target, err)
         self._last_target = None
@@ -171,18 +163,15 @@ class EssController:
         target = settings.target
         assert target is not None
         now = dt_util.utcnow()
-        tolerance = 1e-6
-        current: Optional[float] = None
-        if settings.mode == CONTROL_MODE_NUMBER:
-            state = self.hass.states.get(target)
-            if state is None or state.state in ("unknown", "unavailable"):
-                self._set_error(f"{target} is unavailable")
-                return
-            desired = control.clamp_to_range(
-                desired, _float_or_none(state.attributes.get("min")), _float_or_none(state.attributes.get("max"))
-            )
-            tolerance = control.write_tolerance(desired, _float_or_none(state.attributes.get("step")))
-            current = _float_or_none(state.state)
+        state = self.hass.states.get(target)
+        if state is None or state.state in ("unknown", "unavailable"):
+            self._set_error(f"{target} is unavailable")
+            return
+        desired = control.clamp_to_range(
+            desired, _float_or_none(state.attributes.get("min")), _float_or_none(state.attributes.get("max"))
+        )
+        tolerance = control.write_tolerance(desired, _float_or_none(state.attributes.get("step")))
+        current = _float_or_none(state.state)
 
         last_sent = self._last_sent if self._last_target == target else None
         since = (now - self._last_sent_at).total_seconds() if self._last_sent_at and last_sent is not None else None
@@ -191,13 +180,7 @@ class EssController:
             return
 
         try:
-            if settings.mode == CONTROL_MODE_NUMBER:
-                await self._async_call_set_value(target, desired)
-            else:
-                power_kw = 0.0 if action == control.ACTION_IDLE else control.output_to_power_w(
-                    desired, settings.unit, settings.sign
-                ) / 1000.0
-                await self._async_call_script(target, desired, action, power_kw, reason)
+            await self._async_call_set_value(target, desired)
         except Exception as err:  # noqa: BLE001 - a failed send must not fail the update
             self._set_error(f"sending {desired} to {target} failed: {type(err).__name__}: {err}")
             return
@@ -229,35 +212,12 @@ class EssController:
             SEND_TIMEOUT_SECONDS,
         )
 
-    async def _async_call_script(
-        self, entity_id: str, value: float, action: str, power_kw: float, reason: str
-    ) -> None:
-        if not entity_id.startswith("script."):
-            raise ValueError(f"{entity_id} is not a script")
-        await asyncio.wait_for(
-            self.hass.services.async_call(
-                "script",
-                "turn_on",
-                {
-                    "entity_id": entity_id,
-                    "variables": {
-                        "setpoint": value,
-                        "power_kw": round(power_kw, 3),
-                        "action": action,
-                        "reason": reason,
-                    },
-                },
-                blocking=True,
-            ),
-            SEND_TIMEOUT_SECONDS,
-        )
-
     # -- reporting ------------------------------------------------------------
     def as_attribute(self, settings: ControlSettings, action: str, power_kw: float) -> dict[str, Any]:
         """The Status sensor's `control` attribute."""
         return {
             "mode": settings.mode,
-            "target": settings.target if settings.mode != CONTROL_MODE_OFF else None,
+            "target": settings.target if settings.active else None,
             "automatic_control": self.enabled,
             "sending": settings.active and self.enabled,
             "action": action,

@@ -205,8 +205,8 @@ The setup wizard walks through these pages:
 6. **Battery control** - whether ESS Manager sends the setpoint itself
    (see "Direct control"). "Status sensor only" is the default.
 7. **Battery control - target** - only when direct control is chosen: the
-   number/input_number entity or script, its unit (W/kW), sign convention
-   and idle value.
+   number/input_number entity, its unit (W/kW), sign convention and idle
+   value.
 
 Capacity, normal charge/discharge speed, min/max SOC and the full charge
 target voltage seed a set of `number` entities (see below) that you
@@ -290,18 +290,11 @@ of the window's nominal duration has actually elapsed.
 ## Direct control
 
 *(Optional, as of v0.2.14.)* Instead of an external automation, ESS Manager
-can send the setpoint itself. Choose it on the **Battery control** page
-(setup or Configure):
-
-- **Set a number / input_number entity** - e.g. your inverter's own grid
-  setpoint `number` entity (Victron Modbus/MQTT integrations expose one), or
-  the `input_number` your existing inverter automation already reads.
-- **Run a script** - for anything else (MQTT, several entities, extra
-  steps). The script is started with these variables: `setpoint` (the value
-  in your unit and sign convention), `power_kw` (battery power in kW,
-  positive = charge), `action` (`idle` / `charge` / `discharge` /
-  `negative_price_charge` / `spike_discharge`) and `reason` (the Status
-  that caused it).
+can send the setpoint itself. Choose **Set a number / input_number
+entity** on the **Battery control** page (setup or Configure) and pick the
+entity - e.g. your inverter's own grid setpoint `number` entity (Victron
+Modbus/MQTT integrations expose one), or the `input_number` your existing
+inverter automation already reads.
 
 What gets sent: each action uses the speed its plan was sized with -
 Charge speed for normal charges (low charge, spike top-up, full charge),
@@ -317,9 +310,8 @@ integration instead of typed into the automation. The action is decided
 together with the Status, so "Actief" is never ambiguous: it means keep
 charging in a charge window and keep discharging in a discharge window.
 
-A number entity is only written when the value changes, or when something
-else changed it (then at most once a minute). A script is only run when the
-value changes.
+The entity is only written when the value changes, or when something else
+changed it (then at most once a minute).
 
 Safety:
 
@@ -347,7 +339,7 @@ setpoint.
 
 If you leave the grid/inverter setpoint sensor on the first page empty, the
 number entity you control is used as the setpoint readback for the Status
-(`Start charge` vs `Actief`); with a script, what was last sent is.
+(`Start charge` vs `Actief`).
 
 ## Full-charge balancing
 

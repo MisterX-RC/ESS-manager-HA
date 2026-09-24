@@ -199,7 +199,8 @@ async def main():
     await c.async_apply(off_settings, control.ACTION_CHARGE, 7.0, "Start charge")
     check("with control off nothing more is sent", len(hass.services.calls) == n)
 
-    # Script mode: sent on change only (no readback), with variables.
+    # The v0.2.14 "script" mode was removed in v0.2.15: a stored script mode
+    # counts as off - nothing is sent, and it reports as off.
     hass2 = Hass()
     s = controller.EssController(hass2, "Test")
     s.enabled = True
@@ -208,17 +209,10 @@ async def main():
          "control_sign": "discharge_positive", "control_idle_value": 0}
     )
     await s.async_apply(script_settings, control.ACTION_DISCHARGE, -10.0, "Start discharge")
-    call = hass2.services.calls[-1]
-    check("script mode runs script.turn_on", call[:2] == ("script", "turn_on") and call[2]["entity_id"] == "script.ess")
-    check("script gets the setpoint in its own sign convention", call[2]["variables"]["setpoint"] == 10.0)
-    check("script gets power_kw with + = charge", call[2]["variables"]["power_kw"] == -10.0)
-    check("script gets the action and reason", call[2]["variables"]["action"] == "discharge" and call[2]["variables"]["reason"] == "Start discharge")
-    await s.async_apply(script_settings, control.ACTION_DISCHARGE, -10.0, "Actief")
-    check("script isn't re-run for an unchanged setpoint", len(hass2.services.calls) == 1)
-    check("script readback is what was last sent", s.readback_power_w(script_settings) == -10000.0)
-    await s.async_apply(script_settings, control.ACTION_IDLE, 0.0, "Stop")
-    check("script idle sends the idle value and power 0", hass2.services.calls[-1][2]["variables"]["setpoint"] == 0.0
-          and hass2.services.calls[-1][2]["variables"]["power_kw"] == 0.0)
+    await s.async_idle(script_settings, "update failed")
+    check("a stored script mode (removed) sends nothing", hass2.services.calls == [])
+    check("a stored script mode reports as off", script_settings.mode == "off" and script_settings.active is False)
+    check("a stored script mode has no readback", s.readback_power_w(script_settings) is None)
 
     # Wrong entity type never gets called.
     bad = controller.ControlSettings({**NUMBER_CONF, "control_target_entity": "sensor.not_a_number"})

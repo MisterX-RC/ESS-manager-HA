@@ -67,14 +67,15 @@ CONF_DAYS_SINCE_FULL_CHARGE_ENTITY = "days_since_full_charge_entity"
 # -- direct control (as of v0.2.14) --------------------------------------
 # Optional: instead of (or before switching away from) an external
 # automation that reacts to the Status sensor, the integration sends the
-# setpoint itself - to a number/input_number entity, or by running a script
-# with the setpoint as a variable. "Status sensor only" (off) is the default,
+# setpoint itself, to a number/input_number entity. (v0.2.14 also offered
+# running a script; removed in v0.2.15 - a stored "script" mode counts as
+# off.) "Status sensor only" (off) is the default,
 # so nothing changes for an installation until it's switched on in
 # Configure. See control.py (the pure mapping) and controller.py (sending).
 CONF_CONTROL_MODE = "control_mode"
 CONTROL_MODE_OFF = "off"
 CONTROL_MODE_NUMBER = "number"
-CONTROL_MODE_SCRIPT = "script"
+CONTROL_MODE_REMOVED_SCRIPT = "script"  # v0.2.14 only - see controller.ControlSettings.active
 DEFAULT_CONTROL_MODE = CONTROL_MODE_OFF
 CONF_CONTROL_TARGET_ENTITY = "control_target_entity"
 CONF_CONTROL_UNIT = "control_unit"

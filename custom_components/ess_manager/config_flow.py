@@ -37,7 +37,6 @@ from .const import (
     CONF_CONTROL_UNIT,
     CONTROL_MODE_NUMBER,
     CONTROL_MODE_OFF,
-    CONTROL_MODE_SCRIPT,
     DEFAULT_CONTROL_IDLE_VALUE,
     DEFAULT_CONTROL_MODE,
     DEFAULT_CONTROL_SIGN,
@@ -122,7 +121,6 @@ CONTROL_MODE_OPTIONS = [
         value=CONTROL_MODE_OFF, label="Status sensor only - my own automation controls the battery (default)"
     ),
     selector.SelectOptionDict(value=CONTROL_MODE_NUMBER, label="Set a number / input_number entity"),
-    selector.SelectOptionDict(value=CONTROL_MODE_SCRIPT, label="Run a script with the setpoint"),
 ]
 
 CONTROL_UNIT_OPTIONS = [
@@ -137,7 +135,6 @@ CONTROL_SIGN_OPTIONS = [
 
 CONTROL_TARGET_DOMAINS = {
     CONTROL_MODE_NUMBER: ["number", "input_number"],
-    CONTROL_MODE_SCRIPT: ["script"],
 }
 
 FULL_CHARGE_TRACKING_SOURCE_OPTIONS = [
@@ -334,11 +331,12 @@ def _plans_schema(defaults: dict[str, Any]) -> vol.Schema:
 def _control_schema(defaults: dict[str, Any]) -> vol.Schema:
     """Page 4 - whether ESS Manager sends the setpoint itself (explained in
     the page text). Off ("Status sensor only") is the default."""
+    current_mode = defaults.get(CONF_CONTROL_MODE)
+    if current_mode not in (CONTROL_MODE_OFF, CONTROL_MODE_NUMBER):
+        current_mode = DEFAULT_CONTROL_MODE  # e.g. the removed v0.2.14 "script" mode
     return vol.Schema(
         {
-            vol.Required(
-                CONF_CONTROL_MODE, default=defaults.get(CONF_CONTROL_MODE) or DEFAULT_CONTROL_MODE
-            ): selector.SelectSelector(
+            vol.Required(CONF_CONTROL_MODE, default=current_mode): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=CONTROL_MODE_OPTIONS, mode=selector.SelectSelectorMode.LIST)
             ),
         }
@@ -346,9 +344,9 @@ def _control_schema(defaults: dict[str, Any]) -> vol.Schema:
 
 
 def _control_target_schema(defaults: dict[str, Any], mode: str) -> vol.Schema:
-    """Only when a control mode is chosen: where to send the setpoint, and
-    in which unit/sign convention. The previous target is only pre-filled
-    if it fits the chosen mode (a script can't be a number target)."""
+    """Only when direct control is chosen: the number/input_number entity to
+    send the setpoint to, and its unit/sign convention. The previous target
+    is only pre-filled if it's still a number/input_number entity."""
     domains = CONTROL_TARGET_DOMAINS[mode]
     current_target = defaults.get(CONF_CONTROL_TARGET_ENTITY)
     if current_target and current_target.split(".", 1)[0] in domains:
