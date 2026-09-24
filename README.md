@@ -23,7 +23,8 @@ Five planning engines, all documented in detail in the code
 1. **Low charge plan** - charges before the battery would otherwise drop
    below your minimum SOC, during the cheapest available price window.
 2. **High discharge plan** - discharges before the battery would otherwise
-   overshoot your maximum SOC, during the priciest available price window.
+   overshoot your maximum SOC, during the priciest available price window,
+   never selling below your minimum SOC plus the **Safety buffer**.
 3. **Full charge plan** *(optional)* - periodically charges all the way to
    100% and holds there briefly to let the BMS balance cells, on a
    configurable interval.
@@ -238,7 +239,8 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Spike discharge speed | Rate used specifically during a spike-arbitrage discharge |
 | Negative price threshold | Price (EUR/kWh) below which charging is considered "getting paid" |
 | Spike margin | Minimum day price spread (EUR/kWh) to treat a day as spike-worthy |
-| Minimum charge target | Low charge plan: when a charge is needed, charge the battery up to at least this level (kWh), not just back to the low threshold. High discharge plan: never sell the battery below this level (or the low threshold, whichever is higher) - as of v0.2.9. Spike plan: skip its pre-peak top-up entirely if the forecasted gap is smaller than this (as of v0.2.1) - see "What it does" above |
+| Minimum charge target | The smallest amount (kWh) any charge buys (as of v0.2.17). Low charge plan: the dip is lifted back to the low threshold; if that needs less than this, the charge is rounded up to it (but never so far that a later peak would cross your max SOC and just be sold again). Spike plan: a pre-peak top-up smaller than this is skipped. Full-charge balancing and the negative price plan are not affected |
+| Safety buffer | % of battery capacity kept on top of your min SOC when selling (as of v0.2.17, default 5%): a sale never brings the forecast below min SOC + buffer - e.g. min SOC 10% + buffer 5% = sales stop at 15%. Room for usage or solar to differ from the forecast, so a sale doesn't end in buying energy back. 0 sells right down to min SOC |
 | Planning horizon | How many hours ahead the low/high plans are allowed to react to (price data usually doesn't exist much beyond ~48h anyway) |
 | Full charge interval | Days between full-charge/balance cycles |
 | Full charge max hold | Safety timeout (minutes) for the 100%-hold/balance phase |

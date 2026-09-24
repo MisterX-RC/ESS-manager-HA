@@ -7,6 +7,29 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.2.17] - 2026-09-24
+
+### Added
+- **Safety buffer** (new number entity, % of battery capacity, default
+  5%). A sale never brings the forecast below your min SOC plus this
+  buffer: with min SOC 10% and a 5% buffer, sales stop at 15% instead of
+  10%. It leaves room for usage or solar to differ from the forecast, so a
+  sale doesn't end in buying energy back. Set it to 0 to sell right down
+  to min SOC as before.
+
+### Changed
+- **Minimum charge target now means the smallest amount any charge
+  buys.** Until now it was also a battery level: the low charge plan
+  charged up to it, and since 0.2.9 sales stopped at it. Now:
+  - Low charge plan: the dip is lifted back to the low threshold, and a
+    smaller need is rounded up to the Minimum charge target (never so far
+    that a later peak would go over your max SOC and be sold again).
+  - Spike plan: a pre-peak top-up smaller than it is skipped (unchanged).
+  - Selling: no longer uses it; that's the Safety buffer now.
+  - Check both values after updating: the Safety buffer starts at 5%,
+    and the Minimum charge target keeps its current value with the new
+    meaning.
+
 ## [0.2.16] - 2026-09-24
 
 ### Fixed

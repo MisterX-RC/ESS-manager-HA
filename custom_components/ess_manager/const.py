@@ -245,6 +245,7 @@ NUM_SPIKE_DISCHARGE_SPEED_KW = "spike_discharge_speed_kw"
 NUM_NEGATIVE_PRICE_THRESHOLD = "negative_price_threshold"
 NUM_SPIKE_MARGIN = "spike_margin"
 NUM_MINIMUM_CHARGE_TARGET_KWH = "minimum_charge_target_kwh"
+NUM_SAFETY_BUFFER_PERCENT = "safety_buffer_percent"
 NUM_PLANNING_HORIZON_HOURS = "planning_horizon_hours"
 NUM_FULL_CHARGE_INTERVAL_DAYS = "full_charge_interval_days"
 NUM_FULL_CHARGE_MAX_HOLD_MINUTES = "full_charge_max_hold_minutes"
@@ -345,6 +346,8 @@ NUMBER_DEFINITIONS = [
         lambda data: 0.40,
     ),
     (
+        # The smallest amount any charge buys (as of v0.2.17) - see
+        # compute_low_charge_plan / compute_spike_plan.
         NUM_MINIMUM_CHARGE_TARGET_KWH,
         "Minimum charge target",
         "mdi:battery-plus",
@@ -353,6 +356,18 @@ NUMBER_DEFINITIONS = [
         0.5,
         "kWh",
         lambda data: 5.0,
+    ),
+    (
+        # Kept on top of the low threshold when selling (as of v0.2.17) -
+        # room for usage/solar to differ from the forecast.
+        NUM_SAFETY_BUFFER_PERCENT,
+        "Safety buffer",
+        "mdi:shield-half-full",
+        0,
+        50,
+        1,
+        "%",
+        lambda data: 5,
     ),
     (
         NUM_PLANNING_HORIZON_HOURS,

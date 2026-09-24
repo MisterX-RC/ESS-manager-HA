@@ -312,14 +312,11 @@ def compute_spike_plan(
     else:
         charge_target_level = upper_limit_kwh
     charge_needed_kwh = max(charge_target_level - solar_only_level, 0)
-    # Unlike the low charge plan - where minimum_charge_target_kwh raises the
-    # *target level* it charges up to, so the plan never bothers charging to
-    # just barely above low_threshold_kwh - the spike plan's target is
-    # already the top of the battery (charge_target_level, above), so
-    # there's no floor to raise. The equivalent, and what was actually asked
-    # for, is a floor on whether the resulting top-up is worth doing at all:
-    # a forecasted gap smaller than minimum_charge_target_kwh is treated as
-    # "close enough to full," so no charge window is scheduled and nothing
+    # minimum_charge_target_kwh is the smallest amount any charge buys. The
+    # low charge plan rounds a smaller need UP to it; the spike plan can't
+    # (its target is already the top of the battery, charge_target_level
+    # above), so here a forecasted gap smaller than it is SKIPPED instead -
+    # treated as "close enough to full," so no charge window is scheduled and nothing
     # shows up on the charge sensors for it (Timo's reported case: a 1.16
     # kWh top-up scheduled purely to counteract a small forecasted dip
     # before the day's price peak).
@@ -470,7 +467,15 @@ def compute_low_charge_plan(
     all_price: list[float],
     planning_horizon_hours: int,
     battery_now_kwh: float,
+    high_threshold_kwh: Optional[float] = None,
 ) -> dict:
+    """`minimum_charge_target_kwh` is the smallest amount any charge buys
+    (as of v0.2.17; before that it was a battery LEVEL the dip was lifted
+    to). The dip is lifted back to the low threshold; if that needs less
+    than the minimum, the charge is rounded up to it - but never so far that
+    the later forecast peak would cross `high_threshold_kwh`, which would
+    only make the discharge plan sell the extra again.
+    """
     prev = prev or {"active": False}
     if prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
         # Live-target early stop (Timo's proposal): the window's own length
@@ -530,11 +535,17 @@ def compute_low_charge_plan(
     units_to_next_hour = 4 - (now.minute // 15)
     breach_offset_units = units_to_next_hour + (hour_index * 4)
     breach_unit = cur_unit + breach_offset_units
-    target_level = max(low_threshold_kwh, minimum_charge_target_kwh)
-    deficit = round(target_level - value, 3)
+    deficit = round(low_threshold_kwh - value, 3)
     future_peak = max(forecast) if forecast else upper_limit_kwh
     headroom = upper_limit_kwh - future_peak
     target_kwh = max(deficit, headroom)
+    rounded_up_to_minimum = False
+    if target_kwh < minimum_charge_target_kwh:
+        room = (high_threshold_kwh - future_peak) if high_threshold_kwh is not None else minimum_charge_target_kwh
+        rounded = max(target_kwh, min(minimum_charge_target_kwh, room))
+        rounded_up_to_minimum = rounded > target_kwh
+        target_kwh = rounded
+    target_kwh = round(target_kwh, 3)
 
     relevant_usage = usage[0 : hour_index + 1]
     avg_usage_kwh = sum(relevant_usage) / len(relevant_usage) if relevant_usage else 0
@@ -550,6 +561,7 @@ def compute_low_charge_plan(
         "deficit_kwh": deficit,
         "dip_min_kwh": round(value, 3),
         "target_kwh": target_kwh,
+        "rounded_up_to_minimum": rounded_up_to_minimum,
         "avg_home_load_kw": round(avg_usage_kwh, 3),
         "effective_charge_per_unit": round(effective_charge_per_unit, 4),
         "units_needed": units_needed,
@@ -583,17 +595,18 @@ def compute_high_discharge_plan(
     planning_horizon_hours: int,
     battery_now_kwh: float,
     suppress_new: bool = False,
-    minimum_charge_target_kwh: float = 0.0,
+    safety_buffer_kwh: float = 0.0,
 ) -> dict:
-    """`minimum_charge_target_kwh` raises the lowest level a sale may leave
-    the battery at: a sale is capped so the forecast never drops below
-    max(low_threshold_kwh, minimum_charge_target_kwh) after it - the same
-    level the low charge plan tops the battery back up to. Selling right
-    down to the bare low threshold (the old behavior, and still what a
-    default of 0.0 gives) means any forecast error - a bit more evening
-    usage, a bit less morning solar - pushes the battery under the
-    threshold and makes the low charge plan buy energy back, possibly
-    energy it just sold.
+    """`safety_buffer_kwh` (the "Safety buffer" setting, % of capacity,
+    converted to kWh by the coordinator - as of v0.2.17) is kept on top of
+    the low threshold when selling: a sale is capped so the forecast never
+    drops below low_threshold_kwh + safety_buffer_kwh after it. Selling
+    right down to the bare low threshold (what a buffer of 0 gives) means
+    any forecast error - a bit more evening usage, a bit less morning
+    solar - pushes the battery under the threshold and makes the low charge
+    plan buy energy back, possibly energy it just sold. (v0.2.9-v0.2.16
+    used the Minimum charge target as this floor; that setting is now only
+    the smallest amount a charge buys.)
 
     `suppress_new` blocks scheduling a brand-new discharge window - used
     when the full-charge plan is relying on a future solar peak (or is
@@ -660,11 +673,11 @@ def compute_high_discharge_plan(
     effective_discharge_per_unit = discharge_per_unit + avg_usage_per_unit
     search_end = min(breach_unit, len(all_price))
     hour0_unit = _hour0_start_unit(cur_unit, now)
-    sale_floor_kwh = max(low_threshold_kwh, minimum_charge_target_kwh)
+    sale_floor_kwh = low_threshold_kwh + max(safety_buffer_kwh, 0.0)
 
     # Safety cap, based on WHERE the sale actually lands: the battery may not
-    # be forecast to drop below sale_floor_kwh (the higher of the low
-    # threshold and the Minimum charge target) after the sale. Selling
+    # be forecast to drop below sale_floor_kwh (the low threshold plus the
+    # Safety buffer) after the sale. Selling
     # energy lowers the battery for every hour from the sale onward, never
     # for hours before it - so only low points from the sale's own hour
     # onward can be pushed under the floor by it. (Previously

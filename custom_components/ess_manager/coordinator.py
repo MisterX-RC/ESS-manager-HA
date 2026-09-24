@@ -63,6 +63,7 @@ from .const import (
     NUM_MINIMUM_CHARGE_TARGET_KWH,
     NUM_NEGATIVE_PRICE_CHARGE_SPEED_KW,
     NUM_NEGATIVE_PRICE_THRESHOLD,
+    NUM_SAFETY_BUFFER_PERCENT,
     NUM_PLANNING_HORIZON_HOURS,
     NUM_SPIKE_DISCHARGE_SPEED_KW,
     NUM_SPIKE_MARGIN,
@@ -537,6 +538,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         negative_price_threshold = self.get_number(NUM_NEGATIVE_PRICE_THRESHOLD, -0.20)
         spike_margin = self.get_number(NUM_SPIKE_MARGIN, 0.40)
         minimum_charge_target_kwh = self.get_number(NUM_MINIMUM_CHARGE_TARGET_KWH, 5.0)
+        safety_buffer_percent = self.get_number(NUM_SAFETY_BUFFER_PERCENT, 5.0)
         planning_horizon_hours = int(self.get_number(NUM_PLANNING_HORIZON_HOURS, 72))
         full_charge_interval_days = self.get_number(NUM_FULL_CHARGE_INTERVAL_DAYS, 14.0)
         full_charge_max_hold_minutes = self.get_number(NUM_FULL_CHARGE_MAX_HOLD_MINUTES, 120.0)
@@ -546,6 +548,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         full_charge_target_voltage = self.get_number(NUM_FULL_CHARGE_TARGET_VOLTAGE, DEFAULT_FULL_CHARGE_TARGET_VOLTAGE)
 
         low_threshold_kwh = round((min_soc_percent / 100) * capacity_kwh, 2)
+        # Kept on top of the low threshold when selling (see
+        # compute_high_discharge_plan) - % of capacity, like min/max SOC.
+        safety_buffer_kwh = round((safety_buffer_percent / 100) * capacity_kwh, 2)
         high_threshold_kwh = round((max_soc_percent / 100) * capacity_kwh, 2)
         upper_limit_kwh = capacity_kwh  # nominal 100% - the normal charge-target ceiling
 
@@ -701,6 +706,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             all_price,
             planning_horizon_hours,
             battery_now_kwh,
+            high_threshold_kwh=high_threshold_kwh,
         )
         # A full charge relying on a future solar peak (either genuinely
         # scheduled to buy up to it, or silently skipped because that peak
@@ -737,7 +743,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             planning_horizon_hours,
             battery_now_kwh,
             suppress_high_discharge,
-            minimum_charge_target_kwh=minimum_charge_target_kwh,
+            safety_buffer_kwh=safety_buffer_kwh,
         )
 
         battery_forecast_adjusted = plans.compose_forecast_adjusted(
