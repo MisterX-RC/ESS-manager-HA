@@ -18,6 +18,10 @@ CONF_BATTERY_SOC_ENTITY = "battery_soc_entity"
 CONF_PRICE_ENTITY = "price_entity"
 CONF_SOLAR_FORECAST_ENTITIES = "solar_forecast_entities"
 CONF_GRID_SETPOINT_ENTITY = "grid_setpoint_entity"
+# Polarity of that setpoint (as of v0.3.4): "charge_positive" (positive =
+# charging, the default and the only option before) or "discharge_positive".
+CONF_GRID_SETPOINT_SIGN = "grid_setpoint_sign"
+DEFAULT_GRID_SETPOINT_SIGN = "charge_positive"
 
 # Cell voltage differential (only used by the full-charge balancing plan, to
 # decide when the pack is balanced enough to stop holding at full). Two ways

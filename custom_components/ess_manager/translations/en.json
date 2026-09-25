@@ -9,7 +9,8 @@
           "battery_soc_entity": "Battery state-of-charge sensor (%)",
           "price_entity": "Electricity price sensor (Nordpool-style, with today/tomorrow quarter-hour price lists)",
           "solar_forecast_entities": "Solar forecast sensor(s) (Solcast-style, with a detailedHourly attribute) - add as many as needed to cover your forecast horizon",
-          "grid_setpoint_entity": "Grid/inverter setpoint (optional) - a sensor, number or input_number with the currently commanded power, positive = charging (W or kW, from its unit). Used to show Start vs Actief in the Status; with direct control of a number entity it can be left empty",
+          "grid_setpoint_entity": "Grid/inverter setpoint (optional) - a sensor, number or input_number with the currently commanded power (W or kW, from its unit). Used to show Start vs Actief in the Status; with direct control of a number entity it can be left empty",
+          "grid_setpoint_sign": "Polarity of the grid/inverter setpoint (only used when one is chosen above)",
           "usage_source": "Household usage forecast source - the next page sets it up",
           "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page"
         }
@@ -102,7 +103,8 @@
           "battery_soc_entity": "Battery state-of-charge sensor (%)",
           "price_entity": "Electricity price sensor (Nordpool-style, with today/tomorrow quarter-hour price lists)",
           "solar_forecast_entities": "Solar forecast sensor(s) (Solcast-style, with a detailedHourly attribute) - add as many as needed to cover your forecast horizon",
-          "grid_setpoint_entity": "Grid/inverter setpoint (optional) - a sensor, number or input_number with the currently commanded power, positive = charging (W or kW, from its unit). Used to show Start vs Actief in the Status; with direct control of a number entity it can be left empty",
+          "grid_setpoint_entity": "Grid/inverter setpoint (optional) - a sensor, number or input_number with the currently commanded power (W or kW, from its unit). Used to show Start vs Actief in the Status; with direct control of a number entity it can be left empty",
+          "grid_setpoint_sign": "Polarity of the grid/inverter setpoint (only used when one is chosen above)",
           "usage_source": "Household usage forecast source - the next page sets it up",
           "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page"
         }

@@ -2238,6 +2238,8 @@ check("readback (v0.3.4): a kW input_number/number reads as W", control.readback
 check("readback (v0.3.4): negative kW (discharging) reads as W", control.readback_to_watts(-10, "kW") == -10000.0)
 check("readback (v0.3.4): W stays W", control.readback_to_watts(500, "W") == 500.0)
 check("readback (v0.3.4): no unit is taken as W", control.readback_to_watts(500, None) == 500.0)
+check("readback (v0.3.4): polarity 'positive = discharge' is flipped", control.readback_to_watts(-7, "kW", "discharge_positive") == 7000.0)
+check("readback (v0.3.4): polarity 'positive = charge' is kept", control.readback_to_watts(-7, "kW", "charge_positive") == -7000.0)
 check("clamp: inside a number entity's min/max", control.clamp_to_range(20000, -15000, 15000) == 15000)
 check("tolerance: half the entity's step", control.write_tolerance(100.0, 10) == 5.0)
 check("needs_write: first send", control.needs_write(7000, None, 0, 0.5, None) is True)

@@ -85,13 +85,18 @@ def output_to_power_w(value: float, unit: str, sign: str) -> float:
     return watts + 0.0
 
 
-def readback_to_watts(value: float, unit: Optional[str]) -> float:
+def readback_to_watts(value: float, unit: Optional[str], sign: str = SIGN_CHARGE_POSITIVE) -> float:
     """A grid/inverter setpoint readback (sensor, number or input_number -
-    as of v0.3.4) in W, from its own unit_of_measurement: kW and MW are
-    converted, W or no unit is taken as W. Sign convention: positive =
-    charging the battery."""
+    as of v0.3.4) in W with positive = charging the battery (the internal
+    convention). The unit comes from the entity's own unit_of_measurement:
+    kW and MW are converted, W or no unit is taken as W. `sign` is the
+    polarity chosen in setup for that entity: with discharge_positive the
+    value is flipped."""
     factor = {"kw": 1000.0, "mw": 1_000_000.0}.get((unit or "").strip().lower(), 1.0)
-    return value * factor + 0.0
+    watts = value * factor
+    if sign == SIGN_DISCHARGE_POSITIVE:
+        watts = -watts
+    return watts + 0.0
 
 
 def command_value(action: str, power_kw: float, unit: str, sign: str, idle_value: float) -> float:

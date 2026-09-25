@@ -26,6 +26,8 @@ from .const import (
     CONF_ENABLE_SPIKE_PLAN,
     CONF_FULL_CHARGE_TRACKING_SOURCE,
     CONF_GRID_SETPOINT_ENTITY,
+    CONF_GRID_SETPOINT_SIGN,
+    DEFAULT_GRID_SETPOINT_SIGN,
     CONF_HIGH_CELL_VOLTAGE_ENTITY,
     CONF_LOW_CELL_VOLTAGE_ENTITY,
     CONF_MAX_BATTERY_CHARGE_SPEED_KW,
@@ -432,11 +434,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if conf.get(CONF_GRID_SETPOINT_ENTITY):
             # A sensor, number or input_number (as of v0.3.4 - e.g. the
             # input_number an external automation writes), converted to W
-            # from its own unit (kW input_numbers are common).
+            # from its own unit (kW input_numbers are common) and flipped
+            # when its polarity is "positive = discharge".
             setpoint_state = self.hass.states.get(conf.get(CONF_GRID_SETPOINT_ENTITY))
             raw = _get_float_state(self.hass, conf.get(CONF_GRID_SETPOINT_ENTITY), default=0.0)
             unit = setpoint_state.attributes.get("unit_of_measurement") if setpoint_state else None
-            setpoint_w = control.readback_to_watts(raw, unit)
+            setpoint_w = control.readback_to_watts(
+                raw, unit, conf.get(CONF_GRID_SETPOINT_SIGN) or DEFAULT_GRID_SETPOINT_SIGN
+            )
         else:
             # No separate readback sensor: with direct control, the target
             # number entity's own value is the best readback there is.

@@ -41,6 +41,8 @@ from .const import (
     CONF_FULL_CHARGE_TARGET_VOLTAGE,
     CONF_FULL_CHARGE_TRACKING_SOURCE,
     CONF_GRID_SETPOINT_ENTITY,
+    CONF_GRID_SETPOINT_SIGN,
+    DEFAULT_GRID_SETPOINT_SIGN,
     CONF_HIGH_CELL_VOLTAGE_ENTITY,
     CONF_LOW_CELL_VOLTAGE_ENTITY,
     CONF_MAX_BATTERY_CHARGE_SPEED_KW,
@@ -174,6 +176,12 @@ def _sensors_schema(defaults: dict[str, Any], include_name: bool) -> vol.Schema:
             vol.Optional(
                 CONF_GRID_SETPOINT_ENTITY, default=defaults.get(CONF_GRID_SETPOINT_ENTITY)
             ): _optional_entity_selector(["sensor", "number", "input_number"]),
+            vol.Required(
+                CONF_GRID_SETPOINT_SIGN,
+                default=defaults.get(CONF_GRID_SETPOINT_SIGN) or DEFAULT_GRID_SETPOINT_SIGN,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=CONTROL_SIGN_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+            ),
             vol.Required(
                 CONF_USAGE_SOURCE, default=current_source or DEFAULT_USAGE_SOURCE
             ): selector.SelectSelector(

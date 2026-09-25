@@ -106,9 +106,10 @@ integration producing the same shape works):
 - **Grid/inverter setpoint** *(optional but recommended)*: the entity that
   holds your current commanded charge/discharge power - a sensor, a
   `number` or an `input_number` (for example the input_number your own ESS
-  automation writes to). Positive = charging. W or kW is taken from the
-  entity's unit, so give an input_number a unit of `W` or `kW` (no unit
-  counts as W). Used to make the "Status" sensor's engaged-vs-starting
+  automation writes to). Right below it you choose its polarity:
+  positive = charging (the default) or positive = discharging. W or kW is
+  taken from the entity's unit, so give an input_number a unit of `W` or
+  `kW` (no unit counts as W). Used to make the "Status" sensor's engaged-vs-starting
   distinction accurate; nothing is ever written to it. With direct control
   of a number entity you can leave it empty (see below).
 - **Cell voltage differential** *(optional)*: only needed if you enable the
