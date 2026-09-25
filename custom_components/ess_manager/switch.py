@@ -6,12 +6,10 @@ every cycle. Off: it sends idle once and then leaves the target alone, so
 the battery can be controlled by hand (or by an existing automation) without
 reconfiguring anything. Restores its state across restarts; on by default.
 
-Hidden while it has nothing to control (as of v0.3.3): with "Status sensor
-only" (an external automation acts on the Status), the entity is marked
-hidden by the integration, so it doesn't show up on auto-generated
-dashboards or in the default entity lists; choosing a number / input_number
-entity in Configure unhides it again. A switch the user hid themselves is
-left alone.
+Hidden while it has nothing to control (as of v0.3.2): with "Status sensor
+only" (an external automation acts on the Status) it's marked hidden, and
+choosing a number / input_number entity in Configure shows it again - see
+visibility.py for the exact rules.
 """
 from __future__ import annotations
 
@@ -20,13 +18,13 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN
 from .coordinator import EssManagerCoordinator
+from .visibility import async_sync_visibility
 
 
 async def async_setup_entry(
@@ -47,7 +45,6 @@ class EssManagerAutomaticControlSwitch(SwitchEntity, RestoreEntity):
         self._attr_unique_id = f"{entry.entry_id}_automatic_control"
         self._attr_device_info = device_info
         self._attr_is_on = True
-        self._last_active: bool | None = None
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -68,23 +65,8 @@ class EssManagerAutomaticControlSwitch(SwitchEntity, RestoreEntity):
 
     @callback
     def _async_sync_visibility(self) -> None:
-        """Hidden (by the integration) while direct control isn't set up,
-        visible when it is. Only acts at startup and when the control mode
-        actually changes, so a user who unhides it anyway keeps it visible,
-        and a switch the user hid themselves (hidden_by user) is never
-        unhidden."""
-        entry = self.registry_entry
-        if entry is None:
-            return
-        active = self._coordinator.control_settings().active
-        if active == self._last_active:
-            return
-        self._last_active = active
-        registry = er.async_get(self.hass)
-        if not active and entry.hidden_by is None:
-            registry.async_update_entity(self.entity_id, hidden_by=er.RegistryEntryHider.INTEGRATION)
-        elif active and entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
-            registry.async_update_entity(self.entity_id, hidden_by=None)
+        """Hidden while direct control isn't set up - see visibility.py."""
+        async_sync_visibility(self, self._coordinator.control_settings().active)
 
     async def async_will_remove_from_hass(self) -> None:
         # The integration is being unloaded/removed: stop sending (the

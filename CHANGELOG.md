@@ -19,11 +19,20 @@ a plain git tag on its own isn't enough for HACS to notice.
   the evening peak 19:15-20:00. The safety buffer still applies, and if
   your max SOC is set below 100% that value stays the target. The
   discharge plan shows the target as `sale_target_kwh`.
-- **The "Automatic control" switch is hidden while it has nothing to
-  control.** With "Status sensor only" (your own automation acts on the
-  Status) the switch is hidden, so it no longer clutters dashboards;
-  choosing a number / input_number entity in Configure shows it again. If
-  you unhide or hide it yourself, that choice is kept.
+- **Entities that have nothing to do are hidden.** Using Home Assistant's
+  own "hidden" flag, so they keep working and keep their values, and are
+  still on the device page under "hidden entities":
+  - the Automatic control switch while direct control is off ("Status
+    sensor only");
+  - Negative price status / threshold / charge speed while the negative
+    price plan is off;
+  - Spike status / margin / discharge speed while the spike plan is off;
+  - Next full charge in and the full charge interval / max hold / target
+    voltage while full-charge balancing is off.
+  Switching a plan (or direct control) on in Configure always shows its
+  entities again, even ones you hid yourself. Only changes of the setting
+  count, so if you unhide something anyway it stays visible, also after a
+  restart. The Planned setpoint sensor always stays visible.
 
 ## [0.3.1] - 2026-09-25
 

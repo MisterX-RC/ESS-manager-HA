@@ -227,6 +227,23 @@ and can still change them afterward from the integration's **Configure**
 options screen if you got it wrong or upgrade your hardware - just not as a
 live number entity.
 
+### Hidden entities
+
+Entities that belong to something that's switched off are hidden (Home
+Assistant's own "hidden" flag - they keep working and keeping their values,
+and are listed on the device page under "hidden entities"):
+
+| Switched off in Configure | Hidden |
+|---|---|
+| Negative price plan | Negative price status, Negative price threshold, Negative price charge speed |
+| Spike arbitrage plan | Spike status, Spike margin, Spike discharge speed |
+| Full-charge balancing | Next full charge in, Full charge interval, Full charge max hold, Full charge target voltage |
+| Direct control ("Status sensor only") | Automatic control |
+
+Switching one on again always shows its entities, even ones you hid
+yourself. Only changes of the setting count: if you unhide an entity anyway,
+it stays visible, also after a restart.
+
 ### Tunable `number` entities
 
 Created automatically once you finish setup - find them under the ESS
@@ -325,8 +342,8 @@ Safety:
   until you turn it back on. Its state survives restarts; on by default.
   While direct control isn't set up ("Status sensor only"), the switch is
   hidden (it has nothing to control); choosing a number / input_number
-  entity in Configure shows it again. It's still on the device page under
-  "hidden entities" if you want it.
+  entity in Configure shows it again - see "Hidden entities" under
+  Configuration.
 - **Fail-safe**: when an update fails (SOC sensor unavailable, price sensor
   missing, an unexpected error), idle is sent instead of leaving the last
   command running.

@@ -12,12 +12,13 @@ from __future__ import annotations
 
 from homeassistant.components.number import NumberEntity, RestoreNumber
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, NUMBER_DEFINITIONS
+from .const import DOMAIN, NUMBER_DEFINITIONS, plan_for_entity_key
 from .coordinator import EssManagerCoordinator
+from .visibility import async_sync_visibility
 
 
 async def async_setup_entry(
@@ -87,6 +88,17 @@ class EssManagerNumber(RestoreNumber, NumberEntity):
         last_data = await self.async_get_last_number_data()
         if last_data is not None and last_data.native_value is not None:
             self._attr_native_value = last_data.native_value
+        # A plan-specific tunable is hidden while its plan is switched off
+        # in Configure (see visibility.py); Configure only triggers a
+        # coordinator refresh, so follow the coordinator's updates.
+        self._plan = plan_for_entity_key(self._key)
+        if self._plan is not None:
+            self.async_on_remove(self._coordinator.async_add_listener(self._async_sync_visibility))
+            self._async_sync_visibility()
+
+    @callback
+    def _async_sync_visibility(self) -> None:
+        async_sync_visibility(self, self._coordinator.plan_enabled(self._plan))
 
     async def async_set_native_value(self, value: float) -> None:
         self._attr_native_value = value

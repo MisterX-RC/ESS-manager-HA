@@ -59,6 +59,7 @@ from .const import (
     NUM_PLANNING_HORIZON_HOURS,
     NUM_SPIKE_DISCHARGE_SPEED_KW,
     NUM_SPIKE_MARGIN,
+    PLAN_ENABLED_DEFAULTS,
     STORAGE_VERSION,
     STORAGE_KEY_SUFFIX,
     UPDATE_INTERVAL_SECONDS,
@@ -144,6 +145,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def control_settings(self) -> ControlSettings:
         return ControlSettings({**self.entry.data, **self.entry.options})
+
+    def plan_enabled(self, plan: str) -> bool:
+        """Whether a plan's Configure switch (CONF_ENABLE_*) is on - same
+        defaults as the update cycle uses."""
+        return bool({**self.entry.data, **self.entry.options}.get(plan, PLAN_ENABLED_DEFAULTS[plan]))
 
     def invalidate_usage_forecast(self) -> None:
         """Drop the cached usage forecast so the next cycle recomputes it.

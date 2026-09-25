@@ -10,13 +10,14 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, plan_for_entity_key
 from .coordinator import EssManagerCoordinator
+from .visibility import async_sync_visibility
 
 # Attributes carried on the main status sensor - matches (renamed to
 # snake_case) the original template sensor's attribute set, so the
@@ -183,11 +184,28 @@ class EssManagerValueSensor(CoordinatorEntity[EssManagerCoordinator], SensorEnti
     ) -> None:
         super().__init__(coordinator)
         self._data_key = data_key
+        # Plan-specific sensors are hidden while their plan is switched off
+        # in Configure - see visibility.py.
+        self._plan = plan_for_entity_key(key)
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_name = name
         self._attr_native_unit_of_measurement = unit
         self._attr_icon = icon
         self._attr_device_info = device_info
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._async_sync_visibility()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._async_sync_visibility()
+        super()._handle_coordinator_update()
+
+    @callback
+    def _async_sync_visibility(self) -> None:
+        if self._plan is not None:
+            async_sync_visibility(self, self.coordinator.plan_enabled(self._plan))
 
     @property
     def native_value(self) -> Any:

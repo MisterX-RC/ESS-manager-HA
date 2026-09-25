@@ -398,3 +398,40 @@ FORECAST_HOURS = 121  # index 0 = current hour ... index 120
 
 STORAGE_VERSION = 1
 STORAGE_KEY_SUFFIX = "_state"
+
+# ---------------------------------------------------------------------------
+# Plan-specific entities (as of v0.3.2): hidden while the plan they belong to
+# is switched off in Configure, shown again when it's switched on - see
+# visibility.py. Keys are the entities' own keys (number keys / sensor keys).
+# ---------------------------------------------------------------------------
+PLAN_ENTITY_KEYS = {
+    CONF_ENABLE_NEGATIVE_PRICE_PLAN: (
+        NUM_NEGATIVE_PRICE_THRESHOLD,
+        NUM_NEGATIVE_PRICE_CHARGE_SPEED_KW,
+        "negative_price_status",
+    ),
+    CONF_ENABLE_SPIKE_PLAN: (
+        NUM_SPIKE_MARGIN,
+        NUM_SPIKE_DISCHARGE_SPEED_KW,
+        "spike_status",
+    ),
+    CONF_ENABLE_FULL_CHARGE_PLAN: (
+        NUM_FULL_CHARGE_INTERVAL_DAYS,
+        NUM_FULL_CHARGE_MAX_HOLD_MINUTES,
+        NUM_FULL_CHARGE_TARGET_VOLTAGE,
+        "next_full_charge_in_days",
+    ),
+}
+PLAN_ENABLED_DEFAULTS = {
+    CONF_ENABLE_NEGATIVE_PRICE_PLAN: DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN,
+    CONF_ENABLE_SPIKE_PLAN: DEFAULT_ENABLE_SPIKE_PLAN,
+    CONF_ENABLE_FULL_CHARGE_PLAN: DEFAULT_ENABLE_FULL_CHARGE_PLAN,
+}
+
+
+def plan_for_entity_key(key: str) -> str | None:
+    """The Configure switch (CONF_ENABLE_*) an entity key belongs to, if any."""
+    for plan, keys in PLAN_ENTITY_KEYS.items():
+        if key in keys:
+            return plan
+    return None
