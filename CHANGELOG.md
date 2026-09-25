@@ -7,6 +7,17 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.3.4] - 2026-09-25
+
+### Changed
+- **The grid/inverter setpoint (first page of setup/Configure) now accepts
+  a `number` or `input_number`, not only a sensor.** Handy when your own
+  ESS automation writes its setpoint into an input_number and you don't
+  want the integration to control the battery itself. The value is only
+  read (for `Start charge` vs `Actief` in the Status), never written. Its
+  unit is respected: an entity in kW is converted to W automatically (no
+  unit counts as W). Positive still means charging.
+
 ## [0.3.3] - 2026-09-25
 
 ### Changed

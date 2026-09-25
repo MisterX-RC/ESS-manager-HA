@@ -430,7 +430,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         control_settings = ControlSettings(conf)
         if conf.get(CONF_GRID_SETPOINT_ENTITY):
-            setpoint_w = _get_float_state(self.hass, conf.get(CONF_GRID_SETPOINT_ENTITY), default=0.0)
+            # A sensor, number or input_number (as of v0.3.4 - e.g. the
+            # input_number an external automation writes), converted to W
+            # from its own unit (kW input_numbers are common).
+            setpoint_state = self.hass.states.get(conf.get(CONF_GRID_SETPOINT_ENTITY))
+            raw = _get_float_state(self.hass, conf.get(CONF_GRID_SETPOINT_ENTITY), default=0.0)
+            unit = setpoint_state.attributes.get("unit_of_measurement") if setpoint_state else None
+            setpoint_w = control.readback_to_watts(raw, unit)
         else:
             # No separate readback sensor: with direct control, the target
             # number entity's own value is the best readback there is.

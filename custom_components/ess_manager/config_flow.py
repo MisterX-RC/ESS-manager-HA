@@ -115,7 +115,7 @@ FULL_CHARGE_TRACKING_SOURCE_OPTIONS = [
 ]
 
 
-def _optional_entity_selector() -> vol.Maybe:
+def _optional_entity_selector(domain: str | list[str] = "sensor") -> vol.Maybe:
     """An EntitySelector for a field that may be genuinely left unset
     (grid/inverter setpoint, cell voltage differential and its low/high-cell
     alternative, battery charge/discharge energy entities).
@@ -140,7 +140,7 @@ def _optional_entity_selector() -> vol.Maybe:
     proper entity-picker widget (with allow_none set), confirmed by
     reading voluptuous_serialize 2.7.0's convert() directly.
     """
-    return vol.Maybe(selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")))
+    return vol.Maybe(selector.EntitySelector(selector.EntitySelectorConfig(domain=domain)))
 
 
 def _number(minimum: float, maximum: float, step: float, unit: str) -> selector.NumberSelector:
@@ -173,7 +173,7 @@ def _sensors_schema(defaults: dict[str, Any], include_name: bool) -> vol.Schema:
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
             vol.Optional(
                 CONF_GRID_SETPOINT_ENTITY, default=defaults.get(CONF_GRID_SETPOINT_ENTITY)
-            ): _optional_entity_selector(),
+            ): _optional_entity_selector(["sensor", "number", "input_number"]),
             vol.Required(
                 CONF_USAGE_SOURCE, default=current_source or DEFAULT_USAGE_SOURCE
             ): selector.SelectSelector(

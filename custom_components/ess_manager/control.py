@@ -85,6 +85,15 @@ def output_to_power_w(value: float, unit: str, sign: str) -> float:
     return watts + 0.0
 
 
+def readback_to_watts(value: float, unit: Optional[str]) -> float:
+    """A grid/inverter setpoint readback (sensor, number or input_number -
+    as of v0.3.4) in W, from its own unit_of_measurement: kW and MW are
+    converted, W or no unit is taken as W. Sign convention: positive =
+    charging the battery."""
+    factor = {"kw": 1000.0, "mw": 1_000_000.0}.get((unit or "").strip().lower(), 1.0)
+    return value * factor + 0.0
+
+
 def command_value(action: str, power_kw: float, unit: str, sign: str, idle_value: float) -> float:
     """The exact value to send. Idle sends the configured idle value as-is
     (already in the output's own unit and sign, e.g. 0 or -30), never a

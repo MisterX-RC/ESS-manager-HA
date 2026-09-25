@@ -103,9 +103,14 @@ integration producing the same shape works):
   time of day updates happen to run (Solcast typically needs
   today/tomorrow/day_3 at minimum, more if you want headroom late in the
   day).
-- **Grid/inverter setpoint** *(optional but recommended)*: a sensor
-  reporting your current commanded charge/discharge power, used to make the
-  "Status" sensor's engaged-vs-starting distinction accurate.
+- **Grid/inverter setpoint** *(optional but recommended)*: the entity that
+  holds your current commanded charge/discharge power - a sensor, a
+  `number` or an `input_number` (for example the input_number your own ESS
+  automation writes to). Positive = charging. W or kW is taken from the
+  entity's unit, so give an input_number a unit of `W` or `kW` (no unit
+  counts as W). Used to make the "Status" sensor's engaged-vs-starting
+  distinction accurate; nothing is ever written to it. With direct control
+  of a number entity you can leave it empty (see below).
 - **Cell voltage differential** *(optional)*: only needed if you enable the
   full-charge balancing plan.
 - **Battery pack voltage** *(required if you enable the full-charge balancing
@@ -378,7 +383,7 @@ your automation does for a few days, then choose direct control and
 **disable your own ESS automation** so the two don't fight over the
 setpoint.
 
-If you leave the grid/inverter setpoint sensor on the first page empty, the
+If you leave the grid/inverter setpoint on the first page empty, the
 number entity you control is used as the setpoint readback for the Status
 (`Start charge` vs `Actief`).
 
