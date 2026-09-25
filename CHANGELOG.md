@@ -19,6 +19,11 @@ a plain git tag on its own isn't enough for HACS to notice.
   the evening peak 19:15-20:00. The safety buffer still applies, and if
   your max SOC is set below 100% that value stays the target. The
   discharge plan shows the target as `sale_target_kwh`.
+- **The "Automatic control" switch is hidden while it has nothing to
+  control.** With "Status sensor only" (your own automation acts on the
+  Status) the switch is hidden, so it no longer clutters dashboards;
+  choosing a number / input_number entity in Configure shows it again. If
+  you unhide or hide it yourself, that choice is kept.
 
 ## [0.3.1] - 2026-09-25
 

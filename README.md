@@ -323,6 +323,10 @@ Safety:
 - **Automatic control** switch (a new entity on the device): turn it off to
   take over by hand - it sends idle once, then leaves the target alone
   until you turn it back on. Its state survives restarts; on by default.
+  While direct control isn't set up ("Status sensor only"), the switch is
+  hidden (it has nothing to control); choosing a number / input_number
+  entity in Configure shows it again. It's still on the device page under
+  "hidden entities" if you want it.
 - **Fail-safe**: when an update fails (SOC sensor unavailable, price sensor
   missing, an unexpected error), idle is sent instead of leaving the last
   command running.
