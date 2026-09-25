@@ -25,6 +25,11 @@ a plain git tag on its own isn't enough for HACS to notice.
   it always worked.
 - The same choice on the direct-control page now uses this grid wording
   too (it only changed its wording, not what it does).
+- Setup and Configure texts cleaned up: no more "new" or "this is how it
+  has always worked" references, both polarity questions are called
+  "Polarity", and Configure's household consumption page has the same
+  explanation as in setup. The README no longer says "as of vX" or "new"
+  for features that have been there for a while.
 
 ## [0.3.3] - 2026-09-25
 

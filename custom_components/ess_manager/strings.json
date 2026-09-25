@@ -24,7 +24,7 @@
       },
       "usage_consumption": {
         "title": "Household consumption sensor",
-        "description": "Point this at one or more sensors that already report your home's total energy consumed (cumulative kWh) - e.g. a whole-home energy monitor. Each hour's forecast value is that sensor's own historical usage for the same hour/weekday, averaged over your chosen lookback window - no derivation needed, and none of the sensor-resolution mismatches the calculated (energy-balance) option can run into.",
+        "description": "Point this at one or more sensors that already report your home's total energy consumed (cumulative kWh) - e.g. a whole-home energy monitor. Each hour's forecast value is that sensor's own historical usage for the same hour/weekday, averaged over your chosen lookback window - no calculation needed, so none of the sensor-resolution mismatches the Energy dashboard calculation can run into.",
         "data": {
           "usage_consumption_entities": "Home energy consumption sensor(s) (cumulative kWh - more than one if consumption is split across multiple monitors/circuits)",
           "usage_lookback_weeks": "How many weeks back to average (same hour, same day of week)"
@@ -66,18 +66,18 @@
       },
       "control": {
         "title": "Battery control",
-        "description": "Should ESS Manager send the charge/discharge setpoint to your inverter itself?\n\n**Status sensor only** (default) - nothing is sent. ESS Manager only decides, via its Status sensor, and your own automation (see dashboard/automation_example.yaml) turns that into a command. This is how it has always worked.\n\n**Set a number / input_number entity** - ESS Manager sends the setpoint itself every cycle, using the charge/discharge speeds the plans were sized with (limited to your battery's max speeds). A new \"Automatic control\" switch lets you pause it at any time; it also sends idle when an update fails, when the integration is unloaded, and when Home Assistant stops. If you switch this on, disable your own ESS automation so the two don't fight.\n\nThe \"Planned setpoint\" sensor shows what would be sent even while this is off, so you can compare it with your automation first.",
+        "description": "Should ESS Manager send the charge/discharge setpoint to your inverter itself?\n\n**Status sensor only** (default) - nothing is sent. ESS Manager only decides, via its Status sensor, and your own automation (see dashboard/automation_example.yaml) turns that into a command.\n\n**Set a number / input_number entity** - ESS Manager sends the setpoint itself every cycle, using the charge/discharge speeds the plans were sized with (limited to your battery's max speeds). The \"Automatic control\" switch lets you pause it at any time; it also sends idle when an update fails, when the integration is unloaded, and when Home Assistant stops. If you switch this on, disable your own ESS automation so the two don't fight.\n\nThe \"Planned setpoint\" sensor shows what would be sent even while this is off, so you can compare it with your automation first.",
         "data": {
           "control_mode": "Control"
         }
       },
       "control_target": {
         "title": "Battery control - target",
-        "description": "The entity to send the setpoint to - for example your inverter's grid setpoint `number` entity, or the `input_number` your inverter automation reads.\n\nThe idle value is sent exactly as entered whenever the battery should do nothing (usually 0; some Victron systems idle at -30 W).\n\nIf you leave the grid/inverter setpoint sensor on the first page empty, this entity is used as the readback for the Status.",
+        "description": "The entity to send the setpoint to - for example your inverter's grid setpoint `number` entity, or the `input_number` your inverter automation reads.\n\nThe idle value is sent exactly as entered whenever the battery should do nothing (usually 0; some Victron systems idle at -30 W).\n\nIf you leave the grid/inverter setpoint on the first page empty, this entity is used as the readback for the Status.",
         "data": {
           "control_target_entity": "Setpoint entity (number / input_number)",
           "control_unit": "Unit the target expects",
-          "control_sign": "Sign convention",
+          "control_sign": "Polarity of the setpoint",
           "control_idle_value": "Idle value (in the unit above)"
         }
       }
@@ -113,15 +113,16 @@
         "title": "Household usage from the Energy dashboard",
         "description": "The grid, solar and battery statistics are read straight from your Home Assistant Energy dashboard (Settings > Dashboards > Energy) and kept in sync with it automatically - edit them there, not here. Currently detected:\n\n{detected}\n\nEach hour's forecast is the same hour/weekday's household consumption (solar + grid import + battery discharge - grid export - battery charge), averaged over your chosen lookback window.",
         "data": {
-          "usage_lookback_weeks": "How many weeks back to average"
+          "usage_lookback_weeks": "How many weeks back to average (same hour, same day of week)"
         }
       },
       "usage_consumption": {
         "title": "Household consumption sensor",
         "data": {
-          "usage_consumption_entities": "Home energy consumption sensor(s)",
-          "usage_lookback_weeks": "How many weeks back to average"
-        }
+          "usage_consumption_entities": "Home energy consumption sensor(s) (cumulative kWh - more than one if consumption is split across multiple monitors/circuits)",
+          "usage_lookback_weeks": "How many weeks back to average (same hour, same day of week)"
+        },
+        "description": "Point this at one or more sensors that already report your home's total energy consumed (cumulative kWh) - e.g. a whole-home energy monitor. Each hour's forecast value is that sensor's own historical usage for the same hour/weekday, averaged over your chosen lookback window - no calculation needed, so none of the sensor-resolution mismatches the Energy dashboard calculation can run into."
       },
       "full_charge": {
         "title": "Full-charge balancing",
@@ -145,7 +146,7 @@
       },
       "plans": {
         "title": "Price plans",
-        "description": "Two optional plans that act on the electricity price. Both can be switched on or off later in Configure.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.",
+        "description": "Two optional plans that act on the electricity price.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.",
         "data": {
           "enable_negative_price_plan": "Enable the negative price plan",
           "enable_spike_plan": "Enable the spike arbitrage plan"
@@ -153,18 +154,18 @@
       },
       "control": {
         "title": "Battery control",
-        "description": "Should ESS Manager send the charge/discharge setpoint to your inverter itself?\n\n**Status sensor only** (default) - nothing is sent. ESS Manager only decides, via its Status sensor, and your own automation (see dashboard/automation_example.yaml) turns that into a command. This is how it has always worked.\n\n**Set a number / input_number entity** - ESS Manager sends the setpoint itself every cycle, using the charge/discharge speeds the plans were sized with (limited to your battery's max speeds). A new \"Automatic control\" switch lets you pause it at any time; it also sends idle when an update fails, when the integration is unloaded, and when Home Assistant stops. If you switch this on, disable your own ESS automation so the two don't fight.\n\nThe \"Planned setpoint\" sensor shows what would be sent even while this is off, so you can compare it with your automation first.",
+        "description": "Should ESS Manager send the charge/discharge setpoint to your inverter itself?\n\n**Status sensor only** (default) - nothing is sent. ESS Manager only decides, via its Status sensor, and your own automation (see dashboard/automation_example.yaml) turns that into a command.\n\n**Set a number / input_number entity** - ESS Manager sends the setpoint itself every cycle, using the charge/discharge speeds the plans were sized with (limited to your battery's max speeds). The \"Automatic control\" switch lets you pause it at any time; it also sends idle when an update fails, when the integration is unloaded, and when Home Assistant stops. If you switch this on, disable your own ESS automation so the two don't fight.\n\nThe \"Planned setpoint\" sensor shows what would be sent even while this is off, so you can compare it with your automation first.",
         "data": {
           "control_mode": "Control"
         }
       },
       "control_target": {
         "title": "Battery control - target",
-        "description": "The entity to send the setpoint to - for example your inverter's grid setpoint `number` entity, or the `input_number` your inverter automation reads.\n\nThe idle value is sent exactly as entered whenever the battery should do nothing (usually 0; some Victron systems idle at -30 W).\n\nIf you leave the grid/inverter setpoint sensor on the first page empty, this entity is used as the readback for the Status.",
+        "description": "The entity to send the setpoint to - for example your inverter's grid setpoint `number` entity, or the `input_number` your inverter automation reads.\n\nThe idle value is sent exactly as entered whenever the battery should do nothing (usually 0; some Victron systems idle at -30 W).\n\nIf you leave the grid/inverter setpoint on the first page empty, this entity is used as the readback for the Status.",
         "data": {
           "control_target_entity": "Setpoint entity (number / input_number)",
           "control_unit": "Unit the target expects",
-          "control_sign": "Sign convention",
+          "control_sign": "Polarity of the setpoint",
           "control_idle_value": "Idle value (in the unit above)"
         }
       }

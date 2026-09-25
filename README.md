@@ -8,8 +8,8 @@ A Home Assistant custom integration for battery/solar/price-aware charge and
 discharge planning: it watches your battery's state of charge, a solar
 production forecast, a household usage forecast, and dynamic electricity
 prices, and decides when to charge, when to discharge, and how much. It can send the
-charge/discharge setpoint to your inverter itself (optional, as of v0.2.14 -
-see "Direct control"), or leave that to a separate, small automation that
+charge/discharge setpoint to your inverter itself (optional - see "Direct
+control"), or leave that to a separate, small automation that
 acts on its Status sensor.
 
 This started as a hand-written Home Assistant template sensor (that
@@ -274,15 +274,15 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Entity | What it controls |
 |---|---|
 | Minimum SOC | Battery %, below which the low charge plan triggers |
-| Maximum SOC | Battery %, above which the high discharge plan triggers (can be set above 100% to allow deliberate solar overshoot before discharging - the original hand-written version hardcoded this to 110% of a 30 kWh battery). Once triggered, a sale brings the forecast peak down to 100%, not just under this value (as of v0.3.2), so e.g. 110% means sales of at least 10% of capacity; set below 100%, this value itself is the target |
+| Maximum SOC | Battery %, above which the high discharge plan triggers (can be set above 100% to allow deliberate solar overshoot before discharging - the original hand-written version hardcoded this to 110% of a 30 kWh battery). Once triggered, a sale brings the forecast peak down to 100%, not just under this value, so e.g. 110% means sales of at least 10% of capacity; set below 100%, this value itself is the target |
 | Battery capacity | kWh, used to convert the SOC % settings above into kWh thresholds |
 | Charge speed / Discharge speed | Normal charge/discharge rate (kW) used by the planning engines to size grid-driven charge/discharge windows |
 | Negative price charge speed | Rate used specifically during a negative-price event |
 | Spike discharge speed | Rate used specifically during a spike-arbitrage discharge |
 | Negative price threshold | Price (EUR/kWh) below which charging is considered "getting paid" |
 | Spike margin | Minimum day price spread (EUR/kWh) to treat a day as spike-worthy |
-| Minimum charge target | The smallest amount (kWh) any charge buys (as of v0.2.17). Low charge plan: the dip is lifted back to the low threshold; if that needs less than this, the charge is rounded up to it (but never so far that a later peak would cross your max SOC and just be sold again). Spike plan: a pre-peak top-up smaller than this is skipped. Full-charge balancing and the negative price plan are not affected |
-| Safety buffer | % of battery capacity kept on top of your min SOC when selling (as of v0.2.17, default 5%): a sale never brings the forecast below min SOC + buffer - e.g. min SOC 10% + buffer 5% = sales stop at 15%. Room for usage or solar to differ from the forecast, so a sale doesn't end in buying energy back. 0 sells right down to min SOC |
+| Minimum charge target | The smallest amount (kWh) any charge buys. Low charge plan: the dip is lifted back to the low threshold; if that needs less than this, the charge is rounded up to it (but never so far that a later peak would cross your max SOC and just be sold again). Spike plan: a pre-peak top-up smaller than this is skipped. Full-charge balancing and the negative price plan are not affected |
+| Safety buffer | % of battery capacity kept on top of your min SOC when selling (default 5%): a sale never brings the forecast below min SOC + buffer - e.g. min SOC 10% + buffer 5% = sales stop at 15%. Room for usage or solar to differ from the forecast, so a sale doesn't end in buying energy back. 0 sells right down to min SOC |
 | Planning horizon | How many hours ahead the low/high plans are allowed to react to (price data usually doesn't exist much beyond ~48h anyway) |
 | Full charge interval | Days between full-charge/balance cycles |
 | Full charge max hold | Safety timeout (minutes) for the 100%-hold/balance phase |
@@ -320,7 +320,7 @@ topic, ...).
 automation that turns `Status` into an actual command - adapt the
 `target: entity_id:` lines to whatever your inverter setup actually uses.
 
-For the low charge plan and the high discharge plan, `Stop` can now arrive
+For the low charge plan and the high discharge plan, `Stop` can arrive
 *before* the window's own end time, not only at it: every window is sized
 in whole 15-minute units at the full configured charge/discharge rate, so a
 genuinely smaller need can finish early, and continuing to command the full
@@ -333,7 +333,7 @@ of the window's nominal duration has actually elapsed.
 
 ## Direct control
 
-*(Optional, as of v0.2.14.)* Instead of an external automation, ESS Manager
+*(Optional.)* Instead of an external automation, ESS Manager
 can send the setpoint itself. Choose **Set a number / input_number
 entity** on the **Battery control** page (setup or Configure) and pick the
 entity - e.g. your inverter's own grid setpoint `number` entity (Victron
@@ -359,7 +359,7 @@ changed it (then at most once a minute).
 
 Safety:
 
-- **Automatic control** switch (a new entity on the device): turn it off to
+- **Automatic control** switch (an entity on the device): turn it off to
   take over by hand - it sends idle once, then leaves the target alone
   until you turn it back on. Its state survives restarts; on by default.
   While direct control isn't set up ("Status sensor only"), the switch is
@@ -377,7 +377,7 @@ Safety:
   the Status sensor's `control` attribute (`last_error`), and retried next
   cycle.
 
-**Planned setpoint** (a new sensor, kW, positive = charge) and the Status
+**Planned setpoint** (a sensor, kW, positive = charge) and the Status
 sensor's `control_action` / `control` attributes show what would be sent -
 also while direct control is off. That's the easy way to switch over:
 leave control on "Status sensor only", compare Planned setpoint with what
@@ -493,7 +493,7 @@ you're the one who ran the original on a live system:
   dictionaries the dashboard needs still live as attributes on `Status`
   (for drop-in ApexCharts compatibility), but values useful directly in
   automations or history graphs (battery level, charge/discharge amount and
-  timing, days to next full charge) are now their own entities.
+  timing, days to next full charge) are their own entities.
 
 The exact YAML this was ported from (the heavily-commented Jinja2 source
 and the original project notes) is in the git history up to v0.2.20.
