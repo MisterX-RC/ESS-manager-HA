@@ -7,6 +7,14 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.3.3] - 2026-09-25
+
+### Changed
+- README: the installation instructions are rewritten for normal users
+  (no more "push this repository to your own GitHub account"), follow the
+  current HACS menus, and have "Open in HACS" and "Add integration"
+  buttons. No change to the integration itself.
+
 ## [0.3.2] - 2026-09-25
 
 ### Changed

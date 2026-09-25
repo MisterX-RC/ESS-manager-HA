@@ -175,19 +175,34 @@ reporting in Wh or MWh work too.
 
 ## Installation
 
-### Via HACS (custom repository)
+### Via HACS (recommended)
 
-1. Push this repository to your own GitHub account (or fork it).
-2. In Home Assistant: HACS -> Integrations -> ⋮ -> Custom repositories ->
-   add your repo URL, category **Integration**.
-3. Install "ESS Manager" from HACS, restart Home Assistant.
-4. Settings -> Devices & Services -> Add Integration -> "ESS Manager".
+[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MisterX-RC&repository=ESS-manager-HA&category=integration)
+
+The button above opens ESS Manager in HACS on your own Home Assistant (and
+offers to add the repository if needed). Or by hand:
+
+1. In Home Assistant open **HACS**, click the **⋮** menu (top right) ->
+   **Custom repositories**.
+2. Repository: `https://github.com/MisterX-RC/ESS-manager-HA`, type
+   **Integration** -> **Add**. (Once ESS Manager is in the HACS default list
+   you can skip this step and just search for it.)
+3. Search for **ESS Manager** in HACS -> **Download**, then restart Home
+   Assistant.
+4. Add the integration:
+
+   [![Open your Home Assistant instance and start setting up ESS Manager.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ess_manager)
+
+   or Settings -> Devices & services -> **Add integration** -> "ESS Manager".
+
+Updates show up in HACS like any other integration.
 
 ### Manual
 
-Copy `custom_components/ess_manager/` into your Home Assistant
-`config/custom_components/` folder, restart, then add the integration from
-Settings -> Devices & Services as above.
+Download the latest [release](https://github.com/MisterX-RC/ESS-manager-HA/releases),
+copy its `custom_components/ess_manager/` folder into your Home Assistant
+`config/custom_components/` folder, restart, then add the integration as in
+step 4 above. You'll have to repeat this for every update.
 
 ## Configuration
 
