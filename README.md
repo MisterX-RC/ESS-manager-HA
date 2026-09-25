@@ -107,7 +107,8 @@ integration producing the same shape works):
   holds your current commanded charge/discharge power - a sensor, a
   `number` or an `input_number` (for example the input_number your own ESS
   automation writes to). Right below it you choose its polarity:
-  positive = charging (the default) or positive = discharging. W or kW is
+  "Positive = import from the grid (battery charges)" (the default) or
+  "Positive = export to the grid (battery discharges)". W or kW is
   taken from the entity's unit, so give an input_number a unit of `W` or
   `kW` (no unit counts as W). Used to make the "Status" sensor's engaged-vs-starting
   distinction accurate; nothing is ever written to it. With direct control

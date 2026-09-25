@@ -101,8 +101,14 @@ CONTROL_UNIT_OPTIONS = [
 ]
 
 CONTROL_SIGN_OPTIONS = [
-    selector.SelectOptionDict(value=SIGN_CHARGE_POSITIVE, label="Positive = charge the battery, negative = discharge"),
-    selector.SelectOptionDict(value=SIGN_DISCHARGE_POSITIVE, label="Positive = discharge the battery, negative = charge"),
+    selector.SelectOptionDict(
+        value=SIGN_CHARGE_POSITIVE,
+        label="Positive = import from the grid (battery charges), negative = export",
+    ),
+    selector.SelectOptionDict(
+        value=SIGN_DISCHARGE_POSITIVE,
+        label="Positive = export to the grid (battery discharges), negative = import",
+    ),
 ]
 
 CONTROL_TARGET_DOMAINS = {

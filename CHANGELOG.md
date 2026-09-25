@@ -18,10 +18,13 @@ a plain git tag on its own isn't enough for HACS to notice.
   unit is respected: an entity in kW is converted to W automatically (no
   unit counts as W).
 - **New: choose the polarity of the grid/inverter setpoint.** Right below
-  the setpoint on the first page you now pick "Positive = charge the
-  battery" or "Positive = discharge the battery", so a setpoint that uses
-  the opposite sign is read correctly. Existing installations keep
-  "Positive = charge", which is how it always worked.
+  the setpoint on the first page you now pick "Positive = import from the
+  grid (battery charges)" or "Positive = export to the grid (battery
+  discharges)", so a setpoint that uses the opposite sign is read
+  correctly. Existing installations keep "Positive = import", which is how
+  it always worked.
+- The same choice on the direct-control page now uses this grid wording
+  too (it only changed its wording, not what it does).
 
 ## [0.3.3] - 2026-09-25
 
