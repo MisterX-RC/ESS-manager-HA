@@ -596,8 +596,18 @@ def compute_high_discharge_plan(
     battery_now_kwh: float,
     suppress_new: bool = False,
     safety_buffer_kwh: float = 0.0,
+    sale_target_kwh: Optional[float] = None,
 ) -> dict:
-    """`safety_buffer_kwh` (the "Safety buffer" setting, % of capacity,
+    """`sale_target_kwh` (as of v0.3.2) is where a sale brings the forecast
+    peak down to: the coordinator passes 100% of capacity. The HIGH
+    threshold (max SOC, e.g. 110%) is still what triggers a sale, but once
+    triggered it sells the peak down to 100% rather than to just under the
+    threshold - so a 110% max SOC means a sale is always at least ~10% of
+    capacity, never a tiny 0.2 kWh one. If max SOC is set below 100%, the
+    threshold itself stays the target (min of the two). None = the high
+    threshold (the pre-0.3.2 behaviour).
+
+    `safety_buffer_kwh` (the "Safety buffer" setting, % of capacity,
     converted to kWh by the coordinator - as of v0.2.17) is kept on top of
     the low threshold when selling: a sale is capped so the forecast never
     drops below low_threshold_kwh + safety_buffer_kwh after it. Selling
@@ -663,7 +673,8 @@ def compute_high_discharge_plan(
     breach_offset_units = units_to_next_hour + (hour_index * 4)
     breach_unit = cur_unit + breach_offset_units
     future_peak = max(forecast) if forecast else high_threshold_kwh
-    raw_surplus = round(future_peak - high_threshold_kwh, 3)
+    target_peak_kwh = high_threshold_kwh if sale_target_kwh is None else min(sale_target_kwh, high_threshold_kwh)
+    raw_surplus = round(future_peak - target_peak_kwh, 3)
     if raw_surplus <= 0:
         return {"active": False, "breach_unit": 999999}
 
@@ -751,6 +762,7 @@ def compute_high_discharge_plan(
         "capped_by_low_limit": surplus < raw_surplus,
         "low_point_after_sale_kwh": round(low_point_after_sale, 3),
         "sale_floor_kwh": round(sale_floor_kwh, 3),
+        "sale_target_kwh": round(target_peak_kwh, 3),
         "breach_unit": breach_unit,
         "start_unit": best_start,
         "end_unit": best_start + units_needed,

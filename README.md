@@ -51,6 +51,8 @@ Five planning engines, all documented in detail in the code
    below your minimum SOC, during the cheapest available price window.
 2. **High discharge plan** - discharges before the battery would otherwise
    overshoot your maximum SOC, during the priciest available price window,
+   selling the forecast peak back down to 100% (so with a max SOC of 110%
+   a sale is always at least 10% of the battery),
    never selling below your minimum SOC plus the **Safety buffer**.
 3. **Full charge plan** *(optional)* - periodically charges all the way to
    100% and holds there briefly to let the BMS balance cells, on a
@@ -233,7 +235,7 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Entity | What it controls |
 |---|---|
 | Minimum SOC | Battery %, below which the low charge plan triggers |
-| Maximum SOC | Battery %, above which the high discharge plan triggers (can be set above 100% to allow deliberate solar overshoot before discharging - the original hand-written version hardcoded this to 110% of a 30 kWh battery) |
+| Maximum SOC | Battery %, above which the high discharge plan triggers (can be set above 100% to allow deliberate solar overshoot before discharging - the original hand-written version hardcoded this to 110% of a 30 kWh battery). Once triggered, a sale brings the forecast peak down to 100%, not just under this value (as of v0.3.2), so e.g. 110% means sales of at least 10% of capacity; set below 100%, this value itself is the target |
 | Battery capacity | kWh, used to convert the SOC % settings above into kWh thresholds |
 | Charge speed / Discharge speed | Normal charge/discharge rate (kW) used by the planning engines to size grid-driven charge/discharge windows |
 | Negative price charge speed | Rate used specifically during a negative-price event |

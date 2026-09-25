@@ -664,6 +664,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             battery_now_kwh,
             suppress_high_discharge,
             safety_buffer_kwh=safety_buffer_kwh,
+            # A sale triggered by the max-SOC threshold brings the peak down
+            # to 100% (as of v0.3.2), not to just under the threshold.
+            sale_target_kwh=upper_limit_kwh,
         )
 
         battery_forecast_adjusted = plans.compose_forecast_adjusted(

@@ -7,6 +7,19 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.3.2] - 2026-09-25
+
+### Changed
+- **A sale now brings the battery forecast down to 100%, not to just
+  under your max SOC.** The max SOC (for example 110%) still decides
+  *when* a sale is needed, but the sale itself now sells the forecast peak
+  back down to 100%. That way a sale is always a meaningful amount (at
+  least 10% of the battery with a 110% max SOC) instead of tiny sales like
+  0.2 kWh. Live example (15 kWh battery): 0.21 kWh became 1.71 kWh, sold in
+  the evening peak 19:15-20:00. The safety buffer still applies, and if
+  your max SOC is set below 100% that value stays the target. The
+  discharge plan shows the target as `sale_target_kwh`.
+
 ## [0.3.1] - 2026-09-25
 
 ### Changed
