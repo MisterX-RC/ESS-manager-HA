@@ -7,6 +7,16 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.4.1] - 2026-09-26
+
+### Changed
+- **The transport tariff is now the integration's own "Transport tariff"
+  number entity** (on the ESS Manager device, EUR/kWh, default 0) instead
+  of an entity you pick on the first page of setup/Configure. At 0 nothing
+  changes; once the tariff is known, enter it there. 0.4.0 went out with
+  the earlier setup field by mistake - if you picked a tariff entity there,
+  enter its value in the new number entity instead.
+
 ## [0.4.0] - 2026-09-26
 
 ### Added

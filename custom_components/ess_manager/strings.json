@@ -8,7 +8,6 @@
           "name": "Name",
           "battery_soc_entity": "Battery state-of-charge sensor (%)",
           "price_entity": "Electricity price sensor (Nordpool-style, with today/tomorrow quarter-hour price lists)",
-          "transport_tariff_entity": "Grid transport tariff (optional) - a sensor, number or input_number with the base transport price per kWh, in the same unit as the price sensor (and with or without VAT, like the price sensor). Buying then costs price + (tariff x factor for that hour); selling doesn't. Leave empty, or 0, to plan with the price sensor alone",
           "solar_forecast_entities": "Solar forecast sensor(s) (Solcast-style, with a detailedHourly attribute) - add as many as needed to cover your forecast horizon",
           "grid_setpoint_entity": "Grid/inverter setpoint (optional) - a sensor, number or input_number with the currently commanded power (W or kW, from its unit). Used to show Start vs Actief in the Status; with direct control of a number entity it can be left empty",
           "grid_setpoint_sign": "Polarity of the grid/inverter setpoint (only used when one is chosen above)",
@@ -103,7 +102,6 @@
         "data": {
           "battery_soc_entity": "Battery state-of-charge sensor (%)",
           "price_entity": "Electricity price sensor (Nordpool-style, with today/tomorrow quarter-hour price lists)",
-          "transport_tariff_entity": "Grid transport tariff (optional) - a sensor, number or input_number with the base transport price per kWh, in the same unit as the price sensor (and with or without VAT, like the price sensor). Buying then costs price + (tariff x factor for that hour); selling doesn't. Leave empty, or 0, to plan with the price sensor alone",
           "solar_forecast_entities": "Solar forecast sensor(s) (Solcast-style, with a detailedHourly attribute) - add as many as needed to cover your forecast horizon",
           "grid_setpoint_entity": "Grid/inverter setpoint (optional) - a sensor, number or input_number with the currently commanded power (W or kW, from its unit). Used to show Start vs Actief in the Status; with direct control of a number entity it can be left empty",
           "grid_setpoint_sign": "Polarity of the grid/inverter setpoint (only used when one is chosen above)",
