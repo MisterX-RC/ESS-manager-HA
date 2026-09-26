@@ -35,7 +35,9 @@ silently contributed a 0 to the average instead of being excluded from it -
 quietly pulling the forecast down (flagged, but never fixed, in the
 original project's notes). Here, a week is only used if every configured
 term has real data for that hour; weeks with any missing term are skipped
-entirely rather than treated as zero.
+entirely rather than treated as zero. An hour with no usable week at all
+(a statistic younger than a week) falls back to the same clock hour of the
+last 7 days (as of v0.3.5, compute_usage_forecast_detailed).
 """
 from __future__ import annotations
 
@@ -107,6 +109,111 @@ def _week_sample(
     return total
 
 
+# How each forecast hour's value was found (as of v0.3.5) - see
+# compute_usage_forecast_detailed.
+HISTORY_WEEKLY = "weekly"
+HISTORY_RECENT_DAYS = "recent_days"
+HISTORY_NONE = "none"
+
+# The Usage forecast history sensor's state, from worst to best.
+HISTORY_STATUS_OK = "OK"
+HISTORY_STATUS_SHORT = "Short history"
+HISTORY_STATUS_NONE = "No history"
+
+DAY_SECONDS = 24 * HOUR_SECONDS
+RECENT_DAYS = 7
+
+
+def summarize_usage_history(sources: list[str], lookback_weeks: int) -> dict[str, Any]:
+    """Count how the forecast hours were filled in (one entry per hour in
+    `sources`: HISTORY_WEEKLY / HISTORY_RECENT_DAYS / HISTORY_NONE) and
+    give it a single status: OK when every hour has a same-weekday average,
+    "Short history" when some hours use the recent-days fallback, "No
+    history" when some hours have nothing at all (and count as 0 kWh)."""
+    weekly = sum(1 for src in sources if src == HISTORY_WEEKLY)
+    recent = sum(1 for src in sources if src == HISTORY_RECENT_DAYS)
+    none = sum(1 for src in sources if src == HISTORY_NONE)
+    if none:
+        status = HISTORY_STATUS_NONE
+    elif recent:
+        status = HISTORY_STATUS_SHORT
+    else:
+        status = HISTORY_STATUS_OK
+    return {
+        "status": status,
+        "forecast_hours": len(sources),
+        "hours_weekday_average": weekly,
+        "hours_recent_days": recent,
+        "hours_without_history": none,
+        "lookback_weeks": lookback_weeks,
+    }
+
+
+def compute_usage_forecast_detailed(
+    hourly_sums: dict[str, dict[int, float]],
+    import_entities: list[str],
+    export_entities: list[str],
+    solar_entities: list[str],
+    battery_charge_entity: BatteryTerm,
+    battery_discharge_entity: BatteryTerm,
+    now: datetime,
+    forecast_hours: int,
+    lookback_weeks: int,
+) -> tuple[list[float], list[str]]:
+    """Build the h0..h(forecast_hours-1) usage forecast array, plus how
+    each hour was found. h0 is the current (floor-aligned) hour, matching
+    forecasting.build_net_energy's expectations exactly.
+
+    Normally: the same hour on the same weekday, 1..lookback_weeks back
+    (HISTORY_WEEKLY). Fallback for an hour with no usable week at all (as
+    of v0.3.5 - typically a statistic or sensor younger than a week, which
+    before this made the whole forecast 0 kWh for up to a week): the same
+    clock hour on each of the last 7 days that has data, weekday ignored
+    (HISTORY_RECENT_DAYS). With not even that, 0.0 (HISTORY_NONE). Only
+    complete hours count - the current hour never has a statistic yet.
+    """
+    base_hour = now.replace(minute=0, second=0, microsecond=0)
+    base_epoch = int(base_hour.timestamp())
+    recent_first = base_epoch - RECENT_DAYS * DAY_SECONDS
+    recent_last = base_epoch - HOUR_SECONDS
+
+    def sample(epoch: int) -> Optional[float]:
+        return _week_sample(
+            hourly_sums,
+            import_entities,
+            export_entities,
+            solar_entities,
+            battery_charge_entity,
+            battery_discharge_entity,
+            epoch,
+        )
+
+    result: list[float] = []
+    sources: list[str] = []
+    for h in range(forecast_hours):
+        target_hour_epoch = base_epoch + h * HOUR_SECONDS
+        samples = [
+            value
+            for week in range(1, lookback_weeks + 1)
+            if (value := sample(target_hour_epoch - week * WEEK_SECONDS)) is not None
+        ]
+        source = HISTORY_WEEKLY
+        if not samples:
+            source = HISTORY_RECENT_DAYS
+            days_back = range(1, (h * HOUR_SECONDS) // DAY_SECONDS + RECENT_DAYS + 2)
+            samples = [
+                value
+                for days in days_back
+                if recent_first <= (epoch := target_hour_epoch - days * DAY_SECONDS) <= recent_last
+                and (value := sample(epoch)) is not None
+            ]
+        if not samples:
+            source = HISTORY_NONE
+        result.append(round(sum(samples) / len(samples), 3) if samples else 0.0)
+        sources.append(source)
+    return result, sources
+
+
 def compute_usage_forecast(
     hourly_sums: dict[str, dict[int, float]],
     import_entities: list[str],
@@ -118,30 +225,18 @@ def compute_usage_forecast(
     forecast_hours: int,
     lookback_weeks: int,
 ) -> list[float]:
-    """Build the h0..h(forecast_hours-1) usage forecast array. h0 is the
-    current (floor-aligned) hour, matching forecasting.build_net_energy's
-    expectations exactly.
-    """
-    base_hour = now.replace(minute=0, second=0, microsecond=0)
-    result: list[float] = []
-    for h in range(forecast_hours):
-        target_hour_epoch = int(base_hour.timestamp()) + h * HOUR_SECONDS
-        samples: list[float] = []
-        for week in range(1, lookback_weeks + 1):
-            hist_epoch = target_hour_epoch - week * WEEK_SECONDS
-            sample = _week_sample(
-                hourly_sums,
-                import_entities,
-                export_entities,
-                solar_entities,
-                battery_charge_entity,
-                battery_discharge_entity,
-                hist_epoch,
-            )
-            if sample is not None:
-                samples.append(sample)
-        result.append(round(sum(samples) / len(samples), 3) if samples else 0.0)
-    return result
+    """compute_usage_forecast_detailed without the per-hour sources."""
+    return compute_usage_forecast_detailed(
+        hourly_sums,
+        import_entities,
+        export_entities,
+        solar_entities,
+        battery_charge_entity,
+        battery_discharge_entity,
+        now,
+        forecast_hours,
+        lookback_weeks,
+    )[0]
 
 
 def compute_usage_forecast_from_consumption(
@@ -178,6 +273,28 @@ def compute_usage_forecast_from_consumption(
     inconsistent with.
     """
     return compute_usage_forecast(
+        hourly_sums,
+        import_entities=consumption_entities,
+        export_entities=[],
+        solar_entities=[],
+        battery_charge_entity=None,
+        battery_discharge_entity=None,
+        now=now,
+        forecast_hours=forecast_hours,
+        lookback_weeks=lookback_weeks,
+    )
+
+
+def compute_usage_forecast_from_consumption_detailed(
+    hourly_sums: dict[str, dict[int, float]],
+    consumption_entities: list[str],
+    now: datetime,
+    forecast_hours: int,
+    lookback_weeks: int,
+) -> tuple[list[float], list[str]]:
+    """compute_usage_forecast_from_consumption plus the per-hour sources
+    (see compute_usage_forecast_detailed)."""
+    return compute_usage_forecast_detailed(
         hourly_sums,
         import_entities=consumption_entities,
         export_entities=[],

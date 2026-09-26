@@ -7,6 +7,24 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.3.5] - 2026-09-26
+
+### Changed
+- **A new statistic or sensor no longer makes the usage forecast 0 kWh
+  for a week.** The forecast averages the same hour on the same weekday
+  over the last weeks, and an hour was only used if every statistic had
+  data for it - so a statistic younger than a week (for example a new
+  battery meter in the Energy dashboard, or a new consumption sensor) made
+  the whole forecast 0 kWh, and the plans assumed the house used nothing.
+  Now an hour without a usable week uses the same clock hour of the last
+  days instead (with one day of history: yesterday's hour). Only with less
+  than a day of data is an hour still counted as 0 kWh.
+- **Usage forecast history sensor** (diagnostic): `OK`, `Short history` or
+  `No history`, with the hour counts as attributes. A change is logged
+  once, and while more than half of the forecast has no history a Repairs
+  notice appears, which disappears by itself. The Status sensor (and so
+  your automation) is not affected.
+
 ## [0.3.4] - 2026-09-25
 
 ### Changed

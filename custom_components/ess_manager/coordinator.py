@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -72,13 +73,20 @@ from .controller import ControlSettings, EssController
 from .energy_source import async_get_energy_prefs
 from .statistics_source import async_fetch_hourly_sums
 from .usage_forecast import (
-    compute_usage_forecast,
-    compute_usage_forecast_from_consumption,
+    HISTORY_NONE,
+    HISTORY_STATUS_NONE,
+    compute_usage_forecast_detailed,
+    compute_usage_forecast_from_consumption_detailed,
     energy_prefs_to_sources,
+    summarize_usage_history,
     usage_cache_is_stale,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Repairs issue kind for a usage forecast that is mostly without history
+# (as of v0.3.5) - see _update_usage_history_issue.
+USAGE_HISTORY_ISSUE = "usage_forecast_no_history"
 
 # Idle grid-setpoint tolerance window (W). The original hardcoded -30W as
 # "idle" because that specific Victron install's setpoint never quite sat at
@@ -142,6 +150,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # _async_get_energy_dashboard_usage_forecast) - exposed on the Status
         # sensor so it can be checked against the Energy dashboard itself.
         self._energy_dashboard_sources: Optional[dict[str, list[str]]] = None
+        # How much history the cached usage forecast is based on (as of
+        # v0.3.5) - see usage_forecast.summarize_usage_history. Shown on its
+        # own diagnostic sensor (not on Status, whose state automations
+        # trigger on), logged when it changes, and a Repairs notice while
+        # most of the forecast has no history at all.
+        self._usage_history: Optional[dict[str, Any]] = None
+        self._usage_history_logged_status: Optional[str] = None
         # Direct control (as of v0.2.14) - see controller.py.
         self.controller = EssController(hass, entry.title)
 
@@ -163,6 +178,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._usage_forecast_cache = None
         self._usage_forecast_computed_at = None
         self._energy_dashboard_sources = None
+        self._usage_history = None
 
     # -- wiring from number.py --------------------------------------------------
     def register_number(self, key: str, entity: Any) -> None:
@@ -238,6 +254,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # rather than failing the whole coordinator update over it.
             self._usage_forecast_cache = [0.0] * FORECAST_HOURS
             self._usage_forecast_computed_at = now
+            self._set_usage_history([HISTORY_NONE] * FORECAST_HOURS, lookback_weeks)
             return self._usage_forecast_cache
 
         base_hour = now.replace(minute=0, second=0, microsecond=0)
@@ -255,9 +272,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("ESS Manager: could not fetch usage-forecast statistics: %s", err)
             if self._usage_forecast_cache is not None:
                 return self._usage_forecast_cache
+            self._set_usage_history([HISTORY_NONE] * FORECAST_HOURS, lookback_weeks)
             return [0.0] * FORECAST_HOURS
 
-        self._usage_forecast_cache = compute_usage_forecast_from_consumption(
+        self._usage_forecast_cache, hour_sources = compute_usage_forecast_from_consumption_detailed(
             hourly_sums,
             consumption_entities,
             now,
@@ -265,6 +283,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             lookback_weeks,
         )
         self._usage_forecast_computed_at = now
+        self._set_usage_history(hour_sources, lookback_weeks)
         return self._usage_forecast_cache
 
     async def _async_get_energy_dashboard_usage_forecast(self, conf: dict[str, Any], now: datetime) -> list[float]:
@@ -300,6 +319,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             if self._usage_forecast_cache is not None:
                 return self._usage_forecast_cache
+            self._set_usage_history([HISTORY_NONE] * FORECAST_HOURS, lookback_weeks)
             return [0.0] * FORECAST_HOURS
 
         all_ids = [
@@ -319,9 +339,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("ESS Manager: could not fetch usage-forecast statistics: %s", err)
             if self._usage_forecast_cache is not None:
                 return self._usage_forecast_cache
+            self._set_usage_history([HISTORY_NONE] * FORECAST_HOURS, lookback_weeks)
             return [0.0] * FORECAST_HOURS
 
-        self._usage_forecast_cache = compute_usage_forecast(
+        self._usage_forecast_cache, hour_sources = compute_usage_forecast_detailed(
             hourly_sums,
             sources["import"],
             sources["export"],
@@ -333,7 +354,74 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             lookback_weeks,
         )
         self._usage_forecast_computed_at = now
+        self._set_usage_history(hour_sources, lookback_weeks)
         return self._usage_forecast_cache
+
+    def _set_usage_history(self, hour_sources: list[str], lookback_weeks: int) -> None:
+        """Store how the usage forecast was filled in, and log it once
+        whenever the status changes (not every hour)."""
+        history = summarize_usage_history(hour_sources, lookback_weeks)
+        self._usage_history = history
+        status = history["status"]
+        if status == self._usage_history_logged_status:
+            return
+        if history["hours_without_history"]:
+            _LOGGER.warning(
+                "ESS Manager (%s): %s of the next %s hours have no household usage history yet and count "
+                "as 0 kWh - usually a new statistic or sensor; this fills in as history builds up",
+                self.entry.title,
+                history["hours_without_history"],
+                history["forecast_hours"],
+            )
+        elif history["hours_recent_days"]:
+            _LOGGER.warning(
+                "ESS Manager (%s): %s of the next %s hours have no same-weekday usage history yet and use "
+                "the average of the last days instead - usually a statistic or sensor younger than a week",
+                self.entry.title,
+                history["hours_recent_days"],
+                history["forecast_hours"],
+            )
+        elif self._usage_history_logged_status is not None:
+            _LOGGER.info("ESS Manager (%s): usage forecast has full same-weekday history again", self.entry.title)
+        self._usage_history_logged_status = status
+
+    def _update_usage_history_issue(self) -> None:
+        """Repairs notice while more than half of the forecast has no usage
+        history at all; removed by itself once history is there."""
+        issue_id = f"{USAGE_HISTORY_ISSUE}_{self.entry.entry_id}"
+        if not self.usage_history_mostly_missing():
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        history = self._usage_history or {}
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=USAGE_HISTORY_ISSUE,
+            translation_placeholders={
+                "entry_title": self.entry.title,
+                "hours": str(history.get("hours_without_history", 0)),
+                "total": str(history.get("forecast_hours", 0)),
+            },
+            learn_more_url="https://github.com/MisterX-RC/ESS-manager-HA#household-usage-forecast",
+        )
+
+    @property
+    def usage_history(self) -> Optional[dict[str, Any]]:
+        return self._usage_history
+
+    def usage_history_mostly_missing(self) -> bool:
+        """More than half the forecast hours have no usage history at all
+        (the Repairs notice condition)."""
+        history = self._usage_history
+        return bool(
+            history
+            and history["status"] == HISTORY_STATUS_NONE
+            and history["hours_without_history"] * 2 > history["forecast_hours"]
+        )
 
     def _get_voltage_diff(self, conf: dict[str, Any]) -> Optional[float]:
         """The cell voltage differential (millivolts) fed to the full-charge
@@ -423,6 +511,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 f"Household usage source '{usage_source}' is no longer supported - choose the Energy "
                 "dashboard or a consumption sensor in Configure (see Settings > Repairs)"
             )
+        self._update_usage_history_issue()
 
         solar_points: list[list[dict]] = []
         for entity_id in conf.get(CONF_SOLAR_FORECAST_ENTITIES, []):
@@ -760,6 +849,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "solar_120h": solar_forecast,
             "energy_usage_120h": usage_forecast,
             "usage_source": usage_source,
+            "usage_history": self._usage_history,
             "energy_dashboard_sources": (
                 self._energy_dashboard_sources if usage_source == USAGE_SOURCE_ENERGY_DASHBOARD else None
             ),

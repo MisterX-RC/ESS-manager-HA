@@ -2389,6 +2389,84 @@ check("with max SOC below 100% the threshold itself stays the target", _below["s
 _nobreach = _sale_925(15.0, high=17.0)
 check("no sale while the peak stays under the threshold, even above 100%", _nobreach["active"] is False)
 
+# ---------------------------------------------------------------------------
+# v0.3.5: a statistic/sensor younger than a week - recent-days fallback
+# ---------------------------------------------------------------------------
+DAY_S = 24 * HOUR_S
+
+
+def _young_sums(age_hours, per_hour):
+    """A cumulative consumption series that starts `age_hours` before now;
+    per_hour(epoch) is the usage in the hour starting at epoch. Keys are
+    hour-start epochs up to the last complete hour (the current hour has no
+    statistic yet)."""
+    first = usage_base_epoch - age_hours * HOUR_S
+    series, total = {}, 0.0
+    for epoch in range(first, usage_base_epoch, HOUR_S):
+        total += per_hour(epoch)
+        series[epoch] = round(total, 6)
+    return {"sensor.new_meter": series}
+
+
+def _clock_usage(epoch):
+    return 0.5 + (epoch // HOUR_S % 24) / 10.0  # 0.5 kWh at 00 UTC .. 2.8 at 23
+
+
+_f1, _src1 = usage_forecast.compute_usage_forecast_from_consumption_detailed(
+    _young_sums(26, _clock_usage), ["sensor.new_meter"], usage_now, 121, 6
+)
+_h1 = usage_forecast.summarize_usage_history(_src1, 6)
+check("young statistic (1 day): every hour is filled in, none at 0 kWh", all(v > 0 for v in _f1))
+check("young statistic (1 day): each hour is yesterday's same clock hour", all(
+    abs(_f1[h] - _clock_usage(usage_base_epoch + h * HOUR_S)) < 1e-6 for h in range(121)))
+check("young statistic (1 day): status Short history, all hours recent days",
+      _h1["status"] == "Short history" and _h1["hours_recent_days"] == 121 and _h1["hours_without_history"] == 0)
+
+# 3 days of history with a different level each day -> the 3-day average
+def _daily_level(epoch):
+    return {0: 1.0, 1: 2.0, 2: 3.0}[(usage_base_epoch - epoch - 1) // DAY_S]
+
+
+_f3, _src3 = usage_forecast.compute_usage_forecast_from_consumption_detailed(
+    _young_sums(3 * 24, _daily_level), ["sensor.new_meter"], usage_now, 24, 6
+)
+check("young statistic (3 days): each hour averages the days that have data", all(abs(v - 2.0) < 1e-6 for v in _f3[1:]))
+
+# only 3 hours of data -> most hours have nothing at all
+_fn, _srcn = usage_forecast.compute_usage_forecast_from_consumption_detailed(
+    _young_sums(3, lambda e: 1.0), ["sensor.new_meter"], usage_now, 121, 6
+)
+_hn = usage_forecast.summarize_usage_history(_srcn, 6)
+check("3 hours of data: hours without any history stay at 0 kWh and are counted",
+      _hn["status"] == "No history" and _hn["hours_without_history"] > 100 and _fn.count(0.0) == _hn["hours_without_history"])
+check("3 hours of data: the hours that do have a sample use it", _hn["hours_recent_days"] >= 1)
+
+# 6 days old: the far hours already have a same-weekday sample, the near ones use recent days
+_f6, _src6 = usage_forecast.compute_usage_forecast_from_consumption_detailed(
+    _young_sums(6 * 24, _clock_usage), ["sensor.new_meter"], usage_now, 121, 6
+)
+check("6 days old: near hours use recent days, far hours the same-weekday average",
+      _src6[0] == "recent_days" and _src6[23] == "recent_days" and _src6[25] == "weekly" and _src6[120] == "weekly")
+
+# 8 days old: everything on the weekday average -> OK
+_f8, _src8 = usage_forecast.compute_usage_forecast_from_consumption_detailed(
+    _young_sums(8 * 24, _clock_usage), ["sensor.new_meter"], usage_now, 121, 6
+)
+_h8 = usage_forecast.summarize_usage_history(_src8, 6)
+check("8 days old: every hour uses the same-weekday average, status OK",
+      _h8["status"] == "OK" and _h8["hours_weekday_average"] == 121)
+
+# Energy-balance path: one new term (battery meter, 1 day old) next to old grid/solar history
+_old = {k: v for k, v in _young_sums(30 * 24, lambda e: 1.0)["sensor.new_meter"].items()}
+_bal_sums = {"sensor.grid": _old, "sensor.pv": dict(_old), "sensor.bat_out": _young_sums(26, lambda e: 0.25)["sensor.new_meter"]}
+_fb, _srcb = usage_forecast.compute_usage_forecast_detailed(
+    _bal_sums, ["sensor.grid"], [], ["sensor.pv"], None, ["sensor.bat_out"], usage_now, 121, 6
+)
+check("Energy dashboard with one new battery statistic: no longer 0 kWh everywhere",
+      all(abs(v - 2.25) < 1e-6 for v in _fb) and set(_srcb) == {"recent_days"})
+check("compute_usage_forecast still returns just the list", usage_forecast.compute_usage_forecast(
+    _bal_sums, ["sensor.grid"], [], ["sensor.pv"], None, ["sensor.bat_out"], usage_now, 3, 6) == _fb[:3])
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

@@ -186,6 +186,10 @@
     "usage_source_removed": {
       "title": "ESS Manager: choose a household usage source",
       "description": "**{entry_title}** used {source} for its household usage forecast, which was removed in 0.3.0. It couldn't be switched automatically because your Energy dashboard has no grid source.\n\nPlanning is paused until you pick a source: open Settings > Devices & services > ESS Manager > Configure and choose the Energy dashboard or a consumption sensor."
+    },
+    "usage_forecast_no_history": {
+      "title": "ESS Manager: not enough household usage history yet",
+      "description": "**{entry_title}**: {hours} of the next {total} hours have no household usage history yet, so the plans count 0 kWh of household usage for them. This happens right after adding a new statistic to the Energy dashboard, or choosing a new consumption sensor, that has less than a day of data.\n\nAs soon as a day of history exists, the average of the last days is used, and after a week the normal same-weekday average takes over. This notice disappears by itself. Until then, keep an eye on the planned charges and sales. The \"Usage forecast history\" sensor shows the progress."
     }
   }
 }

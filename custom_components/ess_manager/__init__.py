@@ -42,7 +42,7 @@ def _issue_id(kind: str, entry: ConfigEntry) -> str:
 
 # Repairs issue ids used by this integration, per entry. The v0.2.10-0.2.20
 # "deprecated_usage_source" notice is only listed so it gets cleaned up.
-_ISSUE_KINDS = ("usage_source_switched", "usage_source_removed", "deprecated_usage_source")
+_ISSUE_KINDS = ("usage_source_switched", "usage_source_removed", "deprecated_usage_source", "usage_forecast_no_history")
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

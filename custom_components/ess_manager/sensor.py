@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.const import EntityCategory
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
@@ -135,6 +136,7 @@ async def async_setup_entry(
             "kW",
             "mdi:transmission-tower",
         ),
+        EssManagerUsageHistorySensor(coordinator, entry, device_info),
     ]
     async_add_entities(entities)
 
@@ -235,3 +237,42 @@ class EssManagerValueSensor(CoordinatorEntity[EssManagerCoordinator], SensorEnti
         if self.coordinator.data is not None and self.coordinator.data.get(self._data_key) is None:
             return None
         return self._attr_native_unit_of_measurement
+
+
+class EssManagerUsageHistorySensor(CoordinatorEntity[EssManagerCoordinator], SensorEntity):
+    """How much history the household usage forecast is based on (as of
+    v0.3.5) - a diagnostic sensor of its own, so the Status sensor that
+    automations trigger on stays untouched.
+
+    State: "OK" (every forecast hour has a same-weekday average), "Short
+    history" (some hours use the average of the last days, e.g. a statistic
+    or sensor younger than a week) or "No history" (some hours have no data
+    at all and count as 0 kWh). The attributes give the hour counts.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Usage forecast history"
+    _attr_icon = "mdi:history"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_usage_forecast_history"
+        self._attr_device_info = device_info
+
+    def _history(self) -> dict[str, Any] | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.get("usage_history")
+
+    @property
+    def native_value(self) -> str | None:
+        history = self._history()
+        return history.get("status") if history else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        history = self._history()
+        if not history:
+            return {}
+        return {key: value for key, value in history.items() if key != "status"}

@@ -136,6 +136,25 @@ land once an hour anyway), and a week with a genuine gap in the data (an
 entity that didn't exist yet, a recorder outage) is left out of that hour's
 average rather than counted as zero.
 
+**Short history** (for example a statistic you just added to the Energy
+dashboard, or a new consumption sensor): an hour with no usable week at all
+uses the same clock hour on each of the last 7 days that has data, whatever
+the weekday. With one day of history that's yesterday's hour; after a week
+the normal same-weekday average takes over by itself. Note that every
+statistic has to have data for an hour: one new statistic in the energy
+balance also makes the older grid and solar history for that hour unusable
+until it has history of its own. Only with less than a day of data is an
+hour counted as 0 kWh.
+
+The **Usage forecast history** sensor (diagnostic, on the device) shows how
+the forecast is filled in: `OK` (every hour has a same-weekday average),
+`Short history` (some hours use the last days) or `No history` (some hours
+have no data and count as 0 kWh), with the hour counts as attributes. A
+change is logged once, and while more than half of the forecast has no
+history, a notice under Settings -> System -> Repairs asks you to keep an eye
+on the plans; it disappears by itself. The Status sensor is not affected by
+any of this.
+
 *Removed in 0.3.0:* the older **existing h0..h120 sensor** and **calculated
 from hand-picked sensors** sources (deprecated since 0.2.10). When an
 installation that still used one updates to 0.3.0, it's switched to the
