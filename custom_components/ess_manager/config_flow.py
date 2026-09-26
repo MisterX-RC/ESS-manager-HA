@@ -51,7 +51,6 @@ from .const import (
     CONF_MIN_SOC_PERCENT,
     CONF_NAME,
     CONF_PRICE_ENTITY,
-    CONF_TRANSPORT_TARIFF_ENTITY,
     CONF_SOLAR_FORECAST_ENTITIES,
     CONF_USAGE_CONSUMPTION_ENTITIES,
     CONF_USAGE_LOOKBACK_WEEKS,
@@ -177,9 +176,6 @@ def _sensors_schema(defaults: dict[str, Any], include_name: bool) -> vol.Schema:
             vol.Required(CONF_PRICE_ENTITY, default=defaults.get(CONF_PRICE_ENTITY)): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            vol.Optional(
-                CONF_TRANSPORT_TARIFF_ENTITY, default=defaults.get(CONF_TRANSPORT_TARIFF_ENTITY)
-            ): _optional_entity_selector(["sensor", "number", "input_number"]),
             vol.Required(
                 CONF_SOLAR_FORECAST_ENTITIES, default=defaults.get(CONF_SOLAR_FORECAST_ENTITIES, [])
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
@@ -413,8 +409,7 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
     data = dict(data)
     for key in (
         CONF_GRID_SETPOINT_ENTITY,
-        CONF_TRANSPORT_TARIFF_ENTITY,
-        CONF_VOLTAGE_DIFF_ENTITY,
+            CONF_VOLTAGE_DIFF_ENTITY,
         CONF_LOW_CELL_VOLTAGE_ENTITY,
         CONF_HIGH_CELL_VOLTAGE_ENTITY,
         CONF_BATTERY_VOLTAGE_ENTITY,

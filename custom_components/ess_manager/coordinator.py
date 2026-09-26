@@ -34,7 +34,6 @@ from .const import (
     CONF_MAX_BATTERY_CHARGE_SPEED_KW,
     CONF_MAX_BATTERY_DISCHARGE_SPEED_KW,
     CONF_PRICE_ENTITY,
-    CONF_TRANSPORT_TARIFF_ENTITY,
     CONF_SOLAR_FORECAST_ENTITIES,
     CONF_USAGE_CONSUMPTION_ENTITIES,
     CONF_USAGE_LOOKBACK_WEEKS,
@@ -60,6 +59,7 @@ from .const import (
     NUM_NEGATIVE_PRICE_CHARGE_SPEED_KW,
     NUM_NEGATIVE_PRICE_THRESHOLD,
     NUM_SAFETY_BUFFER_PERCENT,
+    NUM_TRANSPORT_TARIFF,
     NUM_PLANNING_HORIZON_HOURS,
     NUM_SPIKE_DISCHARGE_SPEED_KW,
     NUM_SPIKE_MARGIN,
@@ -159,7 +159,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._usage_history: Optional[dict[str, Any]] = None
         self._usage_history_logged_status: Optional[str] = None
         # Transport tariff factors (as of v0.4.0) - transport_factors.json,
-        # read once (in an executor) the first time a tariff entity is set.
+        # read once (in an executor) the first time a tariff above 0 is set.
         self._transport_factors: Optional[dict[int, list[float]]] = None
         # Direct control (as of v0.2.14) - see controller.py.
         self.controller = EssController(hass, entry.title)
@@ -361,15 +361,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._set_usage_history(hour_sources, lookback_weeks)
         return self._usage_forecast_cache
 
-    async def _async_buy_prices(
-        self, conf: dict[str, Any], all_price: list[float]
-    ) -> tuple[Optional[float], list[float]]:
-        """(tariff, buy prices). No tariff entity -> (None, the prices
-        themselves); an unavailable or non-numeric tariff counts as 0."""
-        entity_id = conf.get(CONF_TRANSPORT_TARIFF_ENTITY)
-        if not entity_id:
-            return None, list(all_price)
-        tariff = float(_get_float_state(self.hass, entity_id, default=0.0) or 0.0)
+    async def _async_buy_prices(self, all_price: list[float]) -> tuple[float, list[float]]:
+        """(tariff, buy prices) from the "Transport tariff" number entity
+        (default 0 = no transport: the buy prices are the prices)."""
+        tariff = max(self.get_number(NUM_TRANSPORT_TARIFF, 0.0), 0.0)
+        if not tariff:
+            return 0.0, list(all_price)
         if self._transport_factors is None:
             try:
                 self._transport_factors = await self.hass.async_add_executor_job(transport.load_factors)
@@ -522,7 +519,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         all_price = [float(p) for p in (today_price + tomorrow_price)]
         # Buying costs price + (transport tariff x factor) per unit; selling
         # is the plain price (as of v0.4.0 - see transport.py).
-        transport_tariff, buy_price = await self._async_buy_prices(conf, all_price)
+        transport_tariff, buy_price = await self._async_buy_prices(all_price)
 
         # Only the two supported sources exist (v0.3.0). Anything else - an
         # entry still on a removed source that the v2 migration couldn't

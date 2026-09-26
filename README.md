@@ -91,9 +91,6 @@ integration producing the same shape works):
   the Nordpool HACS integration produces for markets settled at 15-minute
   resolution. A sensor with hourly-only prices will not line up correctly
   with the planning engines' 15-minute unit indexing.
-- **Grid transport tariff** *(optional)*: a sensor, number or input_number
-  with the base transport price per kWh - see "Grid transport tariff"
-  below.
 - **Household usage forecast**: nothing extra if your Home Assistant
   Energy dashboard is set up (at least a grid source) - the integration
   calculates the forecast itself from the statistics the Energy dashboard
@@ -228,12 +225,11 @@ plan (winter: 0.5-0.7, 1.0 from 16:00 to 23:00; summer: 0.0 from 10:00 to
 17:00, 0.3-0.7 otherwise). They're updated with the integration when the
 plan changes; for a different table, fork the repository.
 
-**The tariff** is an entity you choose on the first page of setup or
-Configure (a sensor, number or input_number), in the same unit as your price
-sensor and on the same basis (with or without VAT). Until the tariff is
-known, leave the field empty or set the entity to 0: then the buy price is
-the plain price and nothing changes. An unavailable tariff counts as 0. The
-Status sensor shows the value in use as `transport_tariff`.
+**The tariff** is the integration's own **Transport tariff** number entity
+(on the ESS Manager device, default 0), in the same unit as your price
+sensor and on the same basis (with or without VAT). At 0 the buy price is
+the plain price and nothing changes; once the tariff is known, enter it
+there. The Status sensor shows the value in use as `transport_tariff`.
 
 ## Installation
 
@@ -270,10 +266,9 @@ step 4 above. You'll have to repeat this for every update.
 
 The setup wizard walks through these pages:
 
-1. **Sensors** - name, battery SOC sensor, price sensor, grid transport
-   tariff (optional), solar forecast sensor(s), grid/inverter setpoint and
-   its polarity (optional), the household usage source, and a switch for
-   full-charge balancing.
+1. **Sensors** - name, battery SOC sensor, price sensor, solar forecast
+   sensor(s), grid/inverter setpoint and its polarity (optional), the
+   household usage source, and a switch for full-charge balancing.
 2. **Usage source** - for the Energy dashboard: shows which statistics it
    found, plus the lookback weeks; for a consumption sensor: pick the
    sensor(s), plus the lookback weeks.
@@ -339,6 +334,7 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Spike margin | Minimum day price spread (EUR/kWh) to treat a day as spike-worthy |
 | Minimum charge target | The smallest amount (kWh) any charge buys. Low charge plan: the dip is lifted back to the low threshold; if that needs less than this, the charge is rounded up to it (but never so far that a later peak would cross your max SOC and just be sold again). Spike plan: a pre-peak top-up smaller than this is skipped. Full-charge balancing and the negative price plan are not affected |
 | Safety buffer | % of battery capacity kept on top of your min SOC when selling (default 5%): a sale never brings the forecast below min SOC + buffer - e.g. min SOC 10% + buffer 5% = sales stop at 15%. Room for usage or solar to differ from the forecast, so a sale doesn't end in buying energy back. 0 sells right down to min SOC |
+| Transport tariff | Base grid transport tariff (EUR/kWh, default 0): buying costs price + (tariff x factor for that hour), selling doesn't - see "Grid transport tariff" above. 0 = no transport |
 | Planning horizon | How many hours ahead the low/high plans are allowed to react to (price data usually doesn't exist much beyond ~48h anyway) |
 | Full charge interval | Days between full-charge/balance cycles |
 | Full charge max hold | Safety timeout (minutes) for the 100%-hold/balance phase |
