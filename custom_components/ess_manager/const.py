@@ -16,6 +16,10 @@ UPDATE_INTERVAL_SECONDS = 30
 CONF_NAME = "name"
 CONF_BATTERY_SOC_ENTITY = "battery_soc_entity"
 CONF_PRICE_ENTITY = "price_entity"
+# Base grid transport tariff (as of v0.4.0) - optional sensor/number/
+# input_number in the price sensor's unit per kWh; buy price = price +
+# (tariff x factor from transport_factors.json). See transport.py.
+CONF_TRANSPORT_TARIFF_ENTITY = "transport_tariff_entity"
 CONF_SOLAR_FORECAST_ENTITIES = "solar_forecast_entities"
 CONF_GRID_SETPOINT_ENTITY = "grid_setpoint_entity"
 # Polarity of that setpoint (as of v0.3.4): "charge_positive" (positive =
@@ -230,7 +234,6 @@ NUM_NEGATIVE_PRICE_THRESHOLD = "negative_price_threshold"
 NUM_SPIKE_MARGIN = "spike_margin"
 NUM_MINIMUM_CHARGE_TARGET_KWH = "minimum_charge_target_kwh"
 NUM_SAFETY_BUFFER_PERCENT = "safety_buffer_percent"
-NUM_TRANSPORT_TARIFF = "transport_tariff"
 NUM_PLANNING_HORIZON_HOURS = "planning_horizon_hours"
 NUM_FULL_CHARGE_INTERVAL_DAYS = "full_charge_interval_days"
 NUM_FULL_CHARGE_MAX_HOLD_MINUTES = "full_charge_max_hold_minutes"
@@ -353,19 +356,6 @@ NUMBER_DEFINITIONS = [
         1,
         "%",
         lambda data: 5,
-    ),
-    (
-        # Base grid transport tariff (as of v0.4.0), in the price sensor's
-        # unit per kWh: buy price = price + (tariff x factor from
-        # transport_factors.json) - see transport.py. 0 = no transport.
-        NUM_TRANSPORT_TARIFF,
-        "Transport tariff",
-        "mdi:transmission-tower-import",
-        0.0,
-        1.0,
-        0.001,
-        "EUR/kWh",
-        lambda data: 0.0,
     ),
     (
         NUM_PLANNING_HORIZON_HOURS,

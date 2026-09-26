@@ -2,10 +2,9 @@
 Home Assistant imports, unit-tested in tests/test_pipeline.py).
 
 Buying from the grid will cost the price-sensor price PLUS a transport
-tariff that depends on the month and the hour: the base tariff (the
-integration's own "Transport tariff" number entity, default 0, in the price
-sensor's unit per kWh and on the same VAT basis) times a factor from
-transport_factors.json. Selling is
+tariff that depends on the month and the hour: the base tariff (a
+sensor/number/input_number chosen in setup, EUR/kWh, same unit and VAT basis
+as the price sensor) times a factor from transport_factors.json. Selling is
 never charged transport, so the integration keeps two price lists:
 
 - sell price = the price sensor's own price (`all_price`, unchanged)
