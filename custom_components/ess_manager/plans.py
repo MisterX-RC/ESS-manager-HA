@@ -108,17 +108,23 @@ def compute_negative_price_plan(
     negative_price_charge_speed_kw: float,
     low_threshold_kwh: float,
     high_threshold_kwh: float,
+    buy_price: Optional[list[float]] = None,
 ) -> dict:
+    """`all_price` is the sell price, `buy_price` what buying costs (price
+    + transport, as of v0.4.0; defaults to all_price). Charging is a buy:
+    it triggers on the BUY price being below the threshold. Making room
+    beforehand is a sale: its window is picked by the sell price."""
     prev = prev or {"active": False}
     if prev.get("active") and cur_unit < prev.get("charge_end_unit", -1):
         return prev
+    buy = buy_price if buy_price is not None else all_price
 
     forecast = battery_forecast
     upper_limit = high_threshold_kwh
 
     start = None
-    for i in range(cur_unit, len(all_price)):
-        if all_price[i] < threshold:
+    for i in range(cur_unit, len(buy)):
+        if buy[i] < threshold:
             start = i
             break
     if start is None:
@@ -126,7 +132,7 @@ def compute_negative_price_plan(
 
     end_idx = start
     for _ in range(96):
-        if (end_idx + 1) < len(all_price) and all_price[end_idx + 1] < threshold:
+        if (end_idx + 1) < len(buy) and buy[end_idx + 1] < threshold:
             end_idx += 1
     charge_start = start
     charge_end = end_idx + 1
@@ -258,20 +264,28 @@ def compute_spike_plan(
     spike_discharge_speed_kw: float,
     neg_plan: Optional[dict],
     minimum_charge_target_kwh: float,
+    buy_price: Optional[list[float]] = None,
 ) -> dict:
+    """`all_price` is the sell price, `buy_price` what buying costs (price
+    + transport, as of v0.4.0; defaults to all_price). The spread is the
+    day's highest SELL price minus its lowest BUY price; the charge window
+    is picked by buy price, the discharge window (and its price floor, the
+    lowest buy price + margin) by sell price. day_min_price is therefore a
+    buy price and day_max_price a sell price."""
     prev = prev or {"active": False}
     if prev.get("active") and prev.get("charge_start_unit", -1) <= cur_unit < prev.get("discharge_end_unit", -1):
         return prev
 
     prices = all_price
+    buy = buy_price if buy_price is not None else all_price
     forecast = battery_forecast
     neg = neg_plan or {"active": False}
     neg_excl_start = neg.get("charge_start_unit", -1) if neg.get("active") else -1
     neg_excl_end = neg.get("charge_end_unit", -1) if neg.get("active") else -1
     high_sentinel = 999
     masked_prices = [
-        high_sentinel if (neg.get("active") and neg_excl_start <= i < neg_excl_end) else prices[i]
-        for i in range(len(prices))
+        high_sentinel if (neg.get("active") and neg_excl_start <= i < neg_excl_end) else buy[i]
+        for i in range(len(buy))
     ]
 
     found = False
@@ -286,8 +300,8 @@ def compute_spike_plan(
         for i in range(day_start, day_start + 96):
             if neg.get("active") and neg_excl_start <= i < neg_excl_end:
                 continue
-            if d_min is None or prices[i] < d_min:
-                d_min, min_idx = prices[i], i
+            if d_min is None or buy[i] < d_min:
+                d_min, min_idx = buy[i], i
             if d_max is None or prices[i] > d_max:
                 d_max, max_idx = prices[i], i
         if d_min is not None and (d_max - d_min) > spike_margin:
@@ -300,7 +314,7 @@ def compute_spike_plan(
     if not found:
         return {"active": False}
 
-    after = prices[high_abs + 1 :]
+    after = buy[high_abs + 1 :]
     later_min = min(after) if after else None
     recharge_qualifies = later_min is not None and (day_max - later_min) > spike_margin
     recharge_unit = high_abs + 1 + after.index(later_min) if recharge_qualifies else high_abs
@@ -468,8 +482,12 @@ def compute_low_charge_plan(
     planning_horizon_hours: int,
     battery_now_kwh: float,
     high_threshold_kwh: Optional[float] = None,
+    buy_price: Optional[list[float]] = None,
 ) -> dict:
-    """`minimum_charge_target_kwh` is the smallest amount any charge buys
+    """The charge window is picked by `buy_price` (price + transport, as of
+    v0.4.0; defaults to all_price).
+
+    `minimum_charge_target_kwh` is the smallest amount any charge buys
     (as of v0.2.17; before that it was a battery LEVEL the dip was lifted
     to). The dip is lifted back to the low threshold; if that needs less
     than the minimum, the charge is rounded up to it - but never so far that
@@ -553,8 +571,9 @@ def compute_low_charge_plan(
     effective_charge_per_unit = max(charge_per_unit - avg_usage_per_unit, 0.1)
     units_needed = max(math.ceil(target_kwh / effective_charge_per_unit), 1)
 
-    search_end = min(breach_unit, len(all_price))
-    best_start = _best_price_window(all_price, cur_unit, search_end, units_needed, cheapest=True)
+    buy = buy_price if buy_price is not None else all_price
+    search_end = min(breach_unit, len(buy))
+    best_start = _best_price_window(buy, cur_unit, search_end, units_needed, cheapest=True)
 
     return {
         "active": True,
@@ -936,8 +955,13 @@ def compute_full_charge_plan(
     battery_voltage: Optional[float],
     target_voltage: float,
     balance_threshold: float = 10.0,
+    buy_price: Optional[list[float]] = None,
 ) -> dict:
+    """The charge window is picked by `buy_price` (price + transport, as of
+    v0.4.0; defaults to all_price)."""
     prev = prev or {"active": False, "phase": None}
+    if buy_price is not None:
+        all_price = buy_price  # only ever used to pick the (buy) window
     is_full = soc_now_percent >= 99.5
     voltage_diff = voltage_diff if voltage_diff is not None else 999.0
 

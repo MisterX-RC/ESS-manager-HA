@@ -60,10 +60,61 @@
           if (allPrice.length === 0) return [];
           const curUnit = attrs.current_price_unit || 0;
           const nowMs = Date.now();
-          const top = Math.max(...allPrice) + 0.05;
+          const top = Math.max(...allPrice, ...(attrs.all_buy_price || [])) + 0.05;
           const firstT = nowMs + (0 - curUnit) * 15 * 60000;
           const lastT = nowMs + (allPrice.length - 1 - curUnit) * 15 * 60000;
           return [[firstT, top], [lastT, top]];
+      # Transport (as of v0.4.0): the buy price (price + transport) as a
+      # purple block BEHIND the price blocks below, so the purple that shows
+      # above each block is exactly the transport part. Nothing is drawn
+      # where buying costs the same as the price (no tariff set, or factor 0).
+      - entity: sensor.ess_manager_status
+        type: area
+        curve: stepline
+        opacity: 1
+        color: '#9C27B0'
+        float_precision: 4
+        stroke_width: 0
+        name: Incl. transport
+        show:
+          in_header: false
+          legend_value: false
+        data_generator: |
+          const attrs = entity.attributes;
+          const allPrice = attrs.all_price || [];
+          const buyPrice = attrs.all_buy_price || allPrice;
+          const curUnit = attrs.current_price_unit || 0;
+          const nowMs = Date.now();
+          // Selling pays no transport: no purple over the sell and solar
+          // export windows (same windows as the Sell / Solar export series).
+          const neg = attrs['negative_price_plan'];
+          const spike = attrs['spike_plan'];
+          const high = attrs['high_discharge_plan'];
+          const windows = [];
+          if (neg && neg.active) {
+            windows.push([neg.discharge_start_unit, neg.discharge_end_unit]);
+            windows.push([neg.solar_export_start_unit, neg.solar_export_end_unit]);
+          } else if (spike && spike.active) {
+            windows.push([spike.discharge_start_unit, spike.discharge_end_unit]);
+          } else if (high && high.active) {
+            windows.push([high.start_unit, high.end_unit]);
+          }
+          const selling = (i) => windows.some(([s, e]) => i >= s && i < e);
+          const raw = allPrice.map((value, i) => {
+            const t = nowMs + (i - curUnit) * 15 * 60000;
+            const buy = buyPrice[i];
+            return [t, (buy !== undefined && buy - value > 1e-9 && !selling(i)) ? buy : null];
+          });
+          // Stepped blocks: close each run of prices at the end of its
+          // last 15-minute unit, so the block covers that unit too.
+          const pts = [];
+          raw.forEach((p, i) => {
+            pts.push(p);
+            if (p[1] !== null && (i + 1 === raw.length || raw[i + 1][1] === null)) {
+              pts.push([p[0] + 15 * 60000 - 1, p[1]]);
+            }
+          });
+          return pts;
       - entity: sensor.ess_manager_status
         type: area
         curve: stepline

@@ -34,6 +34,7 @@ forecasting = _load("forecasting")
 plans = _load("plans")
 display = _load("display")
 usage_forecast = _load("usage_forecast")
+transport = _load("transport")
 
 FAILURES = []
 
@@ -2466,6 +2467,107 @@ check("Energy dashboard with one new battery statistic: no longer 0 kWh everywhe
       all(abs(v - 2.25) < 1e-6 for v in _fb) and set(_srcb) == {"recent_days"})
 check("compute_usage_forecast still returns just the list", usage_forecast.compute_usage_forecast(
     _bal_sums, ["sensor.grid"], [], ["sensor.pv"], None, ["sensor.bat_out"], usage_now, 3, 6) == _fb[:3])
+
+# ---------------------------------------------------------------------------
+# v0.4.0: grid transport tariff - buy price = price + (tariff x factor)
+# ---------------------------------------------------------------------------
+from zoneinfo import ZoneInfo  # noqa: E402
+
+AMS = ZoneInfo("Europe/Amsterdam")
+_tf = transport.load_factors()
+check("transport_factors.json: 12 months x 24 hours", sorted(_tf) == list(range(1, 13)) and all(len(r) == 24 for r in _tf.values()))
+check("transport factors: January as in the draft (0.7 / 0.5 / 0.7 / 0.5 / 1.0 16-22h / 0.7)",
+      _tf[1] == [0.7] + [0.5] * 6 + [0.7] * 3 + [0.5] * 6 + [1.0] * 7 + [0.7])
+check("transport factors: June as in the draft (0.5 / 0.3 / 0.0 10-16h / 0.3 / 0.7)",
+      _tf[6] == [0.5] * 3 + [0.3] * 7 + [0.0] * 7 + [0.3] * 2 + [0.7] * 5)
+check("transport factors: months 1-3 and 10-12 share the winter row, 4-9 the summer row",
+      all(_tf[m] == _tf[1] for m in (2, 3, 10, 11, 12)) and all(_tf[m] == _tf[6] for m in (4, 5, 7, 8, 9)))
+try:
+    transport.parse_factors({"factors": {"1": [1.0] * 23}})
+    _bad = False
+except ValueError:
+    _bad = True
+check("an incomplete factor table is refused", _bad)
+
+check("formula: buy = price + (tariff x factor)",
+      transport.compute_buy_prices([0.20, -0.05, 0.10], 0.10, [1.0, 0.0, 0.5]) == [0.3, -0.05, 0.15])
+check("formula: no tariff (None or 0) -> the prices themselves",
+      transport.compute_buy_prices([0.2, 0.1], None, [1.0, 1.0]) == [0.2, 0.1]
+      and transport.compute_buy_prices([0.2, 0.1], 0.0, [1.0, 1.0]) == [0.2, 0.1])
+
+_jan = transport.unit_local_times(datetime(2027, 1, 12, 0, 0, tzinfo=AMS), 192, AMS)
+_janf = transport.unit_factors(_jan, _tf)
+check("unit 67 (16:45) on a January day uses hour 16 = 1.0, unit 63 (15:45) = 0.5", _janf[67] == 1.0 and _janf[63] == 0.5)
+check("tomorrow's units (96+) are tomorrow's hours", _jan[96].day == 13 and _jan[96].hour == 0 and _janf[96] == 0.7)
+_mar = transport.unit_local_times(datetime(2027, 3, 31, 0, 0, tzinfo=AMS), 192, AMS)
+_marf = transport.unit_factors(_mar, _tf)
+check("23:45 on 31 March is still March (1.0 at hour 22, 0.7 at 23); 00:00 is April (0.5)",
+      _marf[91] == 1.0 and _marf[95] == 0.7 and _mar[96].month == 4 and _marf[96] == 0.5)
+# Summer-time start 28 March 2027: 02:00 doesn't exist, 23-hour day (92 units)
+_dst = transport.unit_local_times(datetime(2027, 3, 28, 0, 0, tzinfo=AMS), 96, AMS)
+check("summer-time start: unit 8 is 03:00 (02:00 doesn't exist), unit 92 is the next midnight",
+      _dst[8].hour == 3 and _dst[92].day == 29 and _dst[92].hour == 0)
+# Winter-time start 31 October 2027: 25-hour day (100 units), 02:00 twice
+_wt = transport.unit_local_times(datetime(2027, 10, 31, 0, 0, tzinfo=AMS), 104, AMS)
+check("winter-time start: 02:00 comes twice, unit 100 is the next midnight",
+      _wt[8].hour == 2 and _wt[12].hour == 2 and _wt[100].day == 1 and _wt[100].hour == 0)
+
+# Low charge plan: the raw price is cheapest 16:00-18:00 (winter factor 1.0),
+# but with transport 10:00-12:00 (factor 0.5) is cheaper to buy.
+_raw = [0.20] * 96 + [0.20] * 96
+for _u in range(40, 48):
+    _raw[_u] = 0.16  # 10:00-12:00
+for _u in range(64, 72):
+    _raw[_u] = 0.14  # 16:00-18:00 (cheapest raw)
+_buy = transport.compute_buy_prices(_raw, 0.10, _janf)
+_low_args = dict(cur_unit=0, forecast_with_spike=[10.0] * 20 + [2.0] * 20, now=datetime(2027, 1, 12, 0, 0),
+                 charge_speed_kw=7.0, low_threshold_kwh=3.0, minimum_charge_target_kwh=5.0, upper_limit_kwh=30.0,
+                 usage=[1.0] * 121, all_price=_raw, planning_horizon_hours=72, battery_now_kwh=10.0)
+_low_raw = plans.compute_low_charge_plan(None, **_low_args)
+_low_buy = plans.compute_low_charge_plan(None, **_low_args, buy_price=_buy)
+check("low charge plan without transport covers the cheapest raw price (16:00-18:00)",
+      _low_raw["start_unit"] <= 64 and _low_raw["end_unit"] >= 72)
+check("low charge plan with transport covers the cheapest BUY price (10:00-12:00) instead",
+      _low_buy["start_unit"] <= 40 and _low_buy["end_unit"] >= 48 and _low_buy["end_unit"] <= 64)
+
+# Negative price plan: raw price below the threshold, but not once transport is added
+_negraw = [0.10] * 40 + [-0.25] * 8 + [0.10] * 48
+_negargs = dict(cur_unit=0, now=now_top_of_hour, all_price=_negraw, threshold=-0.20, battery_forecast=[10.0] * 30,
+                discharge_speed_kw=10.0, negative_price_charge_speed_kw=15.0, low_threshold_kwh=3.0, high_threshold_kwh=33.0)
+check("negative price plan: raw price -0.25 < -0.20 triggers", plans.compute_negative_price_plan(None, **_negargs)["active"] is True)
+check("negative price plan: buy price -0.25 + 0.10 = -0.15 doesn't",
+      plans.compute_negative_price_plan(None, **_negargs, buy_price=[p + 0.10 for p in _negraw])["active"] is False)
+
+# Spike plan: spread 0.45 > margin 0.40 on raw prices, gone once buying costs +0.10
+_spk = [0.10] * 30 + [0.55] * 4 + [0.10] * 62
+_spkargs = dict(cur_unit=0, all_price=_spk, battery_forecast=[10.0] * 30, usage=usage_flat, low_threshold_kwh=3.0,
+                upper_limit_kwh=30.0, high_threshold_kwh=33.0, spike_margin=0.40, charge_speed_kw=7.0,
+                spike_discharge_speed_kw=15.0, neg_plan={"active": False}, minimum_charge_target_kwh=5.0)
+check("spike plan: spread on raw prices qualifies", plans.compute_spike_plan(None, **_spkargs)["active"] is True)
+check("spike plan: sell max - BUY min (0.55 - 0.20 = 0.35) no longer beats the 0.40 margin",
+      plans.compute_spike_plan(None, **_spkargs, buy_price=[p + 0.10 for p in _spk])["active"] is False)
+_spk2 = plans.compute_spike_plan(None, **{**_spkargs, "spike_margin": 0.30}, buy_price=[p + 0.10 for p in _spk])
+check("spike plan: day_min_price is the buy price, day_max_price the sell price",
+      _spk2["active"] and abs(_spk2["day_min_price"] - 0.20) < 1e-9 and _spk2["day_max_price"] == 0.55)
+check("spike plan: discharge floor = buy min + margin, window stays on the sell peak",
+      abs(_spk2["discharge_price_floor"] - 0.50) < 1e-9 and 30 <= _spk2["discharge_start_unit"] < 34)
+
+# Full-charge balancing: its window follows the buy price
+_fc_raw = [0.20] * 40
+for _u in range(4, 12):
+    _fc_raw[_u] = 0.10
+_fc_buy = list(_fc_raw)
+for _u in range(4, 12):
+    _fc_buy[_u] = 0.40  # expensive to buy there once transport is added
+for _u in range(24, 32):
+    _fc_buy[_u] = 0.12
+_fcargs = dict(prev=None, cur_unit=0, now=now_top_of_hour, interval_days=14.0, time_since_days=20.0, soc_now_percent=20.0,
+               max_hold_minutes=120.0, voltage_diff=None, battery_now_kwh=12.0, high_threshold_kwh=15.0, usage=[0.3] * 120,
+               charge_speed_kw=10.0, all_price=_fc_raw, battery_forecast=[12.0] * 10, battery_voltage=None, target_voltage=55.2)
+_fc1 = plans.compute_full_charge_plan(**_fcargs)
+_fc2 = plans.compute_full_charge_plan(**_fcargs, buy_price=_fc_buy)
+check("full-charge window without transport: cheapest raw price", 4 <= _fc1["start_unit"] < 12)
+check("full-charge window with transport: cheapest buy price", 24 <= _fc2["start_unit"] < 32)
 
 print()
 if FAILURES:

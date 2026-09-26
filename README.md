@@ -91,6 +91,9 @@ integration producing the same shape works):
   the Nordpool HACS integration produces for markets settled at 15-minute
   resolution. A sensor with hourly-only prices will not line up correctly
   with the planning engines' 15-minute unit indexing.
+- **Grid transport tariff** *(optional)*: a sensor, number or input_number
+  with the base transport price per kWh - see "Grid transport tariff"
+  below.
 - **Household usage forecast**: nothing extra if your Home Assistant
   Energy dashboard is set up (at least a grid source) - the integration
   calculates the forecast itself from the statistics the Energy dashboard
@@ -199,6 +202,39 @@ hour it happened to tick over in, giving odd (even negative) hourly swings.
 Both options read the recorder's statistics converted to kWh, so sensors
 reporting in Wh or MWh work too.
 
+## Grid transport tariff
+
+In the Netherlands grid transport is going to be charged per kWh, with a
+tariff that depends on the month and the hour. It's paid on energy you
+**buy**, not on energy you sell. ESS Manager therefore works with two
+prices per 15-minute unit:
+
+- **Sell price** = the price sensor's own price (the `all_price` attribute).
+- **Buy price** = price + (transport tariff x factor for that unit) (the
+  `all_buy_price` attribute).
+
+Every buy decision uses the buy price: the low charge plan's window,
+full-charge balancing's window, the negative price plan's trigger ("is
+buying below the threshold?") and the spike plan's charge window. Every
+sell decision uses the sell price: the high discharge plan, making room
+before a negative price window, and the spike plan's discharge window. The
+spike plan's spread is the day's highest sell price minus its lowest buy
+price (so its `day_min_price` is a buy price, `day_max_price` a sell price),
+and its discharge price floor is that lowest buy price plus the margin.
+
+**The factors** (month x local hour) come with the integration in
+`custom_components/ess_manager/transport_factors.json` - currently the draft
+plan (winter: 0.5-0.7, 1.0 from 16:00 to 23:00; summer: 0.0 from 10:00 to
+17:00, 0.3-0.7 otherwise). They're updated with the integration when the
+plan changes; for a different table, fork the repository.
+
+**The tariff** is an entity you choose on the first page of setup or
+Configure (a sensor, number or input_number), in the same unit as your price
+sensor and on the same basis (with or without VAT). Until the tariff is
+known, leave the field empty or set the entity to 0: then the buy price is
+the plain price and nothing changes. An unavailable tariff counts as 0. The
+Status sensor shows the value in use as `transport_tariff`.
+
 ## Installation
 
 ### Via HACS (recommended)
@@ -234,9 +270,10 @@ step 4 above. You'll have to repeat this for every update.
 
 The setup wizard walks through these pages:
 
-1. **Sensors** - name, battery SOC sensor, price sensor, solar forecast
-   sensor(s), grid/inverter setpoint sensor (optional), the household usage
-   source, and a switch for full-charge balancing.
+1. **Sensors** - name, battery SOC sensor, price sensor, grid transport
+   tariff (optional), solar forecast sensor(s), grid/inverter setpoint and
+   its polarity (optional), the household usage source, and a switch for
+   full-charge balancing.
 2. **Usage source** - for the Energy dashboard: shows which statistics it
    found, plus the lookback weeks; for a consumption sensor: pick the
    sensor(s), plus the lookback weeks.
@@ -473,6 +510,11 @@ system's dashboard (battery/SOC forecast chart, price chart with buy/sell
 highlighting, and an entities card) - each file's header comment explains
 which placeholder entity_ids to replace with your own. Requires the
 `apexcharts-card` and `multiple-entity-row` HACS frontend cards.
+
+The price chart shows the transport part in purple on top of the price
+blocks (the buy price minus the price), except over sell and solar export
+windows, since selling pays no transport. Without a tariff there's no
+purple.
 
 ## What changed vs. the original hand-written version
 

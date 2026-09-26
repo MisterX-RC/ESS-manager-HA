@@ -16,6 +16,10 @@ UPDATE_INTERVAL_SECONDS = 30
 CONF_NAME = "name"
 CONF_BATTERY_SOC_ENTITY = "battery_soc_entity"
 CONF_PRICE_ENTITY = "price_entity"
+# Base grid transport tariff (as of v0.4.0) - optional sensor/number/
+# input_number in the price sensor's unit per kWh; buy price = price +
+# (tariff x factor from transport_factors.json). See transport.py.
+CONF_TRANSPORT_TARIFF_ENTITY = "transport_tariff_entity"
 CONF_SOLAR_FORECAST_ENTITIES = "solar_forecast_entities"
 CONF_GRID_SETPOINT_ENTITY = "grid_setpoint_entity"
 # Polarity of that setpoint (as of v0.3.4): "charge_positive" (positive =

@@ -17,7 +17,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from . import control, display, forecasting, plans
+from . import control, display, forecasting, plans, transport
 from .const import (
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_VOLTAGE_ENTITY,
@@ -34,6 +34,7 @@ from .const import (
     CONF_MAX_BATTERY_CHARGE_SPEED_KW,
     CONF_MAX_BATTERY_DISCHARGE_SPEED_KW,
     CONF_PRICE_ENTITY,
+    CONF_TRANSPORT_TARIFF_ENTITY,
     CONF_SOLAR_FORECAST_ENTITIES,
     CONF_USAGE_CONSUMPTION_ENTITIES,
     CONF_USAGE_LOOKBACK_WEEKS,
@@ -157,6 +158,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # most of the forecast has no history at all.
         self._usage_history: Optional[dict[str, Any]] = None
         self._usage_history_logged_status: Optional[str] = None
+        # Transport tariff factors (as of v0.4.0) - transport_factors.json,
+        # read once (in an executor) the first time a tariff entity is set.
+        self._transport_factors: Optional[dict[int, list[float]]] = None
         # Direct control (as of v0.2.14) - see controller.py.
         self.controller = EssController(hass, entry.title)
 
@@ -357,6 +361,27 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._set_usage_history(hour_sources, lookback_weeks)
         return self._usage_forecast_cache
 
+    async def _async_buy_prices(
+        self, conf: dict[str, Any], all_price: list[float]
+    ) -> tuple[Optional[float], list[float]]:
+        """(tariff, buy prices). No tariff entity -> (None, the prices
+        themselves); an unavailable or non-numeric tariff counts as 0."""
+        entity_id = conf.get(CONF_TRANSPORT_TARIFF_ENTITY)
+        if not entity_id:
+            return None, list(all_price)
+        tariff = float(_get_float_state(self.hass, entity_id, default=0.0) or 0.0)
+        if self._transport_factors is None:
+            try:
+                self._transport_factors = await self.hass.async_add_executor_job(transport.load_factors)
+            except (OSError, ValueError) as err:
+                # Shipped with the integration and unit-tested, so this
+                # shouldn't happen - but never stop planning over it.
+                _LOGGER.error("ESS Manager: could not read transport_factors.json (%s) - using factor 1.0", err)
+                self._transport_factors = {month: [1.0] * 24 for month in range(1, 13)}
+        times = transport.unit_local_times(dt_util.start_of_local_day(), len(all_price), dt_util.now().tzinfo)
+        factors = transport.unit_factors(times, self._transport_factors)
+        return tariff, transport.compute_buy_prices(all_price, tariff, factors)
+
     def _set_usage_history(self, hour_sources: list[str], lookback_weeks: int) -> None:
         """Store how the usage forecast was filled in, and log it once
         whenever the status changes (not every hour)."""
@@ -495,6 +520,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         today_price = list(price_state.attributes.get("today") or [])
         tomorrow_price = list(price_state.attributes.get("tomorrow") or [])
         all_price = [float(p) for p in (today_price + tomorrow_price)]
+        # Buying costs price + (transport tariff x factor) per unit; selling
+        # is the plain price (as of v0.4.0 - see transport.py).
+        transport_tariff, buy_price = await self._async_buy_prices(conf, all_price)
 
         # Only the two supported sources exist (v0.3.0). Anything else - an
         # entry still on a removed source that the v2 migration couldn't
@@ -659,6 +687,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 battery_forecast,
                 battery_voltage,
                 full_charge_target_voltage,
+                buy_price=buy_price,
             )
         else:
             self._full_charge_plan = {"active": False, "phase": None}
@@ -686,6 +715,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 negative_price_charge_speed_kw,
                 low_threshold_kwh,
                 high_threshold_kwh,
+                buy_price=buy_price,
             )
         else:
             self._negative_price_plan = {"active": False}
@@ -710,6 +740,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 spike_discharge_speed_kw,
                 self._negative_price_plan,
                 minimum_charge_target_kwh,
+                buy_price=buy_price,
             )
         else:
             self._spike_plan = {"active": False}
@@ -733,6 +764,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             planning_horizon_hours,
             battery_now_kwh,
             high_threshold_kwh=high_threshold_kwh,
+            buy_price=buy_price,
         )
         # A full charge relying on a future solar peak (either genuinely
         # scheduled to buy up to it, or silently skipped because that peak
@@ -839,6 +871,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "capacity_kwh": capacity_kwh,
             "current_price_unit": current_price_unit,
             "all_price": all_price,
+            # What buying costs per unit: price + (transport tariff x
+            # factor) - the same as all_price without a tariff (v0.4.0).
+            "all_buy_price": buy_price,
+            "transport_tariff": transport_tariff,
             # Where the "tomorrow" half of all_price begins (i.e. len(today's
             # own price list)) - lets a dashboard split all_price back into
             # its today/tomorrow halves by index without guessing a 96-unit

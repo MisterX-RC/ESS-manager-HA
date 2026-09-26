@@ -7,6 +7,27 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.4.0] - 2026-09-26
+
+### Added
+- **Grid transport tariff.** The Netherlands is moving to a per-kWh grid
+  transport tariff that depends on the month and hour, paid only on energy
+  you buy. Pick an entity with the base tariff (sensor, number or
+  input_number, same unit and VAT basis as your price sensor) on the first
+  page of setup/Configure, and every buy decision uses **price + (tariff x
+  factor)**: the low charge window, the full-charge balancing window, the
+  negative price trigger and the spike plan's charge side. Sell decisions
+  keep the plain price. The factors (the current draft table) come with
+  the integration in `transport_factors.json`. Leave the field empty or
+  set the tariff to 0 until it's known - nothing changes then; an
+  unavailable tariff counts as 0.
+- Status sensor attributes `all_buy_price` (buy price per 15-minute unit)
+  and `transport_tariff` (the tariff in use). The Status state is
+  unchanged.
+- Price chart (`dashboard/price_apexcharts_card.yaml`): the transport part
+  in purple on top of the price blocks, not over sell/export windows.
+  Copy the updated card into your dashboard.
+
 ## [0.3.6] - 2026-09-26
 
 ### Fixed

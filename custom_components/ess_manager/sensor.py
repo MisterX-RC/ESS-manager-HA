@@ -32,6 +32,9 @@ STATUS_ATTRIBUTES = [
     "capacity_kwh",
     "current_price_unit",
     "all_price",
+    # Buying costs price + transport (as of v0.4.0) - see transport.py.
+    "all_buy_price",
+    "transport_tariff",
     "today_price_units",
     "solar_120h",
     "energy_usage_120h",
