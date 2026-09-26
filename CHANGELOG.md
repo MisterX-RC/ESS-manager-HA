@@ -20,6 +20,7 @@ a plain git tag on its own isn't enough for HACS to notice.
   (area, stepline) that start at 0, with negative prices below the 0 line.
   Copy the updated card into your dashboard to get the fix; the
   integration itself is unchanged.
+- README: the price chart screenshot shows the new stepped blocks.
 
 ## [0.3.5] - 2026-09-26
 
