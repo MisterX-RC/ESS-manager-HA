@@ -1,5 +1,10 @@
 # Adapted from the original hand-written template-sensor dashboard.
 #
+# The prices are drawn as stepped areas, not stacked columns: ApexCharts
+# (inside apexcharts-card) draws stacked columns from the bottom of the
+# chart instead of from 0 as soon as a price is negative, which shifted
+# every price block except the first down by the chart's minimum.
+#
 # Unlike the original, this card reads price data straight off
 # sensor.ess_manager_status's own all_price/current_price_unit/
 # today_price_units attributes - it already imported the price data from
@@ -18,12 +23,8 @@
     apex_config:
       chart:
         height: 200px
-        stacked: true
       legend:
         showForSingleSeries: true
-      plotOptions:
-        bar:
-          borderRadius: 2
       yaxis:
         decimalsInFloat: 2
         tickAmount: 10
@@ -64,10 +65,12 @@
           const lastT = nowMs + (allPrice.length - 1 - curUnit) * 15 * 60000;
           return [[firstT, top], [lastT, top]];
       - entity: sensor.ess_manager_status
-        type: column
+        type: area
+        curve: stepline
+        opacity: 1
         color: '#2196F3'
         float_precision: 4
-        stroke_width: 2
+        stroke_width: 0
         name: Buy
         show:
           in_header: false
@@ -97,16 +100,28 @@
           } else if (plan && plan.active) {
             startUnit = plan.start_unit; endUnit = plan.end_unit;
           }
-          return allPrice.map((value, i) => {
+          const raw = allPrice.map((value, i) => {
             const t = nowMs + (i - curUnit) * 15 * 60000;
             const inWindow = startUnit !== null && i >= startUnit && i < endUnit;
             return [t, inWindow ? value : null];
           });
+          // Stepped blocks: close each run of prices at the end of its
+          // last 15-minute unit, so the block covers that unit too.
+          const pts = [];
+          raw.forEach((p, i) => {
+            pts.push(p);
+            if (p[1] !== null && (i + 1 === raw.length || raw[i + 1][1] === null)) {
+              pts.push([p[0] + 15 * 60000 - 1, p[1]]);
+            }
+          });
+          return pts;
       - entity: sensor.ess_manager_status
-        type: column
+        type: area
+        curve: stepline
+        opacity: 1
         color: '#FF5252'
         float_precision: 4
-        stroke_width: 2
+        stroke_width: 0
         name: Sell
         show:
           in_header: false
@@ -128,16 +143,28 @@
           } else if (plan && plan.active) {
             startUnit = plan.start_unit; endUnit = plan.end_unit;
           }
-          return allPrice.map((value, i) => {
+          const raw = allPrice.map((value, i) => {
             const t = nowMs + (i - curUnit) * 15 * 60000;
             const inWindow = startUnit !== null && i >= startUnit && i < endUnit;
             return [t, inWindow ? value : null];
           });
+          // Stepped blocks: close each run of prices at the end of its
+          // last 15-minute unit, so the block covers that unit too.
+          const pts = [];
+          raw.forEach((p, i) => {
+            pts.push(p);
+            if (p[1] !== null && (i + 1 === raw.length || raw[i + 1][1] === null)) {
+              pts.push([p[0] + 15 * 60000 - 1, p[1]]);
+            }
+          });
+          return pts;
       - entity: sensor.ess_manager_status
-        type: column
+        type: area
+        curve: stepline
+        opacity: 1
         color: '#00BCD4'
         float_precision: 4
-        stroke_width: 2
+        stroke_width: 0
         name: Solar export
         show:
           in_header: false
@@ -152,11 +179,21 @@
           if (neg && neg.active && neg.solar_export_end_unit > neg.solar_export_start_unit) {
             startUnit = neg.solar_export_start_unit; endUnit = neg.solar_export_end_unit;
           }
-          return allPrice.map((value, i) => {
+          const raw = allPrice.map((value, i) => {
             const t = nowMs + (i - curUnit) * 15 * 60000;
             const inWindow = startUnit !== null && i >= startUnit && i < endUnit;
             return [t, inWindow ? value : null];
           });
+          // Stepped blocks: close each run of prices at the end of its
+          // last 15-minute unit, so the block covers that unit too.
+          const pts = [];
+          raw.forEach((p, i) => {
+            pts.push(p);
+            if (p[1] !== null && (i + 1 === raw.length || raw[i + 1][1] === null)) {
+              pts.push([p[0] + 15 * 60000 - 1, p[1]]);
+            }
+          });
+          return pts;
       - entity: sensor.ess_manager_status
         type: line
         color: transparent
@@ -200,10 +237,12 @@
             return [t, i >= todayUnits ? value : null];
           });
       - entity: sensor.ess_manager_status
-        type: column
+        type: area
+        curve: stepline
+        opacity: 1
         color: green
         float_precision: 4
-        stroke_width: 2
+        stroke_width: 0
         name: Today's prices
         show:
           in_header: false
@@ -235,7 +274,7 @@
           const sellEnd = negOn ? neg.discharge_end_unit : (spikeOn ? spike.discharge_end_unit : (sell && sell.active ? sell.end_unit : null));
           const exportStart = (negOn && neg.solar_export_end_unit > neg.solar_export_start_unit) ? neg.solar_export_start_unit : null;
           const exportEnd = (negOn && neg.solar_export_end_unit > neg.solar_export_start_unit) ? neg.solar_export_end_unit : null;
-          return allPrice.map((value, i) => {
+          const raw = allPrice.map((value, i) => {
             const t = nowMs + (i - curUnit) * 15 * 60000;
             if (i >= todayUnits) return [t, null];
             const inBuy = buyStart !== null && i >= buyStart && i < buyEnd;
@@ -243,11 +282,23 @@
             const inExport = exportStart !== null && i >= exportStart && i < exportEnd;
             return [t, (inBuy || inSell || inExport) ? null : value];
           });
+          // Stepped blocks: close each run of prices at the end of its
+          // last 15-minute unit, so the block covers that unit too.
+          const pts = [];
+          raw.forEach((p, i) => {
+            pts.push(p);
+            if (p[1] !== null && (i + 1 === raw.length || raw[i + 1][1] === null)) {
+              pts.push([p[0] + 15 * 60000 - 1, p[1]]);
+            }
+          });
+          return pts;
       - entity: sensor.ess_manager_status
-        type: column
+        type: area
+        curve: stepline
+        opacity: 1
         color: yellow
         float_precision: 4
-        stroke_width: 2
+        stroke_width: 0
         name: Tomorrow's prices
         show:
           in_header: false
@@ -279,7 +330,7 @@
           const sellEnd = negOn ? neg.discharge_end_unit : (spikeOn ? spike.discharge_end_unit : (sell && sell.active ? sell.end_unit : null));
           const exportStart = (negOn && neg.solar_export_end_unit > neg.solar_export_start_unit) ? neg.solar_export_start_unit : null;
           const exportEnd = (negOn && neg.solar_export_end_unit > neg.solar_export_start_unit) ? neg.solar_export_end_unit : null;
-          return allPrice.map((value, i) => {
+          const raw = allPrice.map((value, i) => {
             const t = nowMs + (i - curUnit) * 15 * 60000;
             if (i < todayUnits) return [t, null];
             const inBuy = buyStart !== null && i >= buyStart && i < buyEnd;
@@ -287,3 +338,13 @@
             const inExport = exportStart !== null && i >= exportStart && i < exportEnd;
             return [t, (inBuy || inSell || inExport) ? null : value];
           });
+          // Stepped blocks: close each run of prices at the end of its
+          // last 15-minute unit, so the block covers that unit too.
+          const pts = [];
+          raw.forEach((p, i) => {
+            pts.push(p);
+            if (p[1] !== null && (i + 1 === raw.length || raw[i + 1][1] === null)) {
+              pts.push([p[0] + 15 * 60000 - 1, p[1]]);
+            }
+          });
+          return pts;

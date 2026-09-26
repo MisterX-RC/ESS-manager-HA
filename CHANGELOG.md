@@ -7,6 +7,20 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.3.6] - 2026-09-26
+
+### Fixed
+- **Price chart (`dashboard/price_apexcharts_card.yaml`): the price blocks
+  were drawn at the wrong height as soon as a price was negative.** The
+  chart used stacked columns, and ApexCharts (inside apexcharts-card) then
+  draws every column series after the first one from the bottom of the
+  chart instead of from 0 - so today's and tomorrow's prices were shown
+  about 0.05 too low while the sell block was right, which made the sell
+  block look shifted up. The prices are now drawn as stepped blocks
+  (area, stepline) that start at 0, with negative prices below the 0 line.
+  Copy the updated card into your dashboard to get the fix; the
+  integration itself is unchanged.
+
 ## [0.3.5] - 2026-09-26
 
 ### Changed
