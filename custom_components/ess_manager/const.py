@@ -219,7 +219,11 @@ DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN = True
 # value of these entities every update cycle (not the CONF_* seed values
 # above) via coordinator.get_number(key).
 # ---------------------------------------------------------------------------
+# The solar-deficit minimum SOC keeps the original key (so an existing
+# "Minimum SOC" entity simply becomes it, value and history included); the
+# solar-surplus one is new in v0.5.0 - see forecasting.compute_solar_mode.
 NUM_MIN_SOC_PERCENT = "min_soc_percent"
+NUM_MIN_SOC_SURPLUS_PERCENT = "min_soc_surplus_percent"
 NUM_MAX_SOC_PERCENT = "max_soc_percent"
 NUM_BATTERY_CAPACITY_KWH = "battery_capacity_kwh"
 NUM_CHARGE_SPEED_KW = "charge_speed_kw"
@@ -242,13 +246,26 @@ NUM_FULL_CHARGE_TARGET_VOLTAGE = "full_charge_target_voltage"
 NUMBER_DEFINITIONS = [
     (
         NUM_MIN_SOC_PERCENT,
-        "Minimum SOC",
+        "Minimum SOC (solar deficit)",
         "mdi:battery-low",
         0,
         100,
         1,
         "%",
         lambda data: data.get(CONF_MIN_SOC_PERCENT, DEFAULT_MIN_SOC_PERCENT),
+    ),
+    (
+        # No seed of its own: the coordinator copies the deficit minimum's
+        # CURRENT value into it on its first update (EssManagerNumber.
+        # seed_if_unset), so nothing changes until it's lowered.
+        NUM_MIN_SOC_SURPLUS_PERCENT,
+        "Minimum SOC (solar surplus)",
+        "mdi:battery-10",
+        0,
+        100,
+        1,
+        "%",
+        lambda data: None,
     ),
     (
         NUM_MAX_SOC_PERCENT,

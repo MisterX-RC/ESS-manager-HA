@@ -7,6 +7,25 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.0] - 2026-09-26
+
+### Added
+- **Two minimum SOCs: solar deficit and solar surplus.** "Minimum SOC"
+  becomes **Minimum SOC (solar deficit)** (same entity, same value), and
+  there's a new **Minimum SOC (solar surplus)**. The deficit one applies
+  when the raw battery forecast (solar and usage only) runs empty before
+  it would fill up past 100% within the 5-day forecast - the grid has to
+  refill the battery, so you keep backup energy for a grid failure. The
+  surplus one applies otherwise, and can be set close to 0: the sun
+  refills the battery. A short dip followed by a climb to 100% stays
+  surplus, so it doesn't trigger a useless charge. The minimum in use is
+  the low threshold for every plan (charging and selling).
+- **Solar mode** sensor: `Deficit` or `Surplus`, with the minimum in use,
+  both minimums, and in how many hours the raw forecast runs empty or
+  fills up. The Status sensor is unchanged.
+- The surplus minimum starts at the deficit minimum's current value, so
+  nothing changes until you lower it.
+
 ## [0.4.1] - 2026-09-26
 
 ### Changed

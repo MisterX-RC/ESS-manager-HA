@@ -73,6 +73,27 @@ forecast minus usage forecast, cumulatively summed into a projected battery
 level, compensated for the fact that the current hour is only partially
 elapsed (see the code comments in `forecasting.py` for why that matters).
 
+**Two minimum SOCs: solar deficit and solar surplus.** The minimum SOC is
+the backup energy you keep for a grid failure. How much you need depends on
+whether the sun or the grid refills the battery, so there are two:
+
+- **Minimum SOC (solar deficit)** - used when the raw battery forecast
+  (solar and usage only, no planned charges or sales) runs empty (below 0%)
+  before it would fill up past 100%. The grid will have to refill the
+  battery, so keep a real reserve.
+- **Minimum SOC (solar surplus)** - used otherwise: the forecast fills up
+  past 100% before it would run empty, or never runs empty at all within
+  the 5 days. The sun refills the battery, so this one can be set close
+  to 0. A short dip followed by a climb to 100% stays surplus, so it
+  doesn't trigger a charge the sun would make useless.
+
+The whole 121-hour forecast counts, and the nearest of the two moments
+decides. The minimum in use is the low threshold for every plan - when to
+charge, and how far a sale may go. The **Solar mode** sensor shows
+`Deficit` or `Surplus`, the minimum in use and in how many hours the raw
+forecast runs empty or fills up; the battery chart's min SOC line follows
+the minimum in use.
+
 By default the integration only decides: its `Status` sensor says what
 should happen and your own automation acts on it - see "Wiring it to your
 inverter" below. Optionally it sends the setpoint itself - see "Direct
@@ -324,7 +345,8 @@ Manager device in Settings -> Devices & Services -> Entities:
 
 | Entity | What it controls |
 |---|---|
-| Minimum SOC | Battery %, below which the low charge plan triggers |
+| Minimum SOC (solar deficit) | Battery %, below which the low charge plan triggers while there's a solar deficit - see "Two minimum SOCs" above |
+| Minimum SOC (solar surplus) | The same while there's a solar surplus; can be set close to 0. Starts at the deficit value |
 | Maximum SOC | Battery %, above which the high discharge plan triggers (can be set above 100% to allow deliberate solar overshoot before discharging - the original hand-written version hardcoded this to 110% of a 30 kWh battery). Once triggered, a sale brings the forecast peak down to 100%, not just under this value, so e.g. 110% means sales of at least 10% of capacity; set below 100%, this value itself is the target |
 | Battery capacity | kWh, used to convert the SOC % settings above into kWh thresholds |
 | Charge speed / Discharge speed | Normal charge/discharge rate (kW) used by the planning engines to size grid-driven charge/discharge windows |

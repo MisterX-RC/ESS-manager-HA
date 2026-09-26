@@ -55,6 +55,7 @@ from .const import (
     NUM_FULL_CHARGE_TARGET_VOLTAGE,
     NUM_MAX_SOC_PERCENT,
     NUM_MIN_SOC_PERCENT,
+    NUM_MIN_SOC_SURPLUS_PERCENT,
     NUM_MINIMUM_CHARGE_TARGET_KWH,
     NUM_NEGATIVE_PRICE_CHARGE_SPEED_KW,
     NUM_NEGATIVE_PRICE_THRESHOLD,
@@ -574,7 +575,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # -- tunables (numbers) ------------------------------------------------
         capacity_kwh = self.get_number(NUM_BATTERY_CAPACITY_KWH, 30.0)
-        min_soc_percent = self.get_number(NUM_MIN_SOC_PERCENT, 15.0)
+        # Two minimum SOCs (as of v0.5.0): the solar-deficit one (the
+        # original "Minimum SOC") and the solar-surplus one - which applies
+        # is decided below, from the raw battery forecast.
+        min_soc_deficit_percent = self.get_number(NUM_MIN_SOC_PERCENT, 15.0)
+        surplus_entity = self._numbers.get(NUM_MIN_SOC_SURPLUS_PERCENT)
+        if surplus_entity is not None:
+            surplus_entity.seed_if_unset(min_soc_deficit_percent)
+        min_soc_surplus_percent = self.get_number(NUM_MIN_SOC_SURPLUS_PERCENT, min_soc_deficit_percent)
         max_soc_percent = self.get_number(NUM_MAX_SOC_PERCENT, 110.0)
         charge_speed_kw = self.get_number(NUM_CHARGE_SPEED_KW, 7.0)
         discharge_speed_kw = self.get_number(NUM_DISCHARGE_SPEED_KW, 10.0)
@@ -598,7 +606,6 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # not a fixed hardware property, so it's an ordinary `number` entity.
         full_charge_target_voltage = self.get_number(NUM_FULL_CHARGE_TARGET_VOLTAGE, DEFAULT_FULL_CHARGE_TARGET_VOLTAGE)
 
-        low_threshold_kwh = round((min_soc_percent / 100) * capacity_kwh, 2)
         # Kept on top of the low threshold when selling (see
         # compute_high_discharge_plan) - % of capacity, like min/max SOC.
         safety_buffer_kwh = round((safety_buffer_percent / 100) * capacity_kwh, 2)
@@ -620,6 +627,20 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         battery_forecast = forecasting.build_battery_forecast(
             net_energy, battery_now_kwh, now, max_battery_charge_speed_kw, max_battery_discharge_speed_kw
         )
+
+        # Solar deficit or surplus (as of v0.5.0): does the raw forecast run
+        # empty before solar fills the battery? That decides which minimum
+        # SOC - and so the low threshold every plan uses - applies.
+        solar_mode = forecasting.compute_solar_mode(battery_forecast, capacity_kwh)
+        min_soc_percent = (
+            min_soc_deficit_percent
+            if solar_mode["mode"] == forecasting.SOLAR_MODE_DEFICIT
+            else min_soc_surplus_percent
+        )
+        solar_mode["min_soc_percent"] = min_soc_percent
+        solar_mode["min_soc_deficit_percent"] = min_soc_deficit_percent
+        solar_mode["min_soc_surplus_percent"] = min_soc_surplus_percent
+        low_threshold_kwh = round((min_soc_percent / 100) * capacity_kwh, 2)
 
         current_price_unit = (now.hour * 4) + (now.minute // 15)
 
@@ -864,6 +885,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "battery_energy_kwh": battery_now_kwh,
             "battery_soc_percent": soc_now_percent,
             "low_threshold_kwh": low_threshold_kwh,
+            "solar_mode": solar_mode,
             "high_threshold_kwh": high_threshold_kwh,
             "capacity_kwh": capacity_kwh,
             "current_price_unit": current_price_unit,

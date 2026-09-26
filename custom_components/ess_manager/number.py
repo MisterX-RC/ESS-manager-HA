@@ -100,6 +100,15 @@ class EssManagerNumber(RestoreNumber, NumberEntity):
     def _async_sync_visibility(self) -> None:
         async_sync_visibility(self, self._coordinator.plan_enabled(self._plan))
 
+    @callback
+    def seed_if_unset(self, value: float) -> None:
+        """Give an entity without a seed of its own (and nothing restored)
+        its first value - see NUM_MIN_SOC_SURPLUS_PERCENT."""
+        if self._attr_native_value is None:
+            self._attr_native_value = value
+            if self.hass is not None:
+                self.async_write_ha_state()
+
     async def async_set_native_value(self, value: float) -> None:
         self._attr_native_value = value
         self.async_write_ha_state()

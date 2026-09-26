@@ -2569,6 +2569,24 @@ _fc2 = plans.compute_full_charge_plan(**_fcargs, buy_price=_fc_buy)
 check("full-charge window without transport: cheapest raw price", 4 <= _fc1["start_unit"] < 12)
 check("full-charge window with transport: cheapest buy price", 24 <= _fc2["start_unit"] < 32)
 
+# ---------------------------------------------------------------------------
+# v0.5.0: solar deficit / surplus - which minimum SOC applies
+# ---------------------------------------------------------------------------
+_sm = forecasting.compute_solar_mode
+check("solar mode: never runs empty -> surplus", _sm([10.0, 8.0, 5.0, 3.0] + [4.0] * 117, 30.0)["mode"] == "surplus")
+check("solar mode: runs empty, never fills -> deficit", _sm([5.0, 3.0, 1.0, -0.5] + [-2.0] * 117, 30.0)["mode"] == "deficit")
+_dip = [5.0, 3.0, 1.0, 0.5] + [2.0 + 2 * h for h in range(117)]
+check("solar mode: a dip just above 0 followed by a climb past 100% -> surplus (no useless charge)",
+      _sm(_dip, 30.0)["mode"] == "surplus" and _sm(_dip, 30.0)["full_hour"] is not None)
+_empty_first = [5.0] * 10 + [-1.0] * 20 + [31.0] * 91
+check("solar mode: empty before full -> deficit (the nearest breach decides)",
+      _sm(_empty_first, 30.0) == {"mode": "deficit", "empty_hour": 10, "full_hour": 30})
+_full_first = [20.0] * 8 + [31.0] * 32 + [-1.0] * 81
+check("solar mode: full before empty -> surplus",
+      _sm(_full_first, 30.0) == {"mode": "surplus", "empty_hour": 40, "full_hour": 8})
+check("solar mode: the whole 121 hours count (empty only in hour 120 -> deficit)",
+      _sm([10.0] * 120 + [-0.1], 30.0)["mode"] == "deficit")
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

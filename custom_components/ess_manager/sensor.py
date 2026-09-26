@@ -140,6 +140,7 @@ async def async_setup_entry(
             "mdi:transmission-tower",
         ),
         EssManagerUsageHistorySensor(coordinator, entry, device_info),
+        EssManagerSolarModeSensor(coordinator, entry, device_info),
     ]
     async_add_entities(entities)
 
@@ -279,3 +280,52 @@ class EssManagerUsageHistorySensor(CoordinatorEntity[EssManagerCoordinator], Sen
         if not history:
             return {}
         return {key: value for key, value in history.items() if key != "status"}
+
+
+class EssManagerSolarModeSensor(CoordinatorEntity[EssManagerCoordinator], SensorEntity):
+    """Solar deficit or surplus (as of v0.5.0) - which minimum SOC is in
+    use (see forecasting.compute_solar_mode). A sensor of its own, so the
+    Status sensor that automations trigger on stays untouched.
+
+    State: "Deficit" (the raw forecast runs empty before solar fills the
+    battery: the higher solar-deficit minimum applies) or "Surplus" (the
+    lower solar-surplus minimum applies). Attributes: the minimum in use,
+    both minimums, and in how many hours the raw forecast runs empty / goes
+    above 100% (None = not within the 121-hour forecast).
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Solar mode"
+
+    def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_solar_mode"
+        self._attr_device_info = device_info
+
+    def _mode(self) -> dict[str, Any] | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.get("solar_mode")
+
+    @property
+    def native_value(self) -> str | None:
+        mode = self._mode()
+        return mode["mode"].capitalize() if mode else None
+
+    @property
+    def icon(self) -> str:
+        mode = self._mode()
+        return "mdi:weather-sunny" if mode and mode["mode"] == "surplus" else "mdi:weather-cloudy"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        mode = self._mode()
+        if not mode:
+            return {}
+        return {
+            "min_soc_percent": mode["min_soc_percent"],
+            "min_soc_deficit_percent": mode["min_soc_deficit_percent"],
+            "min_soc_surplus_percent": mode["min_soc_surplus_percent"],
+            "empty_in_hours": mode["empty_hour"],
+            "full_in_hours": mode["full_hour"],
+        }

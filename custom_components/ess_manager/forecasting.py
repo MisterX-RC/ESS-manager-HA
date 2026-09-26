@@ -136,3 +136,38 @@ def build_battery_forecast(
         soc = soc + step
         values.append(round(soc, 2))
     return values
+
+
+# ---------------------------------------------------------------------------
+# Solar deficit / surplus (as of v0.5.0) - which minimum SOC applies
+# ---------------------------------------------------------------------------
+SOLAR_MODE_DEFICIT = "deficit"
+SOLAR_MODE_SURPLUS = "surplus"
+
+
+def compute_solar_mode(raw_forecast: list[float], capacity_kwh: float) -> dict:
+    """Whether solar carries the house over the whole forecast (surplus) or
+    the grid will be needed (deficit), from the RAW battery forecast
+    (solar and usage only - no planned charges or sales), all 121 hours.
+
+    - The first hour it drops below 0 kWh (the battery would run empty) is
+      the empty hour; the first hour it goes above 100% of capacity (the
+      battery would fill up on solar alone) is the full hour.
+    - Deficit when it runs empty before it fills up (or runs empty and
+      never fills up); surplus otherwise - including when it never runs
+      empty at all. A small dip right now followed by a climb to 100%
+      therefore stays surplus: the sun refills the battery before it's
+      empty, so a charge from the grid would be wasted.
+
+    Deficit uses the higher "Minimum SOC (solar deficit)" (backup energy
+    for a grid failure when the grid is what refills the battery);
+    surplus the lower "Minimum SOC (solar surplus)".
+    """
+    empty_hour = next((h for h, kwh in enumerate(raw_forecast) if kwh < 0), None)
+    full_hour = next((h for h, kwh in enumerate(raw_forecast) if kwh > capacity_kwh), None)
+    deficit = empty_hour is not None and (full_hour is None or empty_hour < full_hour)
+    return {
+        "mode": SOLAR_MODE_DEFICIT if deficit else SOLAR_MODE_SURPLUS,
+        "empty_hour": empty_hour,
+        "full_hour": full_hour,
+    }
