@@ -26,6 +26,13 @@ a plain git tag on its own isn't enough for HACS to notice.
 - The surplus minimum starts at the deficit minimum's current value, so
   nothing changes until you lower it.
 
+### Fixed
+- **Price chart: today's last price was drawn across all of tomorrow**
+  while tomorrow's prices weren't published yet. apexcharts-card stretches
+  the last value of an area series to the end of the chart by default;
+  the card now turns that off (`extend_to: false`). Copy the updated
+  `dashboard/price_apexcharts_card.yaml` into your dashboard.
+
 ## [0.4.1] - 2026-09-26
 
 ### Changed

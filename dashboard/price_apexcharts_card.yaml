@@ -34,6 +34,11 @@
           datetimeFormatter:
             hour: HH
     all_series_config:
+      # apexcharts-card stretches the last value of a line/area series to
+      # the end of the chart by default (extend_to: end) - without this,
+      # today's last price would be drawn over all of tomorrow while
+      # tomorrow's prices aren't published yet.
+      extend_to: false
       show:
         offset_in_name: false
     header:
