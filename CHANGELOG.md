@@ -7,7 +7,7 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
-## [0.5.0] - 2026-09-26
+## [0.4.2] - 2026-09-27
 
 ### Added
 - **Two minimum SOCs: solar deficit and solar surplus.** "Minimum SOC"

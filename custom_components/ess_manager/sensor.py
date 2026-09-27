@@ -283,7 +283,7 @@ class EssManagerUsageHistorySensor(CoordinatorEntity[EssManagerCoordinator], Sen
 
 
 class EssManagerSolarModeSensor(CoordinatorEntity[EssManagerCoordinator], SensorEntity):
-    """Solar deficit or surplus (as of v0.5.0) - which minimum SOC is in
+    """Solar deficit or surplus (as of v0.4.2) - which minimum SOC is in
     use (see forecasting.compute_solar_mode). A sensor of its own, so the
     Status sensor that automations trigger on stays untouched.
 

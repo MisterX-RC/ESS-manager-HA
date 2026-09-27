@@ -2570,7 +2570,7 @@ check("full-charge window without transport: cheapest raw price", 4 <= _fc1["sta
 check("full-charge window with transport: cheapest buy price", 24 <= _fc2["start_unit"] < 32)
 
 # ---------------------------------------------------------------------------
-# v0.5.0: solar deficit / surplus - which minimum SOC applies
+# v0.4.2: solar deficit / surplus - which minimum SOC applies
 # ---------------------------------------------------------------------------
 _sm = forecasting.compute_solar_mode
 check("solar mode: never runs empty -> surplus", _sm([10.0, 8.0, 5.0, 3.0] + [4.0] * 117, 30.0)["mode"] == "surplus")

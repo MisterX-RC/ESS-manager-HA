@@ -139,7 +139,7 @@ def build_battery_forecast(
 
 
 # ---------------------------------------------------------------------------
-# Solar deficit / surplus (as of v0.5.0) - which minimum SOC applies
+# Solar deficit / surplus (as of v0.4.2) - which minimum SOC applies
 # ---------------------------------------------------------------------------
 SOLAR_MODE_DEFICIT = "deficit"
 SOLAR_MODE_SURPLUS = "surplus"

@@ -221,7 +221,7 @@ DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN = True
 # ---------------------------------------------------------------------------
 # The solar-deficit minimum SOC keeps the original key (so an existing
 # "Minimum SOC" entity simply becomes it, value and history included); the
-# solar-surplus one is new in v0.5.0 - see forecasting.compute_solar_mode.
+# solar-surplus one is new in v0.4.2 - see forecasting.compute_solar_mode.
 NUM_MIN_SOC_PERCENT = "min_soc_percent"
 NUM_MIN_SOC_SURPLUS_PERCENT = "min_soc_surplus_percent"
 NUM_MAX_SOC_PERCENT = "max_soc_percent"

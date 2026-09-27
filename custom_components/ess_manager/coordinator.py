@@ -575,7 +575,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # -- tunables (numbers) ------------------------------------------------
         capacity_kwh = self.get_number(NUM_BATTERY_CAPACITY_KWH, 30.0)
-        # Two minimum SOCs (as of v0.5.0): the solar-deficit one (the
+        # Two minimum SOCs (as of v0.4.2): the solar-deficit one (the
         # original "Minimum SOC") and the solar-surplus one - which applies
         # is decided below, from the raw battery forecast.
         min_soc_deficit_percent = self.get_number(NUM_MIN_SOC_PERCENT, 15.0)
@@ -628,7 +628,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             net_energy, battery_now_kwh, now, max_battery_charge_speed_kw, max_battery_discharge_speed_kw
         )
 
-        # Solar deficit or surplus (as of v0.5.0): does the raw forecast run
+        # Solar deficit or surplus (as of v0.4.2): does the raw forecast run
         # empty before solar fills the battery? That decides which minimum
         # SOC - and so the low threshold every plan uses - applies.
         solar_mode = forecasting.compute_solar_mode(battery_forecast, capacity_kwh)
