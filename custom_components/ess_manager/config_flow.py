@@ -47,6 +47,8 @@ from .const import (
     CONF_LOW_CELL_VOLTAGE_ENTITY,
     CONF_MAX_BATTERY_CHARGE_SPEED_KW,
     CONF_MAX_BATTERY_DISCHARGE_SPEED_KW,
+    CONF_CHARGE_EFFICIENCY_PERCENT,
+    CONF_DISCHARGE_EFFICIENCY_PERCENT,
     CONF_MAX_SOC_PERCENT,
     CONF_MIN_SOC_PERCENT,
     CONF_NAME,
@@ -66,6 +68,8 @@ from .const import (
     DEFAULT_FULL_CHARGE_TRACKING_SOURCE,
     DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW,
     DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW,
+    DEFAULT_CHARGE_EFFICIENCY_PERCENT,
+    DEFAULT_DISCHARGE_EFFICIENCY_PERCENT,
     DEFAULT_MAX_SOC_PERCENT,
     DEFAULT_MIN_SOC_PERCENT,
     DEFAULT_NAME,
@@ -283,6 +287,14 @@ def _system_schema(defaults: dict[str, Any], seed_values: bool) -> vol.Schema:
                 CONF_MAX_BATTERY_DISCHARGE_SPEED_KW,
                 default=defaults.get(CONF_MAX_BATTERY_DISCHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW),
             ): _number(0.1, 200, 0.1, "kW"),
+            vol.Required(
+                CONF_CHARGE_EFFICIENCY_PERCENT,
+                default=defaults.get(CONF_CHARGE_EFFICIENCY_PERCENT, DEFAULT_CHARGE_EFFICIENCY_PERCENT),
+            ): _number(50, 100, 0.5, "%"),
+            vol.Required(
+                CONF_DISCHARGE_EFFICIENCY_PERCENT,
+                default=defaults.get(CONF_DISCHARGE_EFFICIENCY_PERCENT, DEFAULT_DISCHARGE_EFFICIENCY_PERCENT),
+            ): _number(50, 100, 0.5, "%"),
         }
     )
     if seed_values:

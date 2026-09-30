@@ -52,6 +52,8 @@
           "discharge_speed_kw": "Normal discharge speed",
           "max_battery_charge_speed_kw": "Max battery charge speed (physical limit, used by the battery energy forecast - solar above this is assumed exported to the grid instead)",
           "max_battery_discharge_speed_kw": "Max battery discharge speed (physical limit, used by the battery energy forecast - usage above this is assumed drawn from the grid instead)",
+          "charge_efficiency_percent": "Charge efficiency (%) - what reaches the battery per kWh charged (inverter and battery losses). At 90%, 2.0 kWh of solar or grid power puts 1.8 kWh into the battery. 100 = no losses",
+          "discharge_efficiency_percent": "Discharge efficiency (%) - what comes out of the inverter per kWh taken from the battery. At 90%, 0.5 kWh of usage takes 0.56 kWh out of the battery. 100 = no losses",
           "min_soc_percent": "Minimum SOC - solar deficit (%) - the reserve kept when the grid is needed to refill the battery; a separate, lower minimum for solar surplus is set on its number entity after setup",
           "max_soc_percent": "Maximum SOC (%) - can exceed 100% to allow deliberate solar overshoot before discharging"
         }
@@ -138,10 +140,12 @@
       },
       "system": {
         "title": "Battery limits",
-        "description": "The battery's own physical charge/discharge limit. Capacity, normal speeds and min/max SOC are adjusted on their number entities, not here.",
+        "description": "The battery's own physical charge/discharge limit and efficiency. Capacity, normal speeds and min/max SOC are adjusted on their number entities, not here.",
         "data": {
           "max_battery_charge_speed_kw": "Max battery charge speed (physical limit, used by the battery energy forecast - solar above this is assumed exported to the grid instead)",
-          "max_battery_discharge_speed_kw": "Max battery discharge speed (physical limit, used by the battery energy forecast - usage above this is assumed drawn from the grid instead)"
+          "max_battery_discharge_speed_kw": "Max battery discharge speed (physical limit, used by the battery energy forecast - usage above this is assumed drawn from the grid instead)",
+          "charge_efficiency_percent": "Charge efficiency (%) - what reaches the battery per kWh charged (inverter and battery losses). At 90%, 2.0 kWh of solar or grid power puts 1.8 kWh into the battery. 100 = no losses",
+          "discharge_efficiency_percent": "Discharge efficiency (%) - what comes out of the inverter per kWh taken from the battery. At 90%, 0.5 kWh of usage takes 0.56 kWh out of the battery. 100 = no losses"
         }
       },
       "plans": {

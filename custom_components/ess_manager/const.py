@@ -174,6 +174,11 @@ CONF_DISCHARGE_SPEED_KW = "discharge_speed_kw"
 # entry's merged data/options each cycle.
 CONF_MAX_BATTERY_CHARGE_SPEED_KW = "max_battery_charge_speed_kw"
 CONF_MAX_BATTERY_DISCHARGE_SPEED_KW = "max_battery_discharge_speed_kw"
+# Inverter/battery efficiency (as of v0.4.3), % - fixed hardware properties
+# like the max speeds above: what reaches the battery per kWh charged, and
+# what's delivered per kWh taken out. See forecasting.build_battery_forecast.
+CONF_CHARGE_EFFICIENCY_PERCENT = "charge_efficiency_percent"
+CONF_DISCHARGE_EFFICIENCY_PERCENT = "discharge_efficiency_percent"
 
 CONF_MIN_SOC_PERCENT = "min_soc_percent"
 CONF_MAX_SOC_PERCENT = "max_soc_percent"
@@ -199,6 +204,8 @@ DEFAULT_DISCHARGE_SPEED_KW = 10.0
 # charge/discharge limit, easy to tune per-install either way.
 DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW = 10.0
 DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW = 10.0
+DEFAULT_CHARGE_EFFICIENCY_PERCENT = 100.0  # 100 = no losses (behavior before v0.4.3)
+DEFAULT_DISCHARGE_EFFICIENCY_PERCENT = 100.0
 DEFAULT_MIN_SOC_PERCENT = 15.0
 # >100 is intentional: this is the "allow deliberate overshoot from solar up
 # to this % of nominal capacity before actively discharging surplus"

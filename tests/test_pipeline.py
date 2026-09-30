@@ -2587,6 +2587,49 @@ check("solar mode: full before empty -> surplus",
 check("solar mode: the whole 121 hours count (empty only in hour 120 -> deficit)",
       _sm([10.0] * 120 + [-0.1], 30.0)["mode"] == "deficit")
 
+# ---------------------------------------------------------------------------
+# v0.4.3: charge / discharge efficiency
+# ---------------------------------------------------------------------------
+_eff_now = datetime(2026, 9, 30, 12, 0, 0)
+_ef = forecasting.build_battery_forecast([2.0, -0.5, -0.5], 10.0, _eff_now, charge_efficiency=0.9, discharge_efficiency=0.9)
+check("efficiency: 2.0 kWh surplus at 90% puts 1.8 kWh into the battery", _ef[0] == 11.8)
+check("efficiency: 0.5 kWh usage at 90% takes 0.56 kWh out of the battery", _ef[1] == round(11.8 - 0.5 / 0.9, 2))
+check("efficiency: 100% (the default) changes nothing",
+      forecasting.build_battery_forecast([2.0, -0.5], 10.0, _eff_now) == [12.0, 11.5])
+_ef_cap = forecasting.build_battery_forecast([12.0, -12.0], 20.0, _eff_now, max_charge_kw=10.0, max_discharge_kw=10.0,
+                                             charge_efficiency=0.9, discharge_efficiency=0.9)
+check("efficiency: the max charge/discharge caps are on the battery side",
+      _ef_cap[0] == 30.0 and _ef_cap[1] == 20.0)
+
+_lowargs_eff = dict(cur_unit=0, forecast_with_spike=[10.0] * 5 + [2.0] * 20, now=now_top_of_hour, charge_speed_kw=7.0,
+                    low_threshold_kwh=3.0, minimum_charge_target_kwh=5.0, upper_limit_kwh=30.0, usage=[1.0] * 121,
+                    all_price=[0.30] * 40 + [0.10] * 20 + [0.30] * 40, planning_horizon_hours=72, battery_now_kwh=10.0)
+_low100 = plans.compute_low_charge_plan(None, **_lowargs_eff)
+_low90 = plans.compute_low_charge_plan(None, **_lowargs_eff, charge_efficiency=0.9)
+check("efficiency: low charge rate per unit = (charge - house) x 90%",
+      abs(_low90["effective_charge_per_unit"] - round((7.0 / 4 - 0.25) * 0.9, 4)) < 1e-9)
+check("efficiency: the low charge window gets longer to put the same energy in",
+      _low90["units_needed"] > _low100["units_needed"] and _low90["target_kwh"] == _low100["target_kwh"])
+
+_high_eff = dict(cur_unit=0, forecast_with_spike=[20.0] * 5 + [34.0] * 20, now=now_top_of_hour, discharge_speed_kw=10.0,
+                 high_threshold_kwh=33.0, low_threshold_kwh=3.0, usage=[1.0] * 121, all_price=[0.20] * 100,
+                 planning_horizon_hours=72, battery_now_kwh=20.0, sale_target_kwh=30.0)
+_h90 = plans.compute_high_discharge_plan(None, **_high_eff, discharge_efficiency=0.9)
+check("efficiency: sale rate per unit = (discharge + house) / 90% on the battery side",
+      abs(_h90["effective_discharge_per_unit"] - round((10.0 / 4 + 0.25) / 0.9, 4)) < 1e-9)
+_neg90 = plans.compute_negative_price_plan(None, cur_unit=0, now=now_top_of_hour, all_price=[0.1] * 40 + [-0.3] * 8 + [0.1] * 48,
+                                           threshold=-0.2, battery_forecast=[10.0] * 30, discharge_speed_kw=10.0,
+                                           negative_price_charge_speed_kw=15.0, low_threshold_kwh=3.0, high_threshold_kwh=33.0,
+                                           charge_efficiency=0.9, discharge_efficiency=0.9)
+check("efficiency: negative price charging at 90% puts 90% into the battery",
+      abs(_neg90["raw_potential_kwh"] - round(8 * 15.0 / 4 * 0.9, 2)) < 1e-9)
+# Drawing a sale over the forecast: the forecast already took house/0.9 out
+_dw = plans._plan_draw_window({"active": True, "start_unit": 8, "end_unit": 12, "target_kwh": 4.0, "avg_home_load_kw": 1.0,
+                               "effective_discharge_per_unit": (2.5 + 0.25) / 0.9, "discharge_efficiency": 0.9},
+                              0, None, charging=False)
+check("efficiency: a sale drawn over the forecast removes only the sale itself (house / 90% is already in it)",
+      abs((_dw[1] - _dw[0]) * _dw[2] - (4.0 - 0.25 / 0.9 * (4.0 / ((2.5 + 0.25) / 0.9)))) < 1e-6)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

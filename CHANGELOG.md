@@ -7,6 +7,19 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.4.3] - 2026-09-30
+
+### Added
+- **Charge and discharge efficiency.** Two new settings on the Battery
+  and system page (setup and Configure), default 100% so nothing changes
+  until you set them. The battery forecast and every plan now account for
+  inverter/battery losses: at 90% charge efficiency, 2.0 kWh of solar or
+  grid power puts 1.8 kWh into the battery; at 90% discharge efficiency,
+  0.5 kWh of usage takes 0.56 kWh out of it. Charge and sale windows are
+  sized for what actually reaches or leaves the battery (so a charge
+  window gets a bit longer, a sale window a bit shorter); the setpoint
+  that's sent is still the configured speed.
+
 ## [0.4.2] - 2026-09-27
 
 ### Added

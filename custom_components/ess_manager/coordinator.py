@@ -33,6 +33,8 @@ from .const import (
     CONF_LOW_CELL_VOLTAGE_ENTITY,
     CONF_MAX_BATTERY_CHARGE_SPEED_KW,
     CONF_MAX_BATTERY_DISCHARGE_SPEED_KW,
+    CONF_CHARGE_EFFICIENCY_PERCENT,
+    CONF_DISCHARGE_EFFICIENCY_PERCENT,
     CONF_PRICE_ENTITY,
     CONF_SOLAR_FORECAST_ENTITIES,
     CONF_USAGE_CONSUMPTION_ENTITIES,
@@ -43,6 +45,8 @@ from .const import (
     DEFAULT_FULL_CHARGE_TRACKING_SOURCE,
     DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW,
     DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW,
+    DEFAULT_CHARGE_EFFICIENCY_PERCENT,
+    DEFAULT_DISCHARGE_EFFICIENCY_PERCENT,
     DEFAULT_USAGE_LOOKBACK_WEEKS,
     DOMAIN,
     FORECAST_HOURS,
@@ -96,6 +100,16 @@ USAGE_HISTORY_ISSUE = "usage_forecast_no_history"
 # small constant worth reintroducing as another number entity later.
 IDLE_SETPOINT_W = 0.0
 IDLE_TOLERANCE_W = 50.0
+
+
+def _efficiency(percent: Any) -> float:
+    """A 50-100 % efficiency setting as a 0.5-1.0 fraction (anything
+    unreadable counts as 100 %, i.e. no losses)."""
+    try:
+        value = float(percent)
+    except (TypeError, ValueError):
+        return 1.0
+    return min(max(value, 50.0), 100.0) / 100.0
 
 
 def _get_float_state(
@@ -592,6 +606,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         max_battery_discharge_speed_kw = conf.get(
             CONF_MAX_BATTERY_DISCHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW
         )
+        # Inverter/battery efficiency (as of v0.4.3), also from the flow:
+        # charged energy x efficiency reaches the battery, energy taken out
+        # / efficiency leaves it - in the forecast and in every plan's
+        # battery-side rates (the setpoints sent stay the grid-side speeds).
+        charge_efficiency = _efficiency(conf.get(CONF_CHARGE_EFFICIENCY_PERCENT, DEFAULT_CHARGE_EFFICIENCY_PERCENT))
+        discharge_efficiency = _efficiency(
+            conf.get(CONF_DISCHARGE_EFFICIENCY_PERCENT, DEFAULT_DISCHARGE_EFFICIENCY_PERCENT)
+        )
         negative_price_charge_speed_kw = self.get_number(NUM_NEGATIVE_PRICE_CHARGE_SPEED_KW, charge_speed_kw * 2)
         spike_discharge_speed_kw = self.get_number(NUM_SPIKE_DISCHARGE_SPEED_KW, discharge_speed_kw * 1.5)
         negative_price_threshold = self.get_number(NUM_NEGATIVE_PRICE_THRESHOLD, -0.20)
@@ -625,7 +647,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # than it can physically go is assumed to flow to/from the grid
         # instead, not the battery - see forecasting.build_battery_forecast.
         battery_forecast = forecasting.build_battery_forecast(
-            net_energy, battery_now_kwh, now, max_battery_charge_speed_kw, max_battery_discharge_speed_kw
+            net_energy,
+            battery_now_kwh,
+            now,
+            max_battery_charge_speed_kw,
+            max_battery_discharge_speed_kw,
+            charge_efficiency=charge_efficiency,
+            discharge_efficiency=discharge_efficiency,
         )
 
         # Solar deficit or surplus (as of v0.4.2): does the raw forecast run
@@ -706,6 +734,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 battery_voltage,
                 full_charge_target_voltage,
                 buy_price=buy_price,
+                charge_efficiency=charge_efficiency,
             )
         else:
             self._full_charge_plan = {"active": False, "phase": None}
@@ -734,6 +763,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 low_threshold_kwh,
                 high_threshold_kwh,
                 buy_price=buy_price,
+                charge_efficiency=charge_efficiency,
+                discharge_efficiency=discharge_efficiency,
             )
         else:
             self._negative_price_plan = {"active": False}
@@ -759,6 +790,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._negative_price_plan,
                 minimum_charge_target_kwh,
                 buy_price=buy_price,
+                charge_efficiency=charge_efficiency,
+                discharge_efficiency=discharge_efficiency,
             )
         else:
             self._spike_plan = {"active": False}
@@ -783,6 +816,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             battery_now_kwh,
             high_threshold_kwh=high_threshold_kwh,
             buy_price=buy_price,
+            charge_efficiency=charge_efficiency,
+            discharge_efficiency=discharge_efficiency,
         )
         # A full charge relying on a future solar peak (either genuinely
         # scheduled to buy up to it, or silently skipped because that peak
@@ -823,6 +858,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # A sale triggered by the max-SOC threshold brings the peak down
             # to 100% (as of v0.3.2), not to just under the threshold.
             sale_target_kwh=upper_limit_kwh,
+            discharge_efficiency=discharge_efficiency,
         )
 
         battery_forecast_adjusted = plans.compose_forecast_adjusted(

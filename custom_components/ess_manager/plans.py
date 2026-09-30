@@ -109,11 +109,18 @@ def compute_negative_price_plan(
     low_threshold_kwh: float,
     high_threshold_kwh: float,
     buy_price: Optional[list[float]] = None,
+    charge_efficiency: float = 1.0,
+    discharge_efficiency: float = 1.0,
 ) -> dict:
     """`all_price` is the sell price, `buy_price` what buying costs (price
     + transport, as of v0.4.0; defaults to all_price). Charging is a buy:
     it triggers on the BUY price being below the threshold. Making room
-    beforehand is a sale: its window is picked by the sell price."""
+    beforehand is a sale: its window is picked by the sell price.
+
+    `charge_efficiency` / `discharge_efficiency` (0-1, as of v0.4.3): what
+    reaches the battery per kWh charged, and what the battery has to
+    deliver per kWh taken out (/ efficiency) - every per-unit rate is on
+    the battery side, like the forecast it's compared with."""
     prev = prev or {"active": False}
     if prev.get("active") and cur_unit < prev.get("charge_end_unit", -1):
         return prev
@@ -138,7 +145,7 @@ def compute_negative_price_plan(
     charge_end = end_idx + 1
     units = charge_end - charge_start
 
-    charge_per_unit = negative_price_charge_speed_kw / 4
+    charge_per_unit = (negative_price_charge_speed_kw / 4) * charge_efficiency
     raw_potential_kwh = round(units * charge_per_unit, 2)
 
     hour0_start_unit = _hour0_start_unit(cur_unit, now)
@@ -156,7 +163,7 @@ def compute_negative_price_plan(
     forecast_min_pre = min(pre_vals) if pre_vals else level_at_start
     max_safe_discharge_kwh = max(forecast_min_pre - low_threshold_kwh, 0)
 
-    discharge_per_unit = discharge_speed_kw / 4
+    discharge_per_unit = (discharge_speed_kw / 4) / discharge_efficiency
     discharge_units_needed_raw = max(math.ceil(discharge_needed_kwh / discharge_per_unit), 0)
     available_lead_units = max(charge_start - cur_unit, 0)
     discharge_units_by_energy = max(math.floor(max_safe_discharge_kwh / discharge_per_unit), 0)
@@ -265,13 +272,20 @@ def compute_spike_plan(
     neg_plan: Optional[dict],
     minimum_charge_target_kwh: float,
     buy_price: Optional[list[float]] = None,
+    charge_efficiency: float = 1.0,
+    discharge_efficiency: float = 1.0,
 ) -> dict:
     """`all_price` is the sell price, `buy_price` what buying costs (price
     + transport, as of v0.4.0; defaults to all_price). The spread is the
     day's highest SELL price minus its lowest BUY price; the charge window
     is picked by buy price, the discharge window (and its price floor, the
     lowest buy price + margin) by sell price. day_min_price is therefore a
-    buy price and day_max_price a sell price."""
+    buy price and day_max_price a sell price.
+
+    `charge_efficiency` / `discharge_efficiency` (0-1, as of v0.4.3): what
+    reaches the battery per kWh charged, and what the battery has to
+    deliver per kWh taken out (/ efficiency) - every per-unit rate is on
+    the battery side, like the forecast it's compared with."""
     prev = prev or {"active": False}
     if prev.get("active") and prev.get("charge_start_unit", -1) <= cur_unit < prev.get("discharge_end_unit", -1):
         return prev
@@ -342,7 +356,7 @@ def compute_spike_plan(
     relevant_usage = usage[0 : hour_index_low + 1]
     avg_usage_kwh = sum(relevant_usage) / len(relevant_usage) if relevant_usage else 0
     avg_usage_per_unit = avg_usage_kwh / 4
-    effective_charge_per_unit = max(charge_per_unit - avg_usage_per_unit, 0.1)
+    effective_charge_per_unit = max((charge_per_unit - avg_usage_per_unit) * charge_efficiency, 0.1)
     charge_units_needed = max(math.ceil(charge_needed_kwh / effective_charge_per_unit), 0)
 
     if charge_units_needed == 0:
@@ -367,7 +381,7 @@ def compute_spike_plan(
     relevant_usage_d = usage[0 : hour_index_high + 1]
     avg_usage_kwh_d = sum(relevant_usage_d) / len(relevant_usage_d) if relevant_usage_d else 0
     avg_usage_per_unit_d = avg_usage_kwh_d / 4
-    effective_discharge_per_unit = discharge_per_unit + avg_usage_per_unit_d
+    effective_discharge_per_unit = (discharge_per_unit + avg_usage_per_unit_d) / discharge_efficiency
 
     forecast_min = min(forecast) if forecast else low_threshold_kwh
     max_safe_surplus = max(forecast_min - low_threshold_kwh, 0)
@@ -483,9 +497,16 @@ def compute_low_charge_plan(
     battery_now_kwh: float,
     high_threshold_kwh: Optional[float] = None,
     buy_price: Optional[list[float]] = None,
+    charge_efficiency: float = 1.0,
+    discharge_efficiency: float = 1.0,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price).
+
+    `charge_efficiency` / `discharge_efficiency` (0-1, as of v0.4.3): what
+    reaches the battery per kWh charged, and what the battery has to
+    deliver per kWh taken out (/ efficiency) - every per-unit rate is on
+    the battery side, like the forecast it's compared with.
 
     `minimum_charge_target_kwh` is the smallest amount any charge buys
     (as of v0.2.17; before that it was a battery LEVEL the dip was lifted
@@ -568,7 +589,7 @@ def compute_low_charge_plan(
     relevant_usage = usage[0 : hour_index + 1]
     avg_usage_kwh = sum(relevant_usage) / len(relevant_usage) if relevant_usage else 0
     avg_usage_per_unit = avg_usage_kwh / 4
-    effective_charge_per_unit = max(charge_per_unit - avg_usage_per_unit, 0.1)
+    effective_charge_per_unit = max((charge_per_unit - avg_usage_per_unit) * charge_efficiency, 0.1)
     units_needed = max(math.ceil(target_kwh / effective_charge_per_unit), 1)
 
     buy = buy_price if buy_price is not None else all_price
@@ -583,6 +604,7 @@ def compute_low_charge_plan(
         "rounded_up_to_minimum": rounded_up_to_minimum,
         "avg_home_load_kw": round(avg_usage_kwh, 3),
         "effective_charge_per_unit": round(effective_charge_per_unit, 4),
+        "discharge_efficiency": discharge_efficiency,
         "units_needed": units_needed,
         "breach_unit": breach_unit,
         "start_unit": best_start,
@@ -616,6 +638,7 @@ def compute_high_discharge_plan(
     suppress_new: bool = False,
     safety_buffer_kwh: float = 0.0,
     sale_target_kwh: Optional[float] = None,
+    discharge_efficiency: float = 1.0,
 ) -> dict:
     """`sale_target_kwh` (as of v0.3.2) is where a sale brings the forecast
     peak down to: the coordinator passes 100% of capacity. The HIGH
@@ -700,7 +723,9 @@ def compute_high_discharge_plan(
     relevant_usage = usage[0 : hour_index + 1]
     avg_usage_kwh = sum(relevant_usage) / len(relevant_usage) if relevant_usage else 0
     avg_usage_per_unit = avg_usage_kwh / 4
-    effective_discharge_per_unit = discharge_per_unit + avg_usage_per_unit
+    # Battery side: the sale (discharge speed) plus the house, divided by
+    # the discharge efficiency (as of v0.4.3).
+    effective_discharge_per_unit = (discharge_per_unit + avg_usage_per_unit) / discharge_efficiency
     search_end = min(breach_unit, len(all_price))
     hour0_unit = _hour0_start_unit(cur_unit, now)
     sale_floor_kwh = low_threshold_kwh + max(safety_buffer_kwh, 0.0)
@@ -778,6 +803,7 @@ def compute_high_discharge_plan(
         "target_kwh": surplus,
         "avg_home_load_kw": round(avg_usage_kwh, 3),
         "effective_discharge_per_unit": round(effective_discharge_per_unit, 4),
+        "discharge_efficiency": discharge_efficiency,
         "capped_by_low_limit": surplus < raw_surplus,
         "low_point_after_sale_kwh": round(low_point_after_sale, 3),
         "sale_floor_kwh": round(sale_floor_kwh, 3),
@@ -824,7 +850,9 @@ def _plan_draw_window(
     if window_units <= 0 or cur_unit >= end:
         return 0.0, 0.0, 0.0
     target_kwh = plan.get("target_kwh", 0) or 0
-    house_per_unit = (plan.get("avg_home_load_kw") or 0) / 4
+    # What the forecast line already takes out of the battery for the house
+    # (divided by the discharge efficiency, as of v0.4.3).
+    house_per_unit = (plan.get("avg_home_load_kw") or 0) / 4 / (plan.get("discharge_efficiency") or 1.0)
     effective = plan.get("effective_charge_per_unit" if charging else "effective_discharge_per_unit") or 0
 
     if start <= cur_unit and battery_now_kwh is not None:
@@ -956,6 +984,7 @@ def compute_full_charge_plan(
     target_voltage: float,
     balance_threshold: float = 10.0,
     buy_price: Optional[list[float]] = None,
+    charge_efficiency: float = 1.0,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price)."""
@@ -1144,7 +1173,7 @@ def compute_full_charge_plan(
         prelim_deficit = round(high_threshold_kwh - battery_now_kwh, 3)
         prelim_hold_usage = float(usage[0]) if usage else 0.0
         prelim_target = max(round(prelim_deficit + prelim_hold_usage, 3), 0.0)
-        prelim_effective = max((charge_speed_kw / 4) - (prelim_hold_usage / 4), 0.1)
+        prelim_effective = max(((charge_speed_kw / 4) - (prelim_hold_usage / 4)) * charge_efficiency, 0.1)
         prelim_units = max(math.ceil(prelim_target / prelim_effective), 1)
         prelim_start = _best_price_window(all_price, cur_unit, len(all_price), prelim_units, cheapest=True)
         prelim_hour_index = min(max((prelim_start - cur_unit) // 4, 0), len(battery_forecast) - 1) if battery_forecast else 0
@@ -1218,7 +1247,7 @@ def compute_full_charge_plan(
 
     charge_per_unit = charge_speed_kw / 4
     avg_usage_per_unit = hold_hour_usage / 4
-    effective_charge_per_unit = max(charge_per_unit - avg_usage_per_unit, 0.1)
+    effective_charge_per_unit = max((charge_per_unit - avg_usage_per_unit) * charge_efficiency, 0.1)
     units_needed = max(math.ceil(target_kwh / effective_charge_per_unit), 1)
 
     # The session cap (above) exists to keep the *initial* window search

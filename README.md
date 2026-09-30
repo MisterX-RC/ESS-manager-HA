@@ -297,7 +297,7 @@ The setup wizard walks through these pages:
    differential (or lowest/highest cell voltage), battery pack voltage,
    days-since-full-charge tracking, and the full charge target voltage.
 4. **Battery and system** - capacity, normal charge/discharge speed, max
-   battery charge/discharge speed, min/max SOC.
+   battery charge/discharge speed, charge/discharge efficiency, min/max SOC.
 5. **Price plans** - a short explanation of the negative price and spike
    arbitrage plans, with a switch for each.
 6. **Battery control** - whether ESS Manager sends the setpoint itself
@@ -369,6 +369,15 @@ own physical power limit, in kW), not a live dashboard setpoint. They cap
 the passive, solar/usage-driven battery energy forecast (anything solar or
 usage implies faster than this is assumed to flow to/from the grid
 instead), and, with direct control, every setpoint that is sent.
+
+**Charge efficiency** and **discharge efficiency** (%, default 100 = no
+losses) are set the same way. They account for the inverter and battery
+losses in the battery forecast and in every plan: at 90% charge
+efficiency, 2.0 kWh of solar or grid power puts 1.8 kWh into the battery;
+at 90% discharge efficiency, 0.5 kWh of usage (or of a sale) takes
+0.5 / 0.9 = 0.56 kWh out of it. Charge and sale windows are sized for what
+actually reaches or leaves the battery; the setpoint that's sent stays the
+configured (grid-side) speed.
 
 ## Wiring it to your inverter
 

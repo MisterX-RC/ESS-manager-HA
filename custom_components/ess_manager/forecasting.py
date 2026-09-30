@@ -93,6 +93,8 @@ def build_battery_forecast(
     now: datetime,
     max_charge_kw: Optional[float] = None,
     max_discharge_kw: Optional[float] = None,
+    charge_efficiency: float = 1.0,
+    discharge_efficiency: float = 1.0,
 ) -> list[float]:
     """Cumulative running battery level (kWh), compensated for the partial
     current hour.
@@ -122,12 +124,18 @@ def build_battery_forecast(
     that scaling only accounts for elapsed time, not the physical power
     limit. Left at None (the default) for either side, there's no cap on
     that side, matching behavior before these parameters existed.
+
+    `charge_efficiency` / `discharge_efficiency` (0-1, as of v0.4.3): the
+    inverter/battery losses. A solar surplus of 2.0 kWh at 90% charge
+    efficiency puts 1.8 kWh into the battery; covering 0.5 kWh of usage at
+    90% discharge efficiency takes 0.5 / 0.9 = 0.56 kWh out of it. Applied
+    first, so the max charge/discharge caps are on the battery side.
     """
     fraction_remaining = (60 - now.minute) / 60
     values: list[float] = []
     soc = start_kwh
     for h, delta in enumerate(net):
-        capped_delta = delta
+        capped_delta = delta * charge_efficiency if delta > 0 else delta / discharge_efficiency
         if max_charge_kw is not None:
             capped_delta = min(capped_delta, max_charge_kw)
         if max_discharge_kw is not None:
