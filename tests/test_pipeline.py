@@ -2630,6 +2630,15 @@ _dw = plans._plan_draw_window({"active": True, "start_unit": 8, "end_unit": 12, 
 check("efficiency: a sale drawn over the forecast removes only the sale itself (house / 90% is already in it)",
       abs((_dw[1] - _dw[0]) * _dw[2] - (4.0 - 0.25 / 0.9 * (4.0 / ((2.5 + 0.25) / 0.9)))) < 1e-6)
 
+# ---------------------------------------------------------------------------
+# v0.4.4: the dashboard cards file is generated from the dashboard examples
+# ---------------------------------------------------------------------------
+_bspec = importlib.util.spec_from_file_location("build_cards", os.path.join(_REPO_ROOT, "tools", "build_cards.py"))
+_bc = importlib.util.module_from_spec(_bspec)
+_bspec.loader.exec_module(_bc)
+with open(_bc.OUT, encoding="utf-8") as _fh:
+    check("frontend/ess-manager-cards.js is up to date with dashboard/*.yaml (run tools/build_cards.py)", _fh.read() == _bc.build())
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

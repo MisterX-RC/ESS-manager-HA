@@ -5,12 +5,14 @@ sensor into a configurable, HACS-installable custom integration.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.loader import async_get_integration
 
 from .const import (
     CONF_CONTROL_MODE,
@@ -32,6 +34,11 @@ from .energy_source import async_get_energy_prefs
 from .usage_forecast import energy_prefs_to_sources
 
 _LOGGER = logging.getLogger(__name__)
+
+# Dashboard cards (as of v0.4.4) - see frontend/ess-manager-cards.js.
+CARDS_FILE = Path(__file__).parent / "frontend" / "ess-manager-cards.js"
+CARDS_URL = f"/{DOMAIN}/ess-manager-cards.js"
+_FRONTEND_REGISTERED = f"{DOMAIN}_frontend_registered"
 
 README_USAGE_URL = "https://github.com/MisterX-RC/ESS-manager-HA#household-usage-forecast"
 
@@ -134,8 +141,35 @@ def _async_update_usage_source_issue(hass: HomeAssistant, entry: ConfigEntry) ->
     )
 
 
+async def _async_register_cards(hass: HomeAssistant) -> None:
+    """Serve frontend/ess-manager-cards.js and load it on every dashboard
+    page, so the ESS Manager cards show up in the "Add card" picker - once
+    per Home Assistant run, whatever the number of installations. The
+    version in the URL makes browsers fetch the new file after an update.
+    Never fails setup: without the http/frontend components (e.g. a
+    headless install) there's simply no dashboard to add cards to.
+    """
+    if hass.data.get(_FRONTEND_REGISTERED) or getattr(hass, "http", None) is None:
+        return
+    hass.data[_FRONTEND_REGISTERED] = True
+    try:
+        try:
+            from homeassistant.components.http import StaticPathConfig
+
+            await hass.http.async_register_static_paths([StaticPathConfig(CARDS_URL, str(CARDS_FILE), False)])
+        except ImportError:  # Home Assistant before 2024.7
+            hass.http.register_static_path(CARDS_URL, str(CARDS_FILE), False)
+        from homeassistant.components.frontend import add_extra_js_url
+
+        integration = await async_get_integration(hass, DOMAIN)
+        add_extra_js_url(hass, f"{CARDS_URL}?v={integration.version}")
+    except Exception as err:  # noqa: BLE001 - the cards are optional, planning isn't
+        _LOGGER.warning("ESS Manager: could not load the dashboard cards: %s", err)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
+    await _async_register_cards(hass)
 
     coordinator = EssManagerCoordinator(hass, entry)
 

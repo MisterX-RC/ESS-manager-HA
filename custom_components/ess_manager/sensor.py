@@ -12,6 +12,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import EntityCategory
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -66,6 +67,20 @@ STATUS_ATTRIBUTES = [
     "control_power_kw",
     "control",
 ]
+
+# The value sensors the status dashboard card shows (as of v0.4.4) - their
+# entity_ids go into the Status sensor's `card_entities` attribute, so the
+# card finds them whatever they were renamed to.
+CARD_ENTITY_KEYS = (
+    "charge_start",
+    "charge_amount",
+    "charge_stop",
+    "discharge_start",
+    "discharge_amount",
+    "discharge_stop",
+    "spike_status",
+    "negative_price_status",
+)
 
 
 async def async_setup_entry(
@@ -157,6 +172,7 @@ class EssManagerStatusSensor(CoordinatorEntity[EssManagerCoordinator], SensorEnt
     def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_status"
+        self._entry_id = entry.entry_id
         self._attr_device_info = device_info
 
     @property
@@ -169,7 +185,21 @@ class EssManagerStatusSensor(CoordinatorEntity[EssManagerCoordinator], SensorEnt
     def extra_state_attributes(self) -> dict[str, Any]:
         if self.coordinator.data is None:
             return {}
-        return {key: self.coordinator.data.get(key) for key in STATUS_ATTRIBUTES}
+        attributes = {key: self.coordinator.data.get(key) for key in STATUS_ATTRIBUTES}
+        attributes["card_entities"] = self._card_entities()
+        return attributes
+
+    def _card_entities(self) -> dict[str, str]:
+        """{key: entity_id} of the value sensors the status card shows."""
+        if self.hass is None:
+            return {}
+        registry = er.async_get(self.hass)
+        found = {}
+        for key in CARD_ENTITY_KEYS:
+            entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{self._entry_id}_{key}")
+            if entity_id:
+                found[key] = entity_id
+        return found
 
 
 class EssManagerValueSensor(CoordinatorEntity[EssManagerCoordinator], SensorEntity):

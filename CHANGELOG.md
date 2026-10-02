@@ -7,6 +7,22 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.4.4] - 2026-10-02
+
+### Added
+- **Dashboard cards built into the integration.** The battery forecast,
+  price and status cards from `dashboard/` are now loaded by the
+  integration itself and show up in the dashboard's "Add card" picker as
+  **ESS Manager - Battery forecast**, **ESS Manager - Prices** and **ESS
+  Manager - Status**. Each card only needs the Status sensor (picked
+  automatically) - no more pasting YAML and replacing entity_ids. They
+  look exactly like the YAML examples and still use apexcharts-card (and
+  stack-in-card / multiple-entity-row for the status card) from HACS; a
+  card says so when one of those is missing. Refresh the browser once
+  after updating.
+- Status sensor attribute `card_entities`: the entity_ids of the sensors
+  the status card shows.
+
 ## [0.4.3] - 2026-09-30
 
 ### Added

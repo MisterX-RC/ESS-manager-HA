@@ -532,11 +532,32 @@ available window to complete the balance.
 
 ## Dashboard
 
-`dashboard/` has ApexCharts-based Lovelace cards adapted from the original
-system's dashboard (battery/SOC forecast chart, price chart with buy/sell
-highlighting, and an entities card) - each file's header comment explains
-which placeholder entity_ids to replace with your own. Requires the
-`apexcharts-card` and `multiple-entity-row` HACS frontend cards.
+The integration brings its own dashboard cards. After installing (and a
+browser refresh), edit a dashboard, choose **Add card** and search for
+**ESS Manager**:
+
+| Card | Shows | Needs (HACS -> Frontend) |
+|---|---|---|
+| ESS Manager - Battery forecast (`custom:ess-manager-battery-card`) | the battery forecast for the coming days, with the planned buy / sell windows | apexcharts-card |
+| ESS Manager - Prices (`custom:ess-manager-price-card`) | today's and tomorrow's prices, buy / sell windows, transport | apexcharts-card |
+| ESS Manager - Status (`custom:ess-manager-status-card`) | planned charge and discharge, price alerts, status history | stack-in-card, multiple-entity-row |
+
+Each card only asks for the installation's **Status** sensor (picked
+automatically when there's one); it finds the other sensors itself. In
+YAML:
+
+```yaml
+type: custom:ess-manager-price-card
+entity: sensor.home_status
+```
+
+A card tells you when one of the cards it builds on isn't installed. The
+cards are updated together with the integration.
+
+`dashboard/` still has the same cards as plain YAML (and the cards are
+generated from them - see `tools/build_cards.py`), for when you want to
+change them yourself: each file's header comment explains which
+placeholder entity_ids to replace with your own.
 
 The price chart shows the transport part in purple on top of the price
 blocks (the buy price minus the price), except over sell and solar export
@@ -589,8 +610,9 @@ and the original project notes) is in the git history up to v0.2.20.
 ## Repository layout
 
 ```
-custom_components/ess_manager/   the integration itself
-dashboard/                       adapted Lovelace cards + example automation (not needed with direct control)
+custom_components/ess_manager/   the integration itself (frontend/ = its dashboard cards)
+dashboard/                       the dashboard cards as YAML + example automation (not needed with direct control)
+tools/build_cards.py             builds frontend/ess-manager-cards.js from dashboard/*.yaml
 docs/images/                     screenshots used in this README
 tests/                           standalone tests (no Home Assistant needed)
 .github/workflows/validate.yaml  HACS + hassfest validation on every push
