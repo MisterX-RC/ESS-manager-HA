@@ -19,6 +19,23 @@ a plain git tag on its own isn't enough for HACS to notice.
   ahead it shows. Everything defaults to the card as it was; only what you
   change ends up in the card's YAML. Refresh the browser once after
   updating.
+- **New design for the ESS Manager - Status card**, drawn by the
+  integration itself (no stack-in-card / multiple-entity-row needed any
+  more). Sell and Buy side by side, each with start, stop, a bar that
+  fills with the energy done (and the time left), the energy and the
+  target SOC; an active spike or negative price plan shows in the block it
+  drives, with a chip and an outline in its colour. Below: the spike and
+  negative price status, a toggle for the control (the integration's
+  Automatic control switch, or your own automation), and a slim timeline
+  of the last hours in five colours. Options: title, automation, timeline
+  on/off and period, colours. Texts in Dutch or English, following Home
+  Assistant.
+- **Battery action** sensor: what the battery is told to do right now
+  (`idle`, `charge`, `discharge`, `negative_price_charge`,
+  `spike_discharge`) - its history draws the status card's timeline.
+- Status sensor attribute `card_plans` (the status card's Buy / Sell
+  blocks); `card_entities` now also lists the Battery action sensor and
+  the Automatic control switch.
 - **Options for the ESS Manager - Prices card**: per item (Incl.
   transport, Buy, Sell, Solar export, Today's prices, Tomorrow's prices)
   whether it's in the legend and its colour, the price labels (lowest buy

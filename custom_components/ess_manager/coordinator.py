@@ -894,6 +894,18 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         discharge_kwh, discharge_start_text, discharge_stop_text = display.discharge_display(
             self._negative_price_plan, self._spike_plan, self._high_discharge_plan, current_price_unit, now
         )
+        # The Buy / Sell blocks of the status card (as of v0.5.0).
+        card_plans = display.card_plans(
+            self._full_charge_plan,
+            self._negative_price_plan,
+            self._spike_plan,
+            self._low_charge_plan,
+            self._high_discharge_plan,
+            current_price_unit,
+            now,
+            battery_now_kwh,
+            capacity_kwh,
+        )
 
         await self._async_persist()
 
@@ -916,6 +928,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "system_status": system_status,
             "control_action": control_action,
+            "card_plans": card_plans,
             "control_power_kw": round(control_power_kw, 3),
             "control": self.controller.as_attribute(control_settings, control_action, control_power_kw),
             "battery_energy_kwh": battery_now_kwh,

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import EntityCategory
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -66,12 +66,15 @@ STATUS_ATTRIBUTES = [
     "control_action",
     "control_power_kw",
     "control",
+    # The status card's Buy / Sell blocks (as of v0.5.0) - display.card_plans.
+    "card_plans",
 ]
 
 # The value sensors the status dashboard card shows (as of v0.4.4) - their
 # entity_ids go into the Status sensor's `card_entities` attribute, so the
 # card finds them whatever they were renamed to.
 CARD_ENTITY_KEYS = (
+    "battery_action",
     "charge_start",
     "charge_amount",
     "charge_stop",
@@ -156,6 +159,7 @@ async def async_setup_entry(
         ),
         EssManagerUsageHistorySensor(coordinator, entry, device_info),
         EssManagerSolarModeSensor(coordinator, entry, device_info),
+        EssManagerBatteryActionSensor(coordinator, entry, device_info),
     ]
     async_add_entities(entities)
 
@@ -199,6 +203,9 @@ class EssManagerStatusSensor(CoordinatorEntity[EssManagerCoordinator], SensorEnt
             entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{self._entry_id}_{key}")
             if entity_id:
                 found[key] = entity_id
+        switch_id = registry.async_get_entity_id("switch", DOMAIN, f"{self._entry_id}_automatic_control")
+        if switch_id:
+            found["automatic_control"] = switch_id
         return found
 
 
@@ -359,3 +366,30 @@ class EssManagerSolarModeSensor(CoordinatorEntity[EssManagerCoordinator], Sensor
             "empty_in_hours": mode["empty_hour"],
             "full_in_hours": mode["full_hour"],
         }
+
+
+class EssManagerBatteryActionSensor(CoordinatorEntity[EssManagerCoordinator], SensorEntity):
+    """What the battery is told to do right now (as of v0.5.0): idle,
+    charge, discharge, negative_price_charge or spike_discharge - the
+    action behind the Status. Unlike the Status ("Actief" for both charging
+    and discharging) it tells them apart, and its history draws the status
+    card's timeline. Recorded like any sensor; the Status is unchanged.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Battery action"
+    _attr_icon = "mdi:battery-sync"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["idle", "charge", "discharge", "negative_price_charge", "spike_discharge"]
+
+    def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_battery_action"
+        self._attr_device_info = device_info
+
+    @property
+    def native_value(self) -> str | None:
+        if self.coordinator.data is None:
+            return None
+        action = self.coordinator.data.get("control_action")
+        return action if action in self._attr_options else "idle"

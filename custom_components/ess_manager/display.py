@@ -139,3 +139,121 @@ def cell_voltage_differential_mv(low_v: Optional[float], high_v: Optional[float]
     if low_v is None or high_v is None:
         return None
     return round((high_v - low_v) * 1000, 1)
+
+
+# ---------------------------------------------------------------------------
+# Status card data (as of v0.5.0) - the Buy and Sell blocks of the
+# integration's own status card, one dict per side.
+# ---------------------------------------------------------------------------
+def _unit_datetime(now: datetime, cur_unit: int, target_unit: int) -> datetime:
+    unit_start = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+    return unit_start + timedelta(minutes=(target_unit - cur_unit) * 15)
+
+
+def _card_side(
+    source: str,
+    charging: bool,
+    start_unit: int,
+    end_unit: int,
+    energy_kwh: float,
+    target_level_kwh: Optional[float],
+    rate_kw: float,
+    target_reached: bool,
+    cur_unit: int,
+    now: datetime,
+    battery_now_kwh: float,
+    capacity_kwh: float,
+) -> dict:
+    """One block: when, how much, to which level, and - once it has started
+    - how much of it is done, measured on the battery level against the
+    plan's target level (energy, not time: a plan stops on its target)."""
+    energy = max(float(energy_kwh or 0.0), 0.0)
+    started = cur_unit >= start_unit
+    if target_reached:
+        remaining = 0.0
+    elif not started or target_level_kwh is None:
+        remaining = energy
+    elif charging:
+        remaining = min(max(target_level_kwh - battery_now_kwh, 0.0), energy)
+    else:
+        remaining = min(max(battery_now_kwh - target_level_kwh, 0.0), energy)
+    target_soc = None
+    if target_level_kwh is not None and capacity_kwh:
+        target_soc = round(min(max(target_level_kwh / capacity_kwh * 100.0, 0.0), 100.0), 1)
+    return {
+        "source": source,
+        "start": _unit_datetime(now, cur_unit, start_unit).isoformat(),
+        "stop": _unit_datetime(now, cur_unit, end_unit).isoformat(),
+        "energy_kwh": round(energy, 2),
+        "target_level_kwh": round(target_level_kwh, 2) if target_level_kwh is not None else None,
+        "target_soc_percent": target_soc,
+        "rate_kw": round(max(float(rate_kw or 0.0), 0.0), 3),
+        "started": started,
+        "target_reached": bool(target_reached) or (started and remaining <= 0.0 and energy > 0),
+        "done_kwh": round(energy - remaining, 2),
+        "remaining_kwh": round(remaining, 2),
+    }
+
+
+def card_plans(
+    full: dict,
+    neg: dict,
+    spike: dict,
+    low: dict,
+    high: dict,
+    cur_unit: int,
+    now: datetime,
+    battery_now_kwh: float,
+    capacity_kwh: float,
+) -> dict:
+    """{"buy": side | None, "sell": side | None} - the same plan priority as
+    charge_display / discharge_display (full charge -> negative price ->
+    spike -> low charge; negative price -> spike -> high discharge), so the
+    card shows what the charge/discharge sensors show (except a spike plan
+    without a top-up, which leaves the Buy block to the next plan). `source`
+    names the plan, for the card's chip and outline."""
+    common = (cur_unit, now, battery_now_kwh, capacity_kwh)
+    buy = None
+    if full.get("active") and full.get("phase") in ("scheduled", "charging"):
+        buy = _card_side(
+            "full_charge", True, full["start_unit"], full["end_unit"], full.get("target_kwh", 0),
+            capacity_kwh, full.get("effective_charge_per_unit", 0) * 4, False, *common,
+        )
+    elif neg.get("active") and cur_unit < neg.get("charge_end_unit", -1):
+        target = (neg.get("level_at_start_kwh") or 0) + (neg.get("achievable_charge_kwh") or 0)
+        buy = _card_side(
+            "negative_price", True, neg["charge_start_unit"], neg["charge_end_unit"], neg.get("achievable_charge_kwh", 0),
+            target, neg.get("effective_charge_per_unit", 0) * 4, False, *common,
+        )
+    elif spike.get("active") and cur_unit < spike.get("charge_end_unit", -1) and spike.get("charge_needed_kwh", 0) > 0:
+        buy = _card_side(
+            "spike", True, spike["charge_start_unit"], spike["charge_end_unit"], spike.get("charge_needed_kwh", 0),
+            spike.get("charge_target_level_kwh"), spike.get("effective_charge_per_unit", 0) * 4, False, *common,
+        )
+    elif low.get("active"):
+        buy = _card_side(
+            "low_charge", True, low["start_unit"], low["end_unit"], low.get("target_kwh", 0),
+            low.get("target_energy_kwh"), low.get("effective_charge_per_unit", 0) * 4, low.get("target_reached", False),
+            *common,
+        )
+
+    sell = None
+    if neg.get("active") and cur_unit < neg.get("discharge_end_unit", -1) and neg.get("discharge_needed_kwh", 0) > 0:
+        sell = _card_side(
+            "negative_price", False, neg["discharge_start_unit"], neg["discharge_end_unit"], neg.get("discharge_needed_kwh", 0),
+            neg.get("target_after_discharge_kwh"), neg.get("effective_discharge_per_unit", 0) * 4, False, *common,
+        )
+    elif spike.get("active") and cur_unit < spike.get("discharge_end_unit", -1):
+        level = spike.get("charge_target_level_kwh")
+        target = (level - spike.get("discharge_target_kwh", 0)) if level is not None else None
+        sell = _card_side(
+            "spike", False, spike["discharge_start_unit"], spike["discharge_end_unit"], spike.get("discharge_target_kwh", 0),
+            target, spike.get("effective_discharge_per_unit", 0) * 4, False, *common,
+        )
+    elif high.get("active"):
+        sell = _card_side(
+            "high_discharge", False, high["start_unit"], high["end_unit"], high.get("target_kwh", 0),
+            high.get("target_energy_kwh"), high.get("effective_discharge_per_unit", 0) * 4, high.get("target_reached", False),
+            *common,
+        )
+    return {"buy": buy, "sell": sell}

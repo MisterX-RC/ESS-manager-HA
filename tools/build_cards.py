@@ -17,7 +17,6 @@ OUT = os.path.join(ROOT, "custom_components", "ess_manager", "frontend", "ess-ma
 SOURCES = {
     "battery": "dashboard/battery_forecast_chart.yaml",
     "price": "dashboard/price_apexcharts_card.yaml",
-    "status": "dashboard/entities_card.yaml",
 }
 
 
@@ -33,7 +32,11 @@ def build():
     with open(TEMPLATE, encoding="utf-8") as handle:
         template = handle.read()
     body = "const TEMPLATES = " + json.dumps(templates, indent=2, ensure_ascii=False) + ";"
-    return template.replace("// @@TEMPLATES@@", body)
+    content = template.replace("// @@TEMPLATES@@", body)
+    # Pure ASCII output (non-ASCII as \uXXXX escapes, valid in JS strings,
+    # template literals and comments), so the file reads the same whatever
+    # charset the browser assumes for it.
+    return "".join(c if ord(c) < 128 else "\\u%04x" % ord(c) for c in content)
 
 
 if __name__ == "__main__":

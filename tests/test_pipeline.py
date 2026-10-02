@@ -2639,6 +2639,39 @@ _bspec.loader.exec_module(_bc)
 with open(_bc.OUT, encoding="utf-8") as _fh:
     check("frontend/ess-manager-cards.js is up to date with dashboard/*.yaml (run tools/build_cards.py)", _fh.read() == _bc.build())
 
+# ---------------------------------------------------------------------------
+# v0.5.0: status card data (display.card_plans)
+# ---------------------------------------------------------------------------
+_cp_now = datetime(2026, 10, 2, 18, 7, 0)
+_cur = 18 * 4  # 18:00 unit
+_high = {"active": True, "start_unit": _cur - 1, "end_unit": _cur + 6, "target_kwh": 4.8, "target_energy_kwh": 18.6,
+         "effective_discharge_per_unit": 0.6875, "target_reached": False}
+_neg = {"active": True, "charge_start_unit": _cur + 68, "charge_end_unit": _cur + 80, "achievable_charge_kwh": 7.5,
+        "level_at_start_kwh": 22.5, "effective_charge_per_unit": 3.0, "discharge_needed_kwh": 0}
+_cp = display.card_plans({"active": False}, _neg, {"active": False}, {"active": False}, _high, _cur, _cp_now, 21.5, 30.0)
+check("card plans: Sell = the running high discharge, Buy = the negative price charge",
+      _cp["sell"]["source"] == "high_discharge" and _cp["buy"]["source"] == "negative_price")
+check("card plans: a running sale's progress is measured on energy (battery 21.5 vs target 18.6 of 4.8 kWh)",
+      _cp["sell"]["started"] and _cp["sell"]["remaining_kwh"] == 2.9 and _cp["sell"]["done_kwh"] == 1.9)
+check("card plans: target SOC from the target level (18.6 of 30 kWh = 62 %)", _cp["sell"]["target_soc_percent"] == 62.0)
+check("card plans: start/stop as times on the 15-minute grid", _cp["sell"]["start"].startswith("2026-10-02T17:45")
+      and _cp["sell"]["stop"].startswith("2026-10-02T19:30"))
+check("card plans: a planned window hasn't started, nothing done yet",
+      _cp["buy"]["started"] is False and _cp["buy"]["done_kwh"] == 0 and _cp["buy"]["target_soc_percent"] == 100.0)
+check("card plans: battery-side rate in kWh per hour", _cp["sell"]["rate_kw"] == 2.75 and _cp["buy"]["rate_kw"] == 12.0)
+_spk = {"active": True, "charge_start_unit": _cur + 36, "charge_end_unit": _cur + 45, "charge_needed_kwh": 14.2,
+        "charge_target_level_kwh": 30.0, "discharge_start_unit": _cur + 98, "discharge_end_unit": _cur + 104,
+        "discharge_target_kwh": 12.4, "effective_charge_per_unit": 1.575, "effective_discharge_per_unit": 3.75}
+_low = {"active": True, "start_unit": _cur + 30, "end_unit": _cur + 34, "target_kwh": 5.0, "target_energy_kwh": 9.6,
+        "effective_charge_per_unit": 1.5}
+_cp2 = display.card_plans({"active": False}, {"active": False}, _spk, _low, {"active": False}, _cur, _cp_now, 20.0, 30.0)
+check("card plans: an active spike drives both blocks (before a low charge)",
+      _cp2["buy"]["source"] == "spike" and _cp2["sell"]["source"] == "spike" and _cp2["sell"]["target_soc_percent"] == 58.7)
+_cp3 = display.card_plans({"active": False}, {"active": False}, {"active": False},
+                          {**_low, "start_unit": _cur - 4, "target_reached": True}, {"active": False}, _cur, _cp_now, 9.7, 30.0)
+check("card plans: a charge whose target is reached is done", _cp3["buy"]["target_reached"] and _cp3["buy"]["remaining_kwh"] == 0
+      and _cp3["sell"] is None)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

@@ -541,7 +541,7 @@ browser refresh), edit a dashboard, choose **Add card** and search for
 |---|---|---|
 | ESS Manager - Battery forecast (`custom:ess-manager-battery-card`) | the battery forecast for the coming days, with the planned buy / sell windows | apexcharts-card |
 | ESS Manager - Prices (`custom:ess-manager-price-card`) | today's and tomorrow's prices, buy / sell windows, transport | apexcharts-card |
-| ESS Manager - Status (`custom:ess-manager-status-card`) | planned charge and discharge, price alerts, status history | stack-in-card, multiple-entity-row |
+| ESS Manager - Status (`custom:ess-manager-status-card`) | the planned sale and charge with their progress, the price plans, the control toggle and a timeline | nothing |
 
 Each card only asks for the installation's **Status** sensor (picked
 automatically when there's one); it finds the other sensors itself. In
@@ -599,10 +599,39 @@ Items: `transport` (Incl. transport), `buy`, `sell`, `solar_export`,
 `today`, `tomorrow`. The price blocks themselves can't be hidden - they fit
 together, so hiding one would leave a gap.
 
-`dashboard/` still has the same cards as plain YAML (and the cards are
-generated from them - see `tools/build_cards.py`), for when you want to
-change them yourself: each file's header comment explains which
-placeholder entity_ids to replace with your own.
+**Status card.** Two blocks side by side: **Sell** on the left, **Buy** on
+the right. Each shows the start and stop time, a bar with the duration and
+- once the window runs - how far it is, measured on the energy (it fills
+as the battery moves towards the plan's target, and says how long is left),
+the energy (kWh) and the target battery level (SOC). An active spike or
+negative price plan shows in the block it drives, with a chip and an
+outline in that plan's colour (a spike drives both blocks: the cheap
+charge and the sale in the peak); full-charge balancing gets a chip too.
+Below the blocks: the spike and negative price plan status, a toggle for
+the control (the integration's **Automatic control** switch when it
+controls the battery itself, otherwise the automation you choose in the
+card's options) and a slim timeline of the last hours - calm blue / red
+for normal charging / discharging, intense blue / red for the faster
+negative price charge / spike discharge, dark grey for idle. The timeline
+comes from the **Battery action** sensor (`idle`, `charge`, `discharge`,
+`negative_price_charge`, `spike_discharge`), so it fills in from the moment
+you install this version. Texts follow your Home Assistant language (Dutch
+or English).
+
+| Option | Default | What it does |
+|---|---|---|
+| `title` | `ESS Manager` | the card's title |
+| `automation` | - | your own ESS automation (or `input_boolean` / `switch`) for the toggle, when the integration doesn't control the battery itself |
+| `show_history` | `true` | show the timeline |
+| `hours` | `24` | how many hours the timeline shows |
+| `sell_color` / `buy_color` | red / blue | the Sell / Buy colours (`[r, g, b]` or `"#rrggbb"`) |
+| `spike_color` / `negative_color` | amber / turquoise | the colour of an active spike / negative price plan |
+
+`dashboard/` still has the chart cards as plain YAML (the built-in chart
+cards are generated from them - see `tools/build_cards.py`) and the old
+status card (`entities_card.yaml`), for when you want to change them
+yourself: each file's header comment explains which placeholder entity_ids
+to replace with your own.
 
 The price chart shows the transport part in purple on top of the price
 blocks (the buy price minus the price), except over sell and solar export
