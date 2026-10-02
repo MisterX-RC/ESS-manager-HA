@@ -19,6 +19,11 @@ a plain git tag on its own isn't enough for HACS to notice.
   ahead it shows. Everything defaults to the card as it was; only what you
   change ends up in the card's YAML. Refresh the browser once after
   updating.
+- **Options for the ESS Manager - Prices card**: per item (Incl.
+  transport, Buy, Sell, Solar export, Today's prices, Tomorrow's prices)
+  whether it's in the legend and its colour, the price labels (lowest buy
+  price, highest sell price, today's and tomorrow's min / max) on or off,
+  and the legend as a whole.
 
 ## [0.4.4] - 2026-10-02
 

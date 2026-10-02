@@ -583,6 +583,20 @@ color_soc: "#00c8ff"
 In the card editor each item has its own collapsible section with these
 three settings.
 
+**Price card options** (same idea):
+
+| Option | Default | What it does |
+|---|---|---|
+| `legend` | `true` | show the legend under the chart |
+| `legend_<item>` | `true` | list that item in the legend |
+| `color_<item>` | the example's colour | the item's colour (`[r, g, b]` or `"#rrggbb"`) |
+| `labels_buy` / `labels_sell` | `true` | the lowest buy price / highest sell price label |
+| `labels_today` / `labels_tomorrow` | `true` | today's / tomorrow's min and max price labels |
+
+Items: `transport` (Incl. transport), `buy`, `sell`, `solar_export`,
+`today`, `tomorrow`. The price blocks themselves can't be hidden - they fit
+together, so hiding one would leave a gap.
+
 `dashboard/` still has the same cards as plain YAML (and the cards are
 generated from them - see `tools/build_cards.py`), for when you want to
 change them yourself: each file's header comment explains which

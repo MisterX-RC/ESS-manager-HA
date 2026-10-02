@@ -10,6 +10,7 @@
  * builds the same card as the example in dashboard/ of the repository. The
  * battery card has options on top (as of v0.5.0): show_<item> / legend_<item>
  * / color_<item> for each of its 11 items, legend, axis_titles, height, hours.
+ * The price card: legend_<item> / color_<item> / labels_<item>, legend.
  * The charts are drawn by apexcharts-card; the status card uses
  * stack-in-card and multiple-entity-row (all three from HACS).
  *
@@ -43,8 +44,10 @@ const BATTERY_ITEMS = [
 ];
 // Colours: color_<key> as [r, g, b] (what the card editor's colour picker
 // gives) or a "#rrggbb" string in YAML; the default is the example's colour.
+const NAMED_COLORS = { green: "#008000", yellow: "#ffff00", red: "#ff0000", blue: "#0000ff", orange: "#ffa500", purple: "#800080" };
 function hexToRgb(hex) {
-  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || "").trim());
+  const text = String(hex || "").trim();
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(NAMED_COLORS[text.toLowerCase()] || text);
   return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null;
 }
 function toHex(color) {
@@ -141,6 +144,85 @@ function applyBatteryOptions(card, config) {
   return card;
 }
 
+// -- Price card options (as of v0.5.0) -----------------------------------------
+// Per item: in the legend (legend_<key>), colour (color_<key>) and - where
+// the card has them - its price labels (labels_<key>: the lowest buy price,
+// the highest sell price, today's / tomorrow's min and max); plus the
+// legend as a whole. The items aren't hideable themselves: the price
+// blocks fit together, hiding one would leave a gap.
+const PRICE_ITEMS = [
+  ["transport", "Incl. transport"],
+  ["buy", "Buy"],
+  ["sell", "Sell"],
+  ["solar_export", "Solar export"],
+  ["today", "Today's prices"],
+  ["tomorrow", "Tomorrow's prices"],
+];
+const PRICE_LABEL_ITEMS = { buy: "Lowest price label", sell: "Highest price label", today: "Min / max labels", tomorrow: "Min / max labels" };
+const PRICE_DEFAULTS = { legend: true };
+const PRICE_LABELS = { legend: "Show the legend" };
+for (const [key, name] of PRICE_ITEMS) {
+  PRICE_DEFAULTS["legend_" + key] = true;
+  PRICE_LABELS["legend_" + key] = "In the legend";
+  PRICE_LABELS["color_" + key] = "Colour";
+  const serie = TEMPLATES.price.cards[0].series.find((x) => x.name === name);
+  const rgb = serie && hexToRgb(serie.color);
+  if (rgb) PRICE_DEFAULTS["color_" + key] = rgb;
+  if (PRICE_LABEL_ITEMS[key]) {
+    PRICE_DEFAULTS["labels_" + key] = true;
+    PRICE_LABELS["labels_" + key] = PRICE_LABEL_ITEMS[key];
+  }
+}
+const PRICE_SCHEMA = [
+  { name: "legend", selector: { boolean: {} } },
+  ...PRICE_ITEMS.map(([key, name]) => ({
+    type: "expandable",
+    flatten: true,
+    name: "item_" + key,
+    title: name,
+    schema: [
+      {
+        type: "grid",
+        name: "",
+        schema: [
+          { name: "legend_" + key, selector: { boolean: {} } },
+          ...(PRICE_LABEL_ITEMS[key] ? [{ name: "labels_" + key, selector: { boolean: {} } }] : []),
+        ],
+      },
+      { name: "color_" + key, selector: { color_rgb: {} } },
+    ],
+  })),
+];
+
+function applyPriceOptions(card, config) {
+  const opt = { ...PRICE_DEFAULTS, ...config };
+  const chart = card.cards[0];
+  // Today's / tomorrow's min-max labels sit on two invisible helper lines
+  // (the unnamed series with extremas), in that order.
+  const helpers = chart.series.filter((serie) => serie.show && serie.show.extremas === true && serie.color === "transparent");
+  const helperKey = new Map([[helpers[0], "today"], [helpers[1], "tomorrow"]]);
+  for (const serie of chart.series) {
+    const item = PRICE_ITEMS.find(([, name]) => name === serie.name);
+    const key = item ? item[0] : helperKey.get(serie);
+    if (!key) continue;
+    if (item) {
+      if (opt["legend_" + key] === false) serie.show = { ...(serie.show || {}), in_legend: false };
+      const color = config["color_" + key] !== undefined ? toHex(config["color_" + key]) : null;
+      if (color) serie.color = color;
+    }
+    const labelsOnThis = key === "buy" || key === "sell" ? !!item : !item;
+    if (labelsOnThis && opt["labels_" + key] === false && serie.show) {
+      serie.show = { ...serie.show };
+      delete serie.show.extremas;
+    }
+  }
+  if (opt.legend === false) {
+    chart.apex_config = chart.apex_config || {};
+    chart.apex_config.legend = { ...(chart.apex_config.legend || {}), show: false };
+  }
+  return card;
+}
+
 const CARDS = {
   "ess-manager-battery-card": {
     name: "ESS Manager - Battery forecast",
@@ -159,6 +241,10 @@ const CARDS = {
     template: TEMPLATES.price,
     requires: ["apexcharts-card"],
     size: 5,
+    schema: PRICE_SCHEMA,
+    defaults: PRICE_DEFAULTS,
+    labels: PRICE_LABELS,
+    apply: applyPriceOptions,
   },
   "ess-manager-status-card": {
     name: "ESS Manager - Status",
