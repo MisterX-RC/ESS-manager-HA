@@ -17,7 +17,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, plan_for_entity_key
+from .const import CONF_BATTERY_SOC_ENTITY, DOMAIN, plan_for_entity_key
 from .coordinator import EssManagerCoordinator
 from .visibility import async_sync_visibility
 
@@ -39,6 +39,8 @@ STATUS_ATTRIBUTES = [
     "today_price_units",
     "solar_120h",
     "energy_usage_120h",
+    # Today's measured hours for the battery card (as of v0.5.1).
+    "history_today",
     "usage_source",
     "energy_dashboard_sources",
     "net_energy_120h",
@@ -177,6 +179,7 @@ class EssManagerStatusSensor(CoordinatorEntity[EssManagerCoordinator], SensorEnt
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_status"
         self._entry_id = entry.entry_id
+        self._entry = entry
         self._attr_device_info = device_info
 
     @property
@@ -194,7 +197,7 @@ class EssManagerStatusSensor(CoordinatorEntity[EssManagerCoordinator], SensorEnt
         return attributes
 
     def _card_entities(self) -> dict[str, str]:
-        """{key: entity_id} of the value sensors the status card shows."""
+        """{key: entity_id} of the entities the dashboard cards read."""
         if self.hass is None:
             return {}
         registry = er.async_get(self.hass)
@@ -206,6 +209,11 @@ class EssManagerStatusSensor(CoordinatorEntity[EssManagerCoordinator], SensorEnt
         switch_id = registry.async_get_entity_id("switch", DOMAIN, f"{self._entry_id}_automatic_control")
         if switch_id:
             found["automatic_control"] = switch_id
+        # The battery's SOC sensor: its history is the battery card's
+        # measured SOC line (as of v0.5.1).
+        soc_entity = {**self._entry.data, **self._entry.options}.get(CONF_BATTERY_SOC_ENTITY)
+        if soc_entity:
+            found["battery_soc"] = soc_entity
         return found
 
 

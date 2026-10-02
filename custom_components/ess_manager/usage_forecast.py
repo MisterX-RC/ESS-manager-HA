@@ -214,6 +214,45 @@ def compute_usage_forecast_detailed(
     return result, sources
 
 
+def measured_hours(
+    hourly_sums: dict[str, dict[int, float]],
+    import_entities: list[str],
+    export_entities: list[str],
+    solar_entities: list[str],
+    battery_charge_entity: BatteryTerm,
+    battery_discharge_entity: BatteryTerm,
+    day_start: datetime,
+    now: datetime,
+) -> dict[str, Optional[list[Optional[float]]]]:
+    """Today's measured hours (as of v0.5.1), for the battery card's
+    "measured" half: household usage per complete hour since `day_start`
+    (local midnight), via the same identity as the forecast, and - when
+    solar statistics are configured - the solar production per hour (None
+    otherwise; the caller falls back to the solar forecast). An hour with a
+    missing statistic is None. The current hour never has a statistic yet,
+    so the lists stop at the last complete hour.
+    """
+    start_epoch = int(day_start.timestamp())
+    base_epoch = int(now.replace(minute=0, second=0, microsecond=0).timestamp())
+    usage: list[Optional[float]] = []
+    solar: list[Optional[float]] = []
+    for epoch in range(start_epoch, base_epoch, HOUR_SECONDS):
+        value = _week_sample(
+            hourly_sums,
+            import_entities,
+            export_entities,
+            solar_entities,
+            battery_charge_entity,
+            battery_discharge_entity,
+            epoch,
+        )
+        usage.append(round(max(value, 0.0), 3) if value is not None else None)
+        if solar_entities:
+            deltas = [_hour_delta(hourly_sums, entity_id, epoch) for entity_id in solar_entities]
+            solar.append(None if any(d is None for d in deltas) else round(max(sum(deltas), 0.0), 3))
+    return {"usage": usage, "solar": solar if solar_entities else None}
+
+
 def compute_usage_forecast(
     hourly_sums: dict[str, dict[int, float]],
     import_entities: list[str],

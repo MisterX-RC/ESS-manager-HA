@@ -84,6 +84,7 @@ from .usage_forecast import (
     compute_usage_forecast_detailed,
     compute_usage_forecast_from_consumption_detailed,
     energy_prefs_to_sources,
+    measured_hours,
     summarize_usage_history,
     usage_cache_is_stale,
 )
@@ -173,6 +174,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # most of the forecast has no history at all.
         self._usage_history: Optional[dict[str, Any]] = None
         self._usage_history_logged_status: Optional[str] = None
+        # Today's measured hours (as of v0.5.1) - see usage_forecast.measured_hours;
+        # computed with the usage forecast, from the same statistics.
+        self._measured_today: Optional[dict[str, Any]] = None
+        self._measured_today_at: Optional[datetime] = None
         # Transport tariff factors (as of v0.4.0) - transport_factors.json,
         # read once (in an executor) the first time a tariff above 0 is set.
         self._transport_factors: Optional[dict[int, list[float]]] = None
@@ -198,6 +203,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._usage_forecast_computed_at = None
         self._energy_dashboard_sources = None
         self._usage_history = None
+        self._measured_today = None
+        self._measured_today_at = None
 
     # -- wiring from number.py --------------------------------------------------
     def register_number(self, key: str, entity: Any) -> None:
@@ -304,6 +311,62 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._usage_forecast_computed_at = now
         self._set_usage_history(hour_sources, lookback_weeks)
         return self._usage_forecast_cache
+
+    async def _async_refresh_measured_today(self, conf: dict[str, Any], usage_source: Any, now: datetime) -> None:
+        """Today's measured hours for the battery card (as of v0.5.1) - see
+        usage_forecast.measured_hours. Read from the same statistics as the
+        usage forecast, every 15 minutes (a just-ended hour's statistic lands
+        a few minutes after the hour). Display only: a failure keeps the
+        last result and never fails the update."""
+        day_start = dt_util.start_of_local_day(now)
+        if (
+            self._measured_today_at is not None
+            and self._measured_today is not None
+            and self._measured_today["start"] == day_start
+            and now - self._measured_today_at < timedelta(minutes=15)
+        ):
+            return
+        if usage_source == USAGE_SOURCE_CONSUMPTION_SENSOR:
+            terms = ([e for e in conf.get(CONF_USAGE_CONSUMPTION_ENTITIES, []) or [] if e], [], [], None, None)
+        elif usage_source == USAGE_SOURCE_ENERGY_DASHBOARD and self._energy_dashboard_sources:
+            src = self._energy_dashboard_sources
+            terms = (src["import"], src["export"], src["solar"], src["battery_charge"], src["battery_discharge"])
+        else:
+            return
+        if not terms[0]:
+            return
+        ids = [*terms[0], *terms[1], *terms[2], *(terms[3] or []), *(terms[4] or [])]
+        self._measured_today_at = now
+        try:
+            hourly_sums = await async_fetch_hourly_sums(
+                self.hass, ids, day_start - timedelta(hours=1), now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+            )
+            hours = measured_hours(hourly_sums, *terms, day_start, now)
+        except Exception as err:  # noqa: BLE001 - display only
+            _LOGGER.debug("ESS Manager: could not read today's measured hours: %s", err)
+            return
+        self._measured_today = {"start": day_start, **hours}
+
+    def _history_today(self, now: datetime, solar_points: list[dict]) -> Optional[dict[str, Any]]:
+        """The Status sensor's history_today attribute (as of v0.5.1): today's
+        complete hours since local midnight - measured household usage and
+        solar production (the solar forecast for those hours when no solar
+        statistic is known). None until the usage forecast has run today."""
+        measured = self._measured_today
+        day_start = dt_util.start_of_local_day(now)
+        if not measured or measured["start"] != day_start:
+            return None
+        usage = measured["usage"]
+        solar = measured["solar"]
+        solar_measured = solar is not None
+        if solar is None:
+            solar = forecasting.build_solar_forecast(solar_points, day_start, len(usage))
+        return {
+            "start": day_start.isoformat(),
+            "usage": usage,
+            "solar": solar,
+            "solar_measured": solar_measured,
+        }
 
     async def _async_get_energy_dashboard_usage_forecast(self, conf: dict[str, Any], now: datetime) -> list[float]:
         """The h0..h120 usage forecast via the energy-balance identity
@@ -552,6 +615,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "dashboard or a consumption sensor in Configure (see Settings > Repairs)"
             )
         self._update_usage_history_issue()
+        await self._async_refresh_measured_today(conf, usage_source, now)
 
         solar_points: list[list[dict]] = []
         for entity_id in conf.get(CONF_SOLAR_FORECAST_ENTITIES, []):
@@ -951,6 +1015,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # also referencing the raw price entity directly.
             "today_price_units": len(today_price),
             "solar_120h": solar_forecast,
+            # Today's measured hours for the battery card (as of v0.5.1).
+            "history_today": self._history_today(now, merged_solar_points),
             "energy_usage_120h": usage_forecast,
             "usage_source": usage_source,
             "usage_history": self._usage_history,

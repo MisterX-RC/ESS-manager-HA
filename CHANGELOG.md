@@ -7,6 +7,49 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.1] - 2026-10-02
+
+### Changed
+- **New ESS Manager - Battery forecast card**, drawn by the integration
+  itself (no apexcharts-card needed any more). Always whole days from
+  today 00:00 (five by default): left of "now" the measured battery level
+  (your SOC sensor's history, coloured by what the battery did), solar and
+  household usage; right of it the battery level with the plans in it -
+  green, red during a sale, blue during a charge, intense red / blue for a
+  spike sale / negative price charge, with a label at each planned moment
+  - the solar and usage forecast, and as a thin dotted line the battery
+  level without any plan. The band is the min / max SOC, everything after
+  the planning horizon is dimmed. Top right the battery level now (% and
+  kWh) and "without grid": when the forecast without plans runs empty or
+  full (with a ring on the 0 % / 100 % line), or "5+ days". Below the
+  chart a tile per day with solar, usage and the battery level range. Tap
+  (or hover) for the values at an hour. Options: title, days, height, the
+  day tiles, "without grid", the dotted line, solar, usage, colours.
+- **New ESS Manager - Prices card**, also drawn by the integration
+  itself: bars coloured from cheap to expensive (a gradient, negative
+  prices apart), the planned buy / sell moments in full colour with a
+  light column, a line and a label, the rest dimmed; the past under a
+  darker layer, with the plans that ran today still visible (from the
+  Battery action history). Top: the price now, the buy price and the
+  cheapest / most expensive moment still to come. Tap (or hover) for the
+  price of a quarter. Options: title, height, cheapest / most expensive,
+  the buy price line, legend, colours. The options of the apexcharts
+  version are ignored.
+- All three cards and their editors in Dutch and English (following Home
+  Assistant's language); times, numbers and the currency follow Home
+  Assistant's language, region and time zone.
+
+### Added
+- Status sensor attribute `history_today`: today's measured hours since
+  midnight - household usage (the same statistics as the usage forecast)
+  and solar (the Energy dashboard's solar statistics, or the solar forecast
+  for those hours) - refreshed every 15 minutes. `card_entities` also
+  lists the battery's SOC sensor.
+
+### Fixed
+- The status card could reload its timeline over and over when the
+  device's clock ran behind Home Assistant's.
+
 ## [0.5.0] - 2026-10-02
 
 ### Added

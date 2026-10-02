@@ -2637,7 +2637,7 @@ _bspec = importlib.util.spec_from_file_location("build_cards", os.path.join(_REP
 _bc = importlib.util.module_from_spec(_bspec)
 _bspec.loader.exec_module(_bc)
 with open(_bc.OUT, encoding="utf-8") as _fh:
-    check("frontend/ess-manager-cards.js is up to date with dashboard/*.yaml (run tools/build_cards.py)", _fh.read() == _bc.build())
+    check("frontend/ess-manager-cards.js is up to date with tools/cards_template.js (run tools/build_cards.py)", _fh.read() == _bc.build())
 
 # ---------------------------------------------------------------------------
 # v0.5.0: status card data (display.card_plans)
@@ -2671,6 +2671,37 @@ _cp3 = display.card_plans({"active": False}, {"active": False}, {"active": False
                           {**_low, "start_unit": _cur - 4, "target_reached": True}, {"active": False}, _cur, _cp_now, 9.7, 30.0)
 check("card plans: a charge whose target is reached is done", _cp3["buy"]["target_reached"] and _cp3["buy"]["remaining_kwh"] == 0
       and _cp3["sell"] is None)
+
+# ---------------------------------------------------------------------------
+# v0.5.1: today's measured hours for the battery card (history_today)
+# ---------------------------------------------------------------------------
+_md_start = datetime(2026, 10, 2, 0, 0, tzinfo=AMS)
+_md_now = datetime(2026, 10, 2, 10, 20, tzinfo=AMS)
+_md_first = int(_md_start.timestamp()) - 3600
+
+
+def _md_series(per_hour, skip=()):
+    out, total = {}, 0.0
+    for k, epoch in enumerate(range(_md_first, int(_md_start.timestamp()) + 10 * 3600, 3600)):
+        total += per_hour(k - 1)
+        if (k - 1) not in skip:
+            out[epoch] = round(total, 6)
+    return out
+
+
+_md_sums = {
+    "sensor.grid": _md_series(lambda h: 0.5),
+    "sensor.pv": _md_series(lambda h: 2.0 if h in (8, 9) else 0.0, skip=(5,)),
+    "sensor.bat_in": _md_series(lambda h: 1.0 if h == 9 else 0.0),
+}
+_md = usage_forecast.measured_hours(_md_sums, ["sensor.grid"], [], ["sensor.pv"], ["sensor.bat_in"], None, _md_start, _md_now)
+check("measured today: one value per complete hour since midnight (00-09 at 10:20)", len(_md["usage"]) == 10 and len(_md["solar"]) == 10)
+check("measured today: usage = import + solar - battery charge (09h: 0.5 + 2.0 - 1.0)", _md["usage"][9] == 1.5 and _md["usage"][8] == 2.5)
+check("measured today: solar production per hour from its statistic", _md["solar"][8] == 2.0 and _md["solar"][0] == 0.0)
+check("measured today: an hour with a missing statistic is None (not 0)", _md["solar"][5] is None and _md["usage"][5] is None
+      and _md["solar"][6] is None)
+_md_c = usage_forecast.measured_hours(_md_sums, ["sensor.grid"], [], [], None, None, _md_start, _md_now)
+check("measured today: a consumption meter alone gives usage, no solar", _md_c["solar"] is None and _md_c["usage"] == [0.5] * 10)
 
 print()
 if FAILURES:

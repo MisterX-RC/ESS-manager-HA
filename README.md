@@ -21,18 +21,26 @@ someone else's entity IDs.
 
 ## Screenshots
 
-**Battery forecast** - the forecast battery level (SOC) for the coming days,
-without and with the planned actions (SOC new), next to the solar forecast
-and the household usage forecast. The green lines are your min/max SOC, the
-shaded bands are planned buy / sell / balancing windows (here: a sale on the
-evening of 25 Sep that keeps the battery from overshooting the next day).
+**Battery forecast** - always five whole days, today included. Left of
+"now" what happened (the measured battery level, solar and household
+usage), right of it what's expected: the battery level with the planned
+actions in it, coloured by what the battery does (red for a sale, blue for
+a charge, more intense for a spike or negative price plan), the solar and
+usage forecast, and as a thin dotted line the battery level without any
+plan. The band is your min / max SOC, everything after the planning
+horizon is dimmed. Top right: the battery level now and how long you'd
+last without the grid; below the chart a tile per day. Tap (or hover) for
+the values at a moment.
 
-![Battery forecast chart](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/battery-forecast-chart.jpg)
+![Battery forecast card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/battery-card.jpg)
 
-**Prices** - today's and tomorrow's quarter-hour prices, with the planned
-buy and sell windows highlighted (here the sale lands on the evening peak).
+**Prices** - today's and tomorrow's prices, coloured from cheap to
+expensive (negative prices apart). The planned buy and sell moments stand
+out in full colour, the rest is dimmed; what's past sits under a darker
+layer, with the plans that ran still visible. Top: the price now, the buy
+price and the cheapest / most expensive moment still to come.
 
-![Price chart](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/price-chart.jpg)
+![Price card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/price-card.jpg)
 
 **Status** - what's planned next (start, amount and stop of the next charge
 or discharge), the price plans, and the status history.
@@ -40,8 +48,8 @@ or discharge), the price plans, and the status history.
 ![Status card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/status-card.jpg)
 
 These are the integration's own dashboard cards (**ESS Manager - Battery
-forecast**, **- Prices** and **- Status** in the "Add card" picker), with
-options for the items, colours, labels and legend - see "Dashboard" below.
+forecast**, **- Prices** and **- Status** in the "Add card" picker) - see
+"Dashboard" below for their options.
 
 ## What it does
 
@@ -537,67 +545,94 @@ The integration brings its own dashboard cards. After installing (and a
 browser refresh), edit a dashboard, choose **Add card** and search for
 **ESS Manager**:
 
-| Card | Shows | Needs (HACS -> Frontend) |
-|---|---|---|
-| ESS Manager - Battery forecast (`custom:ess-manager-battery-card`) | the battery forecast for the coming days, with the planned buy / sell windows | apexcharts-card |
-| ESS Manager - Prices (`custom:ess-manager-price-card`) | today's and tomorrow's prices, buy / sell windows, transport | apexcharts-card |
-| ESS Manager - Status (`custom:ess-manager-status-card`) | the planned sale and charge with their progress, the price plans, the control toggle and a timeline | nothing |
+| Card | Shows |
+|---|---|
+| ESS Manager - Battery forecast (`custom:ess-manager-battery-card`) | five whole days: the measured and the expected battery level, solar, usage, the planned buy / sell moments and how long you'd last without the grid |
+| ESS Manager - Prices (`custom:ess-manager-price-card`) | today's and tomorrow's prices coloured by price level, with the planned buy / sell moments |
+| ESS Manager - Status (`custom:ess-manager-status-card`) | the planned sale and charge with their progress, the price plans, the control toggle and a timeline |
 
-Each card only asks for the installation's **Status** sensor (picked
-automatically when there's one); it finds the other sensors itself. In
-YAML:
+All three are drawn by the integration itself - nothing else to install
+(since v0.5.1 also not apexcharts-card). Each card only asks for the
+installation's **Status** sensor (picked automatically when there's one);
+it finds the other sensors itself. In YAML:
 
 ```yaml
 type: custom:ess-manager-price-card
 entity: sensor.home_status
 ```
 
-A card tells you when one of the cards it builds on isn't installed. The
-cards are updated together with the integration.
+The cards are updated together with the integration. Texts follow your
+Home Assistant language (Dutch or English, English for any other
+language); times, numbers and the currency follow Home Assistant's
+language, region and time zone settings.
 
-**Battery forecast card options** (in the card editor, or in YAML - all
-optional, the defaults are the example card):
+**Battery forecast card.** Always whole days from today 00:00 - five by
+default. Left of the white "now" line (slightly dimmed) what happened:
+the battery level from your SOC sensor's history, coloured by what the
+**Battery action** sensor says the battery did, and today's measured solar
+and household usage (the Status sensor's `history_today` attribute: the
+usage from the same statistics as the usage forecast; the solar from the
+Energy dashboard's solar statistics, or the solar forecast for those hours
+when the usage comes from a consumption meter). Right of it what's
+expected:
+
+- the battery level with the plans in it (`battery_forecast_adjusted`):
+  green, red during a sale, blue during a charge, intense red / blue for a
+  spike sale / negative price charge, with a label at each planned moment;
+- a thin dotted line: the battery level without any plan
+  (`battery_forecast`, solar minus usage only), not cut off at the min /
+  max SOC;
+- the solar forecast (yellow) and the usage forecast (grey line);
+- the band between your minimum and maximum SOC (the minimum that applies
+  now - solar deficit or surplus - see "Two minimum SOCs" above);
+- dimmed after the **planning horizon** (the Planning horizon number).
+
+Top right: the battery level now (% and kWh) and **without grid**: when
+the forecast without plans runs empty ("without grid: empty Wed 06:15",
+with an orange ring on the 0 % line) or full ("full Sat 13:30", a yellow
+ring on the 100 % line) - the nearest one, the same rule as the solar
+mode - or "5+ days" when neither happens within the forecast. Below the
+chart one tile per day: the solar and usage in kWh (today: measured +
+expected) and the lowest - highest battery level that day. Tap the chart
+(or hover with a mouse) for the values at that hour: battery level, without
+plans, solar, usage and the price; tap the same spot again to close.
 
 | Option | Default | What it does |
 |---|---|---|
-| `legend` | `true` | show the legend under the chart |
-| `axis_titles` | `true` | show "Battery (%)" / "Solar / Usage (kWh)" next to the axes |
-| `height` | `270` | chart height in px |
-| `hours` | `120` | how many hours ahead the chart shows (up to 120) |
-| `show_<item>` | `true` | draw that item at all |
-| `legend_<item>` | `true` | list that item in the legend |
-| `color_<item>` | the example's colour | the item's colour: `[r, g, b]` (what the editor's colour picker writes) or `"#rrggbb"` |
+| `title` | Battery forecast | the card's title |
+| `days` | `5` | how many whole days (1 - 5) |
+| `height` | `210` | chart height in px |
+| `show_days` | `true` | the day tiles |
+| `show_outlook` | `true` | the "without grid" line and its ring |
+| `show_raw` | `true` | the dotted line without plans |
+| `show_solar` / `show_usage` | `true` | solar / usage (chart, tiles, tap values) |
+| `soc_color` / `solar_color` / `usage_color` | green / yellow / grey | colours (`[r, g, b]` or `"#rrggbb"`) |
+| `sell_color` / `buy_color` | red / blue | the colours of a sale / charge |
 
-Items: `buy`, `balancing`, `sell`, `solar_export`, `lower_limit`,
-`upper_limit`, `planning_horizon`, `solar`, `usage`, `soc`, `soc_new`. For
-example:
-
-```yaml
-type: custom:ess-manager-battery-card
-entity: sensor.home_status
-hours: 48
-show_usage: false
-legend_planning_horizon: false
-color_soc: "#00c8ff"
-```
-
-In the card editor each item has its own collapsible section with these
-three settings.
-
-**Price card options** (same idea):
+**Price card.** Today's prices and, once they're published, tomorrow's,
+as bars coloured by price level: a gradient from cheap (green) via average
+to expensive (orange), negative prices in turquoise. The planned buy and
+sell moments (the same as the status card's blocks) keep their full
+colour, with a light column and a line under it in the plan's colour and
+a label ("Sell 19:15", "Negative price 13:00"); the other bars are dimmed.
+Everything before "now" sits under a darker layer; the plans that ran
+today (from the Battery action history - "Charged 03:00", "Sold 19:15")
+still show in it. The dotted line is the buy price (with transport). Top:
+the price now, the buy price, and the cheapest and most expensive moment
+still to come. Tap (or hover) for the price of a quarter.
 
 | Option | Default | What it does |
 |---|---|---|
-| `legend` | `true` | show the legend under the chart |
-| `height` | `200` | chart height in px |
-| `legend_<item>` | `true` | list that item in the legend |
-| `color_<item>` | the example's colour | the item's colour (`[r, g, b]` or `"#rrggbb"`) |
-| `labels_buy` / `labels_sell` | `true` | the lowest buy price / highest sell price label |
-| `labels_today` / `labels_tomorrow` | `true` | today's / tomorrow's min and max price labels |
+| `title` | Electricity price | the card's title |
+| `height` | `170` | chart height in px |
+| `show_extremes` | `true` | cheapest / most expensive at the top |
+| `show_buy_line` | `true` | the dotted buy price line |
+| `legend` | `true` | the legend under the chart |
+| `cheap_color` / `mid_color` / `high_color` / `negative_color` | green / yellow / orange / turquoise | the price level colours |
+| `sell_color` / `buy_color` | red / blue | the colours of a planned sale / charge |
 
-Items: `transport` (Incl. transport), `buy`, `sell`, `solar_export`,
-`today`, `tomorrow`. The price blocks themselves can't be hidden - they fit
-together, so hiding one would leave a gap.
+Options from before v0.5.1 (`show_<item>`, `legend_<item>`, `labels_<item>`
+and so on) are ignored - they belonged to the apexcharts version.
 
 **Status card.** Two blocks side by side: **Sell** on the left, **Buy** on
 the right. Each shows the start and stop time, a bar with the duration and
@@ -627,16 +662,11 @@ or English).
 | `sell_color` / `buy_color` | red / blue | the Sell / Buy colours (`[r, g, b]` or `"#rrggbb"`) |
 | `spike_color` / `negative_color` | amber / turquoise | the colour of an active spike / negative price plan |
 
-`dashboard/` still has the chart cards as plain YAML (the built-in chart
-cards are generated from them - see `tools/build_cards.py`) and the old
-status card (`entities_card.yaml`), for when you want to change them
-yourself: each file's header comment explains which placeholder entity_ids
-to replace with your own.
-
-The price chart shows the transport part in purple on top of the price
-blocks (the buy price minus the price), except over sell and solar export
-windows, since selling pays no transport. Without a tariff there's no
-purple.
+`dashboard/` still has the old chart cards as plain apexcharts-card YAML
+and the old status card (`entities_card.yaml`), for when you'd rather
+build your own: each file's header comment explains which placeholder
+entity_ids to replace with your own. The built-in cards no longer use
+them.
 
 ## What changed vs. the original hand-written version
 
@@ -685,8 +715,8 @@ and the original project notes) is in the git history up to v0.2.20.
 
 ```
 custom_components/ess_manager/   the integration itself (frontend/ = its dashboard cards)
-dashboard/                       the dashboard cards as YAML + example automation (not needed with direct control)
-tools/build_cards.py             builds frontend/ess-manager-cards.js from dashboard/*.yaml
+dashboard/                       the old dashboard cards as YAML + example automation (not needed with direct control)
+tools/build_cards.py             builds frontend/ess-manager-cards.js from tools/cards_template.js
 docs/images/                     screenshots used in this README
 tests/                           standalone tests (no Home Assistant needed)
 .github/workflows/validate.yaml  HACS + hassfest validation on every push

@@ -1,38 +1,24 @@
 """Build custom_components/ess_manager/frontend/ess-manager-cards.js from
-tools/cards_template.js and the dashboard/*.yaml examples, so the cards the
-integration loads are exactly the examples. Run from the repo root:
+tools/cards_template.js. Run from the repo root:
 
     python3 tools/build_cards.py          # write the file
     python3 tools/build_cards.py --check  # fail if it's out of date
+
+The cards are drawn by the template itself (as of v0.5.1 all three - the
+battery and price cards used to be generated from the dashboard/*.yaml
+apexcharts examples). The build only makes the output pure ASCII.
 """
-import json
 import os
 import sys
-
-import yaml
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE = os.path.join(ROOT, "tools", "cards_template.js")
 OUT = os.path.join(ROOT, "custom_components", "ess_manager", "frontend", "ess-manager-cards.js")
-SOURCES = {
-    "battery": "dashboard/battery_forecast_chart.yaml",
-    "price": "dashboard/price_apexcharts_card.yaml",
-}
-
-
-def _card(path):
-    with open(os.path.join(ROOT, path), encoding="utf-8") as handle:
-        data = yaml.safe_load(handle)
-    # battery / price examples are a one-card list (paste-ready for a view)
-    return data[0] if isinstance(data, list) else data
 
 
 def build():
-    templates = {key: _card(path) for key, path in SOURCES.items()}
     with open(TEMPLATE, encoding="utf-8") as handle:
-        template = handle.read()
-    body = "const TEMPLATES = " + json.dumps(templates, indent=2, ensure_ascii=False) + ";"
-    content = template.replace("// @@TEMPLATES@@", body)
+        content = handle.read()
     # Pure ASCII output (non-ASCII as \uXXXX escapes, valid in JS strings,
     # template literals and comments), so the file reads the same whatever
     # charset the browser assumes for it.
