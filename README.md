@@ -39,8 +39,9 @@ or discharge), the price plans, and the status history.
 
 ![Status card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/status-card.jpg)
 
-The cards are in [`dashboard/`](dashboard/) (`battery_forecast_chart.yaml`,
-`price_apexcharts_card.yaml`, `entities_card.yaml`) - see "Dashboard" below.
+These are the integration's own dashboard cards (**ESS Manager - Battery
+forecast**, **- Prices** and **- Status** in the "Add card" picker), with
+options for the items, colours, labels and legend - see "Dashboard" below.
 
 ## What it does
 
