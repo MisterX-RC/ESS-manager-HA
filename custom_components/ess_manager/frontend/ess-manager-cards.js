@@ -9,7 +9,7 @@
  * Each card only needs `entity:` - the installation's Status sensor - and
  * builds the same card as the example in dashboard/ of the repository. The
  * battery card has options on top (as of v0.5.0): show_<item> / legend_<item>
- * for each of its 11 items, legend, axis_titles, height, hours.
+ * / color_<item> for each of its 11 items, legend, axis_titles, height, hours.
  * The charts are drawn by apexcharts-card; the status card uses
  * stack-in-card and multiple-entity-row (all three from HACS).
  *
@@ -487,9 +487,10 @@ const TEMPLATES = {
 };
 
 // -- Battery card options (as of v0.5.0) ---------------------------------------
-// Every item can be hidden (show_<key>: false) or kept out of the legend
-// (legend_<key>: false); plus the legend as a whole, the height, how many
-// hours ahead and the axis titles. Everything defaults to the example card.
+// Every item can be hidden (show_<key>: false), kept out of the legend
+// (legend_<key>: false) or given its own colour (color_<key>); plus the
+// legend as a whole, the height, how many hours ahead and the axis titles.
+// Everything defaults to the example card.
 const BATTERY_ITEMS = [
   ["buy", "Buy"],
   ["balancing", "Balancing"],
@@ -503,10 +504,25 @@ const BATTERY_ITEMS = [
   ["soc", "SOC"],
   ["soc_new", "SOC new"],
 ];
+// Colours: color_<key> as [r, g, b] (what the card editor's colour picker
+// gives) or a "#rrggbb" string in YAML; the default is the example's colour.
+function hexToRgb(hex) {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || "").trim());
+  return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null;
+}
+function toHex(color) {
+  if (Array.isArray(color) && color.length === 3) {
+    return "#" + color.map((c) => Math.min(Math.max(Math.round(Number(c) || 0), 0), 255).toString(16).padStart(2, "0")).join("");
+  }
+  return hexToRgb(color) ? "#" + String(color).trim().replace(/^#/, "") : null;
+}
 const BATTERY_DEFAULTS = { legend: true, axis_titles: true, height: 270, hours: 120 };
-for (const [key] of BATTERY_ITEMS) {
+for (const [key, name] of BATTERY_ITEMS) {
   BATTERY_DEFAULTS["show_" + key] = true;
   BATTERY_DEFAULTS["legend_" + key] = true;
+  const serie = TEMPLATES.battery.cards[0].series.find((x) => x.name === name);
+  const rgb = serie && hexToRgb(serie.color);
+  if (rgb) BATTERY_DEFAULTS["color_" + key] = rgb;
 }
 const BATTERY_LABELS = {
   legend: "Show the legend",
@@ -515,8 +531,9 @@ const BATTERY_LABELS = {
   hours: "Hours ahead",
 };
 for (const [key, name] of BATTERY_ITEMS) {
-  BATTERY_LABELS["show_" + key] = `Show ${name}`;
-  BATTERY_LABELS["legend_" + key] = `${name} in the legend`;
+  BATTERY_LABELS["show_" + key] = "Show";
+  BATTERY_LABELS["legend_" + key] = "In the legend";
+  BATTERY_LABELS["color_" + key] = "Colour";
 }
 const BATTERY_SCHEMA = [
   {
@@ -529,22 +546,24 @@ const BATTERY_SCHEMA = [
       { name: "hours", selector: { number: { min: 6, max: 120, step: 6, mode: "box", unit_of_measurement: "h" } } },
     ],
   },
-  {
+  // One collapsible section per item: show, in the legend, colour.
+  ...BATTERY_ITEMS.map(([key, name]) => ({
     type: "expandable",
     flatten: true,
-    name: "items",
-    title: "Items",
+    name: "item_" + key,
+    title: name,
     schema: [
       {
         type: "grid",
         name: "",
-        schema: BATTERY_ITEMS.flatMap(([key]) => [
+        schema: [
           { name: "show_" + key, selector: { boolean: {} } },
           { name: "legend_" + key, selector: { boolean: {} } },
-        ]),
+        ],
       },
+      { name: "color_" + key, selector: { color_rgb: {} } },
     ],
-  },
+  })),
 ];
 
 function batteryKey(seriesName) {
@@ -565,6 +584,8 @@ function applyBatteryOptions(card, config) {
       if (key && opt["legend_" + key] === false) {
         serie.show = { ...(serie.show || {}), in_legend: false };
       }
+      const color = key && config["color_" + key] !== undefined ? toHex(config["color_" + key]) : null;
+      if (color) serie.color = color;
       return serie;
     });
   // An axis without any series left is dropped (apexcharts-card refuses it).
@@ -758,7 +779,7 @@ class EssManagerCardEditor extends HTMLElement {
         // Only what differs from the defaults ends up in the card's YAML.
         const config = { ...this._config, ...ev.detail.value };
         for (const [key, value] of Object.entries(defaults)) {
-          if (config[key] === value) delete config[key];
+          if (JSON.stringify(config[key]) === JSON.stringify(value)) delete config[key];
         }
         this.dispatchEvent(new CustomEvent("config-changed", { detail: { config }, bubbles: true, composed: true }));
       });

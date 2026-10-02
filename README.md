@@ -565,6 +565,7 @@ optional, the defaults are the example card):
 | `hours` | `120` | how many hours ahead the chart shows (up to 120) |
 | `show_<item>` | `true` | draw that item at all |
 | `legend_<item>` | `true` | list that item in the legend |
+| `color_<item>` | the example's colour | the item's colour: `[r, g, b]` (what the editor's colour picker writes) or `"#rrggbb"` |
 
 Items: `buy`, `balancing`, `sell`, `solar_export`, `lower_limit`,
 `upper_limit`, `planning_horizon`, `solar`, `usage`, `soc`, `soc_new`. For
@@ -576,7 +577,11 @@ entity: sensor.home_status
 hours: 48
 show_usage: false
 legend_planning_horizon: false
+color_soc: "#00c8ff"
 ```
+
+In the card editor each item has its own collapsible section with these
+three settings.
 
 `dashboard/` still has the same cards as plain YAML (and the cards are
 generated from them - see `tools/build_cards.py`), for when you want to
