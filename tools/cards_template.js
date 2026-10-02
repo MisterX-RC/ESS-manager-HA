@@ -10,7 +10,7 @@
  * builds the same card as the example in dashboard/ of the repository. The
  * battery card has options on top (as of v0.5.0): show_<item> / legend_<item>
  * / color_<item> for each of its 11 items, legend, axis_titles, height, hours.
- * The price card: legend_<item> / color_<item> / labels_<item>, legend.
+ * The price card: legend_<item> / color_<item> / labels_<item>, legend, height.
  * The charts are drawn by apexcharts-card; the status card uses
  * stack-in-card and multiple-entity-row (all three from HACS).
  *
@@ -159,8 +159,8 @@ const PRICE_ITEMS = [
   ["tomorrow", "Tomorrow's prices"],
 ];
 const PRICE_LABEL_ITEMS = { buy: "Lowest price label", sell: "Highest price label", today: "Min / max labels", tomorrow: "Min / max labels" };
-const PRICE_DEFAULTS = { legend: true };
-const PRICE_LABELS = { legend: "Show the legend" };
+const PRICE_DEFAULTS = { legend: true, height: 200 };
+const PRICE_LABELS = { legend: "Show the legend", height: "Height (px)" };
 for (const [key, name] of PRICE_ITEMS) {
   PRICE_DEFAULTS["legend_" + key] = true;
   PRICE_LABELS["legend_" + key] = "In the legend";
@@ -174,7 +174,14 @@ for (const [key, name] of PRICE_ITEMS) {
   }
 }
 const PRICE_SCHEMA = [
-  { name: "legend", selector: { boolean: {} } },
+  {
+    type: "grid",
+    name: "",
+    schema: [
+      { name: "legend", selector: { boolean: {} } },
+      { name: "height", selector: { number: { min: 120, max: 800, step: 10, mode: "box", unit_of_measurement: "px" } } },
+    ],
+  },
   ...PRICE_ITEMS.map(([key, name]) => ({
     type: "expandable",
     flatten: true,
@@ -216,8 +223,9 @@ function applyPriceOptions(card, config) {
       delete serie.show.extremas;
     }
   }
+  chart.apex_config = chart.apex_config || {};
+  chart.apex_config.chart = { ...(chart.apex_config.chart || {}), height: `${Math.round(Number(opt.height) || 200)}px` };
   if (opt.legend === false) {
-    chart.apex_config = chart.apex_config || {};
     chart.apex_config.legend = { ...(chart.apex_config.legend || {}), show: false };
   }
   return card;

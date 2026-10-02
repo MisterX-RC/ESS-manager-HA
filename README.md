@@ -589,6 +589,7 @@ three settings.
 | Option | Default | What it does |
 |---|---|---|
 | `legend` | `true` | show the legend under the chart |
+| `height` | `200` | chart height in px |
 | `legend_<item>` | `true` | list that item in the legend |
 | `color_<item>` | the example's colour | the item's colour (`[r, g, b]` or `"#rrggbb"`) |
 | `labels_buy` / `labels_sell` | `true` | the lowest buy price / highest sell price label |

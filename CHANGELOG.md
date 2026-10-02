@@ -23,7 +23,7 @@ a plain git tag on its own isn't enough for HACS to notice.
   transport, Buy, Sell, Solar export, Today's prices, Tomorrow's prices)
   whether it's in the legend and its colour, the price labels (lowest buy
   price, highest sell price, today's and tomorrow's min / max) on or off,
-  and the legend as a whole.
+  the legend as a whole and the height.
 
 ## [0.4.4] - 2026-10-02
 
