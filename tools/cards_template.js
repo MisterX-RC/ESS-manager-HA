@@ -7,7 +7,9 @@
  *   custom:ess-manager-status-card    planned charge / discharge, price alerts, status history
  *
  * Each card only needs `entity:` - the installation's Status sensor - and
- * builds the same card as the example in dashboard/ of the repository.
+ * builds the same card as the example in dashboard/ of the repository. The
+ * battery card has options on top (as of v0.5.0): show_<item> / legend_<item>
+ * for each of its 11 items, legend, axis_titles, height, hours.
  * The charts are drawn by apexcharts-card; the status card uses
  * stack-in-card and multiple-entity-row (all three from HACS).
  *
@@ -21,6 +23,103 @@ const SIBLING_PREFIX = "sensor.ess_manager_";
 
 // @@TEMPLATES@@
 
+// -- Battery card options (as of v0.5.0) ---------------------------------------
+// Every item can be hidden (show_<key>: false) or kept out of the legend
+// (legend_<key>: false); plus the legend as a whole, the height, how many
+// hours ahead and the axis titles. Everything defaults to the example card.
+const BATTERY_ITEMS = [
+  ["buy", "Buy"],
+  ["balancing", "Balancing"],
+  ["sell", "Sell"],
+  ["solar_export", "Solar export"],
+  ["lower_limit", "Lower limit"],
+  ["upper_limit", "Upper limit"],
+  ["planning_horizon", "Planning horizon"],
+  ["solar", "Solar"],
+  ["usage", "Usage"],
+  ["soc", "SOC"],
+  ["soc_new", "SOC new"],
+];
+const BATTERY_DEFAULTS = { legend: true, axis_titles: true, height: 270, hours: 120 };
+for (const [key] of BATTERY_ITEMS) {
+  BATTERY_DEFAULTS["show_" + key] = true;
+  BATTERY_DEFAULTS["legend_" + key] = true;
+}
+const BATTERY_LABELS = {
+  legend: "Show the legend",
+  axis_titles: "Show the axis titles",
+  height: "Height (px)",
+  hours: "Hours ahead",
+};
+for (const [key, name] of BATTERY_ITEMS) {
+  BATTERY_LABELS["show_" + key] = `Show ${name}`;
+  BATTERY_LABELS["legend_" + key] = `${name} in the legend`;
+}
+const BATTERY_SCHEMA = [
+  {
+    type: "grid",
+    name: "",
+    schema: [
+      { name: "legend", selector: { boolean: {} } },
+      { name: "axis_titles", selector: { boolean: {} } },
+      { name: "height", selector: { number: { min: 150, max: 800, step: 10, mode: "box", unit_of_measurement: "px" } } },
+      { name: "hours", selector: { number: { min: 6, max: 120, step: 6, mode: "box", unit_of_measurement: "h" } } },
+    ],
+  },
+  {
+    type: "expandable",
+    flatten: true,
+    name: "items",
+    title: "Items",
+    schema: [
+      {
+        type: "grid",
+        name: "",
+        schema: BATTERY_ITEMS.flatMap(([key]) => [
+          { name: "show_" + key, selector: { boolean: {} } },
+          { name: "legend_" + key, selector: { boolean: {} } },
+        ]),
+      },
+    ],
+  },
+];
+
+function batteryKey(seriesName) {
+  const found = BATTERY_ITEMS.find(([, name]) => name === seriesName);
+  return found ? found[0] : null;
+}
+
+function applyBatteryOptions(card, config) {
+  const opt = { ...BATTERY_DEFAULTS, ...config };
+  const chart = card.cards[0];
+  chart.series = chart.series
+    .filter((serie) => {
+      const key = batteryKey(serie.name);
+      return !key || opt["show_" + key] !== false;
+    })
+    .map((serie) => {
+      const key = batteryKey(serie.name);
+      if (key && opt["legend_" + key] === false) {
+        serie.show = { ...(serie.show || {}), in_legend: false };
+      }
+      return serie;
+    });
+  // An axis without any series left is dropped (apexcharts-card refuses it).
+  const used = new Set(chart.series.map((serie) => serie.yaxis_id));
+  chart.yaxis = (chart.yaxis || []).filter((axis) => used.has(axis.id));
+  if (opt.axis_titles === false) {
+    for (const axis of chart.yaxis) {
+      if (axis.apex_config) delete axis.apex_config.title;
+    }
+  }
+  const hours = Math.min(Math.max(Math.round(Number(opt.hours) || 120), 1), 120);
+  chart.graph_span = `${hours}h`;
+  chart.apex_config = chart.apex_config || {};
+  chart.apex_config.chart = { ...(chart.apex_config.chart || {}), height: `${Math.round(Number(opt.height) || 270)}px` };
+  if (opt.legend === false) chart.apex_config.legend = { ...(chart.apex_config.legend || {}), show: false };
+  return card;
+}
+
 const CARDS = {
   "ess-manager-battery-card": {
     name: "ESS Manager - Battery forecast",
@@ -28,6 +127,10 @@ const CARDS = {
     template: TEMPLATES.battery,
     requires: ["apexcharts-card"],
     size: 6,
+    schema: BATTERY_SCHEMA,
+    defaults: BATTERY_DEFAULTS,
+    labels: BATTERY_LABELS,
+    apply: applyBatteryOptions,
   },
   "ess-manager-price-card": {
     name: "ESS Manager - Prices",
@@ -113,7 +216,9 @@ class EssManagerCard extends HTMLElement {
   }
 
   static getConfigElement() {
-    return document.createElement("ess-manager-card-editor");
+    const editor = document.createElement("ess-manager-card-editor");
+    editor.cardInfo = this.info;
+    return editor;
   }
 
   _message(text) {
@@ -131,7 +236,7 @@ class EssManagerCard extends HTMLElement {
     const entity = this._config.entity;
     const stateObj = this._hass.states[entity];
     const siblings = (stateObj && stateObj.attributes && stateObj.attributes.card_entities) || {};
-    const key = entity + "|" + JSON.stringify(siblings);
+    const key = JSON.stringify([this._config, siblings]);
     if (this._builtFor === key || this._building) return;
     this._building = true;
     try {
@@ -153,7 +258,8 @@ class EssManagerCard extends HTMLElement {
         this._builtFor = null;
         return;
       }
-      const config = substitute(info.template, entity, siblings);
+      let config = substitute(info.template, entity, siblings);
+      if (info.apply) config = info.apply(config, this._config);
       const helpers = await window.loadCardHelpers();
       const card = helpers.createCardElement(config);
       card.hass = this._hass;
@@ -179,11 +285,18 @@ class EssManagerCardEditor extends HTMLElement {
 
   _render() {
     if (!this._hass || !this._config) return;
+    const info = this.cardInfo || {};
+    const defaults = info.defaults || {};
+    const labels = { entity: "ESS Manager Status sensor", ...(info.labels || {}) };
     if (!this._form) {
       this._form = document.createElement("ha-form");
-      this._form.computeLabel = () => "ESS Manager Status sensor";
+      this._form.computeLabel = (field) => labels[field.name] || field.title || field.name;
       this._form.addEventListener("value-changed", (ev) => {
+        // Only what differs from the defaults ends up in the card's YAML.
         const config = { ...this._config, ...ev.detail.value };
+        for (const [key, value] of Object.entries(defaults)) {
+          if (config[key] === value) delete config[key];
+        }
         this.dispatchEvent(new CustomEvent("config-changed", { detail: { config }, bubbles: true, composed: true }));
       });
       this.appendChild(this._form);
@@ -191,8 +304,9 @@ class EssManagerCardEditor extends HTMLElement {
     this._form.hass = this._hass;
     this._form.schema = [
       { name: "entity", required: true, selector: { entity: { filter: { integration: ESS_DOMAIN, domain: "sensor" } } } },
+      ...(info.schema || []),
     ];
-    this._form.data = this._config;
+    this._form.data = { ...defaults, ...this._config };
   }
 }
 

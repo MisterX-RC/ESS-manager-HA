@@ -554,6 +554,30 @@ entity: sensor.home_status
 A card tells you when one of the cards it builds on isn't installed. The
 cards are updated together with the integration.
 
+**Battery forecast card options** (in the card editor, or in YAML - all
+optional, the defaults are the example card):
+
+| Option | Default | What it does |
+|---|---|---|
+| `legend` | `true` | show the legend under the chart |
+| `axis_titles` | `true` | show "Battery (%)" / "Solar / Usage (kWh)" next to the axes |
+| `height` | `270` | chart height in px |
+| `hours` | `120` | how many hours ahead the chart shows (up to 120) |
+| `show_<item>` | `true` | draw that item at all |
+| `legend_<item>` | `true` | list that item in the legend |
+
+Items: `buy`, `balancing`, `sell`, `solar_export`, `lower_limit`,
+`upper_limit`, `planning_horizon`, `solar`, `usage`, `soc`, `soc_new`. For
+example:
+
+```yaml
+type: custom:ess-manager-battery-card
+entity: sensor.home_status
+hours: 48
+show_usage: false
+legend_planning_horizon: false
+```
+
 `dashboard/` still has the same cards as plain YAML (and the cards are
 generated from them - see `tools/build_cards.py`), for when you want to
 change them yourself: each file's header comment explains which

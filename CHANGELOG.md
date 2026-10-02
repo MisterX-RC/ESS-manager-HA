@@ -7,6 +7,18 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.0] - 2026-10-02
+
+### Added
+- **Options for the ESS Manager - Battery forecast card**, in the card
+  editor (or YAML): for each of its 11 items (Buy, Balancing, Sell, Solar
+  export, Lower limit, Upper limit, Planning horizon, Solar, Usage, SOC,
+  SOC new) whether it's drawn at all and whether it's in the legend, plus
+  the legend as a whole, the axis titles, the height and how many hours
+  ahead it shows. Everything defaults to the card as it was; only what you
+  change ends up in the card's YAML. Refresh the browser once after
+  updating.
+
 ## [0.4.4] - 2026-10-02
 
 ### Added
