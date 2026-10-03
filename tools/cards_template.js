@@ -765,9 +765,10 @@ class EssManagerBatteryCard extends EssChartCard {
         const socs = m.hist.concat(m.future).filter(([t]) => t >= s && t <= e).map(([, v]) => v);
         const lo = socs.length ? clamp(Math.min(...socs), 0, 100) : null;
         const hi = socs.length ? clamp(Math.max(...socs), 0, 100) : null;
-        const range = lo === null ? "" : `${f.num(lo, 0)}–${f.num(hi, 0)} %`;
+        // no day name: the tiles sit right under the chart's day labels
+        const name = d === 0 ? this._t("today") : f.dayLabel(s + HOUR_MS * 12);
+        const range = lo === null ? name : `${name} · ${f.num(lo, 0)}–${f.num(hi, 0)} %`;
         return `<div class="day${d === 0 ? " today" : ""}" title="${esc(range)}">
-          <span class="dname">${esc(d === 0 ? this._t("today") : f.dayLabel(s + HOUR_MS * 12))}</span>
           <div class="drow">
             <div class="dvals">
               ${opt.show_solar !== false ? `<span class="dval">${icon("sun", opt.solar_color, 13, 2.2)}${sol === null ? "–" : f.num(sol, 1)}</span>` : ""}
@@ -797,19 +798,18 @@ class EssManagerBatteryCard extends EssChartCard {
       .right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
       .socrow { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
       .outlook { display: flex; align-items: center; gap: 4px; font-size: 11px; white-space: nowrap; }
-      .days { display: grid; gap: 6px; }
+      .days { display: grid; gap: 6px; margin-top: 8px; }
       .day { background: rgba(127,127,127,.12); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
       .day.today { background: rgba(127,127,127,.2); }
       .drow { display: flex; align-items: stretch; gap: 6px; min-height: 30px; }
       .dvals { display: flex; flex-direction: column; justify-content: space-between; gap: 5px; flex-grow: 1; min-width: 0; }
-      .dname { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .dval { display: flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }
       .vbar { position: relative; width: 6px; flex-shrink: 0; border-radius: 999px; background: rgba(127,127,127,.25); }
       .vbar div { position: absolute; left: 0; right: 0; border-radius: 999px; }
       @container (max-width: 400px) {
         .day { padding: 6px; }
         .drow { gap: 3px; }
-        .dname, .dval { font-size: 11px; }
+        .dval { font-size: 11px; }
         .dval { gap: 3px; }
         .dval svg { width: 11px; height: 11px; }
         .vbar { width: 4px; }
@@ -827,8 +827,8 @@ class EssManagerBatteryCard extends EssChartCard {
           <div class="hit" style="position:absolute;left:0;top:${top}px;width:${W}px;height:${H}px"></div>
         </div>
         <div class="axisrow" style="width:${W}px;margin-top:4px">${labels}</div>
+        ${tiles}
       </div>
-      ${tiles}
     </ha-card>`;
     this._wireTooltip((px) => this._showTip(px));
   }

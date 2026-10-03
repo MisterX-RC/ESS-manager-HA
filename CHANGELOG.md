@@ -7,6 +7,13 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.3] - 2026-10-03
+
+### Changed
+- Battery forecast card: the day tiles no longer repeat the day name -
+  they sit right under the chart's day labels - so they're two lines high
+  now. Hovering a tile still shows the day and its battery level range.
+
 ## [0.5.2] - 2026-10-03
 
 ### Changed
