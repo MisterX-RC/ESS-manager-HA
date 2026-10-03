@@ -7,6 +7,14 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.6] - 2026-10-03
+
+### Changed
+- Status card: the Sell and Buy blocks get the same background tile as the
+  spike and negative price tiles below them. On a card around 400 - 480 px
+  wide the energy / SOC row inside them gets a bit smaller (below 440 px
+  without the "kWh" unit) so "100 %" always fits.
+
 ## [0.5.5] - 2026-10-03
 
 ### Changed

@@ -1459,7 +1459,7 @@ class EssManagerStatusCard extends HTMLElement {
       <div class="times"><span>${esc(this._time(plan.start))}</span><span>${esc(this._time(plan.stop))}</span></div>
       <div class="bar" style="background:${tint(color, 0.22)}"><div class="fill" style="width:${fill.toFixed(1)}%;background:${color}"></div><div class="bartext">${inBar}</div></div>
       <div class="below"><span>${below}</span><span>${esc(this._t("stop"))}</span></div>
-      <div class="stat">${icon("bolt", color, 16)}<b>${this._num(energy, 1)}</b><span class="dim">kWh</span><span class="dim arrow">\u2192</span>${
+      <div class="stat">${icon("bolt", color, 16)}<b>${this._num(energy, 1)}</b><span class="dim unit">kWh</span><span class="dim arrow">\u2192</span>${
         soc == null ? "" : `${batteryIcon(soc, color)}<b>${this._num(soc, 0)} %</b>`
       }</div>
     </div>`;
@@ -1567,7 +1567,9 @@ class EssManagerStatusCard extends HTMLElement {
       .status i { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
       .blocks, .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
       @container (max-width: 380px) { .blocks, .tiles { grid-template-columns: minmax(0, 1fr); } }
-      .block { display: flex; flex-direction: column; gap: 10px; border: 2px solid transparent; border-radius: 12px; padding: 8px; }
+      @container (min-width: 381px) and (max-width: 480px) { .stat { gap: 4px; padding: 7px 6px; } .stat b { font-size: 14px; } .stat .dim { font-size: 11px; } .arrow { padding: 0; } }
+      @container (min-width: 381px) and (max-width: 440px) { .stat .unit { display: none; } }
+      .block { display: flex; flex-direction: column; gap: 10px; border: 2px solid transparent; border-radius: 10px; padding: 10px; background: rgba(127,127,127,.12); }
       .head { display: flex; align-items: center; gap: 6px; }
       .name { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; flex-grow: 1; }
       .chip { display: flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
@@ -1578,7 +1580,7 @@ class EssManagerStatusCard extends HTMLElement {
       .bar { position: relative; height: 22px; border-radius: 6px; overflow: hidden; }
       .fill { position: absolute; left: 0; top: 0; bottom: 0; }
       .bartext { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 600; color: #ffffff; text-shadow: 0 0 3px rgba(0,0,0,.6); }
-      .stat { display: flex; align-items: center; gap: 6px; white-space: nowrap; background: rgba(127,127,127,.12); border-radius: 10px; padding: 7px 10px; }
+      .stat { display: flex; align-items: center; gap: 5px; white-space: nowrap; background: rgba(127,127,127,.12); border-radius: 8px; padding: 7px 8px; min-width: 0; overflow: hidden; }
       .stat b { font-size: 15px; }
       .dim { font-size: 12px; color: var(--secondary-text-color, #a0a0a0); }
       .arrow { font-size: 13px; padding: 0 2px; }
