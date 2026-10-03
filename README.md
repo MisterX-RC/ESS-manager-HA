@@ -593,7 +593,9 @@ with an orange ring on the 0 % line) or full ("full Sat 13:30", a yellow
 ring on the 100 % line) - the nearest one, the same rule as the solar
 mode - or "5+ days" when neither happens within the forecast. Below the
 chart one tile per day: the solar and usage in kWh (today: measured +
-expected) and the lowest - highest battery level that day. Tap the chart
+expected) and, as a slim vertical bar beside them, the lowest - highest
+battery level that day on a 0 - 100 % scale (hover a tile for the
+numbers). Tap the chart
 (or hover with a mouse) for the values at that hour: battery level, without
 plans, solar, usage and the price; tap the same spot again to close.
 

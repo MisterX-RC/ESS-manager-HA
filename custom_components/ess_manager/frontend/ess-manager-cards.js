@@ -697,9 +697,7 @@ class EssManagerBatteryCard extends EssChartCard {
     const xHor = x(m.horizon);
     if (xHor < W) {
       svg += `<rect x="${r1(xHor)}" y="${top}" width="${r1(W - xHor)}" height="${H}" style="fill:${bg}" fill-opacity="0.45"/>`;
-      // just under the max SOC line, clear of its label
-      const yLabel = m.high !== null ? ys(Math.min(m.high, 100)) + 13 : top + 12;
-      if (W - xHor > 70) svg += `<text x="${r1(xHor + 6)}" y="${r1(clamp(yLabel, top + 12, bottom - 4))}">${esc(this._t("horizon"))}</text>`;
+
     }
     svg += `<line x1="${r1(xNow)}" y1="${top - 6}" x2="${r1(xNow)}" y2="${bottom}" style="stroke:var(--primary-text-color, #e8e8e8)" stroke-width="1.2"/>`;
     svg += `<text x="${r1(xNow)}" y="${top - 10}" text-anchor="middle" style="fill:var(--primary-text-color, #e8e8e8);font-weight:600">${esc(this._t("now"))}</text>`;
@@ -732,6 +730,25 @@ class EssManagerBatteryCard extends EssChartCard {
       pills += `<span class="pill" style="left:${r1(left)}px;top:${r1(clamp(y, 0, bottom - 18))}px;background:${tint(p.color, 0.2)};color:var(--primary-text-color, #e8e8e8)">${p.html}</span>`;
     }
 
+    // "planning horizon": just under the max SOC line, unless the "without
+    // grid" ring or a plan label is there - then lower down
+    if (xHor < W && W - xHor > 70) {
+      const text = this._t("horizon");
+      const tw = text.length * 5.6 + 4;
+      const yHi = m.high !== null ? ys(Math.min(m.high, 100)) : top;
+      const yLo = m.low !== null ? ys(clamp(m.low, 0, 100)) : bottom;
+      const boxes = placed.map((q) => [q.left, q.y, q.left + q.w, q.y + 18]);
+      if (opt.show_outlook !== false && m.outlook && m.outlook.at < m.T1) {
+        const ox = x(m.outlook.at);
+        const y0 = ys(m.outlook.kind === "empty" ? 0 : 100);
+        boxes.push([ox - 8, y0 - 12, ox + 8, y0 + 12]);
+      }
+      const free = (y) => !boxes.some(([l, t2, r, b]) => xHor + 4 < r && l < xHor + 6 + tw && y - 10 < b && t2 < y + 2);
+      const candidates = [yHi + 13, yHi + 28, (yHi + yLo) / 2, yLo - 6].map((y) => clamp(y, top + 12, bottom - 4));
+      const yText = candidates.find(free) || candidates[0];
+      svg += `<text x="${r1(xHor + 6)}" y="${r1(yText)}">${esc(text)}</text>`;
+    }
+
     // day labels and tiles
     const dayW = (d) => x(m.starts[d + 1]) - x(m.starts[d]);
     const labels = m.starts.slice(0, -1).map((s, d) => `<span style="left:${r1(x(s))}px;width:${r1(dayW(d))}px;text-align:center${d === 0 ? ";color:var(--primary-text-color, #e8e8e8);font-weight:600" : ""}">${esc(f.dayLabel(s + HOUR_MS * 12))}</span>`).join("");
@@ -748,12 +765,16 @@ class EssManagerBatteryCard extends EssChartCard {
         const socs = m.hist.concat(m.future).filter(([t]) => t >= s && t <= e).map(([, v]) => v);
         const lo = socs.length ? clamp(Math.min(...socs), 0, 100) : null;
         const hi = socs.length ? clamp(Math.max(...socs), 0, 100) : null;
-        return `<div class="day${d === 0 ? " today" : ""}">
+        const range = lo === null ? "" : `${f.num(lo, 0)}\u2013${f.num(hi, 0)} %`;
+        return `<div class="day${d === 0 ? " today" : ""}" title="${esc(range)}">
           <span class="dname">${esc(d === 0 ? this._t("today") : f.dayLabel(s + HOUR_MS * 12))}</span>
-          ${opt.show_solar !== false ? `<span class="dval">${icon("sun", opt.solar_color, 13, 2.2)}${sol === null ? "\u2013" : f.num(sol, 1)}</span>` : ""}
-          ${opt.show_usage !== false ? `<span class="dval">${icon("home", opt.usage_color, 13, 2.2)}${use === null ? "\u2013" : f.num(use, 1)}</span>` : ""}
-          <div class="range">${lo === null ? "" : `<div style="left:${lo.toFixed(0)}%;width:${Math.max(hi - lo, 3).toFixed(0)}%;background:${opt.soc_color}"></div>`}</div>
-          <span class="dim small">${lo === null ? "\u2013" : `${f.num(lo, 0)}\u2013${f.num(hi, 0)}%`}</span>
+          <div class="drow">
+            <div class="dvals">
+              ${opt.show_solar !== false ? `<span class="dval">${icon("sun", opt.solar_color, 13, 2.2)}${sol === null ? "\u2013" : f.num(sol, 1)}</span>` : ""}
+              ${opt.show_usage !== false ? `<span class="dval">${icon("home", opt.usage_color, 13, 2.2)}${use === null ? "\u2013" : f.num(use, 1)}</span>` : ""}
+            </div>
+            <div class="vbar">${lo === null ? "" : `<div style="bottom:${lo.toFixed(0)}%;height:${Math.max(hi - lo, 4).toFixed(0)}%;background:${opt.soc_color}"></div>`}</div>
+          </div>
         </div>`;
       }).join("") + "</div>";
     }
@@ -779,11 +800,20 @@ class EssManagerBatteryCard extends EssChartCard {
       .days { display: grid; gap: 6px; }
       .day { background: rgba(127,127,127,.12); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
       .day.today { background: rgba(127,127,127,.2); }
+      .drow { display: flex; align-items: stretch; gap: 6px; min-height: 30px; }
+      .dvals { display: flex; flex-direction: column; justify-content: space-between; gap: 5px; flex-grow: 1; min-width: 0; }
       .dname { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .dval { display: flex; align-items: center; gap: 4px; font-size: 12px; }
-      .range { position: relative; height: 6px; border-radius: 999px; background: rgba(127,127,127,.25); margin-top: 2px; }
-      .range div { position: absolute; top: 0; bottom: 0; border-radius: 999px; }
-      .small { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .dval { display: flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }
+      .vbar { position: relative; width: 6px; flex-shrink: 0; border-radius: 999px; background: rgba(127,127,127,.25); }
+      .vbar div { position: absolute; left: 0; right: 0; border-radius: 999px; }
+      @container (max-width: 400px) {
+        .day { padding: 6px; }
+        .drow { gap: 3px; }
+        .dname, .dval { font-size: 11px; }
+        .dval { gap: 3px; }
+        .dval svg { width: 11px; height: 11px; }
+        .vbar { width: 4px; }
+      }
     </style>
     <ha-card>
       <div class="top"><span class="title">${esc(opt.title || this._t("battery_title"))}</span>

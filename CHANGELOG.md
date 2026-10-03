@@ -22,7 +22,8 @@ a plain git tag on its own isn't enough for HACS to notice.
   the planning horizon is dimmed. Top right the battery level now (% and
   kWh) and "without grid": when the forecast without plans runs empty or
   full (with a ring on the 0 % / 100 % line), or "5+ days". Below the
-  chart a tile per day with solar, usage and the battery level range. Tap
+  chart a compact tile per day with solar, usage and the battery level
+  range as a slim vertical bar beside them. Tap
   (or hover) for the values at an hour. Options: title, days, height, the
   day tiles, "without grid", the dotted line, solar, usage, colours.
 - **New ESS Manager - Prices card**, also drawn by the integration
