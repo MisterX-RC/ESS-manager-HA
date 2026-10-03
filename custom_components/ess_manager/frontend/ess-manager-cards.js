@@ -322,7 +322,7 @@ const BASE_CSS = `
   :host { display: block; }
   ha-card { padding: 16px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; container-type: inline-size; }
   .top { display: flex; align-items: flex-start; gap: 10px; }
-  .title { font-size: 17px; font-weight: 600; flex-grow: 1; }
+  .title { font-family: var(--ha-card-header-font-family, inherit); font-size: var(--ha-card-header-font-size, 24px); font-weight: var(--ha-card-header-font-weight, 500); letter-spacing: -0.012em; line-height: 1.2; flex-grow: 1; }
   .dim { color: var(--secondary-text-color, #a0a0a0); }
   .batt { width: 22px; height: 12px; border: 2px solid var(--secondary-text-color, #a0a0a0); border-radius: 3px; padding: 1px; box-sizing: border-box; display: inline-flex; flex-shrink: 0; }
   .batt span { border-radius: 1px; }
@@ -667,16 +667,16 @@ class EssManagerBatteryCard extends EssChartCard {
     const solar = mid(m.flows.solar);
     if (opt.show_solar !== false && solar.length > 1) {
       const line = pts(solar, yk);
-      svg += `<path d="M${r1(x(solar[0][0]))} ${bottom} L${line.join(" L")} L${r1(x(solar[solar.length - 1][0]))} ${bottom} Z" fill="${opt.solar_color}" fill-opacity="0.16" stroke="${opt.solar_color}" stroke-opacity="0.4" stroke-width="1"/>`;
+      svg += `<path d="M${r1(x(solar[0][0]))} ${bottom} L${line.join(" L")} L${r1(x(solar[solar.length - 1][0]))} ${bottom} Z" fill="${opt.solar_color}" fill-opacity="0.24" stroke="${opt.solar_color}" stroke-opacity="0.6" stroke-width="1"/>`;
     }
     const usage = mid(m.flows.usage);
     if (opt.show_usage !== false && usage.length > 1) {
-      svg += `<path d="M${pts(usage, yk).join(" L")}" fill="none" stroke="${opt.usage_color}" stroke-opacity="0.55" stroke-width="1"/>`;
+      svg += `<path d="M${pts(usage, yk).join(" L")}" fill="none" stroke="${opt.usage_color}" stroke-opacity="0.7" stroke-width="1"/>`;
     }
     // the forecast without plans, cut off at the chart's edges
     if (opt.show_raw !== false && m.raw.length > 1) {
       svg += `<defs><clipPath id="plot"><rect x="0" y="${top}" width="${W}" height="${H}"/></clipPath></defs>`;
-      svg += `<path d="M${pts(m.raw, ys).join(" L")}" fill="none" stroke="${opt.soc_color}" stroke-opacity="0.6" stroke-width="1.3" stroke-dasharray="1.5 3" stroke-linecap="round" clip-path="url(#plot)"/>`;
+      svg += `<path d="M${pts(m.raw, ys).join(" L")}" fill="none" stroke="${opt.soc_color}" stroke-opacity="0.75" stroke-width="1.3" stroke-dasharray="1.5 3" stroke-linecap="round" clip-path="url(#plot)"/>`;
     }
     // the SOC line, one stretch per colour
     const histKind = (t) => {
@@ -711,7 +711,7 @@ class EssManagerBatteryCard extends EssChartCard {
     // the past slightly dimmed, past the planning horizon more
     const bg = "var(--ha-card-background, var(--card-background-color, #1c1c1c))";
     const xNow = x(m.now);
-    svg += `<rect x="0" y="${top}" width="${r1(clamp(xNow, 0, W))}" height="${H}" style="fill:${bg}" fill-opacity="0.35"/>`;
+    svg += `<rect x="0" y="${top}" width="${r1(clamp(xNow, 0, W))}" height="${H}" style="fill:${bg}" fill-opacity="0.2"/>`;
     const xHor = x(m.horizon);
     if (xHor < W) {
       svg += `<rect x="${r1(xHor)}" y="${top}" width="${r1(W - xHor)}" height="${H}" style="fill:${bg}" fill-opacity="0.55"/>`;
@@ -1133,10 +1133,10 @@ class EssManagerPriceCard extends EssChartCard {
     }
     const dayLine = nextMidnight(this._hass, T0);
     const svg = `<defs>${grad}</defs>${axis}${under}
-      <path d="${bars(all)}" fill="url(#lvl)" fill-opacity="0.6"/>
+      <path d="${bars(all)}" fill="url(#lvl)" fill-opacity="0.75"/>
       <path d="${bars(all.filter(inWindow))}" fill="url(#lvl)"/>
       ${streaks}${buyLine}
-      <rect x="${X0}" y="0" width="${r1(clamp(xNow - X0, 0, W - X0))}" height="${r1(bottom + 8)}" style="fill:${bg}" fill-opacity="0.7"/>
+      <rect x="${X0}" y="0" width="${r1(clamp(xNow - X0, 0, W - X0))}" height="${r1(bottom + 8)}" style="fill:${bg}" fill-opacity="0.6"/>
       ${dayLine ? `<line x1="${r1(x(dayLine))}" y1="${top - 4}" x2="${r1(x(dayLine))}" y2="${r1(bottom + 8)}" stroke="rgba(127,127,127,.45)"/>` : ""}
       ${n < slots ? `<text x="${r1((xi(n) + W) / 2)}" y="${r1(top + H / 2)}" text-anchor="middle" style="font-size:11px">${esc(this._t("no_prices"))}</text>` : ""}
       <line x1="${r1(xNow)}" y1="${top - 4}" x2="${r1(xNow)}" y2="${r1(bottom)}" style="stroke:var(--primary-text-color, #e8e8e8)" stroke-width="1.2"/>
@@ -1573,7 +1573,7 @@ class EssManagerStatusCard extends HTMLElement {
     this.shadowRoot.innerHTML = `<style>
       ha-card { padding: 16px; display: flex; flex-direction: column; gap: 14px; container-type: inline-size; }
       .top { display: flex; align-items: center; gap: 10px; }
-      .title { font-size: 17px; font-weight: 600; flex-grow: 1; }
+      .title { font-family: var(--ha-card-header-font-family, inherit); font-size: var(--ha-card-header-font-size, 24px); font-weight: var(--ha-card-header-font-weight, 500); letter-spacing: -0.012em; line-height: 1.2; flex-grow: 1; }
       .status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--secondary-text-color, #a0a0a0); }
       .status i { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
       .blocks, .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }

@@ -16,6 +16,14 @@ a plain git tag on its own isn't enough for HACS to notice.
   data yet and where to look (Settings > System > Logs). Messages in Dutch
   or English like the rest of the cards.
 
+### Changed
+- Battery forecast and status card titles use Home Assistant's own card
+  header size (24 px, or whatever your theme sets), so they match your
+  other cards.
+- Brighter charts: battery card - solar, usage and the dotted line without
+  plans more visible, the past less dimmed; prices card - the bars outside
+  the plans at 75 % instead of 60 %, the past a little less dark.
+
 ## [0.5.7] - 2026-10-03
 
 ### Changed
