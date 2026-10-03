@@ -619,7 +619,8 @@ colour, with a light column and a line under it in the plan's colour and
 a label ("Sell 19:15", "Negative price 13:00"); the other bars are dimmed.
 Everything before "now" sits under a darker layer; the plans that ran
 today (from the Battery action history - "Charged 03:00", "Sold 19:15")
-still show in it. The dotted line is the buy price (with transport). Top:
+still show in it. The dotted line is the buy price (with transport - only
+when a transport tariff is set, otherwise it equals the price). Top:
 the price now, the buy price, and the cheapest and most expensive moment
 still to come. Tap (or hover) for the price of a quarter.
 
@@ -628,7 +629,7 @@ still to come. Tap (or hover) for the price of a quarter.
 | `title` | Electricity price | the card's title |
 | `height` | `170` | chart height in px |
 | `show_extremes` | `true` | cheapest / most expensive at the top |
-| `show_buy_line` | `true` | the dotted buy price line |
+| `show_buy_line` | `true` | the dotted buy price line (only drawn when a transport tariff makes it differ from the price) |
 | `legend` | `true` | the legend under the chart |
 | `cheap_color` / `mid_color` / `high_color` / `negative_color` | green / yellow / orange / turquoise | the price level colours |
 | `sell_color` / `buy_color` | red / blue | the colours of a planned sale / charge |

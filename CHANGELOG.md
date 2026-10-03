@@ -14,6 +14,16 @@ a plain git tag on its own isn't enough for HACS to notice.
   and the chart, and "now" sits beside the now line in the chart's top
   corner instead of above the chart. The chart itself keeps its height; a
   plan label steps around the "now" label.
+- Prices card more compact at the top: less space between the header and
+  the chart, and the row for the plan labels above the chart only when
+  there are plans.
+- Prices card: the dotted buy price line (and its legend item) only shows
+  when it differs from the price - with the transport tariff at 0 it just
+  traced the top of the bars.
+
+### Fixed
+- Prices card: with only positive prices the axis started at -0.05
+  instead of 0 (and a top exactly on a step got an empty step above it).
 
 ## [0.5.3] - 2026-10-03
 

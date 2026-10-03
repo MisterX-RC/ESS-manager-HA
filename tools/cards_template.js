@@ -1025,18 +1025,29 @@ class EssManagerPriceCard extends EssChartCard {
     const T1 = T0 + n * unitMs;
     const cur = clamp(Math.floor((now - T0) / unitMs), 0, n - 1);
     const W = width;
+    const colors = { buy: opt.buy_color, negative: opt.buy_color, sell: opt.sell_color, spike: opt.sell_color };
+    const upcoming = planWindows(attrs).filter((w) => w.stop > T0 && w.start < T1);
+    const ran = pastWindows(this._hist && this._hist.action, now)
+      .filter((w) => w.stop > T0 && !upcoming.some((u) => u.side === w.side && u.start < w.stop && w.start < u.stop));
+    const windows = ran.concat(upcoming).sort((a, b) => a.start - b.start);
     const X0 = 34;
-    const top = 18;
-    const H = Math.max(clamp(Number(opt.height) || 170, 100, 600) - top, 60);
+    // room above the plot for the plan labels - only when there are plans
+    const top = windows.length ? 18 : 8;
+    const H = Math.max(clamp(Number(opt.height) || 170, 100, 600) - 18, 60);
     const bottom = top + H;
     const valid = prices.filter((v) => v !== null);
-    const lineVals = opt.show_buy_line !== false ? buy.filter((v) => v !== null) : [];
+    // The buy price line only when it differs from the price (a transport
+    // tariff is set); without one it would just trace the top of the bars.
+    const showBuyLine = opt.show_buy_line !== false && buy.some((v, i) => v !== null && prices[i] !== null && Math.abs(v - prices[i]) > 1e-6);
+    const lineVals = showBuyLine ? buy.filter((v) => v !== null) : [];
     let lo = Math.min(0, ...valid, ...lineVals);
     let hi = Math.max(...valid, ...lineVals);
     const steps = [0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5];
     const step = steps.find((s) => (hi - lo) / s <= 5) || 10;
-    lo = Math.floor(lo / step - 1e-9) * step;
-    hi = Math.ceil(hi / step + 1e-9) * step;
+    // round outwards to whole steps; the tiny margin absorbs float noise
+    // (0 stays 0, a top of exactly 0.25 stays 0.25)
+    lo = Math.floor(lo / step + 1e-9) * step;
+    hi = Math.ceil(hi / step - 1e-9) * step;
     if (hi <= lo) hi = lo + step;
     const bw = (W - X0) / n;
     const x = (t) => X0 + ((t - T0) / (T1 - T0)) * (W - X0);
@@ -1063,11 +1074,6 @@ class EssManagerPriceCard extends EssChartCard {
       .join("");
 
     // the plans: upcoming / running (card_plans) and what ran today
-    const colors = { buy: opt.buy_color, negative: opt.buy_color, sell: opt.sell_color, spike: opt.sell_color };
-    const upcoming = planWindows(attrs).filter((w) => w.stop > T0 && w.start < T1);
-    const ran = pastWindows(this._hist && this._hist.action, now)
-      .filter((w) => w.stop > T0 && !upcoming.some((u) => u.side === w.side && u.start < w.stop && w.start < u.stop));
-    const windows = ran.concat(upcoming).sort((a, b) => a.start - b.start);
     const inWindow = (i) => {
       const t = T0 + i * unitMs;
       return windows.some((w) => t + unitMs > w.start && t < w.stop);
@@ -1100,7 +1106,7 @@ class EssManagerPriceCard extends EssChartCard {
     const bg = "var(--ha-card-background, var(--card-background-color, #1c1c1c))";
     const xNow = x(now);
     let buyLine = "";
-    if (opt.show_buy_line !== false) {
+    if (showBuyLine) {
       const d = buy.map((v, i) => (v === null ? "" : `${i === 0 || buy[i - 1] === null ? "M" : "L"}${r1(xi(i))} ${r1(y(v))}H${r1(xi(i + 1))}`)).join("");
       buyLine = `<path d="${d}" fill="none" style="stroke:var(--primary-text-color, #e8e8e8)" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="2 2"/>`;
     }
@@ -1154,7 +1160,7 @@ class EssManagerPriceCard extends EssChartCard {
       <span><i style="width:36px;background:linear-gradient(90deg, ${opt.negative_color}, ${opt.cheap_color}, ${opt.mid_color}, ${opt.high_color})"></i>${esc(this._t("legend_level"))}</span>
       <span><i style="background:${tint(opt.sell_color, 0.6)}"></i>${esc(this._t("legend_sell"))}</span>
       <span><i style="background:${tint(opt.buy_color, 0.6)}"></i>${esc(this._t("legend_buy"))}</span>
-      ${opt.show_buy_line !== false ? `<span><i style="width:12px;height:0;border-top:1px dashed var(--primary-text-color, #e8e8e8);border-radius:0"></i>${esc(this._t("legend_buy_line"))}</span>` : ""}
+      ${showBuyLine ? `<span><i style="width:12px;height:0;border-top:1px dashed var(--primary-text-color, #e8e8e8);border-radius:0"></i>${esc(this._t("legend_buy_line"))}</span>` : ""}
     </div>`;
 
     this.shadowRoot.innerHTML = `<style>${BASE_CSS}
@@ -1165,6 +1171,7 @@ class EssManagerPriceCard extends EssChartCard {
       .xp { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
       .xl { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; }
       @container (max-width: 420px) { .top { flex-direction: column; align-items: stretch; } }
+      .top + div { margin-top: -8px; }
     </style>
     <ha-card>
       <div class="top">
