@@ -644,6 +644,10 @@ class EssManagerBatteryCard extends EssChartCard {
       svg += `<text x="${W}" y="${r1(yHi - 4)}" text-anchor="end">${esc(this._t("max_label")(f.num(m.high, 0)))}</text>`;
       svg += `<text x="${W}" y="${r1(yLo + 12)}" text-anchor="end">${esc(this._t("min_label")(f.num(m.low, 0)))}</text>`;
     }
+    // the stretch the plans cover (now -> planning horizon) a little brighter
+    const xA = clamp(x(m.now), 0, W);
+    const xB = clamp(x(m.horizon), 0, W);
+    if (xB > xA) svg += `<rect x="${r1(xA)}" y="${top}" width="${r1(xB - xA)}" height="${H}" style="fill:var(--primary-text-color, #e8e8e8)" fill-opacity="0.06"/>`;
     for (const s of m.starts.slice(1, -1)) svg += `<line x1="${r1(x(s))}" y1="${top}" x2="${r1(x(s))}" y2="${bottom}" stroke="rgba(127,127,127,.25)"/>`;
     // solar (hourly values drawn at the middle of their hour), usage
     const mid = (list) => list.filter(([t]) => t + HOUR_MS > m.T0 && t < m.T1).map(([t, v]) => [t + HOUR_MS / 2, v]);
@@ -697,7 +701,7 @@ class EssManagerBatteryCard extends EssChartCard {
     svg += `<rect x="0" y="${top}" width="${r1(clamp(xNow, 0, W))}" height="${H}" style="fill:${bg}" fill-opacity="0.35"/>`;
     const xHor = x(m.horizon);
     if (xHor < W) {
-      svg += `<rect x="${r1(xHor)}" y="${top}" width="${r1(W - xHor)}" height="${H}" style="fill:${bg}" fill-opacity="0.45"/>`;
+      svg += `<rect x="${r1(xHor)}" y="${top}" width="${r1(W - xHor)}" height="${H}" style="fill:${bg}" fill-opacity="0.55"/>`;
 
     }
     svg += `<line x1="${r1(xNow)}" y1="${top}" x2="${r1(xNow)}" y2="${bottom}" style="stroke:var(--primary-text-color, #e8e8e8)" stroke-width="1.2"/>`;

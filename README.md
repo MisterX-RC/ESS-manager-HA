@@ -585,7 +585,9 @@ expected:
 - the solar forecast (yellow) and the usage forecast (grey line);
 - the band between your minimum and maximum SOC (the minimum that applies
   now - solar deficit or surplus - see "Two minimum SOCs" above);
-- dimmed after the **planning horizon** (the Planning horizon number).
+- the stretch from now to the **planning horizon** (the Planning horizon
+  number - what the plans cover) a little brighter, everything after it
+  dimmed.
 
 Top right: the battery level now (% and kWh) and **without grid**: when
 the forecast without plans runs empty ("without grid: empty Wed 06:15",

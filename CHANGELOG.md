@@ -14,6 +14,9 @@ a plain git tag on its own isn't enough for HACS to notice.
   and the chart, and "now" sits beside the now line in the chart's top
   corner instead of above the chart. The chart itself keeps its height; a
   plan label steps around the "now" label.
+- Battery forecast card: clearer difference before / after the planning
+  horizon - the stretch from now to the horizon (what the plans cover) is
+  a little brighter, everything after it a little darker.
 - Prices card more compact at the top: less space between the header and
   the chart, and the row for the plan labels above the chart only when
   there are plans.
