@@ -619,8 +619,9 @@ class EssManagerBatteryCard extends EssChartCard {
     const colors = { normal: opt.soc_color, buy: opt.buy_color, negative: "#2f8cff", sell: opt.sell_color, spike: "#ff4545" };
     this._colors = colors;
     const W = width;
-    const top = 30;
-    const H = Math.max(clamp(Number(opt.height) || 210, 120, 600) - top - 4, 60);
+    const top = 18;
+    // the plot keeps its height; the 12 px saved above it make the card lower
+    const H = Math.max(clamp(Number(opt.height) || 210, 120, 600) - 34, 60);
     const bottom = top + H;
     const x = (t) => ((t - m.T0) / (m.T1 - m.T0)) * W;
     const ys = (p) => top + ((100 - p) / 100) * H;
@@ -699,8 +700,12 @@ class EssManagerBatteryCard extends EssChartCard {
       svg += `<rect x="${r1(xHor)}" y="${top}" width="${r1(W - xHor)}" height="${H}" style="fill:${bg}" fill-opacity="0.45"/>`;
 
     }
-    svg += `<line x1="${r1(xNow)}" y1="${top - 6}" x2="${r1(xNow)}" y2="${bottom}" style="stroke:var(--primary-text-color, #e8e8e8)" stroke-width="1.2"/>`;
-    svg += `<text x="${r1(xNow)}" y="${top - 10}" text-anchor="middle" style="fill:var(--primary-text-color, #e8e8e8);font-weight:600">${esc(this._t("now"))}</text>`;
+    svg += `<line x1="${r1(xNow)}" y1="${top}" x2="${r1(xNow)}" y2="${bottom}" style="stroke:var(--primary-text-color, #e8e8e8)" stroke-width="1.2"/>`;
+    // "now" beside the line in the chart's top corner (left of it near the right edge)
+    const nowW = this._t("now").length * 6 + 4;
+    const nowRight = xNow + 4 + nowW <= W;
+    const nowX = nowRight ? xNow + 4 : xNow - 4;
+    svg += `<text x="${r1(nowX)}" y="${top + 10}" text-anchor="${nowRight ? "start" : "end"}" style="fill:var(--primary-text-color, #e8e8e8);font-weight:600;paint-order:stroke;stroke:${bg};stroke-width:3px">${esc(this._t("now"))}</text>`;
     if (m.socNow !== null) svg += `<circle cx="${r1(xNow)}" cy="${r1(ys(clamp(m.socNow, 0, 100)))}" r="4" fill="${opt.soc_color}" style="stroke:${bg}" stroke-width="2"/>`;
     if (opt.show_outlook !== false && m.outlook && m.outlook.at < m.T1) {
       const ox = x(m.outlook.at);
@@ -713,7 +718,8 @@ class EssManagerBatteryCard extends EssChartCard {
 
     // plan pills, above the line (below it when there's no room or they'd overlap)
     let pills = "";
-    const placed = [];
+    // the "now" label counts as taken, so a plan label steps around it
+    const placed = [{ left: nowRight ? xNow : xNow - 4 - nowW, y: top, w: nowW + 4 }];
     const socAt = (t) => this._interp(t < m.now ? m.hist : m.future, t);
     for (const w of m.windows) {
       if (w.start >= m.T1) continue;
@@ -796,6 +802,7 @@ class EssManagerBatteryCard extends EssChartCard {
 
     this.shadowRoot.innerHTML = `<style>${BASE_CSS}
       .right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+      .top + div { margin-top: -8px; }
       .socrow { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
       .outlook { display: flex; align-items: center; gap: 4px; font-size: 11px; white-space: nowrap; }
       .days { display: grid; gap: 6px; margin-top: 8px; }

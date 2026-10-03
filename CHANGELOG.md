@@ -7,6 +7,14 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.4] - 2026-10-03
+
+### Changed
+- Battery forecast card about 20 px lower: less space between the header
+  and the chart, and "now" sits beside the now line in the chart's top
+  corner instead of above the chart. The chart itself keeps its height; a
+  plan label steps around the "now" label.
+
 ## [0.5.3] - 2026-10-03
 
 ### Changed
