@@ -7,6 +7,20 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.2] - 2026-10-03
+
+### Changed
+- **Battery forecast card: compact day tiles.** The battery level range of
+  a day is now a slim vertical bar beside the solar and usage values
+  (0 - 100 % scale; hover a tile for the numbers), so the tiles are three
+  lines high instead of five. On narrow cards (below 400 px) text, icons
+  and the bar get a bit smaller so everything fits.
+
+### Fixed
+- Battery forecast card: the "planning horizon" label no longer lands on
+  the "without grid" ring or a plan label - it moves down a line when it
+  would.
+
 ## [0.5.1] - 2026-10-02
 
 ### Changed
@@ -22,8 +36,7 @@ a plain git tag on its own isn't enough for HACS to notice.
   the planning horizon is dimmed. Top right the battery level now (% and
   kWh) and "without grid": when the forecast without plans runs empty or
   full (with a ring on the 0 % / 100 % line), or "5+ days". Below the
-  chart a compact tile per day with solar, usage and the battery level
-  range as a slim vertical bar beside them. Tap
+  chart a tile per day with solar, usage and the battery level range. Tap
   (or hover) for the values at an hour. Options: title, days, height, the
   day tiles, "without grid", the dotted line, solar, usage, colours.
 - **New ESS Manager - Prices card**, also drawn by the integration
