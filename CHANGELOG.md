@@ -7,6 +7,16 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.7] - 2026-10-03
+
+### Changed
+- Status card about 75 px lower: the control toggle sits in the header
+  next to the Status (its name as a tooltip) instead of on its own row;
+  the "planned · Sun ... stop" line under the bar is gone - a window that
+  hasn't started shows its day before the start time, and the bar already
+  shows planned / running / done (hover it for the kWh done); a little
+  less space between the lines of the blocks.
+
 ## [0.5.6] - 2026-10-03
 
 ### Changed

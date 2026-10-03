@@ -639,24 +639,25 @@ still to come. Tap (or hover) for the price of a quarter.
 Options from before v0.5.1 (`show_<item>`, `legend_<item>`, `labels_<item>`
 and so on) are ignored - they belonged to the apexcharts version.
 
-**Status card.** Two blocks side by side: **Sell** on the left, **Buy** on
-the right. Each shows the start and stop time, a bar with the duration and
-- once the window runs - how far it is, measured on the energy (it fills
-as the battery moves towards the plan's target, and says how long is left),
-the energy (kWh) and the target battery level (SOC). An active spike or
-negative price plan shows in the block it drives, with a chip and an
-outline in that plan's colour (a spike drives both blocks: the cheap
-charge and the sale in the peak); full-charge balancing gets a chip too.
-Below the blocks: the spike and negative price plan status, a toggle for
-the control (the integration's **Automatic control** switch when it
-controls the battery itself, otherwise the automation you choose in the
-card's options) and a slim timeline of the last hours - calm blue / red
-for normal charging / discharging, intense blue / red for the faster
-negative price charge / spike discharge, dark grey for idle. The timeline
-comes from the **Battery action** sensor (`idle`, `charge`, `discharge`,
-`negative_price_charge`, `spike_discharge`), so it fills in from the moment
-you install this version. Texts follow your Home Assistant language (Dutch
-or English).
+**Status card.** At the top the title, the Status and a toggle for the
+control (the integration's **Automatic control** switch when it controls
+the battery itself, otherwise the automation you choose in the card's
+options; hover it for its name). Below, two blocks side by side: **Sell**
+on the left, **Buy** on the right. Each shows the start (with the day when
+it hasn't started yet) and stop time, a bar with the duration and - once
+the window runs - how far it is, measured on the energy (it fills as the
+battery moves towards the plan's target, and says how long is left; hover
+it for the kWh done), the energy (kWh) and the target battery level (SOC
+expected after it). An active spike or negative price plan shows in the
+block it drives, with a chip and an outline in that plan's colour (a spike
+drives both blocks: the cheap charge and the sale in the peak); full-charge
+balancing gets a chip too. Below the blocks: the spike and negative price
+plan status and a slim timeline of the last hours - calm blue / red for
+normal charging / discharging, intense blue / red for the faster negative
+price charge / spike discharge, dark grey for idle. The timeline comes from
+the **Battery action** sensor (`idle`, `charge`, `discharge`,
+`negative_price_charge`, `spike_discharge`). Texts follow your Home
+Assistant language (Dutch or English).
 
 | Option | Default | What it does |
 |---|---|---|

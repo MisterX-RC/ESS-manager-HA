@@ -1456,9 +1456,8 @@ class EssManagerStatusCard extends HTMLElement {
     const fill = plan.target_reached ? 100 : plan.started ? progress * 100 : 0;
     const soc = plan.target_soc_percent;
     return `<div class="block" style="border-color:${outline}">${head}
-      <div class="times"><span>${esc(this._time(plan.start))}</span><span>${esc(this._time(plan.stop))}</span></div>
-      <div class="bar" style="background:${tint(color, 0.22)}"><div class="fill" style="width:${fill.toFixed(1)}%;background:${color}"></div><div class="bartext">${inBar}</div></div>
-      <div class="below"><span>${below}</span><span>${esc(this._t("stop"))}</span></div>
+      <div class="times"><span>${plan.started ? "" : `<span class="dim">${esc(this._weekday(plan.start))}</span> `}${esc(this._time(plan.start))}</span><span>${esc(this._time(plan.stop))}</span></div>
+      <div class="bar" title="${below}" style="background:${tint(color, 0.22)}"><div class="fill" style="width:${fill.toFixed(1)}%;background:${color}"></div><div class="bartext">${inBar}</div></div>
       <div class="stat">${icon("bolt", color, 16)}<b>${this._num(energy, 1)}</b><span class="dim unit">kWh</span><span class="dim arrow">\u2192</span>${
         soc == null ? "" : `${batteryIcon(soc, color)}<b>${this._num(soc, 0)} %</b>`
       }</div>
@@ -1538,13 +1537,12 @@ class EssManagerStatusCard extends HTMLElement {
     const action = actionObj ? actionObj.state : attrs.control_action;
     const dot = { charge: opt.buy_color, negative_price_charge: opt.buy_color, discharge: opt.sell_color, spike_discharge: opt.sell_color }[action] || "#8a8a8a";
 
+    // the control toggle sits in the header, its name as a tooltip
     let toggle = "";
     if (toggleObj) {
       const on = toggleObj.state === "on";
-      const isOwn = !this._config.automation;
-      const label = isOwn ? this._t("auto_control") : toggleObj.attributes.friendly_name || toggleId;
-      toggle = `<div class="toggle">${icon("robot", "#a0a0a0", 18)}<span class="tlabel">${esc(label)}</span>
-        <button type="button" class="switch ${on ? "on" : ""}" aria-pressed="${on}" aria-label="${esc(label)}" style="background:${on ? opt.buy_color : "#4a4a4a"}"><span></span></button></div>`;
+      const label = !this._config.automation ? this._t("auto_control") : toggleObj.attributes.friendly_name || toggleId;
+      toggle = `<button type="button" class="switch ${on ? "on" : ""}" title="${esc(label)}" aria-pressed="${on}" aria-label="${esc(label)}" style="background:${on ? opt.buy_color : "#4a4a4a"}"><span></span></button>`;
     }
 
     let timeline = "";
@@ -1569,14 +1567,13 @@ class EssManagerStatusCard extends HTMLElement {
       @container (max-width: 380px) { .blocks, .tiles { grid-template-columns: minmax(0, 1fr); } }
       @container (min-width: 381px) and (max-width: 480px) { .stat { gap: 4px; padding: 7px 6px; } .stat b { font-size: 14px; } .stat .dim { font-size: 11px; } .arrow { padding: 0; } }
       @container (min-width: 381px) and (max-width: 440px) { .stat .unit { display: none; } }
-      .block { display: flex; flex-direction: column; gap: 10px; border: 2px solid transparent; border-radius: 10px; padding: 10px; background: rgba(127,127,127,.12); }
+      .block { display: flex; flex-direction: column; gap: 7px; border: 2px solid transparent; border-radius: 10px; padding: 10px; background: rgba(127,127,127,.12); }
       .head { display: flex; align-items: center; gap: 6px; }
       .name { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; flex-grow: 1; }
       .chip { display: flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
       .empty { font-size: 13px; color: var(--secondary-text-color, #a0a0a0); padding: 18px 0; text-align: center; }
-      .times, .below { display: flex; justify-content: space-between; }
+      .times { display: flex; justify-content: space-between; }
       .times { font-size: 13px; }
-      .below { font-size: 11px; color: var(--secondary-text-color, #a0a0a0); }
       .bar { position: relative; height: 22px; border-radius: 6px; overflow: hidden; }
       .fill { position: absolute; left: 0; top: 0; bottom: 0; }
       .bartext { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 600; color: #ffffff; text-shadow: 0 0 3px rgba(0,0,0,.6); }
@@ -1590,19 +1587,16 @@ class EssManagerStatusCard extends HTMLElement {
       .col { display: flex; flex-direction: column; min-width: 0; }
       .tname { font-size: 13px; font-weight: 600; }
       .tdetail { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .toggle { display: flex; align-items: center; gap: 10px; border-top: 1px solid rgba(127,127,127,.2); padding-top: 10px; }
-      .tlabel { font-size: 13px; flex-grow: 1; }
-      .switch { width: 44px; height: 26px; border-radius: 999px; border: none; position: relative; padding: 0; cursor: pointer; }
+      .switch { width: 44px; height: 26px; border-radius: 999px; border: none; position: relative; padding: 0; cursor: pointer; flex-shrink: 0; margin-left: 4px; }
       .switch span { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 999px; background: #ffffff; transition: left .15s; }
       .switch.on span { left: 21px; }
       .timeline { display: flex; height: 14px; border-radius: 999px; overflow: hidden; }
       .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color, #a0a0a0); margin-top: -8px; }
     </style>
     <ha-card>
-      <div class="top"><span class="title">${esc(opt.title)}</span><span class="status"><i style="background:${dot}"></i>${esc(stateObj.state)}</span></div>
+      <div class="top"><span class="title">${esc(opt.title)}</span><span class="status"><i style="background:${dot}"></i>${esc(stateObj.state)}</span>${toggle}</div>
       <div class="blocks">${this._block("sell", plans.sell, opt)}${this._block("buy", plans.buy, opt)}</div>
       <div class="tiles">${this._planTile("spike", attrs.spike_plan, opt)}${this._planTile("negative", attrs.negative_price_plan, opt)}</div>
-      ${toggle}
       ${timeline}
     </ha-card>`;
     const button = this.shadowRoot.querySelector(".switch");
