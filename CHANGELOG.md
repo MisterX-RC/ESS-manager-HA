@@ -14,6 +14,14 @@ a plain git tag on its own isn't enough for HACS to notice.
   tomorrow's prices are published, that half stays empty ("No prices
   yet") instead of today's prices being stretched over the full width.
 
+### Fixed
+- Status card: the target SOC of a sale or charge that hasn't started yet
+  (e.g. a sale tomorrow evening) was the SOC now minus / plus the amount.
+  It's now the level expected at the start of the window (from the
+  forecast with the plans in it) minus / plus the amount. Once the window
+  runs nothing changes - the plan's own target level was already right
+  then.
+
 ## [0.5.4] - 2026-10-03
 
 ### Changed

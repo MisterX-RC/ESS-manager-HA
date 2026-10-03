@@ -195,6 +195,28 @@ def _card_side(
     }
 
 
+def _level_at_unit(
+    forecast: Optional[list], battery_now_kwh: float, now: datetime, unit: int
+) -> Optional[float]:
+    """The forecast battery level (kWh) at the start of price unit `unit`
+    (15-minute units from today's midnight; tomorrow's continue past 96),
+    interpolated between now (the live level) and the forecast's hourly
+    points (entry i = the level at the end of hour i, hour 0 = this one).
+    None without a forecast."""
+    if not forecast:
+        return None
+    now_min = now.hour * 60 + now.minute + now.second / 60.0
+    target = (unit * 15 - now_min) / 60.0  # hours from now
+    if target <= 0:
+        return battery_now_kwh
+    first = 1.0 - now_min % 60 / 60.0  # hours from now to the end of hour 0
+    points = [(0.0, battery_now_kwh)] + [(first + i, float(v)) for i, v in enumerate(forecast) if v is not None]
+    for (ta, va), (tb, vb) in zip(points, points[1:]):
+        if target <= tb:
+            return va + (vb - va) * (target - ta) / (tb - ta) if tb > ta else vb
+    return points[-1][1]
+
+
 def card_plans(
     full: dict,
     neg: dict,
@@ -205,14 +227,33 @@ def card_plans(
     now: datetime,
     battery_now_kwh: float,
     capacity_kwh: float,
+    forecast: Optional[list] = None,
 ) -> dict:
     """{"buy": side | None, "sell": side | None} - the same plan priority as
     charge_display / discharge_display (full charge -> negative price ->
     spike -> low charge; negative price -> spike -> high discharge), so the
     card shows what the charge/discharge sensors show (except a spike plan
     without a top-up, which leaves the Buy block to the next plan). `source`
-    names the plan, for the card's chip and outline."""
+    names the plan, for the card's chip and outline.
+
+    The low charge / high discharge plans carry their target level as
+    "battery now +/- amount" (target_energy_kwh), which is only right once
+    the window starts - their stop condition only uses it then. For a
+    window still ahead (as of v0.5.5) the card's target is the expected
+    level at its start (from `forecast`, the forecast with the plans in it)
+    +/- the amount, so a sale tomorrow evening doesn't show "SOC now minus
+    the sale"."""
     common = (cur_unit, now, battery_now_kwh, capacity_kwh)
+
+    def ahead_target(plan: dict, charging: bool) -> Optional[float]:
+        target = plan.get("target_energy_kwh")
+        if cur_unit < plan.get("start_unit", 0):
+            level = _level_at_unit(forecast, battery_now_kwh, now, plan["start_unit"])
+            if level is not None:
+                amount = plan.get("target_kwh", 0) or 0
+                target = level + amount if charging else level - amount
+        return target
+
     buy = None
     if full.get("active") and full.get("phase") in ("scheduled", "charging"):
         buy = _card_side(
@@ -233,7 +274,7 @@ def card_plans(
     elif low.get("active"):
         buy = _card_side(
             "low_charge", True, low["start_unit"], low["end_unit"], low.get("target_kwh", 0),
-            low.get("target_energy_kwh"), low.get("effective_charge_per_unit", 0) * 4, low.get("target_reached", False),
+            ahead_target(low, True), low.get("effective_charge_per_unit", 0) * 4, low.get("target_reached", False),
             *common,
         )
 
@@ -253,7 +294,7 @@ def card_plans(
     elif high.get("active"):
         sell = _card_side(
             "high_discharge", False, high["start_unit"], high["end_unit"], high.get("target_kwh", 0),
-            high.get("target_energy_kwh"), high.get("effective_discharge_per_unit", 0) * 4, high.get("target_reached", False),
+            ahead_target(high, False), high.get("effective_discharge_per_unit", 0) * 4, high.get("target_reached", False),
             *common,
         )
     return {"buy": buy, "sell": sell}

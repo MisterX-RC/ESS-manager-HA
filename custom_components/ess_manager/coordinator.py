@@ -969,6 +969,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             now,
             battery_now_kwh,
             capacity_kwh,
+            battery_forecast_adjusted,
         )
 
         await self._async_persist()

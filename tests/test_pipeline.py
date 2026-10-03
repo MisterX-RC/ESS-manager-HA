@@ -2672,6 +2672,23 @@ _cp3 = display.card_plans({"active": False}, {"active": False}, {"active": False
 check("card plans: a charge whose target is reached is done", _cp3["buy"]["target_reached"] and _cp3["buy"]["remaining_kwh"] == 0
       and _cp3["sell"] is None)
 
+# v0.5.5: a window still ahead gets its target from the expected level at its start
+_fc = [round(10 + 0.1 * (i + 1), 3) for i in range(121)]  # rising 0.1 kWh per hour
+_high_tmw = {"active": True, "start_unit": 96 + 77, "end_unit": 96 + 79, "target_kwh": 1.6, "target_energy_kwh": 8.4,
+             "effective_discharge_per_unit": 0.8, "target_reached": False}
+_cp4 = display.card_plans({"active": False}, {"active": False}, {"active": False}, {"active": False}, _high_tmw,
+                          _cur, _cp_now, 10.0, 15.0, _fc)
+check("card plans: a sale tomorrow 19:15 targets the level expected then minus the sale (12.53 - 1.6), not SOC now minus it",
+      abs(_cp4["sell"]["target_level_kwh"] - 10.93) < 0.01 and _cp4["sell"]["target_soc_percent"] == 72.8)
+_cp5 = display.card_plans({"active": False}, {"active": False}, {"active": False},
+                          {**_low, "start_unit": _cur + 8, "end_unit": _cur + 12}, {"active": False}, _cur, _cp_now, 10.0, 30.0, _fc)
+check("card plans: a charge at 20:00 targets the level expected then plus the charge (10.2 + 5.0)",
+      abs(_cp5["buy"]["target_level_kwh"] - 15.2) < 0.01)
+check("card plans: a running sale keeps its own target level (forecast ignored)",
+      display.card_plans({"active": False}, {"active": False}, {"active": False}, {"active": False}, _high, _cur, _cp_now, 21.5, 30.0, _fc)["sell"]["target_level_kwh"] == 18.6)
+check("card plans: without a forecast the plan's own target level is used",
+      display.card_plans({"active": False}, {"active": False}, {"active": False}, {"active": False}, _high_tmw, _cur, _cp_now, 10.0, 15.0)["sell"]["target_level_kwh"] == 8.4)
+
 # ---------------------------------------------------------------------------
 # v0.5.1: today's measured hours for the battery card (history_today)
 # ---------------------------------------------------------------------------
