@@ -1026,7 +1026,11 @@ class EssManagerPriceCard extends EssChartCard {
     // 15-minute prices; an hourly price list (24 values a day) works too.
     const unitMs = (num(attrs.today_price_units) || 96) <= 25 ? HOUR_MS : UNIT_MS;
     const n = prices.length;
-    const T1 = T0 + n * unitMs;
+    // Always two whole days (today and tomorrow); until tomorrow's prices are
+    // published, that half stays empty.
+    const twoDays = nextMidnight(this._hass, nextMidnight(this._hass, T0));
+    const T1 = Math.max(twoDays, T0 + n * unitMs);
+    const slots = Math.max(n, Math.round((T1 - T0) / unitMs));
     const cur = clamp(Math.floor((now - T0) / unitMs), 0, n - 1);
     const W = width;
     const colors = { buy: opt.buy_color, negative: opt.buy_color, sell: opt.sell_color, spike: opt.sell_color };
@@ -1053,12 +1057,12 @@ class EssManagerPriceCard extends EssChartCard {
     lo = Math.floor(lo / step + 1e-9) * step;
     hi = Math.ceil(hi / step - 1e-9) * step;
     if (hi <= lo) hi = lo + step;
-    const bw = (W - X0) / n;
+    const bw = (W - X0) / slots;
     const x = (t) => X0 + ((t - T0) / (T1 - T0)) * (W - X0);
     const xi = (i) => X0 + i * bw;
     const y = (v) => top + ((hi - v) / (hi - lo)) * H;
     const base = y(0);
-    this._geo = { W, X0, top, H, bottom, bw, xi, y, T0, unitMs, n };
+    this._geo = { W, X0, top, H, bottom, bw, xi, y, T0, unitMs, n, slots };
     this._prices = { prices, buy };
 
     // colour by level: negative apart, then cheap -> average -> expensive
@@ -1114,13 +1118,14 @@ class EssManagerPriceCard extends EssChartCard {
       const d = buy.map((v, i) => (v === null ? "" : `${i === 0 || buy[i - 1] === null ? "M" : "L"}${r1(xi(i))} ${r1(y(v))}H${r1(xi(i + 1))}`)).join("");
       buyLine = `<path d="${d}" fill="none" style="stroke:var(--primary-text-color, #e8e8e8)" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="2 2"/>`;
     }
-    const dayLine = n * unitMs > 26 * HOUR_MS ? nextMidnight(this._hass, T0) : null;
+    const dayLine = nextMidnight(this._hass, T0);
     const svg = `<defs>${grad}</defs>${axis}${under}
       <path d="${bars(all)}" fill="url(#lvl)" fill-opacity="0.6"/>
       <path d="${bars(all.filter(inWindow))}" fill="url(#lvl)"/>
       ${streaks}${buyLine}
       <rect x="${X0}" y="0" width="${r1(clamp(xNow - X0, 0, W - X0))}" height="${r1(bottom + 8)}" style="fill:${bg}" fill-opacity="0.7"/>
       ${dayLine ? `<line x1="${r1(x(dayLine))}" y1="${top - 4}" x2="${r1(x(dayLine))}" y2="${r1(bottom + 8)}" stroke="rgba(127,127,127,.45)"/>` : ""}
+      ${n < slots ? `<text x="${r1((xi(n) + W) / 2)}" y="${r1(top + H / 2)}" text-anchor="middle" style="font-size:11px">${esc(this._t("no_prices"))}</text>` : ""}
       <line x1="${r1(xNow)}" y1="${top - 4}" x2="${r1(xNow)}" y2="${r1(bottom)}" style="stroke:var(--primary-text-color, #e8e8e8)" stroke-width="1.2"/>
       ${prices[cur] !== null ? `<circle cx="${r1(xNow)}" cy="${r1(y(prices[cur]))}" r="4" style="fill:var(--primary-text-color, #e8e8e8);stroke:${bg}" stroke-width="2"/>` : ""}`;
 
@@ -1212,7 +1217,13 @@ class EssManagerPriceCard extends EssChartCard {
     }
     const g = this._geo;
     const f = formats(this._hass);
-    const i = clamp(Math.floor(px / g.bw), 0, g.n - 1);
+    const i = clamp(Math.floor(px / g.bw), 0, g.slots - 1);
+    if (i >= g.n) {
+      // tomorrow's prices aren't known yet
+      cross.innerHTML = "";
+      tip.style.display = "none";
+      return;
+    }
     const t = g.T0 + i * g.unitMs;
     const p = this._prices.prices[i];
     const b = this._prices.buy[i];

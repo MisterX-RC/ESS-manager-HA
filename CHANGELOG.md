@@ -7,6 +7,13 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.5] - 2026-10-03
+
+### Changed
+- Prices card: always shows two whole days, today and tomorrow. Until
+  tomorrow's prices are published, that half stays empty ("No prices
+  yet") instead of today's prices being stretched over the full width.
+
 ## [0.5.4] - 2026-10-03
 
 ### Changed

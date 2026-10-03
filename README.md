@@ -613,8 +613,8 @@ plans, solar, usage and the price; tap the same spot again to close.
 | `soc_color` / `solar_color` / `usage_color` | green / yellow / grey | colours (`[r, g, b]` or `"#rrggbb"`) |
 | `sell_color` / `buy_color` | red / blue | the colours of a sale / charge |
 
-**Price card.** Today's prices and, once they're published, tomorrow's,
-as bars coloured by price level: a gradient from cheap (green) via average
+**Price card.** Always two whole days: today and tomorrow (that half
+stays empty until tomorrow's prices are published), as bars coloured by price level: a gradient from cheap (green) via average
 to expensive (orange), negative prices in turquoise. The planned buy and
 sell moments (the same as the status card's blocks) keep their full
 colour, with a light column and a line under it in the plan's colour and
