@@ -7,6 +7,15 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.8] - 2026-10-03
+
+### Fixed
+- Dashboard cards: when the Status sensor is unavailable (ESS Manager has
+  no data - right after a restart, or while its update fails) the cards
+  said it was "not an ESS Manager Status sensor". They now say it has no
+  data yet and where to look (Settings > System > Logs). Messages in Dutch
+  or English like the rest of the cards.
+
 ## [0.5.7] - 2026-10-03
 
 ### Changed

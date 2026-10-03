@@ -47,6 +47,9 @@ const I18N = {
     cheapest: "cheapest", most_expensive: "most expensive", per_kwh: "/kWh",
     legend_level: "price level", legend_sell: "Sell planned", legend_buy: "Buy planned", legend_buy_line: "Buy price",
     no_prices: "No prices yet",
+    msg_not_found: (e) => `ESS Manager: ${e} not found - choose the installation's "Status" sensor.`,
+    msg_not_status: (e) => `ESS Manager: ${e} is not an ESS Manager Status sensor - choose the "Status" sensor.`,
+    msg_unavailable: (e) => `ESS Manager has no data yet: ${e} is unavailable. Right after a restart that's normal for a moment; if it stays, look in Settings > System > Logs for "ess_manager".`,
     // editors
     ed_entity: "ESS Manager Status sensor", ed_title: "Title", ed_colours: "Colours", ed_height: "Chart height (px)",
     ed_days: "Days", ed_show_days: "Show the day tiles", ed_show_raw: "Show the forecast without plans",
@@ -76,6 +79,9 @@ const I18N = {
     cheapest: "goedkoopst", most_expensive: "duurst", per_kwh: "/kWh",
     legend_level: "prijsniveau", legend_sell: "Sell gepland", legend_buy: "Buy gepland", legend_buy_line: "Inkoopprijs",
     no_prices: "Nog geen prijzen",
+    msg_not_found: (e) => `ESS Manager: ${e} niet gevonden - kies de "Status"-sensor van de installatie.`,
+    msg_not_status: (e) => `ESS Manager: ${e} is geen ESS Manager Status-sensor - kies de "Status"-sensor.`,
+    msg_unavailable: (e) => `ESS Manager heeft nog geen gegevens: ${e} is niet beschikbaar. Vlak na een herstart is dat even normaal; blijft het zo, kijk dan in Instellingen > Systeem > Logboeken naar "ess_manager".`,
     ed_entity: "ESS Manager Status-sensor", ed_title: "Titel", ed_colours: "Kleuren", ed_height: "Hoogte grafiek (px)",
     ed_days: "Dagen", ed_show_days: "Dagtegels tonen", ed_show_raw: "Voorspelling zonder plannen tonen",
     ed_show_solar: "Zon tonen", ed_show_usage: "Verbruik tonen", ed_show_outlook: "\"Zonder stroomnet\" tonen",
@@ -229,7 +235,14 @@ function findStatusSensor(hass) {
 }
 
 function notStatusMessage(hass, entity, stateObj) {
-  return `<ha-card><div style="padding:16px">ESS Manager: ${esc(entity)} ${stateObj ? "is not an ESS Manager Status sensor - choose the \"Status\" sensor" : "not found"}.</div></ha-card>`;
+  // An unavailable Status sensor has no attributes at all - that's ESS
+  // Manager without data (just restarted, or an update failing), not a
+  // wrong sensor.
+  let text;
+  if (!stateObj) text = tr(hass, "msg_not_found")(entity);
+  else if (stateObj.state === "unavailable" || stateObj.state === "unknown") text = tr(hass, "msg_unavailable")(entity);
+  else text = tr(hass, "msg_not_status")(entity);
+  return `<ha-card><div style="padding:16px">${esc(text)}</div></ha-card>`;
 }
 
 // Recorder history of a few entities: {entity_id: [[ms, state], ...]}, the
