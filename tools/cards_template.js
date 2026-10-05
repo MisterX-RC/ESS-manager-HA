@@ -242,7 +242,34 @@ function notStatusMessage(hass, entity, stateObj) {
   if (!stateObj) text = tr(hass, "msg_not_found")(entity);
   else if (stateObj.state === "unavailable" || stateObj.state === "unknown") text = tr(hass, "msg_unavailable")(entity);
   else text = tr(hass, "msg_not_status")(entity);
-  return `<ha-card><div style="padding:16px">${esc(text)}</div></ha-card>`;
+  return `<div style="padding:16px">${esc(text)}</div>`;
+}
+
+// Put a card's content in place (as of v0.5.9). The <style> and <ha-card>
+// are made once and kept; the content is only replaced when it changed,
+// with the card's height held for a frame meanwhile - so a refresh never
+// makes the card (and the dashboard around it) collapse and jump, which
+// could scroll the whole page back to the top. Returns whether it changed
+// (event listeners need wiring again then).
+function setCardContent(host, css, inner) {
+  const root = host.shadowRoot;
+  if (!host._essCard || !root.contains(host._essCard)) {
+    root.innerHTML = "<style></style><ha-card></ha-card>";
+    host._essStyle = root.querySelector("style");
+    host._essCard = root.querySelector("ha-card");
+    host._essInner = null;
+  }
+  if (host._essStyle.textContent !== css) host._essStyle.textContent = css;
+  if (host._essInner === inner) return false;
+  const card = host._essCard;
+  const height = card.offsetHeight;
+  if (height) card.style.minHeight = `${height}px`;
+  card.innerHTML = inner;
+  host._essInner = inner;
+  requestAnimationFrame(() => {
+    card.style.minHeight = "";
+  });
+  return true;
 }
 
 // Recorder history of a few entities: {entity_id: [[ms, state], ...]}, the
@@ -611,7 +638,7 @@ class EssManagerBatteryCard extends EssChartCard {
     if (!this._hass || !this._config || !this.shadowRoot) return;
     const stateObj = this._hass.states[this._config.entity];
     if (!stateObj || !isStatusSensor(stateObj)) {
-      this.shadowRoot.innerHTML = notStatusMessage(this._hass, this._config.entity, stateObj);
+      setCardContent(this, BASE_CSS, notStatusMessage(this._hass, this._config.entity, stateObj));
       return;
     }
     const attrs = stateObj.attributes;
@@ -817,7 +844,7 @@ class EssManagerBatteryCard extends EssChartCard {
     const socText = m.socNow === null ? "–" : `${f.num(m.socNow, 0)} %`;
     const kwhText = m.eNow === null ? "" : `${f.num(m.eNow, 1)} kWh`;
 
-    this.shadowRoot.innerHTML = `<style>${BASE_CSS}
+    const css = `${BASE_CSS}
       .right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
       .top + div { margin-top: -8px; }
       .socrow { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
@@ -838,8 +865,8 @@ class EssManagerBatteryCard extends EssChartCard {
         .dval svg { width: 11px; height: 11px; }
         .vbar { width: 4px; }
       }
-    </style>
-    <ha-card>
+    `;
+    const changed = setCardContent(this, css, `
       <div class="top"><span class="title">${esc(opt.title || this._t("battery_title"))}</span>
         <div class="right"><span class="socrow">${batteryIcon(m.socNow, opt.soc_color)}<b>${esc(socText)}</b><span class="dim">${esc(kwhText)}</span></span>${outlookLine}</div></div>
       <div>
@@ -853,8 +880,8 @@ class EssManagerBatteryCard extends EssChartCard {
         <div class="axisrow" style="width:${W}px;margin-top:4px">${labels}</div>
         ${tiles}
       </div>
-    </ha-card>`;
-    this._wireTooltip((px) => this._showTip(px));
+    `);
+    if (changed) this._wireTooltip((px) => this._showTip(px));
   }
 
   _interp(list, t) {
@@ -1013,7 +1040,7 @@ class EssManagerPriceCard extends EssChartCard {
     if (!this._hass || !this._config || !this.shadowRoot) return;
     const stateObj = this._hass.states[this._config.entity];
     if (!stateObj || !isStatusSensor(stateObj)) {
-      this.shadowRoot.innerHTML = notStatusMessage(this._hass, this._config.entity, stateObj);
+      setCardContent(this, BASE_CSS, notStatusMessage(this._hass, this._config.entity, stateObj));
       return;
     }
     const attrs = stateObj.attributes;
@@ -1032,7 +1059,7 @@ class EssManagerPriceCard extends EssChartCard {
     const title = esc(opt.title || this._t("price_title"));
     const prices = (attrs.all_price || []).map(num);
     if (!prices.length) {
-      this.shadowRoot.innerHTML = `<style>${BASE_CSS}</style><ha-card><div class="top"><span class="title">${title}</span></div><div class="dim">${esc(this._t("no_prices"))}</div></ha-card>`;
+      setCardContent(this, BASE_CSS, `<div class="top"><span class="title">${title}</span></div><div class="dim">${esc(this._t("no_prices"))}</div>`);
       return;
     }
     const buy = (attrs.all_buy_price || attrs.all_price).map(num);
@@ -1185,7 +1212,7 @@ class EssManagerPriceCard extends EssChartCard {
       ${showBuyLine ? `<span><i style="width:12px;height:0;border-top:1px dashed var(--primary-text-color, #e8e8e8);border-radius:0"></i>${esc(this._t("legend_buy_line"))}</span>` : ""}
     </div>`;
 
-    this.shadowRoot.innerHTML = `<style>${BASE_CSS}
+    const css = `${BASE_CSS}
       .now { display: flex; flex-direction: column; gap: 2px; flex-grow: 1; min-width: 0; }
       .big { font-size: 28px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
       .big small { font-size: 13px; font-weight: 500; color: var(--secondary-text-color, #a0a0a0); }
@@ -1194,8 +1221,8 @@ class EssManagerPriceCard extends EssChartCard {
       .xl { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; }
       @container (max-width: 420px) { .top { flex-direction: column; align-items: stretch; } }
       .top + div { margin-top: -8px; }
-    </style>
-    <ha-card>
+    `;
+    const changed = setCardContent(this, css, `
       <div class="top">
         <div class="now"><span class="dim" style="font-size:13px">${title} · ${esc(this._t("now"))}</span>
           <span class="big">${nowP === null ? "–" : esc(f.money(nowP))}<small> ${esc(this._t("per_kwh"))}</small></span>
@@ -1213,9 +1240,9 @@ class EssManagerPriceCard extends EssChartCard {
         <div class="axisrow" style="width:${W}px;margin-top:2px">${hours}</div>
       </div>
       ${legend}
-    </ha-card>`;
+    `);
     this._windows = windows;
-    this._wireTooltip((px) => this._showTip(px));
+    if (changed) this._wireTooltip((px) => this._showTip(px));
   }
 
   _showTip(px) {
@@ -1532,7 +1559,7 @@ class EssManagerStatusCard extends HTMLElement {
     const opt = this._opt();
     const stateObj = this._hass.states[this._config.entity];
     if (!stateObj || !isStatusSensor(stateObj)) {
-      this.shadowRoot.innerHTML = notStatusMessage(this._hass, this._config.entity, stateObj);
+      setCardContent(this, BASE_CSS, notStatusMessage(this._hass, this._config.entity, stateObj));
       return;
     }
     const attrs = stateObj.attributes;
@@ -1578,7 +1605,7 @@ class EssManagerStatusCard extends HTMLElement {
         <div class="axis"><span>${esc(this._t("ago")(hours))}</span><span>${esc(this._t("ago")(Math.round(hours / 2)))}</span><span>${esc(this._t("now"))}</span></div>`;
     }
 
-    this.shadowRoot.innerHTML = `<style>
+    const css = `
       ha-card { padding: 16px; display: flex; flex-direction: column; gap: 14px; container-type: inline-size; }
       .top { display: flex; align-items: center; gap: 10px; }
       .title { font-family: var(--ha-card-header-font-family, inherit); font-size: var(--ha-card-header-font-size, 24px); font-weight: var(--ha-card-header-font-weight, 500); letter-spacing: -0.012em; line-height: 1.2; flex-grow: 1; }
@@ -1613,14 +1640,14 @@ class EssManagerStatusCard extends HTMLElement {
       .switch.on span { left: 21px; }
       .timeline { display: flex; height: 14px; border-radius: 999px; overflow: hidden; }
       .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color, #a0a0a0); margin-top: -8px; }
-    </style>
-    <ha-card>
+    `;
+    const changed = setCardContent(this, css, `
       <div class="top"><span class="title">${esc(opt.title)}</span><span class="status"><i style="background:${dot}"></i>${esc(stateObj.state)}</span>${toggle}</div>
       <div class="blocks">${this._block("sell", plans.sell, opt)}${this._block("buy", plans.buy, opt)}</div>
       <div class="tiles">${this._planTile("spike", attrs.spike_plan, opt)}${this._planTile("negative", attrs.negative_price_plan, opt)}</div>
       ${timeline}
-    </ha-card>`;
-    const button = this.shadowRoot.querySelector(".switch");
+    `);
+    const button = changed ? this.shadowRoot.querySelector(".switch") : null;
     if (button) {
       button.addEventListener("click", () => this._hass.callService("homeassistant", "toggle", { entity_id: toggleId }));
     }

@@ -15,6 +15,13 @@ a plain git tag on its own isn't enough for HACS to notice.
   shade of it for a normal charge / discharge (idle stays dark grey). With
   the default colours it looks nearly the same as before.
 
+### Fixed
+- Dashboard cards: a refresh (every 30 s with new data, every minute for
+  the time) could scroll the whole dashboard back to the top. The cards
+  now keep their frame and only replace what's inside when something
+  actually changed, holding their height meanwhile - an unchanged refresh
+  doesn't touch the page at all.
+
 ## [0.5.8] - 2026-10-03
 
 ### Fixed
