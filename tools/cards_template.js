@@ -1336,15 +1336,22 @@ const STATUS_SCHEMA = (t) => [
     schema: [{ type: "grid", name: "", schema: STATUS_COLOR_KEYS.map((name) => ({ name, selector: { color_rgb: {} } })) }],
   },
 ];
-// The timeline: calm blue / red for normal charging / discharging, intense
-// blue / red for the faster negative price charge / spike discharge.
-const TIMELINE_COLORS = {
-  idle: "#3b3b3b",
-  charge: "#24527f",
-  negative_price_charge: "#2f8cff",
-  discharge: "#7a2f2f",
-  spike_discharge: "#ff4545",
-};
+// The timeline follows the card's Sell / Buy colours (as of v0.5.9): the
+// colour itself for the faster negative price charge / spike discharge, a
+// darker shade of it for normal charging / discharging, dark grey for idle.
+function shade(hex, factor) {
+  const rgb = hexToRgb(hex) || [128, 128, 128];
+  return toHex(rgb.map((c) => c * factor));
+}
+function timelineColors(opt) {
+  return {
+    idle: "#3b3b3b",
+    charge: shade(opt.buy_color, 0.5),
+    negative_price_charge: opt.buy_color,
+    discharge: shade(opt.sell_color, 0.5),
+    spike_discharge: opt.sell_color,
+  };
+}
 
 class EssManagerStatusCard extends HTMLElement {
   static get info() {
@@ -1561,9 +1568,10 @@ class EssManagerStatusCard extends HTMLElement {
     let timeline = "";
     if (opt.show_history && actionId) {
       const segs = this._history || [];
+      const colors = timelineColors(opt);
       const total = segs.reduce((sum, seg) => sum + seg.seconds, 0);
       const parts = total
-        ? segs.map((seg) => `<span style="flex:${seg.seconds} 0 0;background:${TIMELINE_COLORS[seg.state] || "#2a2a2a"}"></span>`).join("")
+        ? segs.map((seg) => `<span style="flex:${seg.seconds} 0 0;background:${colors[seg.state] || "#2a2a2a"}"></span>`).join("")
         : `<span style="flex:1 0 0;background:#2a2a2a"></span>`;
       const hours = opt.hours;
       timeline = `<div class="timeline">${parts}</div>

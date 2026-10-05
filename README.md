@@ -654,7 +654,8 @@ drives both blocks: the cheap charge and the sale in the peak); full-charge
 balancing gets a chip too. Below the blocks: the spike and negative price
 plan status and a slim timeline of the last hours - calm blue / red for
 normal charging / discharging, intense blue / red for the faster negative
-price charge / spike discharge, dark grey for idle. The timeline comes from
+price charge / spike discharge, dark grey for idle (following the card's
+Sell / Buy colours). The timeline comes from
 the **Battery action** sensor (`idle`, `charge`, `discharge`,
 `negative_price_charge`, `spike_discharge`). Texts follow your Home
 Assistant language (Dutch or English).
@@ -665,7 +666,7 @@ Assistant language (Dutch or English).
 | `automation` | - | your own ESS automation (or `input_boolean` / `switch`) for the toggle, when the integration doesn't control the battery itself |
 | `show_history` | `true` | show the timeline |
 | `hours` | `24` | how many hours the timeline shows |
-| `sell_color` / `buy_color` | red / blue | the Sell / Buy colours (`[r, g, b]` or `"#rrggbb"`) |
+| `sell_color` / `buy_color` | red / blue | the Sell / Buy colours (`[r, g, b]` or `"#rrggbb"`) - the timeline follows them too (a darker shade for a normal charge / discharge, the colour itself for a negative price charge / spike discharge) |
 | `spike_color` / `negative_color` | amber / turquoise | the colour of an active spike / negative price plan |
 
 `dashboard/` still has the old chart cards as plain apexcharts-card YAML

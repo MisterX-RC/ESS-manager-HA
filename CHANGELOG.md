@@ -7,6 +7,14 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.9] - 2026-10-05
+
+### Changed
+- Status card: the timeline follows the card's Sell / Buy colours - the
+  colour itself for a negative price charge / spike discharge, a darker
+  shade of it for a normal charge / discharge (idle stays dark grey). With
+  the default colours it looks nearly the same as before.
+
 ## [0.5.8] - 2026-10-03
 
 ### Fixed
