@@ -379,7 +379,9 @@ class EssManagerSolarModeSensor(CoordinatorEntity[EssManagerCoordinator], Sensor
 class EssManagerBatteryActionSensor(CoordinatorEntity[EssManagerCoordinator], SensorEntity):
     """What the battery is told to do right now (as of v0.5.0): idle,
     charge, discharge, negative_price_charge or spike_discharge - the
-    action behind the Status. Unlike the Status ("Actief" for both charging
+    action behind the Status - or, as of v0.5.11, balancing (the full
+    charge plan holding at 100% while the cells balance; a charge for
+    direct control). Unlike the Status ("Actief" for both charging
     and discharging) it tells them apart, and its history draws the status
     card's timeline. Recorded like any sensor; the Status is unchanged.
     """
@@ -388,7 +390,7 @@ class EssManagerBatteryActionSensor(CoordinatorEntity[EssManagerCoordinator], Se
     _attr_name = "Battery action"
     _attr_icon = "mdi:battery-sync"
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = ["idle", "charge", "discharge", "negative_price_charge", "spike_discharge"]
+    _attr_options = ["idle", "charge", "discharge", "negative_price_charge", "spike_discharge", "balancing"]
 
     def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
         super().__init__(coordinator)
@@ -399,5 +401,5 @@ class EssManagerBatteryActionSensor(CoordinatorEntity[EssManagerCoordinator], Se
     def native_value(self) -> str | None:
         if self.coordinator.data is None:
             return None
-        action = self.coordinator.data.get("control_action")
+        action = self.coordinator.data.get("battery_action", self.coordinator.data.get("control_action"))
         return action if action in self._attr_options else "idle"

@@ -671,11 +671,9 @@ check(
     status_awaiting_solar_overridden_by_real_action == "Actief",
 )
 
-# Holding always reports "Start charge" for its entire duration now,
-# regardless of the setpoint readback - solar alone can hold the battery
-# at 100% with zero grid setpoint needed, so "Balancing"/setpoint-ramp-up
-# is retired (it was never even an automation trigger - see
-# dashboard/automation_example.yaml).
+# Holding (the balancing wait) reports like the charging phase, as of
+# v0.5.11: "Start charge" until the setpoint readback shows the charge
+# applied, then "Actief" (up to v0.5.10 it always said "Start charge").
 status_holding_no_setpoint = plans.compute_system_status(
     setpoint_w=0.0,
     idle_setpoint_w=0.0,
@@ -692,7 +690,7 @@ status_holding_no_setpoint = plans.compute_system_status(
     all_price=[0.20] * 96,
 )
 check(
-    "system_status shows Start charge while holding even with zero setpoint readback (solar alone holding it full)",
+    "system_status shows Start charge while holding with zero setpoint readback",
     status_holding_no_setpoint == "Start charge",
 )
 
@@ -712,8 +710,8 @@ status_holding_with_setpoint = plans.compute_system_status(
     all_price=[0.20] * 96,
 )
 check(
-    "system_status still shows Start charge while holding even once the setpoint readback has ramped up (Balancing retired)",
-    status_holding_with_setpoint == "Start charge",
+    "system_status shows Actief while holding once the setpoint readback has ramped up",
+    status_holding_with_setpoint == "Actief",
 )
 
 # ---------------------------------------------------------------------------
@@ -2688,6 +2686,30 @@ check("card plans: a running sale keeps its own target level (forecast ignored)"
       display.card_plans({"active": False}, {"active": False}, {"active": False}, {"active": False}, _high, _cur, _cp_now, 21.5, 30.0, _fc)["sell"]["target_level_kwh"] == 18.6)
 check("card plans: without a forecast the plan's own target level is used",
       display.card_plans({"active": False}, {"active": False}, {"active": False}, {"active": False}, _high_tmw, _cur, _cp_now, 10.0, 15.0)["sell"]["target_level_kwh"] == 8.4)
+
+# v0.5.11: the full charge plan's balancing wait fills the Buy block
+_hold = {"active": True, "phase": "holding", "hold_start": "2026-10-02T17:30:00",
+         "hold_start_unit": _cur - 2, "hold_end_unit": _cur + 6}
+_bal = {"max_hold_minutes": 120, "voltage_diff_mv": 18.04, "balance_threshold_mv": 10.0,
+        "battery_voltage": 55.83, "target_voltage": 56.0}
+_cp6 = display.card_plans(_hold, _neg, {"active": False}, {"active": False}, {"active": False}, _cur, _cp_now, 30.0, 30.0,
+                          None, _bal)
+check("card plans: holding shows in the Buy block (before a negative price charge), phase holding",
+      _cp6["buy"]["source"] == "full_charge" and _cp6["buy"]["phase"] == "holding" and _cp6["buy"]["started"])
+check("card plans: holding runs from its start to the max hold timeout (17:30 + 120 min)",
+      _cp6["buy"]["start"] == "2026-10-02T17:30:00" and _cp6["buy"]["stop"] == "2026-10-02T19:30:00")
+check("card plans: holding carries the balance readings",
+      _cp6["buy"]["voltage_diff_mv"] == 18.0 and _cp6["buy"]["balance_threshold_mv"] == 10.0
+      and _cp6["buy"]["battery_voltage"] == 55.83 and _cp6["buy"]["target_voltage"] == 56.0)
+_cp7 = display.card_plans(_hold, {"active": False}, {"active": False}, {"active": False}, {"active": False}, _cur, _cp_now,
+                          30.0, 30.0)
+check("card plans: holding without readings falls back to the hold units, readings None",
+      _cp7["buy"]["stop"].startswith("2026-10-02T19:30") and _cp7["buy"]["voltage_diff_mv"] is None)
+_charging = {"active": True, "phase": "charging", "start_unit": _cur - 2, "end_unit": _cur + 6, "target_kwh": 10.0,
+             "effective_charge_per_unit": 1.5}
+check("card plans: the charging phase is labelled too",
+      display.card_plans(_charging, {"active": False}, {"active": False}, {"active": False}, {"active": False}, _cur, _cp_now,
+                         22.0, 30.0)["buy"]["phase"] == "charging")
 
 # ---------------------------------------------------------------------------
 # v0.5.1: today's measured hours for the battery card (history_today)

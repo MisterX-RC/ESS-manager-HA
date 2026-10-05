@@ -529,12 +529,17 @@ watches for all three conditions in the background, and resets the "days
 since last full charge" clock the moment they're satisfied together. If a
 full-balance cycle *is* due and the plan is waiting on a forecasted solar
 peak to reach 100% on its own, the moment SOC reaches 99.5% the hold phase
-starts and `Status` reports `Start charge` for the entire holding
-duration - not just once the setpoint has ramped up - so household loads
-can't erode the SOC while the cells finish balancing, even when solar alone
-is what's holding the battery full with no grid setpoint needed. Once the
-three conditions above are satisfied (or the "Full charge max hold" safety
-timeout elapses first), the setpoint is released back to idle.
+starts. For the whole hold the battery is told to charge, so household
+loads can't erode the SOC while the cells finish balancing, even when solar
+alone is what's holding the battery full. `Status` reports it like the
+charging phase: `Start charge` until the setpoint readback shows the charge
+applied, then `Actief` (up to v0.5.10 it said `Start charge` for the whole
+hold). Your automation reacts to `Start charge` and sets the setpoint;
+should it drop away mid-hold, the Status goes back to `Start charge` and
+the automation sets it again. The **Battery action** sensor says
+`balancing` during the hold. Once the three conditions above are satisfied
+(or the "Full charge max hold" safety timeout elapses first), the setpoint
+is released back to idle.
 
 A hold that times out without ever confirming balance does **not**
 immediately force another hold attempt - it falls back to the normal flow:
@@ -658,13 +663,18 @@ it for the kWh done), the energy (kWh) and the target battery level (SOC
 expected after it). An active spike or negative price plan shows in the
 block it drives, with a chip and an outline in that plan's colour (a spike
 drives both blocks: the cheap charge and the sale in the peak); full-charge
-balancing gets a chip too. Below the blocks: the spike and negative price
+balancing gets a chip too. While the battery waits at 100% for the cells to
+balance, the Buy block turns lilac: the bar runs from the start of the wait
+to the "Full charge max hold" timeout ("max 1 h 20 min" left), and below it
+the cell voltage difference against the goal ("18 mV → < 10 mV", green
+once below; hover it for the battery voltage against the target voltage).
+Below the blocks: the spike and negative price
 plan status and a slim timeline of the last hours - calm blue / red for
 normal charging / discharging, intense blue / red for the faster negative
-price charge / spike discharge, dark grey for idle (following the card's
-Sell / Buy colours). The timeline comes from
+price charge / spike discharge, lilac for balancing, dark grey for idle
+(following the card's Sell / Buy colours). The timeline comes from
 the **Battery action** sensor (`idle`, `charge`, `discharge`,
-`negative_price_charge`, `spike_discharge`). Texts follow your Home
+`negative_price_charge`, `spike_discharge`, `balancing`). Texts follow your Home
 Assistant language (Dutch or English).
 
 | Option | Default | What it does |

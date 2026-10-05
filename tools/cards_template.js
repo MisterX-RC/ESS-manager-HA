@@ -30,7 +30,7 @@ const I18N = {
     // status card
     planned: "planned", running: "running", done: "done", of: "of", stop: "stop",
     left: (d) => `${d} left`, no_sell: "No sale planned", no_buy: "No charge planned",
-    spike: "Spike", negative: "Negative price", balancing: "Balancing",
+    spike: "Spike", negative: "Negative price", balancing: "Balancing", balancing_max: (d) => `max ${d}`, cell_diff: "Cell voltage difference", pack_voltage: "Battery voltage",
     active: "Active", inactive: "Inactive", below: "below", auto_control: "Automatic control",
     h: "h", min: "min", ago: (h) => `-${h} h`, now: "now", settings: "Settings",
     // battery card
@@ -65,7 +65,7 @@ const I18N = {
   nl: {
     planned: "gepland", running: "bezig", done: "klaar", of: "van", stop: "stop",
     left: (d) => `nog ${d}`, no_sell: "Geen sale gepland", no_buy: "Geen laadactie gepland",
-    spike: "Spike", negative: "Negatieve prijs", balancing: "Balanceren",
+    spike: "Spike", negative: "Negatieve prijs", balancing: "Balanceren", balancing_max: (d) => `max ${d}`, cell_diff: "Celspanningsverschil", pack_voltage: "Accuspanning",
     active: "Actief", inactive: "Inactief", below: "onder", auto_control: "Automatische aansturing",
     h: "u", min: "min", ago: (h) => `-${h} u`, now: "nu", settings: "Instellingen",
     battery_title: "Batterijprognose", today: "vandaag", horizon: "planningshorizon",
@@ -297,7 +297,7 @@ async function fetchHistory(hass, entityIds, startMs, endMs) {
 }
 
 // What the Battery action sensor's states mean for the charts.
-const ACTION_KIND = { charge: "buy", negative_price_charge: "negative", discharge: "sell", spike_discharge: "spike" };
+const ACTION_KIND = { charge: "buy", balancing: "buy", negative_price_charge: "negative", discharge: "sell", spike_discharge: "spike" };
 
 // The upcoming / running Buy and Sell windows (the Status sensor's
 // card_plans, the same the status card shows): [{side, kind, source, start, stop}].
@@ -1371,9 +1371,11 @@ function shade(hex, factor) {
   const rgb = hexToRgb(hex) || [128, 128, 128];
   return toHex(rgb.map((c) => c * factor));
 }
+const BALANCE_COLOR = "#b39ddb";
 function timelineColors(opt) {
   return {
     idle: "#3b3b3b",
+    balancing: BALANCE_COLOR,
     charge: shade(opt.buy_color, 0.5),
     negative_price_charge: opt.buy_color,
     discharge: shade(opt.sell_color, 0.5),
@@ -1480,9 +1482,10 @@ class EssManagerStatusCard extends HTMLElement {
     const chipInfo = plan && {
       spike: [this._t("spike"), opt.spike_color, "spike"],
       negative_price: [this._t("negative"), opt.negative_color, "negative"],
-      full_charge: [this._t("balancing"), "#b39ddb", "balancing"],
+      full_charge: [this._t("balancing"), BALANCE_COLOR, "balancing"],
     }[plan.source];
-    const outline = plan && (plan.source === "spike" || plan.source === "negative_price") ? chipInfo[1] : "transparent";
+    // the plan that drives the block outlines it in its colour: spike, negative price, full-charge balancing
+    const outline = plan && ["spike", "negative_price", "full_charge"].includes(plan.source) ? chipInfo[1] : "transparent";
     const head = `<div class="head"><span class="name" style="color:${color}">${icon(sell ? "up" : "down", color, 16, 2.2)}${sell ? "Sell" : "Buy"}</span>${
       chipInfo ? `<span class="chip" style="background:${tint(chipInfo[1], 0.18)};color:${chipInfo[1]}">${icon(chipInfo[2], chipInfo[1], 12, 2.4)}${esc(chipInfo[0])}</span>` : ""
     }</div>`;
@@ -1494,7 +1497,12 @@ class EssManagerStatusCard extends HTMLElement {
     const progress = energy > 0 ? Math.min(Math.max(plan.done_kwh / energy, 0), 1) : 0;
     let inBar;
     let below;
-    if (plan.target_reached) {
+    const holding = plan.phase === "holding";
+    if (holding) {
+      // at 100 %, waiting for the cells to balance - until they are, at the latest at stop
+      inBar = esc(this._t("balancing_max")(this._duration((new Date(plan.stop) - Date.now()) / 60000)));
+      below = esc(this._t("balancing"));
+    } else if (plan.target_reached) {
       inBar = `${icon("check", "#ffffff", 14, 2.6)} ${esc(this._t("done"))}`;
       below = esc(this._t("done"));
     } else if (plan.started) {
@@ -1505,15 +1513,36 @@ class EssManagerStatusCard extends HTMLElement {
       inBar = esc(this._duration(minutes));
       below = `${esc(this._t("planned"))} · ${esc(this._weekday(plan.start))}`;
     }
-    const fill = plan.target_reached ? 100 : plan.started ? progress * 100 : 0;
+    const span = new Date(plan.stop) - new Date(plan.start);
+    const elapsed = span > 0 ? Math.min(Math.max((Date.now() - new Date(plan.start)) / span, 0), 1) : 0;
+    const fill = holding ? elapsed * 100 : plan.target_reached ? 100 : plan.started ? progress * 100 : 0;
+    const barColor = holding ? BALANCE_COLOR : color;
     const soc = plan.target_soc_percent;
     return `<div class="block" style="border-color:${outline}">${head}
       <div class="times"><span>${plan.started ? "" : `<span class="dim">${esc(this._weekday(plan.start))}</span> `}${esc(this._time(plan.start))}</span><span>${esc(this._time(plan.stop))}</span></div>
-      <div class="bar" title="${below}" style="background:${tint(color, 0.22)}"><div class="fill" style="width:${fill.toFixed(1)}%;background:${color}"></div><div class="bartext">${inBar}</div></div>
-      <div class="stat">${icon("bolt", color, 16)}<b>${this._num(energy, 1)}</b><span class="dim unit">kWh</span><span class="dim arrow">→</span>${
+      <div class="bar" title="${below}" style="background:${tint(barColor, 0.22)}"><div class="fill" style="width:${fill.toFixed(1)}%;background:${barColor}"></div><div class="bartext">${inBar}</div></div>
+      ${holding ? this._balanceStat(plan) : `<div class="stat">${icon("bolt", color, 16)}<b>${this._num(energy, 1)}</b><span class="dim unit">kWh</span><span class="dim arrow">→</span>${
         soc == null ? "" : `${batteryIcon(soc, color)}<b>${this._num(soc, 0)} %</b>`
-      }</div>
+      }</div>`}
     </div>`;
+  }
+
+  // While balancing: the cell voltage differential against its target, the
+  // value in the balance colour until it's below it.
+  // The holding phase's stat row: the cell voltage difference and the goal
+  // (green once below it); the battery voltage against its target as a
+  // tooltip.
+  _balanceStat(plan) {
+    const diff = plan.voltage_diff_mv;
+    const goal = plan.balance_threshold_mv;
+    const ok = diff != null && goal != null && diff < goal;
+    const mv = (v) => (v == null ? "–" : `${this._num(v, 0)} mV`);
+    const volt = (v) => (v == null ? "–" : this._num(v, 1));
+    let tip = `${this._t("cell_diff")}: ${mv(diff)}`;
+    if (plan.battery_voltage != null || plan.target_voltage != null) {
+      tip += `\n${this._t("pack_voltage")}: ${volt(plan.battery_voltage)} / ${volt(plan.target_voltage)} V`;
+    }
+    return `<div class="stat" title="${esc(tip)}">${icon("balancing", BALANCE_COLOR, 16)}<b style="color:${ok ? "#6fcf97" : BALANCE_COLOR}">${esc(mv(diff))}</b><span class="dim arrow">→</span><span class="dim">&lt;</span><b>${esc(mv(goal))}</b></div>`;
   }
 
   _planTile(kind, plan, opt) {
@@ -1587,7 +1616,7 @@ class EssManagerStatusCard extends HTMLElement {
 
     const plans = attrs.card_plans || {};
     const action = actionObj ? actionObj.state : attrs.control_action;
-    const dot = { charge: opt.buy_color, negative_price_charge: opt.buy_color, discharge: opt.sell_color, spike_discharge: opt.sell_color }[action] || "#8a8a8a";
+    const dot = { charge: opt.buy_color, negative_price_charge: opt.buy_color, discharge: opt.sell_color, spike_discharge: opt.sell_color, balancing: BALANCE_COLOR }[action] || "#8a8a8a";
 
     // the control toggle sits in the header, its name as a tooltip
     let toggle = "";
@@ -1623,7 +1652,7 @@ class EssManagerStatusCard extends HTMLElement {
       .top .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
       .top { display: flex; align-items: center; gap: 10px; }
       .title { font-family: var(--ha-card-header-font-family, inherit); font-size: var(--ha-card-header-font-size, 24px); font-weight: var(--ha-card-header-font-weight, 500); letter-spacing: -0.012em; line-height: 1.2; flex-grow: 1; }
-      .status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--secondary-text-color, #a0a0a0); }
+      .status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--secondary-text-color, #a0a0a0); white-space: nowrap; }
       .status i { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
       .setbtn { border: none; cursor: pointer; background: rgba(127,127,127,.15); color: var(--secondary-text-color, #a0a0a0); display: inline-flex; align-items: center; justify-content: center; gap: 5px; font: inherit; font-size: 12px; height: 28px; border-radius: 999px; padding: 0 10px 0 8px; flex-shrink: 0; margin-left: 4px; white-space: nowrap; }
       .setbtn:hover { background: rgba(127,127,127,.25); color: var(--primary-text-color, #e8e8e8); }
@@ -1642,7 +1671,7 @@ class EssManagerStatusCard extends HTMLElement {
       .times { font-size: 13px; }
       .bar { position: relative; height: 22px; border-radius: 6px; overflow: hidden; }
       .fill { position: absolute; left: 0; top: 0; bottom: 0; }
-      .bartext { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 600; color: #ffffff; text-shadow: 0 0 3px rgba(0,0,0,.6); }
+      .bartext { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 600; color: #ffffff; text-shadow: 0 0 3px rgba(0,0,0,.6); white-space: nowrap; }
       .stat { display: flex; align-items: center; gap: 5px; white-space: nowrap; background: rgba(127,127,127,.12); border-radius: 8px; padding: 7px 8px; min-width: 0; overflow: hidden; }
       .stat b { font-size: 15px; }
       .dim { font-size: 12px; color: var(--secondary-text-color, #a0a0a0); }
@@ -1672,6 +1701,8 @@ class EssManagerStatusCard extends HTMLElement {
     const setbtn = changed ? this.shadowRoot.querySelector(".setbtn") : null;
     if (setbtn) setbtn.addEventListener("click", () => this._openSettings());
     this._fitHeader();
+    // and again once the browser has laid the card out at its real width
+    requestAnimationFrame(() => this._fitHeader());
   }
 
   // "Settings" written out, shortened to just the cog when the title would
@@ -1681,7 +1712,7 @@ class EssManagerStatusCard extends HTMLElement {
     const title = top && top.querySelector(".title");
     if (!title || !top.querySelector(".setbtn")) return;
     top.classList.remove("tight");
-    if (title.scrollWidth > title.clientWidth + 1) top.classList.add("tight");
+    if (title.scrollWidth > title.clientWidth) top.classList.add("tight");
   }
 
   _openSettings() {

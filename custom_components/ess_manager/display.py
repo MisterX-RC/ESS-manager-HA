@@ -195,6 +195,43 @@ def _card_side(
     }
 
 
+def _holding_side(
+    full: dict, balance: dict, cur_unit: int, now: datetime, battery_now_kwh: float, capacity_kwh: float
+) -> dict:
+    """The Buy block during the full charge plan's holding phase."""
+    try:
+        start = datetime.fromisoformat(full["hold_start"])
+    except (KeyError, TypeError, ValueError):
+        start = _unit_datetime(now, cur_unit, full.get("hold_start_unit", cur_unit))
+    max_hold = balance.get("max_hold_minutes")
+    if max_hold:
+        stop = start + timedelta(minutes=float(max_hold))
+    else:
+        stop = _unit_datetime(now, cur_unit, full.get("hold_end_unit", cur_unit + 1))
+
+    def _rounded(value, digits):
+        return round(float(value), digits) if value is not None else None
+
+    return {
+        "source": "full_charge",
+        "phase": "holding",
+        "start": start.isoformat(),
+        "stop": stop.isoformat(),
+        "energy_kwh": 0.0,
+        "target_level_kwh": round(capacity_kwh, 2) if capacity_kwh else None,
+        "target_soc_percent": 100.0,
+        "rate_kw": 0.0,
+        "started": True,
+        "target_reached": False,
+        "done_kwh": 0.0,
+        "remaining_kwh": 0.0,
+        "voltage_diff_mv": _rounded(balance.get("voltage_diff_mv"), 1),
+        "balance_threshold_mv": _rounded(balance.get("balance_threshold_mv"), 1),
+        "battery_voltage": _rounded(balance.get("battery_voltage"), 2),
+        "target_voltage": _rounded(balance.get("target_voltage"), 2),
+    }
+
+
 def _level_at_unit(
     forecast: Optional[list], battery_now_kwh: float, now: datetime, unit: int
 ) -> Optional[float]:
@@ -228,6 +265,7 @@ def card_plans(
     battery_now_kwh: float,
     capacity_kwh: float,
     forecast: Optional[list] = None,
+    balance: Optional[dict] = None,
 ) -> dict:
     """{"buy": side | None, "sell": side | None} - the same plan priority as
     charge_display / discharge_display (full charge -> negative price ->
@@ -242,7 +280,14 @@ def card_plans(
     window still ahead (as of v0.5.5) the card's target is the expected
     level at its start (from `forecast`, the forecast with the plans in it)
     +/- the amount, so a sale tomorrow evening doesn't show "SOC now minus
-    the sale"."""
+    the sale".
+
+    The full charge plan's holding phase (the balancing wait at 100%, as
+    of v0.5.11) fills the Buy block too, with phase "holding": start = when
+    the hold began, stop = when it times out (max hold), and from `balance`
+    (max_hold_minutes, voltage_diff_mv, balance_threshold_mv,
+    battery_voltage, target_voltage) the live readings the card shows. The
+    hold ends earlier the moment balance is confirmed."""
     common = (cur_unit, now, battery_now_kwh, capacity_kwh)
 
     def ahead_target(plan: dict, charging: bool) -> Optional[float]:
@@ -255,11 +300,14 @@ def card_plans(
         return target
 
     buy = None
-    if full.get("active") and full.get("phase") in ("scheduled", "charging"):
+    if full.get("active") and full.get("phase") == "holding":
+        buy = _holding_side(full, balance or {}, *common)
+    elif full.get("active") and full.get("phase") in ("scheduled", "charging"):
         buy = _card_side(
             "full_charge", True, full["start_unit"], full["end_unit"], full.get("target_kwh", 0),
             capacity_kwh, full.get("effective_charge_per_unit", 0) * 4, False, *common,
         )
+        buy["phase"] = full["phase"]
     elif neg.get("active") and cur_unit < neg.get("charge_end_unit", -1):
         target = (neg.get("level_at_start_kwh") or 0) + (neg.get("achievable_charge_kwh") or 0)
         buy = _card_side(

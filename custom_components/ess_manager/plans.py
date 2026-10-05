@@ -965,6 +965,10 @@ def compose_forecast_adjusted(
 # ---------------------------------------------------------------------------
 # Full charge plan
 # ---------------------------------------------------------------------------
+# The cell voltage differential (mV) below which the cells count as balanced.
+BALANCE_THRESHOLD_MV = 10.0
+
+
 def compute_full_charge_plan(
     prev: Optional[dict],
     cur_unit: int,
@@ -982,7 +986,7 @@ def compute_full_charge_plan(
     battery_forecast: list[float],
     battery_voltage: Optional[float],
     target_voltage: float,
-    balance_threshold: float = 10.0,
+    balance_threshold: float = BALANCE_THRESHOLD_MV,
     buy_price: Optional[list[float]] = None,
     charge_efficiency: float = 1.0,
 ) -> dict:
@@ -1385,19 +1389,18 @@ def _compute_system_status_raw(
     export_favorable = high.get("active") and price_now > price_at_breach
 
     if full.get("active") and full.get("phase") in ("charging", "holding"):
-        if full.get("phase") == "charging":
-            return ("Actief" if setpoint_w >= charge_engaged_at else "Start charge"), ACTION_CHARGE
-        # Holding: keep commanding a charge setpoint for the WHOLE hold,
-        # regardless of what the setpoint readback shows. Solar alone can
-        # already be holding the battery at 100% with zero grid setpoint
-        # needed, in which case setpoint_w never ramps up - but "Start
-        # charge" is precisely the signal the external automation reacts
-        # to in order to keep enforcing a charge setpoint, so household
-        # loads can't erode the SOC while waiting for the cells to
-        # balance. "Balancing" was display-only and never an automation
-        # trigger (see dashboard/automation_example.yaml), so nothing is
-        # lost by retiring it here.
-        return "Start charge", ACTION_CHARGE
+        # Charging and holding (the balancing wait at 100%) report the same
+        # way, as of v0.5.11: "Start charge" until the setpoint readback
+        # shows the charge applied, then "Actief". The control action stays
+        # a charge for the whole hold, so direct control keeps the charge
+        # setpoint on (household loads can't erode the SOC while the cells
+        # balance) and the external automation - which only reacts to the
+        # change TO "Start charge" (see dashboard/automation_example.yaml) -
+        # has already set it by the time the status reads "Actief". Should
+        # the setpoint drop away mid-hold, the status falls back to "Start
+        # charge" and the automation sets it again. Up to v0.5.10 holding
+        # always said "Start charge", whatever the setpoint.
+        return ("Actief" if setpoint_w >= charge_engaged_at else "Start charge"), ACTION_CHARGE
 
     if full.get("active") and full.get("phase") == "scheduled":
         return "Full charge scheduled", ACTION_IDLE

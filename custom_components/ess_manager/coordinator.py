@@ -970,6 +970,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             battery_now_kwh,
             capacity_kwh,
             battery_forecast_adjusted,
+            # The live readings for the balancing wait (as of v0.5.11).
+            {
+                "max_hold_minutes": full_charge_max_hold_minutes,
+                "voltage_diff_mv": voltage_diff,
+                "balance_threshold_mv": plans.BALANCE_THRESHOLD_MV,
+                "battery_voltage": battery_voltage,
+                "target_voltage": full_charge_target_voltage,
+            },
         )
 
         await self._async_persist()
@@ -993,6 +1001,16 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "system_status": system_status,
             "control_action": control_action,
+            # The Battery action sensor's state: the control action, except
+            # "balancing" while the full charge plan holds at 100% (still a
+            # charge for direct control; as of v0.5.11).
+            "battery_action": (
+                "balancing"
+                if control_action == control.ACTION_CHARGE
+                and (self._full_charge_plan or {}).get("active")
+                and (self._full_charge_plan or {}).get("phase") == "holding"
+                else control_action
+            ),
             "card_plans": card_plans,
             "control_power_kw": round(control_power_kw, 3),
             "control": self.controller.as_attribute(control_settings, control_action, control_power_kw),

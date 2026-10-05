@@ -7,6 +7,26 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.11] - 2026-10-05
+
+### Changed
+- Status during the full-charge balancing wait (the hold at 100%): now
+  `Start charge` until the setpoint readback shows the charge applied, then
+  `Actief` - the same as the charging phase. Up to v0.5.10 it said
+  `Start charge` for the whole hold. The battery is still told to charge
+  for the whole hold (direct control unchanged), and the example
+  automation only reacts to the change to `Start charge`, so nothing
+  changes for it.
+
+### Added
+- Status card: the balancing wait is shown in the Buy block - a lilac bar
+  from the start of the wait to the "Full charge max hold" timeout
+  ("max 1 h 20 min"), and below it the cell voltage difference against the
+  goal ("18 mV → < 10 mV", green once below; hover for the battery voltage
+  against the target voltage). The timeline shows it in lilac.
+- Battery action sensor: new state `balancing` during that wait (the
+  charts count it as a charge).
+
 ## [0.5.10] - 2026-10-05
 
 ### Changed
