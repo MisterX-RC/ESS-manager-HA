@@ -13,6 +13,13 @@ a plain git tag on its own isn't enough for HACS to notice.
 - README: new screenshot and description of the status card (the old
   picture still showed the card from before v0.5.0).
 
+### Added
+- Status card: a **Settings** button in the header, between the Status and
+  the control toggle. It opens the ESS Manager device page in Home
+  Assistant, with all its numbers, switches and sensors. Written out when
+  there's room, just the cog when the title would otherwise not fit; only
+  shown to admins (others can't open that page).
+
 ## [0.5.9] - 2026-10-05
 
 ### Changed

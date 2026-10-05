@@ -32,7 +32,7 @@ const I18N = {
     left: (d) => `${d} left`, no_sell: "No sale planned", no_buy: "No charge planned",
     spike: "Spike", negative: "Negative price", balancing: "Balancing",
     active: "Active", inactive: "Inactive", below: "below", auto_control: "Automatic control",
-    h: "h", min: "min", ago: (h) => `-${h} h`, now: "now",
+    h: "h", min: "min", ago: (h) => `-${h} h`, now: "now", settings: "Settings",
     // battery card
     battery_title: "Battery forecast", today: "today", horizon: "planning horizon",
     offgrid_empty: (w) => `without grid: empty ${w}`, offgrid_full: (w) => `without grid: full ${w}`,
@@ -67,7 +67,7 @@ const I18N = {
     left: (d) => `nog ${d}`, no_sell: "Geen sale gepland", no_buy: "Geen laadactie gepland",
     spike: "Spike", negative: "Negatieve prijs", balancing: "Balanceren",
     active: "Actief", inactive: "Inactief", below: "onder", auto_control: "Automatische aansturing",
-    h: "u", min: "min", ago: (h) => `-${h} u`, now: "nu",
+    h: "u", min: "min", ago: (h) => `-${h} u`, now: "nu", settings: "Instellingen",
     battery_title: "Batterijprognose", today: "vandaag", horizon: "planningshorizon",
     offgrid_empty: (w) => `zonder stroomnet leeg ${w}`, offgrid_full: (w) => `zonder stroomnet vol ${w}`,
     offgrid_days: "zonder stroomnet 5+ dagen", measured: "gemeten", expected: "verwacht",
@@ -216,6 +216,7 @@ const ICONS = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   home: '<path d="M3 11l9-7 9 7v9H3z"/>',
   plugoff: '<path d="M9 2v4M15 2v4M7 6h10v4a5 5 0 0 1-10 0zM12 15v7M3 3l18 18"/>',
+  cog: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
 };
 function icon(name, color, size, width) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="${width || 2}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0">${ICONS[name]}</svg>`;
@@ -1428,10 +1429,14 @@ class EssManagerStatusCard extends HTMLElement {
       this._renderKey = null;
       this._render();
     }, 60000);
+    // a width change can make the header too tight for "Settings" (or roomy again)
+    if (!this._resize && window.ResizeObserver) this._resize = new ResizeObserver(() => this._fitHeader());
+    if (this._resize) this._resize.observe(this);
   }
 
   disconnectedCallback() {
     clearInterval(this._timer);
+    if (this._resize) this._resize.disconnect();
   }
 
   _t(key) {
@@ -1592,6 +1597,14 @@ class EssManagerStatusCard extends HTMLElement {
       toggle = `<button type="button" class="switch ${on ? "on" : ""}" title="${esc(label)}" aria-pressed="${on}" aria-label="${esc(label)}" style="background:${on ? opt.buy_color : "#4a4a4a"}"><span></span></button>`;
     }
 
+    // Settings (as of v0.5.10): to the ESS Manager device page with all its
+    // numbers, switches and sensors - only for admins, who can open it.
+    let settings = "";
+    if (!this._hass.user || this._hass.user.is_admin) {
+      const label = this._t("settings");
+      settings = `<button type="button" class="setbtn" title="${esc(label)}" aria-label="${esc(label)}">${icon("cog", "currentColor", 15)}<span class="lbl">${esc(label)}</span></button>`;
+    }
+
     let timeline = "";
     if (opt.show_history && actionId) {
       const segs = this._history || [];
@@ -1607,10 +1620,15 @@ class EssManagerStatusCard extends HTMLElement {
 
     const css = `
       ha-card { padding: 16px; display: flex; flex-direction: column; gap: 14px; container-type: inline-size; }
+      .top .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
       .top { display: flex; align-items: center; gap: 10px; }
       .title { font-family: var(--ha-card-header-font-family, inherit); font-size: var(--ha-card-header-font-size, 24px); font-weight: var(--ha-card-header-font-weight, 500); letter-spacing: -0.012em; line-height: 1.2; flex-grow: 1; }
       .status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--secondary-text-color, #a0a0a0); }
       .status i { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+      .setbtn { border: none; cursor: pointer; background: rgba(127,127,127,.15); color: var(--secondary-text-color, #a0a0a0); display: inline-flex; align-items: center; justify-content: center; gap: 5px; font: inherit; font-size: 12px; height: 28px; border-radius: 999px; padding: 0 10px 0 8px; flex-shrink: 0; margin-left: 4px; white-space: nowrap; }
+      .setbtn:hover { background: rgba(127,127,127,.25); color: var(--primary-text-color, #e8e8e8); }
+      .top.tight .setbtn { width: 30px; height: 30px; padding: 0; }
+      .top.tight .setbtn .lbl { display: none; }
       .blocks, .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
       @container (max-width: 380px) { .blocks, .tiles { grid-template-columns: minmax(0, 1fr); } }
       @container (min-width: 381px) and (max-width: 480px) { .stat { gap: 4px; padding: 7px 6px; } .stat b { font-size: 14px; } .stat .dim { font-size: 11px; } .arrow { padding: 0; } }
@@ -1642,7 +1660,7 @@ class EssManagerStatusCard extends HTMLElement {
       .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color, #a0a0a0); margin-top: -8px; }
     `;
     const changed = setCardContent(this, css, `
-      <div class="top"><span class="title">${esc(opt.title)}</span><span class="status"><i style="background:${dot}"></i>${esc(stateObj.state)}</span>${toggle}</div>
+      <div class="top"><span class="title">${esc(opt.title)}</span><span class="status"><i style="background:${dot}"></i>${esc(stateObj.state)}</span>${settings}${toggle}</div>
       <div class="blocks">${this._block("sell", plans.sell, opt)}${this._block("buy", plans.buy, opt)}</div>
       <div class="tiles">${this._planTile("spike", attrs.spike_plan, opt)}${this._planTile("negative", attrs.negative_price_plan, opt)}</div>
       ${timeline}
@@ -1651,6 +1669,26 @@ class EssManagerStatusCard extends HTMLElement {
     if (button) {
       button.addEventListener("click", () => this._hass.callService("homeassistant", "toggle", { entity_id: toggleId }));
     }
+    const setbtn = changed ? this.shadowRoot.querySelector(".setbtn") : null;
+    if (setbtn) setbtn.addEventListener("click", () => this._openSettings());
+    this._fitHeader();
+  }
+
+  // "Settings" written out, shortened to just the cog when the title would
+  // otherwise not fit on its line.
+  _fitHeader() {
+    const top = this.shadowRoot && this.shadowRoot.querySelector(".top");
+    const title = top && top.querySelector(".title");
+    if (!title || !top.querySelector(".setbtn")) return;
+    top.classList.remove("tight");
+    if (title.scrollWidth > title.clientWidth + 1) top.classList.add("tight");
+  }
+
+  _openSettings() {
+    const entry = this._hass.entities && this._hass.entities[this._config.entity];
+    const path = entry && entry.device_id ? `/config/devices/device/${entry.device_id}` : `/config/integrations/integration/${ESS_DOMAIN}`;
+    history.pushState(null, "", path);
+    window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
   }
 }
 

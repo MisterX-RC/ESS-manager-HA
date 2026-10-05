@@ -46,7 +46,8 @@ price and the cheapest / most expensive moment still to come.
 start, stop, a bar that fills as the battery gets there, the energy and
 the target SOC; an active spike or negative price plan outlines the block
 it drives. Below: the price plan status and a timeline of what the battery
-did over the last hours. The control toggle sits top right.
+did over the last hours. Top right: the control toggle and a Settings
+button to the ESS Manager device page.
 
 ![Status card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/status-card.jpg)
 
@@ -645,7 +646,10 @@ and so on) are ignored - they belonged to the apexcharts version.
 **Status card.** At the top the title, the Status and a toggle for the
 control (the integration's **Automatic control** switch when it controls
 the battery itself, otherwise the automation you choose in the card's
-options; hover it for its name). Below, two blocks side by side: **Sell**
+options; hover it for its name) and next to it **Settings**, which opens
+the ESS Manager device page with all its numbers, switches and sensors
+(written out when there's room, just the cog on a narrow card; only shown
+to admins). Below, two blocks side by side: **Sell**
 on the left, **Buy** on the right. Each shows the start (with the day when
 it hasn't started yet) and stop time, a bar with the duration and - once
 the window runs - how far it is, measured on the energy (it fills as the
