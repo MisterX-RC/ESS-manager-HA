@@ -7,6 +7,12 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.10] - 2026-10-05
+
+### Changed
+- README: new screenshot and description of the status card (the old
+  picture still showed the card from before v0.5.0).
+
 ## [0.5.9] - 2026-10-05
 
 ### Changed

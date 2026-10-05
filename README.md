@@ -42,8 +42,11 @@ price and the cheapest / most expensive moment still to come.
 
 ![Price card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/price-card.jpg)
 
-**Status** - what's planned next (start, amount and stop of the next charge
-or discharge), the price plans, and the status history.
+**Status** - the planned sale (Sell) and charge (Buy) side by side, with
+start, stop, a bar that fills as the battery gets there, the energy and
+the target SOC; an active spike or negative price plan outlines the block
+it drives. Below: the price plan status and a timeline of what the battery
+did over the last hours. The control toggle sits top right.
 
 ![Status card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/status-card.jpg)
 
