@@ -77,9 +77,34 @@ Five planning engines, all documented in detail in the code
    then (so there's more to sell at the peak) - but skips that top-up
    entirely if the gap is smaller than **Minimum charge target**, rather
    than scheduling a trivial charge just to close a tiny forecasted dip.
+   Between the charge and the sale it keeps re-planning on the live SOC
+   (see "When plans move" below).
 5. **Negative price plan** - when the price goes low enough that charging
    pays you outright, buys as much as your hardware can take in that
    window, clearing room beforehand if needed.
+
+**When plans move and when they're fixed.** Every plan is worked out again
+every cycle (30 s) from the live battery level and forecast, so a window
+still ahead can move or change size. Only a window that is running is
+kept as it is until it ends (a low charge or high discharge also stops
+early once it reaches its target): the charge or sale of the low charge /
+high discharge / full charge plans, the cheap charge and the sale of the
+spike plan, the room-making sale and the charge of the negative price
+plan. Between the spike plan's charge and its sale, and before the
+negative price charge, the plan keeps adapting to the real SOC (more
+usage or less solar than forecast). Once the spike charge has run, a
+further top-up before the peak is only bought in quarters where the buy
+price is at least the **Spike margin** below the peak price, and only if
+it's at least the **Minimum charge target**; the sale is sized on what the
+battery is then expected to hold at the peak. (Up to v0.5.11 the spike and
+negative price plans were fixed as a whole.)
+
+**A settings change re-checks running windows.** When you change one of the
+integration's numbers (or save Configure), the next cycle plans everything
+afresh, running windows included - so a charge started because of a
+threshold you've since changed back stops if it's no longer needed (or
+continues, resized, if it still is). The full-charge balancing wait at
+100% is never interrupted by it.
 
 All five compose on top of a 121-hour (5-day) forecast pipeline: solar
 forecast minus usage forecast, cumulatively summed into a projected battery

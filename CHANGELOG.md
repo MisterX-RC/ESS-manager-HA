@@ -7,6 +7,31 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.12] - 2026-10-06
+
+### Changed
+- **A settings change re-checks running windows.** Changing one of the
+  integration's numbers (or saving Configure) makes the next cycle plan
+  everything afresh, including a window that's already running - which is
+  otherwise kept as it is until it ends. A charge started because of a
+  threshold you've since changed back now stops when it's no longer needed
+  (or continues, resized, when it still is). The full-charge balancing wait
+  is never interrupted by it. Setting a number to the value it already has
+  doesn't count as a change.
+- **Spike and negative price plans only lock the window that's running.**
+  Up to v0.5.11 the spike plan was fixed from the start of its cheap charge
+  until its sale ended, and the negative price plan from the moment it was
+  found until its charge ended. Now only the running window is kept (the
+  spike charge, the spike sale, the room-making sale, the negative price
+  charge); before and between them the plan is worked out again every cycle
+  from the live battery level, so more usage or less solar than forecast
+  resizes or moves what's still ahead.
+- Spike plan: once its charge has run, a further top-up before the peak is
+  only bought in quarters where the buy price is at least the spike margin
+  below the peak price, and only if it's at least the Minimum charge target.
+  The sale is sized on what the battery is then expected to hold at the
+  peak (new attributes `topup`, `topup_price_cap`, `level_at_peak_kwh`).
+
 ## [0.5.11] - 2026-10-05
 
 ### Changed

@@ -111,6 +111,7 @@ def compute_negative_price_plan(
     buy_price: Optional[list[float]] = None,
     charge_efficiency: float = 1.0,
     discharge_efficiency: float = 1.0,
+    replan: bool = False,
 ) -> dict:
     """`all_price` is the sell price, `buy_price` what buying costs (price
     + transport, as of v0.4.0; defaults to all_price). Charging is a buy:
@@ -120,9 +121,20 @@ def compute_negative_price_plan(
     `charge_efficiency` / `discharge_efficiency` (0-1, as of v0.4.3): what
     reaches the battery per kWh charged, and what the battery has to
     deliver per kWh taken out (/ efficiency) - every per-unit rate is on
-    the battery side, like the forecast it's compared with."""
+    the battery side, like the forecast it's compared with.
+
+    Only a window that's running is kept as it is (as of v0.5.12): the
+    pre-discharge that makes room, and the charge itself. Before, between
+    and after them the plan is worked out again every cycle from the live
+    battery level, so a different SOC than forecast (more usage, less
+    solar) resizes or moves what's still ahead. Up to v0.5.11 the whole
+    plan was fixed from the moment it was found until its charge ended.
+    `replan` (a setting changed): not even a running window is kept."""
     prev = prev or {"active": False}
-    if prev.get("active") and cur_unit < prev.get("charge_end_unit", -1):
+    if not replan and prev.get("active") and (
+        prev.get("discharge_start_unit", -1) <= cur_unit < prev.get("discharge_end_unit", -1)
+        or prev.get("charge_start_unit", -1) <= cur_unit < prev.get("charge_end_unit", -1)
+    ):
         return prev
     buy = buy_price if buy_price is not None else all_price
 
@@ -274,6 +286,7 @@ def compute_spike_plan(
     buy_price: Optional[list[float]] = None,
     charge_efficiency: float = 1.0,
     discharge_efficiency: float = 1.0,
+    replan: bool = False,
 ) -> dict:
     """`all_price` is the sell price, `buy_price` what buying costs (price
     + transport, as of v0.4.0; defaults to all_price). The spread is the
@@ -285,10 +298,37 @@ def compute_spike_plan(
     `charge_efficiency` / `discharge_efficiency` (0-1, as of v0.4.3): what
     reaches the battery per kWh charged, and what the battery has to
     deliver per kWh taken out (/ efficiency) - every per-unit rate is on
-    the battery side, like the forecast it's compared with."""
+    the battery side, like the forecast it's compared with.
+
+    Only a window that's running is kept as it is (as of v0.5.12): the
+    cheap charge and the sale in the peak. Between them the plan is worked
+    out again every cycle from the live battery level, so a different SOC
+    than forecast (more usage, less solar) resizes or moves the sale. Once
+    the charge has run, a further top-up before the peak is only bought in
+    quarters where the buy price is at least `spike_margin` below the peak
+    price (it has to pay for itself), and the sale is sized on the level
+    the battery is then expected to reach at the peak. Up to v0.5.11 the
+    whole plan was fixed from the start of its charge until the sale ended.
+    `replan` (a setting changed): not even a running window is kept."""
     prev = prev or {"active": False}
-    if prev.get("active") and prev.get("charge_start_unit", -1) <= cur_unit < prev.get("discharge_end_unit", -1):
+    if not replan and prev.get("active") and (
+        prev.get("charge_start_unit", -1) <= cur_unit < prev.get("charge_end_unit", -1)
+        or prev.get("discharge_start_unit", -1) <= cur_unit < prev.get("discharge_end_unit", -1)
+    ):
         return prev
+    # The charge leg of this spike has already run (or had nothing to buy)
+    # and its sale is still ahead or running: any further charge is a top-up.
+    topup = bool(
+        prev.get("active")
+        and prev.get("charge_end_unit", -1) <= cur_unit < prev.get("discharge_end_unit", -1)
+    )
+    # A sale already under way (only re-planned on `replan`) keeps its peak
+    # even though that quarter may be in the past by now.
+    running_peak = (
+        prev.get("high_price_unit")
+        if prev.get("active") and prev.get("discharge_start_unit", -1) <= cur_unit < prev.get("discharge_end_unit", -1)
+        else None
+    )
 
     prices = all_price
     buy = buy_price if buy_price is not None else all_price
@@ -319,7 +359,7 @@ def compute_spike_plan(
             if d_max is None or prices[i] > d_max:
                 d_max, max_idx = prices[i], i
         if d_min is not None and (d_max - d_min) > spike_margin:
-            if min_idx < max_idx and max_idx > cur_unit:
+            if min_idx < max_idx and (max_idx > cur_unit or max_idx == running_peak):
                 found = True
                 day_start_sel = day_start
                 low_abs, high_abs = min_idx, max_idx
@@ -359,8 +399,38 @@ def compute_spike_plan(
     effective_charge_per_unit = max((charge_per_unit - avg_usage_per_unit) * charge_efficiency, 0.1)
     charge_units_needed = max(math.ceil(charge_needed_kwh / effective_charge_per_unit), 0)
 
+    topup_price_cap = None
+    if topup and charge_units_needed > 0:
+        # A top-up only buys in quarters that still pay for themselves: a
+        # buy price at least spike_margin below the peak price. The longest
+        # run of such quarters (up to what's needed) before the peak, the
+        # cheapest one of that length.
+        topup_price_cap = day_max - spike_margin
+        ok = [masked_prices[i] <= topup_price_cap for i in range(len(masked_prices))]
+        best = None
+        for n in range(min(charge_units_needed, max(high_abs - cur_unit, 0)), 0, -1):
+            for s in range(cur_unit, high_abs - n + 1):
+                if all(ok[s : s + n]):
+                    window_sum = sum(masked_prices[s : s + n])
+                    if best is None or window_sum < best[1]:
+                        best = (s, window_sum)
+            if best is not None:
+                charge_units_needed = n
+                break
+        if best is None:
+            charge_units_needed = 0
+            charge_needed_kwh = 0.0
+        else:
+            charge_needed_kwh = min(charge_needed_kwh, charge_units_needed * effective_charge_per_unit)
+            if charge_needed_kwh < minimum_charge_target_kwh:
+                charge_units_needed = 0
+                charge_needed_kwh = 0.0
+
     if charge_units_needed == 0:
         charge_start = charge_end = cur_unit
+    elif topup_price_cap is not None:
+        charge_start = best[0]
+        charge_end = charge_start + charge_units_needed
     else:
         search_end = high_abs
         window_len = search_end - cur_unit
@@ -385,7 +455,13 @@ def compute_spike_plan(
 
     forecast_min = min(forecast) if forecast else low_threshold_kwh
     max_safe_surplus = max(forecast_min - low_threshold_kwh, 0)
-    aggressive_target_kwh = max(charge_target_level - low_threshold_kwh, 0)
+    # What the battery is expected to hold at the peak: the charge target -
+    # or, once the charge has run, the live forecast plus any top-up still
+    # bought (which may fall short of the target, see above).
+    level_at_peak = charge_target_level
+    if topup:
+        level_at_peak = min(solar_only_level + charge_needed_kwh, charge_target_level)
+    aggressive_target_kwh = max(level_at_peak - low_threshold_kwh, 0)
     if recharge_qualifies:
         hour_index_recharge = min(max((recharge_unit - cur_unit) // 4, hour_index_high), len(forecast) - 1) if forecast else 0
         natural_decline_to_recharge = max(solar_only_level - (float(forecast[hour_index_recharge]) if forecast else 0.0), 0)
@@ -439,6 +515,9 @@ def compute_spike_plan(
         "recharge_unit": recharge_unit,
         "charge_target_level_kwh": round(charge_target_level, 2),
         "charge_needed_kwh": round(charge_needed_kwh, 2),
+        "topup": topup,
+        "topup_price_cap": round(topup_price_cap, 4) if topup_price_cap is not None else None,
+        "level_at_peak_kwh": round(level_at_peak, 2),
         "charge_start_unit": charge_start,
         "charge_end_unit": charge_end,
         "discharge_target_kwh": discharge_target_kwh,
@@ -499,6 +578,7 @@ def compute_low_charge_plan(
     buy_price: Optional[list[float]] = None,
     charge_efficiency: float = 1.0,
     discharge_efficiency: float = 1.0,
+    replan: bool = False,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price).
@@ -514,9 +594,12 @@ def compute_low_charge_plan(
     than the minimum, the charge is rounded up to it - but never so far that
     the later forecast peak would cross `high_threshold_kwh`, which would
     only make the discharge plan sell the extra again.
+
+    `replan` (as of v0.5.12): a setting changed since the last cycle, so a
+    window that's already running is not kept but planned afresh from now.
     """
     prev = prev or {"active": False}
-    if prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
+    if not replan and prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
         # Live-target early stop (Timo's proposal): the window's own length
         # (units_needed, below) is always rounded UP to a whole 15-minute
         # unit at the full configured charge rate, so a small target_kwh
@@ -639,6 +722,7 @@ def compute_high_discharge_plan(
     safety_buffer_kwh: float = 0.0,
     sale_target_kwh: Optional[float] = None,
     discharge_efficiency: float = 1.0,
+    replan: bool = False,
 ) -> dict:
     """`sale_target_kwh` (as of v0.3.2) is where a sale brings the forecast
     peak down to: the coordinator passes 100% of capacity. The HIGH
@@ -674,9 +758,12 @@ def compute_high_discharge_plan(
     progress finishes normally rather than being cut off mid-window; only
     scheduling a *new* one is blocked. Left at its default (False), nothing
     changes from before this parameter existed.
+
+    `replan` (as of v0.5.12): a setting changed since the last cycle, so a
+    window that's already running is not kept but planned afresh from now.
     """
     prev = prev or {"active": False}
-    if prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
+    if not replan and prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
         # Live-target early stop (Timo's proposal, mirroring
         # compute_low_charge_plan above): units_needed is always rounded UP
         # to a whole 15-minute unit at the full configured discharge rate,
@@ -989,9 +1076,16 @@ def compute_full_charge_plan(
     balance_threshold: float = BALANCE_THRESHOLD_MV,
     buy_price: Optional[list[float]] = None,
     charge_efficiency: float = 1.0,
+    replan: bool = False,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
-    v0.4.0; defaults to all_price)."""
+    v0.4.0; defaults to all_price).
+
+    `replan` (as of v0.5.12): a setting changed since the last cycle, so a
+    running charge session is not kept but checked again - is it still
+    due, which window is cheapest now. A window found to start right away
+    goes straight back to charging (no "scheduled" cycle in between). The
+    holding phase (the balancing wait) is never interrupted by it."""
     prev = prev or {"active": False, "phase": None}
     if buy_price is not None:
         all_price = buy_price  # only ever used to pick the (buy) window
@@ -1081,6 +1175,25 @@ def compute_full_charge_plan(
             "hold_start_unit": prev.get("hold_start_unit", cur_unit),
             "hold_end_unit": prev.get("hold_end_unit", cur_unit),
         }
+
+    if prev.get("active") and prev.get("phase") == "charging" and replan:
+        if should_enter_holding:
+            return _start_holding()
+        fresh = compute_full_charge_plan(
+            {"active": False, "phase": None}, cur_unit, now, interval_days, time_since_days, soc_now_percent,
+            max_hold_minutes, voltage_diff, battery_now_kwh, high_threshold_kwh, usage, charge_speed_kw, all_price,
+            battery_forecast, battery_voltage, target_voltage, balance_threshold, buy_price=buy_price,
+            charge_efficiency=charge_efficiency,
+        )
+        if fresh.get("active") and fresh.get("phase") == "scheduled" and fresh.get("start_unit", -1) <= cur_unit:
+            # still needed, and the cheapest window is now: keep charging
+            return compute_full_charge_plan(
+                fresh, cur_unit, now, interval_days, time_since_days, soc_now_percent, max_hold_minutes,
+                voltage_diff, battery_now_kwh, high_threshold_kwh, usage, charge_speed_kw, all_price,
+                battery_forecast, battery_voltage, target_voltage, balance_threshold, buy_price=buy_price,
+                charge_efficiency=charge_efficiency,
+            )
+        return fresh
 
     if prev.get("active") and prev.get("phase") == "charging":
         if should_enter_holding:

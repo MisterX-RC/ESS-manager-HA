@@ -238,4 +238,6 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     # "switched automatically" notice from the v2 migration has done its job.
     ir.async_delete_issue(hass, DOMAIN, _issue_id("usage_source_switched", entry))
     coordinator.invalidate_usage_forecast()
+    # Settings may have changed: check running windows again (v0.5.12).
+    coordinator.request_replan()
     await coordinator.async_request_refresh()

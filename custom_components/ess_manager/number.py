@@ -110,8 +110,12 @@ class EssManagerNumber(RestoreNumber, NumberEntity):
                 self.async_write_ha_state()
 
     async def async_set_native_value(self, value: float) -> None:
+        changed = value != self._attr_native_value
         self._attr_native_value = value
         self.async_write_ha_state()
+        if changed:
+            # A setting changed: check running windows again too (v0.5.12).
+            self._coordinator.request_replan()
         # A tunable changed - refresh immediately rather than waiting up to
         # 30s for the next scheduled cycle, so the dashboard feels responsive.
         await self._coordinator.async_request_refresh()

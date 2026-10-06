@@ -157,6 +157,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._full_charge_plan: Optional[dict] = None
         self._last_full_reached: Optional[datetime] = None
         self._restored = False
+        # A setting changed (a number entity, or Configure saved; as of
+        # v0.5.12): the next cycle checks running windows again instead of
+        # keeping them locked - see request_replan.
+        self._replan_requested = 0
 
         # Statistics-based usage-forecast cache - recomputed once per hour,
         # on the first cycle after the hour changes, not every 30s cycle
@@ -205,6 +209,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._usage_history = None
         self._measured_today = None
         self._measured_today_at = None
+
+    def request_replan(self) -> None:
+        """A setting changed: on the next cycle every plan is worked out
+        afresh, including a window that's already running (normally kept
+        as it is until it ends). Without this, raising and lowering a
+        threshold could leave a charge running that's no longer needed."""
+        self._replan_requested += 1
 
     # -- wiring from number.py --------------------------------------------------
     def register_number(self, key: str, entity: Any) -> None:
@@ -770,6 +781,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Treat as overdue so a calibration charge gets scheduled.
             time_since_full_days = full_charge_interval_days
 
+        # A setting changed since the last cycle: check running windows
+        # again (see request_replan). Taken here, cleared once the plans are
+        # done, so a cycle that fails before this point doesn't lose it.
+        replan_seen = self._replan_requested
+        replan = replan_seen > 0
+        if replan:
+            _LOGGER.info("ESS Manager (%s): a setting changed - re-planning, running windows included", self.entry.title)
+
         if conf.get(CONF_ENABLE_FULL_CHARGE_PLAN, False):
             # Passes high_threshold_kwh (the max-SOC-based overshoot
             # ceiling, ~110% by default) rather than upper_limit_kwh
@@ -799,6 +818,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 full_charge_target_voltage,
                 buy_price=buy_price,
                 charge_efficiency=charge_efficiency,
+                replan=replan,
             )
         else:
             self._full_charge_plan = {"active": False, "phase": None}
@@ -829,6 +849,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 buy_price=buy_price,
                 charge_efficiency=charge_efficiency,
                 discharge_efficiency=discharge_efficiency,
+                replan=replan,
             )
         else:
             self._negative_price_plan = {"active": False}
@@ -856,6 +877,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 buy_price=buy_price,
                 charge_efficiency=charge_efficiency,
                 discharge_efficiency=discharge_efficiency,
+                replan=replan,
             )
         else:
             self._spike_plan = {"active": False}
@@ -882,6 +904,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             buy_price=buy_price,
             charge_efficiency=charge_efficiency,
             discharge_efficiency=discharge_efficiency,
+            replan=replan,
         )
         # A full charge relying on a future solar peak (either genuinely
         # scheduled to buy up to it, or silently skipped because that peak
@@ -923,7 +946,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # to 100% (as of v0.3.2), not to just under the threshold.
             sale_target_kwh=upper_limit_kwh,
             discharge_efficiency=discharge_efficiency,
+            replan=replan,
         )
+        if replan:
+            # only what this cycle saw - a change made meanwhile still counts
+            self._replan_requested = max(self._replan_requested - replan_seen, 0)
 
         battery_forecast_adjusted = plans.compose_forecast_adjusted(
             forecast_with_spike,

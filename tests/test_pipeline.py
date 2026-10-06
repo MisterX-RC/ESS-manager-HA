@@ -2742,6 +2742,79 @@ check("measured today: an hour with a missing statistic is None (not 0)", _md["s
 _md_c = usage_forecast.measured_hours(_md_sums, ["sensor.grid"], [], [], None, None, _md_start, _md_now)
 check("measured today: a consumption meter alone gives usage, no solar", _md_c["solar"] is None and _md_c["usage"] == [0.5] * 10)
 
+# ---------------------------------------------------------------------------
+# v0.5.12: running windows are re-checked after a settings change (replan),
+# and the negative price / spike plans only lock the window that's running
+# ---------------------------------------------------------------------------
+_lkw = dict(forecast_with_spike=no_breach_forecast, now=now_top_of_hour, charge_speed_kw=7.0, low_threshold_kwh=3.0,
+            minimum_charge_target_kwh=5.0, upper_limit_kwh=30.0, usage=usage_flat, all_price=all_price,
+            planning_horizon_hours=72, battery_now_kwh=10.0)
+check("replan: a running low charge is kept without a settings change",
+      plans.compute_low_charge_plan(low_plan, cur_unit=low_plan["start_unit"], **_lkw) == low_plan)
+check("replan: a running low charge that's no longer needed stops after a settings change",
+      plans.compute_low_charge_plan(low_plan, cur_unit=low_plan["start_unit"], replan=True, **_lkw)["active"] is False)
+_hkw = dict(forecast_with_spike=[10.0] * 25, now=now_top_of_hour, discharge_speed_kw=10.0, high_threshold_kwh=33.0,
+            low_threshold_kwh=3.0, usage=usage_flat, all_price=all_price, planning_horizon_hours=72, battery_now_kwh=10.0)
+check("replan: a running high discharge is kept without a settings change",
+      plans.compute_high_discharge_plan(high_plan, cur_unit=high_plan["start_unit"], **_hkw) == high_plan)
+check("replan: a running high discharge that's no longer needed stops after a settings change",
+      plans.compute_high_discharge_plan(high_plan, cur_unit=high_plan["start_unit"], replan=True, **_hkw)["active"] is False)
+
+_nkw = dict(now=now_top_of_hour, all_price=neg_price, threshold=-0.20, discharge_speed_kw=10.0,
+            negative_price_charge_speed_kw=15.0, low_threshold_kwh=3.0, high_threshold_kwh=33.0)
+_n0 = plans.compute_negative_price_plan(None, cur_unit=0, battery_forecast=[10.0] * 30, **_nkw)
+check("negative plan: the running pre-discharge is kept (units 0-2)",
+      _n0["discharge_start_unit"] == 0 and _n0["discharge_end_unit"] == 2
+      and plans.compute_negative_price_plan(_n0, cur_unit=1, battery_forecast=[6.0] * 30, **_nkw) == _n0)
+_n1 = plans.compute_negative_price_plan(_n0, cur_unit=2, battery_forecast=[6.0] * 30, **_nkw)
+check("negative plan: between the pre-discharge and the charge it's re-planned on the live level (less room needed: 2.5 kWh)",
+      _n1 is not _n0 and _n1["level_at_start_kwh"] == 6.0 and _n1["discharge_needed_kwh"] == 2.5
+      and _n1["charge_start_unit"] == 40)
+check("negative plan: the running charge is kept",
+      plans.compute_negative_price_plan(_n1, cur_unit=41, battery_forecast=[30.0] * 30, **_nkw) == _n1)
+check("negative plan: a settings change re-plans even the running charge",
+      plans.compute_negative_price_plan(_n1, cur_unit=41, battery_forecast=[30.0] * 30, replan=True, **_nkw) is not _n1)
+
+_skw = dict(all_price=spike_price, usage=usage_flat, low_threshold_kwh=3.0, upper_limit_kwh=30.0, high_threshold_kwh=33.0,
+            spike_margin=0.40, charge_speed_kw=7.0, spike_discharge_speed_kw=15.0, neg_plan={"active": False},
+            minimum_charge_target_kwh=5.0)
+_s0 = plans.compute_spike_plan(None, cur_unit=0, battery_forecast=[10.0] * 30, **_skw)
+check("spike plan: the running charge is kept (units 0-14)",
+      _s0["charge_end_unit"] == 14 and plans.compute_spike_plan(_s0, cur_unit=5, battery_forecast=[29.0] * 30, **_skw) == _s0)
+check("spike plan: the running sale is kept",
+      plans.compute_spike_plan(_s0, cur_unit=30, battery_forecast=[5.0] * 30, **_skw) == _s0)
+_s1 = plans.compute_spike_plan(_s0, cur_unit=20, battery_forecast=[22.0] * 30, **_skw)
+check("spike plan: between charge and sale it's re-planned; 8 kWh short at the peak -> a top-up at 0.10 (<= 0.60 - 0.40)",
+      _s1["topup"] and _s1["topup_price_cap"] == 0.2 and _s1["charge_needed_kwh"] == 8.0
+      and _s1["charge_start_unit"] == 20 and _s1["charge_end_unit"] > 20 and _s1["discharge_start_unit"] >= 30)
+_s2 = plans.compute_spike_plan(_s0, cur_unit=20, battery_forecast=[22.0] * 30,
+                               **{**_skw, "all_price": [0.10] * 14 + [0.25] * 16 + [0.60] * 4 + [0.10] * 62})
+check("spike plan: no top-up when it wouldn't pay (0.25 > 0.60 - 0.40); the sale is sized on the 22 kWh expected at the peak",
+      _s2["topup"] and _s2["charge_needed_kwh"] == 0 and _s2["charge_start_unit"] == _s2["charge_end_unit"]
+      and _s2["level_at_peak_kwh"] == 22.0)
+_s3 = plans.compute_spike_plan(_s0, cur_unit=20, battery_forecast=[26.0] * 30, **_skw)
+check("spike plan: a top-up smaller than the minimum charge target is skipped (4 < 5 kWh)",
+      _s3["charge_needed_kwh"] == 0 and _s3["level_at_peak_kwh"] == 26.0)
+check("spike plan: before its charge starts it's not a top-up (normal planning)",
+      plans.compute_spike_plan(None, cur_unit=0, battery_forecast=[10.0] * 30, **_skw)["topup"] is False)
+check("spike plan: a settings change re-plans even the running charge",
+      plans.compute_spike_plan(_s0, cur_unit=5, battery_forecast=[29.0] * 30, replan=True, **_skw)["charge_needed_kwh"] == 0)
+
+_fkw = dict(cur_unit=2, now=now_top_of_hour, interval_days=14.0, soc_now_percent=60.0, max_hold_minutes=120.0,
+            voltage_diff=None, battery_now_kwh=8.0, high_threshold_kwh=15.0, usage=[0.3] * 120, charge_speed_kw=3.0,
+            all_price=[0.10] * 20, battery_forecast=[8.0] * 5, battery_voltage=None, target_voltage=55.2)
+check("full charge: a settings change that makes it not due stops a running charge (interval 14 d, 5 d since)",
+      plans.compute_full_charge_plan(prev=midway_prev, time_since_days=5.0, replan=True, **_fkw)["active"] is False)
+check("full charge: without a settings change a running charge is kept even when not due",
+      plans.compute_full_charge_plan(prev=midway_prev, time_since_days=5.0, **_fkw) == midway_prev)
+_f2 = plans.compute_full_charge_plan(prev=midway_prev, time_since_days=20.0, replan=True, **_fkw)
+check("full charge: still due and the cheapest window is now -> goes straight on charging (no scheduled cycle)",
+      _f2["phase"] == "charging" and _f2["start_unit"] == 2)
+_hold_prev = {"active": True, "phase": "holding", "hold_start": now_top_of_hour.isoformat(), "hold_start_unit": 0, "hold_end_unit": 8}
+check("full charge: a settings change never interrupts the balancing wait",
+      plans.compute_full_charge_plan(prev=_hold_prev, time_since_days=20.0, replan=True,
+                                     **{**_fkw, "now": now_top_of_hour + timedelta(minutes=30)})["phase"] == "holding")
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
