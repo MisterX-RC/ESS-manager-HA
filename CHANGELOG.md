@@ -1,11 +1,23 @@
 # Changelog
 
-Every push to this repo bumps `custom_components/ess_manager/manifest.json`'s
-`version` by 0.0.1 (the patch digit) and gets an entry here - this is what
-lets HACS reliably tell installed instances an update exists, since
-`sync-and-push.command` now publishes a matching GitHub Release (tag
-`vX.Y.Z`) automatically as the last step of every push (see the README) -
-a plain git tag on its own isn't enough for HACS to notice.
+Every push to this repo gets a new version in
+`custom_components/ess_manager/manifest.json` and an entry here - this is
+what lets HACS reliably tell installed instances an update exists, since
+`sync-and-push.command` publishes a matching GitHub Release (tag
+`v<version>`) automatically as the last step of every push (see the README)
+- a plain git tag on its own isn't enough for HACS to notice.
+
+Versions are **year.month.release**, like Home Assistant's own (as of
+2026.10.0): the year and month the release is made, then a number counting
+the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
+`2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
+
+## [2026.10.0] - 2026-10-06
+
+### Changed
+- New version numbering: **year.month.release**, like Home Assistant
+  (`2026.10.0`, `2026.10.1`, ... then `2026.11.0`). HACS sees it as newer
+  than 0.5.13, so updating works as usual. No functional change.
 
 ## [0.5.13] - 2026-10-06
 

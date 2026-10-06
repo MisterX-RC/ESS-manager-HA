@@ -794,9 +794,12 @@ LICENSE                          MIT
 
 ## Versioning
 
-`custom_components/ess_manager/manifest.json`'s `version` bumps by 0.0.1
-(the patch digit) on every push - see `CHANGELOG.md` for what changed at
-each version. This is what lets HACS tell installed instances an update
+Versions are **year.month.release**, like Home Assistant's own: the year
+and month the release is made, then a number counting the releases in that
+month from 0 - `2026.10.0`, `2026.10.1`, ..., then `2026.11.0`. Every push
+gets a new one in `custom_components/ess_manager/manifest.json` - see
+`CHANGELOG.md` for what changed at each version (up to 0.5.13 versions went
+up by 0.0.1). This is what lets HACS tell installed instances an update
 exists: it compares the tag on your most recent GitHub Release against
 whatever version they currently have installed - note that this means an
 actual GitHub *Release*, not just a git tag; HACS's own docs are explicit
@@ -804,7 +807,8 @@ that "just publishing tags is not enough, you need to publish releases,"
 and without any release at all it falls back to tracking raw commits on
 the default branch instead.
 
-Every version gets a GitHub Release tagged `vX.Y.Z` whose notes are that
+Every version gets a GitHub Release tagged `v<version>` (e.g.
+`v2026.10.0`) whose notes are that
 version's own section of `CHANGELOG.md`, so HACS's update dialog shows what
 actually changed. HACS re-checks custom repositories roughly every 6 hours and
 at Home Assistant startup; to see an update right after syncing instead of
