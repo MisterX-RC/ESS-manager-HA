@@ -579,6 +579,7 @@ def compute_low_charge_plan(
     charge_efficiency: float = 1.0,
     discharge_efficiency: float = 1.0,
     replan: bool = False,
+    floor_kwh: Optional[float] = None,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price).
@@ -597,6 +598,19 @@ def compute_low_charge_plan(
 
     `replan` (as of v0.5.12): a setting changed since the last cycle, so a
     window that's already running is not kept but planned afresh from now.
+
+    `floor_kwh` (as of v0.5.13): in solar deficit mode the coordinator passes
+    the solar SURPLUS minimum here, below the deficit minimum that is
+    `low_threshold_kwh`. The surplus minimum stays the hard floor - a dip
+    below it is charged for before the battery gets there, uncapped, as
+    always. The band between the two is not urgent (deficit mode looks 120
+    hours ahead): a dip that only reaches into that band is charged in the
+    cheapest window before the dip is over (or before the battery would
+    reach the floor), and only as much as still fits under 100% at the
+    forecast peak - nothing bought now is lost again to a solar day that
+    fills the battery later. Less than the minimum charge target fitting
+    means no charge for it now (the deficit minimum is picked up again
+    after that peak). None (surplus mode) = one threshold, as before.
     """
     prev = prev or {"active": False}
     if not replan and prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
@@ -624,6 +638,15 @@ def compute_low_charge_plan(
 
     forecast = forecast_with_spike[0 : planning_horizon_hours + 1]
     charge_per_unit = charge_speed_kw / 4
+
+    if floor_kwh is not None and floor_kwh < low_threshold_kwh:
+        soft = _soft_low_charge(
+            forecast, cur_unit, now, charge_speed_kw, low_threshold_kwh, floor_kwh, minimum_charge_target_kwh,
+            upper_limit_kwh, usage, all_price, battery_now_kwh, high_threshold_kwh, buy_price, charge_efficiency,
+            discharge_efficiency,
+        )
+        if soft is not None:
+            return soft
 
     hour_index = None
     for h in range(len(forecast)):
@@ -704,6 +727,121 @@ def compute_low_charge_plan(
         "target_energy_kwh": round(battery_now_kwh + target_kwh, 3),
         "target_reached": False,
     }
+
+
+def _soft_low_charge(
+    forecast: list[float],
+    cur_unit: int,
+    now: datetime,
+    charge_speed_kw: float,
+    low_threshold_kwh: float,
+    floor_kwh: float,
+    minimum_charge_target_kwh: float,
+    upper_limit_kwh: float,
+    usage: list[float],
+    all_price: list[float],
+    battery_now_kwh: float,
+    high_threshold_kwh: Optional[float],
+    buy_price: Optional[list[float]],
+    charge_efficiency: float,
+    discharge_efficiency: float,
+) -> Optional[dict]:
+    """compute_low_charge_plan in solar deficit mode (as of v0.5.13), with
+    the surplus minimum as the hard floor below the deficit minimum - see
+    its `floor_kwh`. Returns the plan, or None when nothing dips below the
+    floor or the deficit minimum at all (the caller then reports inactive).
+
+    Dips below the deficit minimum are taken in order; the first that needs
+    a charge is planned:
+    - hard part: from its lowest point up to the floor - always, uncapped,
+      deadline the first hour it would cross the floor;
+    - soft part: from there up to the deficit minimum - only what fits
+      under 100% at the forecast peak, deadline the end of the dip (when
+      the forecast is back at the deficit minimum, or the end of the
+      horizon) unless the hard part's deadline is earlier.
+    Like the one-threshold plan, a charge that happens anyway fills up to
+    what fits under 100% at the peak (headroom). A soft-only charge
+    smaller than the minimum charge target is skipped; a dip that then has
+    nothing to do passes on to the next one."""
+    n = len(forecast)
+    units_to_next_hour = 4 - (now.minute // 15)
+    future_peak = max(forecast) if forecast else upper_limit_kwh
+    headroom = max(upper_limit_kwh - future_peak, 0.0)
+    skipped = None
+    h = 0
+    while h < n:
+        if forecast[h] >= low_threshold_kwh:
+            h += 1
+            continue
+        dip_start = h
+        dip_end = n
+        for k in range(dip_start + 1, n):
+            if forecast[k] >= low_threshold_kwh:
+                dip_end = k
+                break
+        h = dip_end
+        dip = forecast[dip_start:dip_end]
+        dip_min = min(dip)
+        hard_index = next((dip_start + i for i, v in enumerate(dip) if v < floor_kwh), None)
+        need_hard = max(floor_kwh - dip_min, 0.0)
+        need_soft = low_threshold_kwh - max(dip_min, floor_kwh)
+        soft_capped = min(need_soft, max(headroom - need_hard, 0.0))
+        target_kwh = max(need_hard + soft_capped, headroom if need_hard > 0 or soft_capped > 0 else 0.0)
+        rounded_up_to_minimum = False
+        if need_hard > 0:
+            if target_kwh < minimum_charge_target_kwh:
+                room = (high_threshold_kwh - future_peak) if high_threshold_kwh is not None else minimum_charge_target_kwh
+                rounded = max(target_kwh, min(minimum_charge_target_kwh, room))
+                rounded_up_to_minimum = rounded > target_kwh
+                target_kwh = rounded
+        elif target_kwh < minimum_charge_target_kwh or target_kwh <= 0:
+            if skipped is None:
+                skipped = {
+                    "deficit_kwh": round(need_soft, 3),
+                    "fits_kwh": round(soft_capped, 3),
+                    "dip_min_kwh": round(dip_min, 3),
+                }
+            continue
+        target_kwh = round(target_kwh, 3)
+
+        if hard_index is not None:
+            deadline_offset = units_to_next_hour + hard_index * 4
+        else:
+            deadline_offset = units_to_next_hour + max(dip_end - 1, 0) * 4
+        breach_unit = cur_unit + deadline_offset
+
+        relevant_usage = usage[0 : (hard_index if hard_index is not None else dip_start) + 1]
+        avg_usage_kwh = sum(relevant_usage) / len(relevant_usage) if relevant_usage else 0
+        avg_usage_per_unit = avg_usage_kwh / 4
+        effective_charge_per_unit = max((charge_speed_kw / 4 - avg_usage_per_unit) * charge_efficiency, 0.1)
+        units_needed = max(math.ceil(target_kwh / effective_charge_per_unit), 1)
+
+        buy = buy_price if buy_price is not None else all_price
+        search_end = min(breach_unit, len(buy))
+        best_start = _best_price_window(buy, cur_unit, search_end, units_needed, cheapest=True)
+        return {
+            "active": True,
+            "deficit_kwh": round(need_hard + need_soft, 3),
+            "hard_deficit_kwh": round(need_hard, 3),
+            "soft_deficit_kwh": round(need_soft, 3),
+            "soft_capped": soft_capped < need_soft,
+            "floor_kwh": round(floor_kwh, 3),
+            "dip_min_kwh": round(dip_min, 3),
+            "target_kwh": target_kwh,
+            "rounded_up_to_minimum": rounded_up_to_minimum,
+            "avg_home_load_kw": round(avg_usage_kwh, 3),
+            "effective_charge_per_unit": round(effective_charge_per_unit, 4),
+            "discharge_efficiency": discharge_efficiency,
+            "units_needed": units_needed,
+            "breach_unit": breach_unit,
+            "start_unit": best_start,
+            "end_unit": best_start + units_needed,
+            "target_energy_kwh": round(battery_now_kwh + target_kwh, 3),
+            "target_reached": False,
+        }
+    if skipped is not None:
+        return {"active": False, "breach_unit": 999999, "soft_skipped": skipped}
+    return None
 
 
 def compute_high_discharge_plan(

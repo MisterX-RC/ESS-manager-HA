@@ -2815,6 +2815,63 @@ check("full charge: a settings change never interrupts the balancing wait",
       plans.compute_full_charge_plan(prev=_hold_prev, time_since_days=20.0, replan=True,
                                      **{**_fkw, "now": now_top_of_hour + timedelta(minutes=30)})["phase"] == "holding")
 
+# ---------------------------------------------------------------------------
+# v0.5.13: solar deficit mode - the surplus minimum stays the hard floor,
+# the band up to the deficit minimum is not urgent and capped to what fits
+# ---------------------------------------------------------------------------
+_sd_now = datetime(2026, 10, 6, 20, 10)
+_sd_cur = 20 * 4
+
+
+def _sd_forecast(start, solar):
+    level, out = start, []
+    for h in range(121):
+        t = _sd_now + timedelta(hours=h + 1)
+        d = (t.date() - _sd_now.date()).days
+        if d >= 4:
+            level -= 1.0
+        elif 9 <= t.hour < 16:
+            level += solar.get(d, 0)
+        else:
+            level -= 0.15
+        out.append(round(level, 2))
+    return out
+
+
+# battery 8 kWh (27 %) under a 9 kWh (30 %) deficit minimum, 1.5 kWh (5 %) surplus minimum;
+# tonight it dips to 6.2, day 3 peaks at 28.05 (93.5 %), day 5 runs empty
+_sd_fc = _sd_forecast(8.0, {1: 1.6, 2: 1.4, 3: 0.85})
+_sd_price = ([0.30] * 96 + [0.15] * 24 + [0.25] * 72) * 3
+_sd_kw = dict(now=_sd_now, charge_speed_kw=7.0, low_threshold_kwh=9.0, upper_limit_kwh=30.0, usage=[0.5] * 121,
+              all_price=_sd_price, planning_horizon_hours=72, battery_now_kwh=8.0, high_threshold_kwh=33.0)
+check("deficit mode scenario: deficit (day 5 empty, day 3 short of full)",
+      forecasting.compute_solar_mode(_sd_fc, 30.0)["mode"] == forecasting.SOLAR_MODE_DEFICIT)
+_sd_old = plans.compute_low_charge_plan(None, _sd_cur, _sd_fc, minimum_charge_target_kwh=1.0, **_sd_kw)
+check("one threshold (no floor): charges the whole 2.8 kWh right away at 0.30",
+      _sd_old["target_kwh"] == 2.8 and _sd_old["start_unit"] == _sd_cur)
+_sd_new = plans.compute_low_charge_plan(None, _sd_cur, _sd_fc, minimum_charge_target_kwh=1.0, floor_kwh=1.5, **_sd_kw)
+check("deficit band: only what fits under 100 % at the day-3 peak (1.95 of 2.8 kWh), capped",
+      _sd_new["active"] and _sd_new["target_kwh"] == 1.95 and _sd_new["soft_capped"] and _sd_new["hard_deficit_kwh"] == 0)
+check("deficit band: no hurry - charged in tonight's cheap window (0.15 from midnight), before the dip ends at 09:00",
+      _sd_new["start_unit"] >= 96 and _sd_price[_sd_new["start_unit"]] == 0.15 and _sd_new["end_unit"] <= 96 + 9 * 4)
+_sd_skip = plans.compute_low_charge_plan(None, _sd_cur, _sd_fc, minimum_charge_target_kwh=3.0, floor_kwh=1.5, **_sd_kw)
+check("deficit band: less than the minimum charge target fits (1.95 < 3.0) -> no charge now",
+      _sd_skip["active"] is False and _sd_skip["soft_skipped"]["fits_kwh"] == 1.95)
+_sd_full = [round(v + 1.95, 2) for v in _sd_fc]  # after that charge: peak at exactly 100 %
+check("deficit band: once the peak is at 100 % nothing more is charged for it (no repeat charges)",
+      plans.compute_low_charge_plan(None, _sd_cur, _sd_full, minimum_charge_target_kwh=1.0, floor_kwh=1.5,
+                                    **{**_sd_kw, "battery_now_kwh": 9.95})["active"] is False)
+# the dip reaches below the floor: that part is uncapped and urgent
+_sd_hard_fc = _sd_forecast(3.0, {1: 1.6, 2: 1.4, 3: 0.85})  # tonight down to 1.2 < 1.5
+_sd_hard = plans.compute_low_charge_plan(None, _sd_cur, _sd_hard_fc, minimum_charge_target_kwh=1.0, floor_kwh=1.5,
+                                         **{**_sd_kw, "battery_now_kwh": 3.0})
+check("below the floor: the hard part (0.3 kWh to 1.5) is always charged, plus what fits of the band",
+      _sd_hard["active"] and _sd_hard["hard_deficit_kwh"] == 0.3 and _sd_hard["target_kwh"] >= 0.3)
+check("below the floor: deadline = the hour it would cross the floor (not the end of the dip)",
+      _sd_hard["breach_unit"] < 96 + 9 * 4 and _sd_hard["end_unit"] <= _sd_hard["breach_unit"] + _sd_hard["units_needed"])
+check("surplus mode (no floor): unchanged",
+      plans.compute_low_charge_plan(None, _sd_cur, _sd_fc, minimum_charge_target_kwh=1.0, **_sd_kw) == _sd_old)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

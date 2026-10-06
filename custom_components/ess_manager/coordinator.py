@@ -161,6 +161,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # v0.5.12): the next cycle checks running windows again instead of
         # keeping them locked - see request_replan.
         self._replan_requested = 0
+        self._last_solar_mode: Optional[str] = None
 
         # Statistics-based usage-forecast cache - recomputed once per hour,
         # on the first cycle after the hour changes, not every 30s cycle
@@ -744,6 +745,15 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         solar_mode["min_soc_deficit_percent"] = min_soc_deficit_percent
         solar_mode["min_soc_surplus_percent"] = min_soc_surplus_percent
         low_threshold_kwh = round((min_soc_percent / 100) * capacity_kwh, 2)
+        # In deficit mode the surplus minimum stays the hard floor below the
+        # (higher) deficit minimum: the band between them isn't urgent and is
+        # only charged as far as it fits (as of v0.5.13; see
+        # plans.compute_low_charge_plan's floor_kwh).
+        deficit_floor_kwh = (
+            round((min_soc_surplus_percent / 100) * capacity_kwh, 2)
+            if solar_mode["mode"] == forecasting.SOLAR_MODE_DEFICIT and min_soc_surplus_percent < min_soc_deficit_percent
+            else None
+        )
 
         current_price_unit = (now.hour * 4) + (now.minute // 15)
 
@@ -788,6 +798,15 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         replan = replan_seen > 0
         if replan:
             _LOGGER.info("ESS Manager (%s): a setting changed - re-planning, running windows included", self.entry.title)
+        # A switch between solar surplus and deficit changes the minimum SOC
+        # every plan works with, so it re-plans running windows too (v0.5.13).
+        if self._last_solar_mode is not None and solar_mode["mode"] != self._last_solar_mode:
+            _LOGGER.info(
+                "ESS Manager (%s): solar mode %s -> %s - re-planning, running windows included",
+                self.entry.title, self._last_solar_mode, solar_mode["mode"],
+            )
+            replan = True
+        self._last_solar_mode = solar_mode["mode"]
 
         if conf.get(CONF_ENABLE_FULL_CHARGE_PLAN, False):
             # Passes high_threshold_kwh (the max-SOC-based overshoot
@@ -905,6 +924,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             charge_efficiency=charge_efficiency,
             discharge_efficiency=discharge_efficiency,
             replan=replan,
+            floor_kwh=deficit_floor_kwh,
         )
         # A full charge relying on a future solar peak (either genuinely
         # scheduled to buy up to it, or silently skipped because that peak

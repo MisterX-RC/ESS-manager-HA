@@ -7,6 +7,23 @@ lets HACS reliably tell installed instances an update exists, since
 `vX.Y.Z`) automatically as the last step of every push (see the README) -
 a plain git tag on its own isn't enough for HACS to notice.
 
+## [0.5.13] - 2026-10-06
+
+### Changed
+- **Solar deficit mode: the surplus minimum stays the hard floor.** When
+  the mode switches to deficit while the battery is between the two
+  minimums, it no longer starts charging right away at whatever the price
+  is. A dip below the surplus minimum is charged for before the battery
+  gets there, in full, as before. A dip that only reaches into the band up
+  to the deficit minimum is charged in the cheapest window before the dip
+  is over, and only as much as fits under 100% at the forecast peak (so a
+  later solar day doesn't spill it again); if less than the Minimum charge
+  target fits, nothing is charged for it now. New low charge plan
+  attributes `hard_deficit_kwh`, `soft_deficit_kwh`, `soft_capped`,
+  `floor_kwh`, and `soft_skipped` when a band-only dip is skipped.
+- A switch between solar surplus and deficit re-plans running windows,
+  like a settings change.
+
 ## [0.5.12] - 2026-10-06
 
 ### Changed

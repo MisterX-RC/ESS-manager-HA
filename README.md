@@ -103,8 +103,9 @@ negative price plans were fixed as a whole.)
 integration's numbers (or save Configure), the next cycle plans everything
 afresh, running windows included - so a charge started because of a
 threshold you've since changed back stops if it's no longer needed (or
-continues, resized, if it still is). The full-charge balancing wait at
-100% is never interrupted by it.
+continues, resized, if it still is). A switch between solar surplus and
+deficit does the same, since it changes the minimum SOC every plan works
+with. The full-charge balancing wait at 100% is never interrupted by it.
 
 All five compose on top of a 121-hour (5-day) forecast pipeline: solar
 forecast minus usage forecast, cumulatively summed into a projected battery
@@ -131,6 +132,25 @@ charge, and how far a sale may go. The **Solar mode** sensor shows
 `Deficit` or `Surplus`, the minimum in use and in how many hours the raw
 forecast runs empty or fills up; the battery chart's min SOC line follows
 the minimum in use.
+
+**In deficit mode the surplus minimum stays the hard floor.** Deficit mode
+looks 120 hours ahead, so there's no hurry to get above the (higher)
+deficit minimum - the battery may well sit below it when the mode
+switches. The charge plan therefore treats the two differently:
+
+- A dip below the **surplus minimum** is charged for before the battery
+  gets there, the full amount, exactly as in surplus mode.
+- A dip that only reaches into the band between the two minimums is
+  charged in the cheapest window before the dip is over (the forecast is
+  back above the deficit minimum, or the end of the planning horizon) -
+  and only as much as still fits under 100% at the forecast peak, so
+  nothing bought now is lost again on a later solar day that fills the
+  battery. If less than the **Minimum charge target** fits, it isn't
+  charged now; the deficit minimum is picked up again once that peak is
+  behind it.
+
+Like any charge, one that happens anyway fills up to what fits under 100%
+at the peak.
 
 By default the integration only decides: its `Status` sensor says what
 should happen and your own automation acts on it - see "Wiring it to your
