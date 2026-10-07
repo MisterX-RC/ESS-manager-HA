@@ -466,7 +466,13 @@ ceiling on its own, so nothing is being bought - it's the visible version of
 what would otherwise be an indistinguishable `Standby` while
 `full_charge_plan.relying_on_peak_unit` is quietly set (see
 `high_discharge_plan.suppressed_by_full_charge`, which is also active
-during this same wait). Unless you switch on "Direct control" (below), it
+during this same wait). `Solar export` and `Grid usage` are labels only
+(the setpoint stays at idle): `Solar export` before a planned sale at high
+SOC means the price now is higher than every price until the forecast
+crosses the max SOC (and in a negative price plan, solar going to the grid
+before the negative window); `Grid usage` means a charge is planned and the
+battery is within 1 kWh of the low threshold, waiting for that window.
+Unless you switch on "Direct control" (below), it
 does **not** write to any inverter or battery control entity itself, since
 every make/model exposes a different control surface (an `input_number`, a
 native `number` entity from that inverter's own integration, an MQTT

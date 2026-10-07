@@ -1644,9 +1644,12 @@ def _compute_system_status_raw(
 
     price_now = all_price[cur_unit] if cur_unit < len(all_price) else 0
     high_breach_unit = high.get("breach_unit", 999999)
-    price_at_breach = all_price[high_breach_unit] if high.get("active") and high_breach_unit < len(all_price) else 0
     same_day_breach = high.get("active") and high_breach_unit < 96
-    export_favorable = high.get("active") and price_now > price_at_breach
+    # Exporting now beats storing: the price now is higher than every price
+    # from now until the forecast crosses the max SOC (as of 2026.10.3; up to
+    # 2026.10.2 only the price of that one quarter was compared).
+    ahead = all_price[cur_unit + 1 : high_breach_unit + 1] if high.get("active") else []
+    export_favorable = bool(high.get("active") and ahead and price_now > max(ahead))
 
     if full.get("active") and full.get("phase") in ("charging", "holding"):
         # Charging and holding (the balancing wait at 100%) report the same

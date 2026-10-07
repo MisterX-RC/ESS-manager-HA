@@ -12,6 +12,14 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.3] - 2026-10-07
+
+### Changed
+- Status `Solar export` (before a planned sale at high SOC): the price now
+  has to be higher than **every** price from now until the forecast crosses
+  the max SOC, not just higher than the price of that one quarter. It's
+  still a label only - the setpoint stays at your idle value.
+
 ## [2026.10.2] - 2026-10-07
 
 ### Fixed

@@ -2933,6 +2933,18 @@ check("negative plan: the room it makes is measured up to 100 %, not up to a 110
       _np_new["target_after_discharge_kwh"] + _np_new["achievable_charge_kwh"] <= 30.0
       and _np_old["target_after_discharge_kwh"] + _np_old["achievable_charge_kwh"] > 30.0)
 
+# 2026.10.3: Solar export compares the price now with EVERY price until the max SOC is crossed
+_se_high = {"active": True, "start_unit": 60, "end_unit": 62, "breach_unit": 56}
+_se_kw = dict(setpoint_w=0.0, idle_setpoint_w=0.0, cur_unit=40, full={"active": False}, neg={"active": False},
+              spike={"active": False}, low={"active": False, "breach_unit": 999999}, high=_se_high,
+              battery_now_kwh=3.5, low_threshold_kwh=3.0, charge_speed_kw=7.0, discharge_speed_kw=10.0)
+_se_lower = [0.20] * 40 + [0.30] + [0.25] * 15 + [0.10] * 40  # now 0.30, everything until the breach lower
+_se_dip_up = [0.20] * 40 + [0.30] + [0.25] * 7 + [0.35] + [0.25] * 7 + [0.10] * 40  # a higher price in between
+check("Solar export: the price now is higher than every price until the max SOC is crossed",
+      plans.compute_system_status(all_price=_se_lower, **_se_kw) == "Solar export")
+check("Solar export: not when a later price before that moment is higher (only the breach quarter is lower)",
+      plans.compute_system_status(all_price=_se_dip_up, **_se_kw) == "Standby")
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
