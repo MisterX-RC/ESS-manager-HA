@@ -179,3 +179,95 @@ def compute_solar_mode(raw_forecast: list[float], capacity_kwh: float) -> dict:
         "empty_hour": empty_hour,
         "full_hour": full_hour,
     }
+
+
+# ---------------------------------------------------------------------------
+# The battery can't go above 100% (as of 2026.10.1)
+# ---------------------------------------------------------------------------
+def clip_at_capacity(forecast: list[float], start_kwh: float, capacity_kwh: float) -> tuple[list[float], list[float]]:
+    """The forecast as the battery will really see it: never above
+    `capacity_kwh`. The forecasts are otherwise running sums without a top,
+    so after a solar day that "fills" the battery to e.g. 106% every later
+    hour is 6% too high - in reality that energy went to the grid and the
+    battery drains from 100%. Here each hour's change is applied to the
+    clipped level instead; whatever would have pushed it over the top is
+    returned per hour as the spill (battery side, kWh).
+
+    Not clipped at the bottom: a level below 0 is what tells the charge plan
+    how much is missing.
+
+    The sale logic (high discharge plan) keeps using the unclipped forecast -
+    the highest expected level is exactly what it sells off."""
+    clipped: list[float] = []
+    spill: list[float] = []
+    prev_raw = start_kwh
+    level = min(start_kwh, capacity_kwh)
+    for value in forecast:
+        delta = float(value) - prev_raw
+        prev_raw = float(value)
+        new = level + delta
+        over = max(new - capacity_kwh, 0.0)
+        level = new - over
+        clipped.append(round(level, 2))
+        spill.append(round(over, 3))
+    return clipped, spill
+
+
+def solar_surplus_windows(
+    spill_full_kwh: list[float],
+    spill_rate_kwh: list[float],
+    now: datetime,
+    min_kwh: float = 0.05,
+) -> list[dict]:
+    """The hours solar goes to the grid because the battery is full
+    (`spill_full_kwh`) or can't charge as fast as the solar comes in
+    (`spill_rate_kwh`), both per forecast hour (hour 0 = this one), merged
+    into windows: [{start, stop, kwh, reason}] - reason "full" when the
+    battery is full in any of its hours, otherwise "rate". Hour 0 starts
+    now; an hour counts from `min_kwh` (so rounding noise isn't a window)."""
+    hour0 = now.replace(minute=0, second=0, microsecond=0)
+    out: list[dict] = []
+    current = None
+    n = max(len(spill_full_kwh), len(spill_rate_kwh))
+    for h in range(n):
+        full = spill_full_kwh[h] if h < len(spill_full_kwh) else 0.0
+        rate = spill_rate_kwh[h] if h < len(spill_rate_kwh) else 0.0
+        total = full + rate
+        if total >= min_kwh:
+            start = now if h == 0 else hour0 + timedelta(hours=h)
+            stop = hour0 + timedelta(hours=h + 1)
+            if current is None:
+                current = {"start": start, "stop": stop, "kwh": 0.0, "full": False}
+            current["stop"] = stop
+            current["kwh"] += total
+            current["full"] = current["full"] or full >= min_kwh
+        elif current is not None:
+            out.append(current)
+            current = None
+    if current is not None:
+        out.append(current)
+    return [
+        {
+            "start": w["start"].isoformat(),
+            "stop": w["stop"].isoformat(),
+            "kwh": round(w["kwh"], 2),
+            "reason": "full" if w["full"] else "rate",
+        }
+        for w in out
+    ]
+
+
+def rate_spill(net: list[float], now: datetime, max_charge_kw: Optional[float], charge_efficiency: float = 1.0) -> list[float]:
+    """Per forecast hour, the solar surplus (solar minus usage, kWh) the
+    battery can't take because it's more than `max_charge_kw` - the same
+    cap build_battery_forecast applies - as grid-side kWh (it goes to the
+    grid). Hour 0 only counts what's left of it."""
+    if not max_charge_kw or max_charge_kw <= 0:
+        return [0.0] * len(net)
+    eff = charge_efficiency if charge_efficiency > 0 else 1.0
+    fraction_remaining = (60 - now.minute) / 60
+    out = []
+    for h, value in enumerate(net):
+        over = max(float(value) - max_charge_kw / eff, 0.0)
+        out.append(round(over * (fraction_remaining if h == 0 else 1.0), 3))
+    return out

@@ -12,6 +12,29 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.1] - 2026-10-07
+
+### Added
+- **Solar surplus on the price card**: a yellow column and line (and a
+  "Solar surplus 14:15" label where there's room) for the hours the
+  forecast expects solar to go to the grid - because the battery is full,
+  or because there's more solar than your max battery charge speed. Tap it
+  for the reason and roughly how many kWh. New Status attribute
+  `solar_surplus` ([{start, stop, kwh, reason}]); new card option
+  `surplus_color`.
+
+### Changed
+- **The forecast stops at 100%.** The battery level with the plans in it
+  (`battery_forecast_adjusted`, on the battery card) no longer runs on
+  above 100%: what solar would add on top goes to the grid, so after a
+  full day it drains from 100%. The unclipped one is kept as
+  `battery_forecast_adjusted_uncapped`.
+- **The charge plan uses the clipped forecast**, so a dip after a day that
+  fills the battery isn't underestimated (with a 110% max SOC by up to
+  10%: that part isn't sold, and it isn't in the battery either). How much
+  still fits under 100% / max SOC is still measured on the unclipped peak.
+  The sale plan and the solar mode keep the unclipped forecast.
+
 ## [2026.10.0] - 2026-10-06
 
 ### Changed

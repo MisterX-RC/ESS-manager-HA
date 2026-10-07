@@ -580,6 +580,7 @@ def compute_low_charge_plan(
     discharge_efficiency: float = 1.0,
     replan: bool = False,
     floor_kwh: Optional[float] = None,
+    peak_kwh: Optional[float] = None,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price).
@@ -611,6 +612,13 @@ def compute_low_charge_plan(
     fills the battery later. Less than the minimum charge target fitting
     means no charge for it now (the deficit minimum is picked up again
     after that peak). None (surplus mode) = one threshold, as before.
+
+    `peak_kwh` (as of 2026.10.1): the coordinator passes the forecast clipped
+    at 100% (what the battery will really hold - after a day that fills it,
+    the energy over the top is gone, so a dip the next morning is deeper
+    than the running sum says) and here the highest UNCLIPPED level within
+    the horizon, which is what "how much still fits under 100% / under max
+    SOC at the peak" is measured against. None = the forecast's own maximum.
     """
     prev = prev or {"active": False}
     if not replan and prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
@@ -643,7 +651,7 @@ def compute_low_charge_plan(
         soft = _soft_low_charge(
             forecast, cur_unit, now, charge_speed_kw, low_threshold_kwh, floor_kwh, minimum_charge_target_kwh,
             upper_limit_kwh, usage, all_price, battery_now_kwh, high_threshold_kwh, buy_price, charge_efficiency,
-            discharge_efficiency,
+            discharge_efficiency, peak_kwh,
         )
         if soft is not None:
             return soft
@@ -681,7 +689,7 @@ def compute_low_charge_plan(
     breach_offset_units = units_to_next_hour + (hour_index * 4)
     breach_unit = cur_unit + breach_offset_units
     deficit = round(low_threshold_kwh - value, 3)
-    future_peak = max(forecast) if forecast else upper_limit_kwh
+    future_peak = peak_kwh if peak_kwh is not None else (max(forecast) if forecast else upper_limit_kwh)
     headroom = upper_limit_kwh - future_peak
     target_kwh = max(deficit, headroom)
     rounded_up_to_minimum = False
@@ -745,6 +753,7 @@ def _soft_low_charge(
     buy_price: Optional[list[float]],
     charge_efficiency: float,
     discharge_efficiency: float,
+    peak_kwh: Optional[float] = None,
 ) -> Optional[dict]:
     """compute_low_charge_plan in solar deficit mode (as of v0.5.13), with
     the surplus minimum as the hard floor below the deficit minimum - see
@@ -765,7 +774,7 @@ def _soft_low_charge(
     nothing to do passes on to the next one."""
     n = len(forecast)
     units_to_next_hour = 4 - (now.minute // 15)
-    future_peak = max(forecast) if forecast else upper_limit_kwh
+    future_peak = peak_kwh if peak_kwh is not None else (max(forecast) if forecast else upper_limit_kwh)
     headroom = max(upper_limit_kwh - future_peak, 0.0)
     skipped = None
     h = 0

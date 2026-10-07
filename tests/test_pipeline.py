@@ -2872,6 +2872,52 @@ check("below the floor: deadline = the hour it would cross the floor (not the en
 check("surplus mode (no floor): unchanged",
       plans.compute_low_charge_plan(None, _sd_cur, _sd_fc, minimum_charge_target_kwh=1.0, **_sd_kw) == _sd_old)
 
+# ---------------------------------------------------------------------------
+# 2026.10.1: the forecast clipped at 100%, and the solar surplus
+# ---------------------------------------------------------------------------
+_cl, _sp = forecasting.clip_at_capacity([28.0, 31.0, 32.4, 31.0, 29.0, 2.0], 27.0, 30.0)
+check("clip at 100 %: never above capacity, the hour it would go over spills the rest",
+      _cl[:3] == [28.0, 30.0, 30.0] and _sp[:3] == [0.0, 1.0, 1.4])
+check("clip at 100 %: after the peak it drains from 100 % (32.4 -> 31 -> 29 is 30 - 1.4 - 2), not from the running sum",
+      _cl[3:5] == [28.6, 26.6] and _sp[3] == 0.0)
+check("clip at 100 %: not clipped at the bottom (a level below the threshold / 0 stays)",
+      forecasting.clip_at_capacity([1.0, -2.0], 3.0, 30.0)[0] == [1.0, -2.0])
+_rs = forecasting.rate_spill([2.0, 6.0, 4.0], datetime(2026, 10, 7, 12, 30), 5.0, 1.0)
+check("rate spill: solar surplus above the max charge speed goes to the grid (hour 0 half left)",
+      _rs == [0.0, 1.0, 0.0])
+check("rate spill: none without a max charge speed", forecasting.rate_spill([9.0], datetime(2026, 10, 7, 12, 0), None) == [0.0])
+_ss = forecasting.solar_surplus_windows([0.0, 0.0, 1.0, 1.4, 0.0, 0.0], [0.0, 0.6, 0.0, 0.0, 0.0, 0.3],
+                                        datetime(2026, 10, 7, 10, 20))
+check("solar surplus: consecutive hours merge into one window, 'full' when the battery is full in any of them",
+      len(_ss) == 2 and _ss[0]["start"] == "2026-10-07T11:00:00" and _ss[0]["stop"] == "2026-10-07T14:00:00"
+      and _ss[0]["kwh"] == 3.0 and _ss[0]["reason"] == "full")
+check("solar surplus: only the charge speed -> reason 'rate'", _ss[1]["reason"] == "rate" and _ss[1]["kwh"] == 0.3)
+check("solar surplus: hour 0 starts now; rounding noise isn't a window",
+      forecasting.solar_surplus_windows([0.2, 0.01], [0, 0], datetime(2026, 10, 7, 10, 20))
+      == [{"start": "2026-10-07T10:20:00", "stop": "2026-10-07T11:00:00", "kwh": 0.2, "reason": "full"}])
+
+# The example from the discussion: the running sum peaks at 108 % (under a 110 % max SOC, so nothing is
+# sold) and shows 12 % the next morning; really the battery stops at 100 % and is at 4 %.
+_cc_now = datetime(2026, 10, 7, 9, 0)
+_cc_fc = [21.0, 24.0, 27.0, 30.0, 32.4, 32.4] + [round(32.4 - 1.2 * (h + 1), 2) for h in range(19)] + [12.0] * 10
+_cc_kw = dict(now=_cc_now, charge_speed_kw=7.0, low_threshold_kwh=3.0, minimum_charge_target_kwh=1.0,
+              upper_limit_kwh=30.0, usage=[1.2] * 121, all_price=[0.25] * 192, planning_horizon_hours=72,
+              battery_now_kwh=18.0, high_threshold_kwh=33.0)
+check("charge plan on the unclipped forecast: misses the morning dip (lowest 9.6 kWh > 3)",
+      plans.compute_low_charge_plan(None, 36, _cc_fc, **_cc_kw)["active"] is False)
+_cc_clip, _ = forecasting.clip_at_capacity(_cc_fc, 18.0, 30.0)
+_cc = plans.compute_low_charge_plan(None, 36, _cc_clip, peak_kwh=max(_cc_fc), **_cc_kw)
+check("charge plan on the clipped forecast: sees it (100 % minus the drain = 7.2 kWh lower)",
+      min(_cc_clip) == 7.2 and min(_cc_fc[:25]) == 9.6)
+_cc_deep = _cc_fc[:6] + [round(32.4 - 1.2 * (h + 1), 2) for h in range(24)] + [12.0] * 5  # a longer night
+_cc_deep_clip, _ = forecasting.clip_at_capacity(_cc_deep, 18.0, 30.0)
+_cc2 = plans.compute_low_charge_plan(None, 36, _cc_deep_clip, peak_kwh=max(_cc_deep), **_cc_kw)
+check("charge plan on the clipped forecast: a dip below the threshold after a full day is planned (unclipped: 3.6 > 3)",
+      plans.compute_low_charge_plan(None, 36, _cc_deep, **_cc_kw)["active"] is False
+      and _cc2["active"] and _cc2["dip_min_kwh"] == 1.2)
+check("charge plan: how much fits is still measured on the unclipped peak (no headroom left at 108 %)",
+      _cc2["target_kwh"] == 1.8)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

@@ -112,6 +112,19 @@ forecast minus usage forecast, cumulatively summed into a projected battery
 level, compensated for the fact that the current hour is only partially
 elapsed (see the code comments in `forecasting.py` for why that matters).
 
+**Two forecasts at the top: clipped and not.** The running sum of solar
+minus usage has no top - on a sunny day it can "fill" the battery to 106%.
+In reality the battery stops at 100% and the rest goes to the grid. So
+(as of 2026.10.1) the charge plan and the cards use the forecast clipped
+at 100% - after a full day the next dip starts from 100%, not 106%, so a
+morning dip isn't underestimated. The sale plan keeps the unclipped one:
+the highest expected level is exactly what it sells off (with a max SOC
+of 110%, the part between 100% and 110% isn't sold and shows as solar
+surplus instead). The solar mode also keeps looking at the unclipped
+forecast, since "fills up" means going over 100%. Status attributes:
+`battery_forecast_adjusted` (clipped) and
+`battery_forecast_adjusted_uncapped`.
+
 **Two minimum SOCs: solar deficit and solar surplus.** The minimum SOC is
 the backup energy you keep for a grid failure. How much you need depends on
 whether the sun or the grid refills the battery, so there are two:
@@ -632,7 +645,9 @@ expected:
 
 - the battery level with the plans in it (`battery_forecast_adjusted`):
   green, red during a sale, blue during a charge, intense red / blue for a
-  spike sale / negative price charge, with a label at each planned moment;
+  spike sale / negative price charge, with a label at each planned moment.
+  It never goes above 100% (as of 2026.10.1): what solar would add on top
+  goes to the grid, so after a full day the line drains from 100%;
 - a thin dotted line: the battery level without any plan
   (`battery_forecast`, solar minus usage only), not cut off at the min /
   max SOC;
@@ -680,6 +695,13 @@ when a transport tariff is set, otherwise it equals the price). Top:
 the price now, the buy price, and the cheapest and most expensive moment
 still to come. Tap (or hover) for the price of a quarter.
 
+**Solar surplus** (yellow column and line, "Solar surplus 14:15"): the
+hours the forecast expects solar to go to the grid, because the battery is
+full (at 100% - with a max SOC above 100% it isn't sold off first) or
+because there's more solar than the battery can charge (above your max
+battery charge speed). Tap it for the reason and roughly how many kWh go
+to the grid. From the Status sensor's `solar_surplus` attribute.
+
 | Option | Default | What it does |
 |---|---|---|
 | `title` | Electricity price | the card's title |
@@ -689,6 +711,7 @@ still to come. Tap (or hover) for the price of a quarter.
 | `legend` | `true` | the legend under the chart |
 | `cheap_color` / `mid_color` / `high_color` / `negative_color` | green / yellow / orange / turquoise | the price level colours |
 | `sell_color` / `buy_color` | red / blue | the colours of a planned sale / charge |
+| `surplus_color` | yellow | the colour of the solar surplus |
 
 Options from before v0.5.1 (`show_<item>`, `legend_<item>`, `labels_<item>`
 and so on) are ignored - they belonged to the apexcharts version.

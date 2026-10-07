@@ -906,10 +906,18 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         # -- low charge / high discharge plans -----------------------------------
+        # The charge plan works with the forecast clipped at 100% (as of
+        # 2026.10.1): energy over the top goes to the grid, so after a day that
+        # fills the battery the next dip starts from 100%, not from the running
+        # sum. How much still fits is measured against the unclipped peak; the
+        # sale plan below keeps the unclipped forecast (its highest point is
+        # what it sells off).
+        forecast_with_spike_clipped, _ = forecasting.clip_at_capacity(forecast_with_spike, battery_now_kwh, upper_limit_kwh)
+        horizon_peak_kwh = max(forecast_with_spike[0 : planning_horizon_hours + 1] or [battery_now_kwh])
         self._low_charge_plan = plans.compute_low_charge_plan(
             self._low_charge_plan,
             current_price_unit,
-            forecast_with_spike,
+            forecast_with_spike_clipped,
             now,
             charge_speed_kw,
             low_threshold_kwh,
@@ -925,6 +933,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             discharge_efficiency=discharge_efficiency,
             replan=replan,
             floor_kwh=deficit_floor_kwh,
+            peak_kwh=horizon_peak_kwh,
         )
         # A full charge relying on a future solar peak (either genuinely
         # scheduled to buy up to it, or silently skipped because that peak
@@ -972,7 +981,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # only what this cycle saw - a change made meanwhile still counts
             self._replan_requested = max(self._replan_requested - replan_seen, 0)
 
-        battery_forecast_adjusted = plans.compose_forecast_adjusted(
+        battery_forecast_adjusted_uncapped = plans.compose_forecast_adjusted(
             forecast_with_spike,
             self._low_charge_plan,
             self._high_discharge_plan,
@@ -981,6 +990,18 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             full=self._full_charge_plan,
             upper_limit_kwh=upper_limit_kwh,
             battery_now_kwh=battery_now_kwh,
+        )
+        # What the battery will really hold (never above 100%) - shown on the
+        # cards - and the solar surplus: hours the battery is full or can't
+        # take all the solar, so it goes to the grid (as of 2026.10.1).
+        battery_forecast_adjusted, spill_full = forecasting.clip_at_capacity(
+            battery_forecast_adjusted_uncapped, battery_now_kwh, upper_limit_kwh
+        )
+        eff = charge_efficiency if charge_efficiency > 0 else 1.0
+        solar_surplus = forecasting.solar_surplus_windows(
+            [v / eff for v in spill_full],
+            forecasting.rate_spill(net_energy, now, max_battery_charge_speed_kw, charge_efficiency),
+            now,
         )
 
         system_status, control_action = plans.compute_system_status_and_action(
@@ -1094,6 +1115,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "battery_forecast_with_negative_price": forecast_with_negative_price,
             "battery_forecast_with_spike": forecast_with_spike,
             "battery_forecast_adjusted": battery_forecast_adjusted,
+            "battery_forecast_adjusted_uncapped": battery_forecast_adjusted_uncapped,
+            "solar_surplus": solar_surplus,
             "negative_price_plan": self._negative_price_plan,
             "spike_plan": self._spike_plan,
             "low_charge_plan": self._low_charge_plan,

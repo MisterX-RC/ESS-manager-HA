@@ -46,6 +46,8 @@ const I18N = {
     price_title: "Electricity price", buy_price: "buy", incl_transport: "incl. transport",
     cheapest: "cheapest", most_expensive: "most expensive", per_kwh: "/kWh",
     legend_level: "price level", legend_sell: "Sell planned", legend_buy: "Buy planned", legend_buy_line: "Buy price",
+    solar_surplus: "Solar surplus", legend_surplus: "Solar surplus", surplus_full: "battery full", surplus_rate: "more than the battery can take",
+    surplus_kwh: (v) => `~${v} kWh to the grid`, ed_surplus_color: "Solar surplus",
     no_prices: "No prices yet",
     msg_not_found: (e) => `ESS Manager: ${e} not found - choose the installation's "Status" sensor.`,
     msg_not_status: (e) => `ESS Manager: ${e} is not an ESS Manager Status sensor - choose the "Status" sensor.`,
@@ -78,6 +80,8 @@ const I18N = {
     price_title: "Stroomprijs", buy_price: "inkoop", incl_transport: "incl. transport",
     cheapest: "goedkoopst", most_expensive: "duurst", per_kwh: "/kWh",
     legend_level: "prijsniveau", legend_sell: "Sell gepland", legend_buy: "Buy gepland", legend_buy_line: "Inkoopprijs",
+    solar_surplus: "Zonoverschot", legend_surplus: "Zonoverschot", surplus_full: "accu vol", surplus_rate: "meer dan de accu kan laden",
+    surplus_kwh: (v) => `~${v} kWh naar het net`, ed_surplus_color: "Zonoverschot",
     no_prices: "Nog geen prijzen",
     msg_not_found: (e) => `ESS Manager: ${e} niet gevonden - kies de "Status"-sensor van de installatie.`,
     msg_not_status: (e) => `ESS Manager: ${e} is geen ESS Manager Status-sensor - kies de "Status"-sensor.`,
@@ -968,8 +972,9 @@ const PRICE_DEFAULTS = {
   negative_color: [77, 208, 225],
   sell_color: [255, 107, 107],
   buy_color: [79, 163, 247],
+  surplus_color: [242, 201, 76],
 };
-const PRICE_COLOR_KEYS = ["cheap_color", "mid_color", "high_color", "negative_color", "sell_color", "buy_color"];
+const PRICE_COLOR_KEYS = ["cheap_color", "mid_color", "high_color", "negative_color", "sell_color", "buy_color", "surplus_color"];
 const PRICE_SCHEMA = (t) => [
   { name: "title", selector: { text: {} } },
   {
@@ -1002,6 +1007,7 @@ class EssManagerPriceCard extends EssChartCard {
         title: "ed_title", height: "ed_height", show_extremes: "ed_show_extremes", show_buy_line: "ed_show_buy_line",
         legend: "ed_legend", cheap_color: "ed_cheap_color", mid_color: "ed_mid_color", high_color: "ed_high_color",
         negative_color: "ed_negative_color", sell_color: "ed_sell_color", buy_color: "ed_buy_color",
+        surplus_color: "ed_surplus_color",
       },
     };
   }
@@ -1079,9 +1085,14 @@ class EssManagerPriceCard extends EssChartCard {
     const ran = pastWindows(this._hist && this._hist.action, now)
       .filter((w) => w.stop > T0 && !upcoming.some((u) => u.side === w.side && u.start < w.stop && w.start < u.stop));
     const windows = ran.concat(upcoming).sort((a, b) => a.start - b.start);
+    // Solar surplus (forecast): hours the battery is full or can't take all
+    // the solar, so the rest goes to the grid.
+    const surplus = (attrs.solar_surplus || [])
+      .map((s) => ({ start: Math.max(Date.parse(s.start), now), stop: Date.parse(s.stop), kwh: num(s.kwh), reason: s.reason, surplus: true }))
+      .filter((s) => s.stop > s.start && s.stop > T0 && s.start < T1);
     const X0 = 34;
     // room above the plot for the plan labels - only when there are plans
-    const top = windows.length ? 18 : 8;
+    const top = windows.length || surplus.length ? 18 : 8;
     const H = Math.max(clamp(Number(opt.height) || 170, 100, 600) - 18, 60);
     const bottom = top + H;
     const valid = prices.filter((v) => v !== null);
@@ -1132,6 +1143,7 @@ class EssManagerPriceCard extends EssChartCard {
     let streaks = "";
     let labels = "";
     let lastRight = -Infinity;
+    const placed = []; // label spans [left, right], so the surplus labels can avoid them
     for (const w of windows) {
       const x0 = x(Math.max(w.start, T0));
       const x1 = x(Math.min(w.stop, T1));
@@ -1142,8 +1154,29 @@ class EssManagerPriceCard extends EssChartCard {
       const cx = (x0 + x1) / 2;
       const half = text.length * 3;
       if (cx - half > lastRight + 4) {
-        labels += `<span class="plabel" style="left:${r1(clamp(cx, X0 + half, W - half))}px;top:0;color:${w.past ? "var(--secondary-text-color, #a0a0a0)" : tint(c, 1)}">${esc(text)}</span>`;
+        const lx = clamp(cx, X0 + half, W - half);
+        labels += `<span class="plabel" style="left:${r1(lx)}px;top:0;color:${w.past ? "var(--secondary-text-color, #a0a0a0)" : tint(c, 1)}">${esc(text)}</span>`;
+        placed.push([lx - half, lx + half]);
         lastRight = cx + half;
+      }
+    }
+    // solar surplus blocks, below the plans in the label order
+    let sunUnder = "";
+    let sunStreaks = "";
+    const sc = opt.surplus_color;
+    for (const sp of surplus) {
+      const x0 = x(sp.start);
+      const x1 = x(Math.min(sp.stop, T1));
+      const wd = Math.max(x1 - x0, 2);
+      sunUnder += `<rect x="${r1(x0)}" y="${top - 4}" width="${r1(wd)}" height="${r1(H + 4)}" rx="3" fill="${sc}" fill-opacity="0.09"/>`;
+      sunStreaks += `<rect x="${r1(x0)}" y="${r1(bottom + 3)}" width="${r1(wd)}" height="3" rx="1.5" fill="${sc}" fill-opacity="0.8"/>`;
+      // a label only where it doesn't overlap a plan's
+      const text = `${this._t("solar_surplus")} ${f.time(sp.start)}`;
+      const half = text.length * 3 + 7;
+      const lx = clamp((x0 + x1) / 2, X0 + half, W - half);
+      if (!placed.some(([a, b]) => lx - half < b + 6 && lx + half > a - 6)) {
+        labels += `<span class="plabel" style="left:${r1(lx)}px;top:0;color:${tint(sc, 1)}">${icon("sun", sc, 11, 2.2)} ${esc(text)}</span>`;
+        placed.push([lx - half, lx + half]);
       }
     }
     // y axis
@@ -1160,10 +1193,10 @@ class EssManagerPriceCard extends EssChartCard {
       buyLine = `<path d="${d}" fill="none" style="stroke:var(--primary-text-color, #e8e8e8)" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="2 2"/>`;
     }
     const dayLine = nextMidnight(this._hass, T0);
-    const svg = `<defs>${grad}</defs>${axis}${under}
+    const svg = `<defs>${grad}</defs>${axis}${sunUnder}${under}
       <path d="${bars(all)}" fill="url(#lvl)" fill-opacity="0.75"/>
       <path d="${bars(all.filter(inWindow))}" fill="url(#lvl)"/>
-      ${streaks}${buyLine}
+      ${sunStreaks}${streaks}${buyLine}
       <rect x="${X0}" y="0" width="${r1(clamp(xNow - X0, 0, W - X0))}" height="${r1(bottom + 8)}" style="fill:${bg}" fill-opacity="0.6"/>
       ${dayLine ? `<line x1="${r1(x(dayLine))}" y1="${top - 4}" x2="${r1(x(dayLine))}" y2="${r1(bottom + 8)}" stroke="rgba(127,127,127,.45)"/>` : ""}
       ${n < slots ? `<text x="${r1((xi(n) + W) / 2)}" y="${r1(top + H / 2)}" text-anchor="middle" style="font-size:11px">${esc(this._t("no_prices"))}</text>` : ""}
@@ -1210,6 +1243,7 @@ class EssManagerPriceCard extends EssChartCard {
       <span><i style="width:36px;background:linear-gradient(90deg, ${opt.negative_color}, ${opt.cheap_color}, ${opt.mid_color}, ${opt.high_color})"></i>${esc(this._t("legend_level"))}</span>
       <span><i style="background:${tint(opt.sell_color, 0.6)}"></i>${esc(this._t("legend_sell"))}</span>
       <span><i style="background:${tint(opt.buy_color, 0.6)}"></i>${esc(this._t("legend_buy"))}</span>
+      ${surplus.length ? `<span><i style="background:${tint(sc, 0.6)}"></i>${esc(this._t("legend_surplus"))}</span>` : ""}
       ${showBuyLine ? `<span><i style="width:12px;height:0;border-top:1px dashed var(--primary-text-color, #e8e8e8);border-radius:0"></i>${esc(this._t("legend_buy_line"))}</span>` : ""}
     </div>`;
 
@@ -1243,6 +1277,7 @@ class EssManagerPriceCard extends EssChartCard {
       ${legend}
     `);
     this._windows = windows;
+    this._surplus = surplus;
     if (changed) this._wireTooltip((px) => this._showTip(px));
   }
 
@@ -1277,6 +1312,12 @@ class EssManagerPriceCard extends EssChartCard {
     if (p !== null) html += `<div class="row"><span class="k">${esc(this._t("price"))}</span><b>${esc(f.money(p))}</b></div>`;
     if (b !== null && b !== p) html += `<div class="row"><span class="k">${esc(this._t("buy_price"))}</span><b>${esc(f.money(b))}</b></div>`;
     if (w) html += `<div class="row sep"><span class="k">${esc(planLabel(this._hass, w))}</span><b>${esc(f.time(w.start))}–${esc(f.time(w.stop))}</b></div>`;
+    const sp = (this._surplus || []).find((s) => t + g.unitMs > s.start && t < s.stop);
+    if (sp) {
+      const why = sp.reason === "rate" ? this._t("surplus_rate") : this._t("surplus_full");
+      html += `<div class="row sep"><span class="k">${esc(this._t("solar_surplus"))}</span><b>${esc(f.time(sp.start))}–${esc(f.time(sp.stop))}</b></div>`;
+      html += `<div class="row"><span class="k">${esc(why)}</span>${sp.kwh ? `<b>${esc(this._t("surplus_kwh")(f.num(sp.kwh, 1)))}</b>` : ""}</div>`;
+    }
     tip.innerHTML = html;
     tip.style.display = "flex";
     const tipW = tip.offsetWidth || 150;

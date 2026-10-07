@@ -48,6 +48,8 @@ STATUS_ATTRIBUTES = [
     "battery_forecast_with_negative_price",
     "battery_forecast_with_spike",
     "battery_forecast_adjusted",
+    "battery_forecast_adjusted_uncapped",
+    "solar_surplus",
     "negative_price_plan",
     "spike_plan",
     "low_charge_plan",
