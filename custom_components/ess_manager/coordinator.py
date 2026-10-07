@@ -852,6 +852,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._full_charge_plan.get("balance_confirmed"):
             self._last_full_reached = now
 
+        # The negative price and spike plans size their charges and sales on
+        # the level the battery will really be at, so they get the forecast
+        # clipped at 100% too (as of 2026.10.1): after a day that fills it,
+        # the energy over the top is gone. The chain of composed forecasts
+        # below (for the sale plan) stays unclipped.
+        battery_forecast_clipped, _ = forecasting.clip_at_capacity(battery_forecast, battery_now_kwh, upper_limit_kwh)
+
         # -- negative price plan -------------------------------------------------
         if conf.get(CONF_ENABLE_NEGATIVE_PRICE_PLAN, True):
             self._negative_price_plan = plans.compute_negative_price_plan(
@@ -860,11 +867,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 now,
                 all_price,
                 negative_price_threshold,
-                battery_forecast,
+                battery_forecast_clipped,
                 discharge_speed_kw,
                 negative_price_charge_speed_kw,
                 low_threshold_kwh,
-                high_threshold_kwh,
+                # the most it can charge to: max SOC, but never above 100% -
+                # the battery can't hold more (as of 2026.10.1; up to then a
+                # max SOC of 110% let it plan 10% that can't go in)
+                min(high_threshold_kwh, upper_limit_kwh),
                 buy_price=buy_price,
                 charge_efficiency=charge_efficiency,
                 discharge_efficiency=discharge_efficiency,
@@ -883,7 +893,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._spike_plan,
                 current_price_unit,
                 all_price,
-                battery_forecast,
+                battery_forecast_clipped,
                 usage_forecast,
                 low_threshold_kwh,
                 upper_limit_kwh,

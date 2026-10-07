@@ -115,9 +115,11 @@ elapsed (see the code comments in `forecasting.py` for why that matters).
 **Two forecasts at the top: clipped and not.** The running sum of solar
 minus usage has no top - on a sunny day it can "fill" the battery to 106%.
 In reality the battery stops at 100% and the rest goes to the grid. So
-(as of 2026.10.1) the charge plan and the cards use the forecast clipped
-at 100% - after a full day the next dip starts from 100%, not 106%, so a
-morning dip isn't underestimated. The sale plan keeps the unclipped one:
+(as of 2026.10.1) the charge plan, the negative price and spike plans and
+the cards use the forecast clipped at 100% - after a full day the next dip
+starts from 100%, not 106%, so a morning dip isn't underestimated (and the
+negative price plan never plans to charge above 100%, whatever the max
+SOC). The sale plan keeps the unclipped one:
 the highest expected level is exactly what it sells off (with a max SOC
 of 110%, the part between 100% and 110% isn't sold and shows as solar
 surplus instead). The solar mode also keeps looking at the unclipped

@@ -2918,6 +2918,21 @@ check("charge plan on the clipped forecast: a dip below the threshold after a fu
 check("charge plan: how much fits is still measured on the unclipped peak (no headroom left at 108 %)",
       _cc2["target_kwh"] == 1.8)
 
+# 2026.10.1: the negative price plan on the clipped forecast, never planning above 100 %
+_np_now = datetime(2026, 10, 7, 9, 0)
+_np_fc = [21.0, 24.0, 27.0, 30.0, 32.4, 32.4] + [round(32.4 - 0.5 * (h + 1), 2) for h in range(30)]  # 108 % peak
+_np_price = [0.10] * (9 * 4 + 20 * 4) + [-0.30] * 8 + [0.10] * 80  # tomorrow 05:00-07:00 negative
+_np_kw = dict(now=_np_now, all_price=_np_price, threshold=-0.20, discharge_speed_kw=10.0,
+              negative_price_charge_speed_kw=15.0, low_threshold_kwh=3.0)
+_np_old = plans.compute_negative_price_plan(None, 36, battery_forecast=_np_fc, high_threshold_kwh=33.0, **_np_kw)
+_np_clip, _ = forecasting.clip_at_capacity(_np_fc, 18.0, 30.0)
+_np_new = plans.compute_negative_price_plan(None, 36, battery_forecast=_np_clip, high_threshold_kwh=min(33.0, 30.0), **_np_kw)
+check("negative plan: level at the window start from the clipped forecast (100 % minus the drain, not 108 % minus it)",
+      _np_new["level_at_start_kwh"] == round(_np_old["level_at_start_kwh"] - 2.4, 2))
+check("negative plan: the room it makes is measured up to 100 %, not up to a 110 % max SOC",
+      _np_new["target_after_discharge_kwh"] + _np_new["achievable_charge_kwh"] <= 30.0
+      and _np_old["target_after_discharge_kwh"] + _np_old["achievable_charge_kwh"] > 30.0)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

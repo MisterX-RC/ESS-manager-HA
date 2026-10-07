@@ -34,6 +34,11 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   10%: that part isn't sold, and it isn't in the battery either). How much
   still fits under 100% / max SOC is still measured on the unclipped peak.
   The sale plan and the solar mode keep the unclipped forecast.
+- **The negative price and spike plans use the clipped forecast too**: the
+  level at the start of the negative price window, and at the spike's peak,
+  is what the battery will really hold. The negative price plan also no
+  longer plans to charge above 100%: with a max SOC of 110% it used to make
+  room for (and count on) 10% the battery can't take.
 
 ## [2026.10.0] - 2026-10-06
 
