@@ -697,7 +697,8 @@ when a transport tariff is set, otherwise it equals the price). Top:
 the price now, the buy price, and the cheapest and most expensive moment
 still to come. Tap (or hover) for the price of a quarter.
 
-**Solar surplus** (yellow column and line, "Solar surplus 14:15"): the
+**Solar surplus** (yellow column and line, "Solar surplus 14:15" - or
+just a sun at the top where the label doesn't fit next to another one): the
 hours the forecast expects solar to go to the grid, because the battery is
 full (at 100% - with a max SOC above 100% it isn't sold off first) or
 because there's more solar than the battery can charge (above your max

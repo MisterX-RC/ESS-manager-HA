@@ -18,6 +18,11 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 - Price card: the sun icon of the "Solar surplus" label sat on top of the
   text instead of in front of it.
 
+### Changed
+- Price card: where the "Solar surplus" label doesn't fit next to another
+  label, the column still gets just the sun at the top (hover it for the
+  label text).
+
 ## [2026.10.1] - 2026-10-07
 
 ### Added

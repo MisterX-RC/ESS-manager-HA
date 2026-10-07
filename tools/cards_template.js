@@ -1171,13 +1171,19 @@ class EssManagerPriceCard extends EssChartCard {
       const wd = Math.max(x1 - x0, 2);
       sunUnder += `<rect x="${r1(x0)}" y="${top - 4}" width="${r1(wd)}" height="${r1(H + 4)}" rx="3" fill="${sc}" fill-opacity="0.09"/>`;
       sunStreaks += `<rect x="${r1(x0)}" y="${r1(bottom + 3)}" width="${r1(wd)}" height="3" rx="1.5" fill="${sc}" fill-opacity="0.8"/>`;
-      // a label only where it doesn't overlap a plan's
+      // a label where it doesn't overlap another one; otherwise just the
+      // sun at the top of the column (if even that fits)
       const text = `${this._t("solar_surplus")} ${f.time(sp.start)}`;
+      const free = (cx, half) => !placed.some(([a, b]) => cx - half < b + 6 && cx + half > a - 6);
       const half = text.length * 3 + 7;
       const lx = clamp((x0 + x1) / 2, X0 + half, W - half);
-      if (!placed.some(([a, b]) => lx - half < b + 6 && lx + half > a - 6)) {
+      const sx = clamp((x0 + x1) / 2, X0 + 6, W - 6);
+      if (free(lx, half)) {
         labels += `<span class="plabel" style="left:${r1(lx)}px;top:0;color:${tint(sc, 1)}">${icon("sun", sc, 11, 2.2)}<span>${esc(text)}</span></span>`;
         placed.push([lx - half, lx + half]);
+      } else if (free(sx, 6)) {
+        labels += `<span class="plabel" style="left:${r1(sx)}px;top:0" title="${esc(text)}">${icon("sun", sc, 11, 2.2)}</span>`;
+        placed.push([sx - 6, sx + 6]);
       }
     }
     // y axis
