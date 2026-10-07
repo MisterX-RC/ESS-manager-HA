@@ -1585,6 +1585,8 @@ def compute_system_status_and_action(
     charge_speed_kw: float,
     discharge_speed_kw: float,
     all_price: list[float],
+    full_unit: Optional[int] = None,
+    solar_surplus_now: bool = False,
 ) -> tuple[str, str]:
     """The Status (what the dashboard and an external automation see) plus
     the control action behind it (control.ACTION_*), which direct control
@@ -1592,6 +1594,10 @@ def compute_system_status_and_action(
     Status, but never depends on the setpoint readback: "Actief" means
     "keep charging" in a charge window and "keep discharging" in a discharge
     window, which a Status string alone can't tell apart.
+
+    `full_unit` / `solar_surplus_now` (as of 2026.10.3): the quarter the
+    forecast reaches 100% (None if it doesn't) and whether solar exceeds
+    usage right now - for "Solar export", see below.
     """
     status, action = _compute_system_status_raw(
         setpoint_w,
@@ -1619,6 +1625,24 @@ def compute_system_status_and_action(
     # in-progress action from another plan.
     if status == "Standby" and not full.get("active") and full.get("relying_on_peak_unit") is not None:
         return "Awaiting solar (full charge)", ACTION_IDLE
+    # "Solar export" (as of 2026.10.3): with nothing else going on, solar
+    # left over right now, and the battery forecast to reach 100% later
+    # today anyway, sending it to the grid now pays more than storing it
+    # when the price now is higher than every price from now until that
+    # moment. A label only - the action stays idle. (Up to 2026.10.2 it also
+    # needed a planned sale at high SOC today, the battery within 1 kWh of
+    # the low threshold, and compared with the price at the max SOC crossing
+    # only.)
+    if (
+        status == "Standby"
+        and solar_surplus_now
+        and full_unit is not None
+        and cur_unit < full_unit < 96
+    ):
+        ahead = all_price[cur_unit + 1 : full_unit + 1]
+        price_now = all_price[cur_unit] if cur_unit < len(all_price) else None
+        if ahead and price_now is not None and price_now > max(ahead):
+            return "Solar export", ACTION_IDLE
     return status, action
 
 
@@ -1641,15 +1665,6 @@ def _compute_system_status_raw(
     near_low_limit = (battery_now_kwh - low_threshold_kwh) <= 1
     charge_engaged_at = charge_speed_kw * 1000 * 0.5
     discharge_engaged_at = discharge_speed_kw * 1000 * 0.5
-
-    price_now = all_price[cur_unit] if cur_unit < len(all_price) else 0
-    high_breach_unit = high.get("breach_unit", 999999)
-    same_day_breach = high.get("active") and high_breach_unit < 96
-    # Exporting now beats storing: the price now is higher than every price
-    # from now until the forecast crosses the max SOC (as of 2026.10.3; up to
-    # 2026.10.2 only the price of that one quarter was compared).
-    ahead = all_price[cur_unit + 1 : high_breach_unit + 1] if high.get("active") else []
-    export_favorable = bool(high.get("active") and ahead and price_now > max(ahead))
 
     if full.get("active") and full.get("phase") in ("charging", "holding"):
         # Charging and holding (the balancing wait at 100%) report the same
@@ -1724,8 +1739,6 @@ def _compute_system_status_raw(
             return ("Actief" if setpoint_w <= -discharge_engaged_at else "Start discharge"), ACTION_DISCHARGE
         if cur_unit >= high["end_unit"] and not is_idle:
             return "Stop", ACTION_IDLE
-        if cur_unit < high["start_unit"] and near_low_limit and same_day_breach and export_favorable:
-            return "Solar export", ACTION_IDLE
         return "Standby", ACTION_IDLE
 
     return ("Stop" if not is_idle else "Standby"), ACTION_IDLE

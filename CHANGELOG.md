@@ -15,10 +15,15 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ## [2026.10.3] - 2026-10-07
 
 ### Changed
-- Status `Solar export` (before a planned sale at high SOC): the price now
-  has to be higher than **every** price from now until the forecast crosses
-  the max SOC, not just higher than the price of that one quarter. It's
-  still a label only - the setpoint stays at your idle value.
+- Status `Solar export` reworked. It now shows when nothing else is going
+  on, there's solar left over right now, the battery is forecast to reach
+  100% later **today**, and the price now is higher than **every** price
+  from now until that moment - so sending the solar to the grid now pays
+  more than storing it. Before, it needed a planned sale at high SOC today
+  and the battery within 1 kWh of the low threshold, and only compared with
+  the price of the one quarter the forecast crossed the max SOC - so it
+  hardly ever showed. Still a label only: the setpoint stays at your idle
+  value. (The negative price plan's `Solar export` is unchanged.)
 
 ## [2026.10.2] - 2026-10-07
 

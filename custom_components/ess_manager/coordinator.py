@@ -1014,6 +1014,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             now,
         )
 
+        # For "Solar export" (as of 2026.10.3): the last quarter of the hour
+        # the forecast (with the plans) reaches 100%, and whether there's
+        # solar left over right now.
+        hour0_unit = current_price_unit - (now.minute // 15)
+        full_hour = next(
+            (h for h, v in enumerate(battery_forecast_adjusted) if v >= upper_limit_kwh - 0.01), None
+        )
+        full_unit = hour0_unit + full_hour * 4 + 3 if full_hour is not None else None
         system_status, control_action = plans.compute_system_status_and_action(
             setpoint_w,
             idle_setpoint_w,
@@ -1028,6 +1036,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             charge_speed_kw,
             discharge_speed_kw,
             all_price,
+            full_unit=full_unit,
+            solar_surplus_now=bool(net_energy) and net_energy[0] > 0,
         )
 
         charge_kwh, charge_start_text, charge_stop_text = display.charge_display(

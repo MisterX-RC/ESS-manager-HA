@@ -2933,17 +2933,27 @@ check("negative plan: the room it makes is measured up to 100 %, not up to a 110
       _np_new["target_after_discharge_kwh"] + _np_new["achievable_charge_kwh"] <= 30.0
       and _np_old["target_after_discharge_kwh"] + _np_old["achievable_charge_kwh"] > 30.0)
 
-# 2026.10.3: Solar export compares the price now with EVERY price until the max SOC is crossed
-_se_high = {"active": True, "start_unit": 60, "end_unit": 62, "breach_unit": 56}
+# 2026.10.3: Solar export - solar left over now, the battery full later today, and the price now higher
+# than every price until then (no planned sale or nearly empty battery needed any more)
 _se_kw = dict(setpoint_w=0.0, idle_setpoint_w=0.0, cur_unit=40, full={"active": False}, neg={"active": False},
-              spike={"active": False}, low={"active": False, "breach_unit": 999999}, high=_se_high,
-              battery_now_kwh=3.5, low_threshold_kwh=3.0, charge_speed_kw=7.0, discharge_speed_kw=10.0)
-_se_lower = [0.20] * 40 + [0.30] + [0.25] * 15 + [0.10] * 40  # now 0.30, everything until the breach lower
+              spike={"active": False}, low={"active": False, "breach_unit": 999999}, high={"active": False},
+              battery_now_kwh=20.0, low_threshold_kwh=3.0, charge_speed_kw=7.0, discharge_speed_kw=10.0)
+_se_lower = [0.20] * 40 + [0.30] + [0.25] * 15 + [0.10] * 40  # now 0.30, everything until 14:00 lower
 _se_dip_up = [0.20] * 40 + [0.30] + [0.25] * 7 + [0.35] + [0.25] * 7 + [0.10] * 40  # a higher price in between
-check("Solar export: the price now is higher than every price until the max SOC is crossed",
-      plans.compute_system_status(all_price=_se_lower, **_se_kw) == "Solar export")
-check("Solar export: not when a later price before that moment is higher (only the breach quarter is lower)",
-      plans.compute_system_status(all_price=_se_dip_up, **_se_kw) == "Standby")
+check("Solar export: price now higher than every price until the battery is full (14:00 today)",
+      plans.compute_system_status(all_price=_se_lower, full_unit=56, solar_surplus_now=True, **_se_kw) == "Solar export")
+check("Solar export: not when a price before that moment is higher",
+      plans.compute_system_status(all_price=_se_dip_up, full_unit=56, solar_surplus_now=True, **_se_kw) == "Standby")
+check("Solar export: not when the battery only gets full tomorrow",
+      plans.compute_system_status(all_price=_se_lower + [0.1] * 96, full_unit=100, solar_surplus_now=True, **_se_kw) == "Standby")
+check("Solar export: not without solar left over right now",
+      plans.compute_system_status(all_price=_se_lower, full_unit=56, solar_surplus_now=False, **_se_kw) == "Standby")
+check("Solar export: never replaces a running action",
+      plans.compute_system_status(all_price=_se_lower, full_unit=56, solar_surplus_now=True,
+                                  **{**_se_kw, "low": {"active": True, "start_unit": 39, "end_unit": 42, "breach_unit": 50}})
+      == "Start charge")
+check("Solar export: is a label only (idle)",
+      plans.compute_system_status_and_action(all_price=_se_lower, full_unit=56, solar_surplus_now=True, **_se_kw)[1] == "idle")
 
 print()
 if FAILURES:
