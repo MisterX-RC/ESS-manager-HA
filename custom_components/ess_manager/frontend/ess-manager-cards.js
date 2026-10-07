@@ -362,7 +362,8 @@ const BASE_CSS = `
   .chart svg { display: block; position: absolute; left: 0; top: 0; overflow: visible; }
   .chart text { fill: var(--secondary-text-color, #a0a0a0); font-size: 10px; font-family: inherit; }
   .pill { position: absolute; display: flex; align-items: center; gap: 4px; font-size: 11px; line-height: 16px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; pointer-events: none; }
-  .plabel { position: absolute; font-size: 10px; white-space: nowrap; pointer-events: none; transform: translateX(-50%); }
+  .plabel { position: absolute; display: flex; align-items: center; gap: 3px; font-size: 10px; line-height: 12px; white-space: nowrap; pointer-events: none; transform: translateX(-50%); }
+  .chart .plabel svg { position: static; display: block; }
   .tip { position: absolute; display: none; flex-direction: column; gap: 4px; font-size: 12px; min-width: 132px; padding: 8px 10px; border-radius: 8px;
          background: var(--ha-card-background, var(--card-background-color, #2c2c2c)); border: 1px solid rgba(127,127,127,.35); box-shadow: 0 4px 14px rgba(0,0,0,.35); pointer-events: none; z-index: 2; }
   .tip .row { display: flex; align-items: center; gap: 6px; }
@@ -1175,7 +1176,7 @@ class EssManagerPriceCard extends EssChartCard {
       const half = text.length * 3 + 7;
       const lx = clamp((x0 + x1) / 2, X0 + half, W - half);
       if (!placed.some(([a, b]) => lx - half < b + 6 && lx + half > a - 6)) {
-        labels += `<span class="plabel" style="left:${r1(lx)}px;top:0;color:${tint(sc, 1)}">${icon("sun", sc, 11, 2.2)} ${esc(text)}</span>`;
+        labels += `<span class="plabel" style="left:${r1(lx)}px;top:0;color:${tint(sc, 1)}">${icon("sun", sc, 11, 2.2)}<span>${esc(text)}</span></span>`;
         placed.push([lx - half, lx + half]);
       }
     }

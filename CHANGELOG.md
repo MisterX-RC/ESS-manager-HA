@@ -12,6 +12,12 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.2] - 2026-10-07
+
+### Fixed
+- Price card: the sun icon of the "Solar surplus" label sat on top of the
+  text instead of in front of it.
+
 ## [2026.10.1] - 2026-10-07
 
 ### Added
