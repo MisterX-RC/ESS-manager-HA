@@ -3053,6 +3053,19 @@ _lr_small = plans.compute_low_charge_plan(None, 38, [round(v + 2.73, 2) for v in
 check("deficit band: a small deficit (0.5 kWh) is rounded up to the minimum charge target (1.0), still not filled up",
       _lr_small["target_kwh"] == 1.0 and _lr_small["rounded_up_to_minimum"] and _lr_small["soft_deficit_kwh"] == 0.5)
 
+# 2026.10.4: a charge lifts the dip to the low threshold plus the Safety buffer
+_cb = plans.compute_low_charge_plan(None, 38, _lr_fc, _lr_now, 1.7, 4.5, 1.0, 15.0, [0.15] * 121, _lr_price, 72, 3.9,
+                                    high_threshold_kwh=16.5, charge_efficiency=0.9, discharge_efficiency=0.9,
+                                    floor_kwh=0.75, peak_kwh=max(_lr_fc), charge_buffer_kwh=0.75)
+check("charge buffer: the deficit band charges up to the deficit minimum + the Safety buffer (4.5 + 0.75 - 1.27)",
+      _cb["target_kwh"] == 3.98)
+_cb_low = plans.compute_low_charge_plan(None, 0, synthetic_forecast, now_top_of_hour, 7.0, 3.0, 0.0, 30.0, usage_flat,
+                                        all_price, 72, 10.0, charge_buffer_kwh=1.5)
+check("charge buffer: a normal low charge too (3.0 + 1.5 - 2.0 = 2.5)", _cb_low["deficit_kwh"] == 2.5)
+check("charge buffer: when to charge still follows the threshold itself (a dip to 3.5 with a 3.0 threshold: nothing)",
+      plans.compute_low_charge_plan(None, 0, [10.0] * 5 + [3.5] * 20, now_top_of_hour, 7.0, 3.0, 0.0, 30.0, usage_flat,
+                                    all_price, 72, 10.0, charge_buffer_kwh=1.5)["active"] is False)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

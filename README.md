@@ -66,7 +66,8 @@ Five planning engines, all documented in detail in the code
    overshoot your maximum SOC, during the priciest available price window,
    selling the forecast peak back down to 100% (so with a max SOC of 110%
    a sale is always at least 10% of the battery),
-   never selling below your minimum SOC plus the **Safety buffer**.
+   never selling below your minimum SOC plus the **Safety buffer**. A
+   low charge lifts the dip to that same minimum + buffer.
 3. **Full charge plan** *(optional)* - periodically charges all the way to
    100% and holds there briefly to let the BMS balance cells, on a
    configurable interval.
@@ -447,7 +448,7 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Negative price threshold | Price (EUR/kWh) below which charging is considered "getting paid" |
 | Spike margin | Minimum day price spread (EUR/kWh) to treat a day as spike-worthy |
 | Minimum charge target | The smallest amount (kWh) any charge buys. Low charge plan: the dip is lifted back to the low threshold; if that needs less than this, the charge is rounded up to it (but never so far that a later peak would cross your max SOC and just be sold again). Spike plan: a pre-peak top-up smaller than this is skipped. Full-charge balancing and the negative price plan are not affected |
-| Safety buffer | % of battery capacity kept on top of your min SOC when selling (default 5%): a sale never brings the forecast below min SOC + buffer - e.g. min SOC 10% + buffer 5% = sales stop at 15%. Room for usage or solar to differ from the forecast, so a sale doesn't end in buying energy back. 0 sells right down to min SOC |
+| Safety buffer | % of battery capacity kept on top of your min SOC (default 5%), both ways. Selling: a sale never brings the forecast below min SOC + buffer - e.g. min SOC 10% + buffer 5% = sales stop at 15%, so a sale doesn't end in buying energy back. Charging (as of 2026.10.4): a charge lifts the dip to min SOC + buffer, not just to min SOC, so a bit more usage or less sun than forecast doesn't take the battery just under it (when to charge still follows min SOC itself). 0 = right down to / up to min SOC |
 | Transport tariff | Base grid transport tariff (EUR/kWh, default 0): buying costs price + (tariff x factor for that hour), selling doesn't - see "Grid transport tariff" above. 0 = no transport |
 | Planning horizon | How many hours ahead the low/high plans are allowed to react to (price data usually doesn't exist much beyond ~48h anyway) |
 | Full charge interval | Days between full-charge/balance cycles |

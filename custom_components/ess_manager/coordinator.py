@@ -962,6 +962,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             floor_kwh=deficit_floor_kwh,
             peak_kwh=horizon_peak_kwh,
             charge_rates=charge_rates,
+            # charge up to the low threshold plus the same Safety buffer a
+            # sale keeps (as of 2026.10.4)
+            charge_buffer_kwh=safety_buffer_kwh,
         )
         # A full charge relying on a future solar peak (either genuinely
         # scheduled to buy up to it, or silently skipped because that peak

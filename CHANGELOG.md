@@ -31,6 +31,11 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   target), no longer filled up to 100% at the peak. Live report: 0.55 kWh
   missing became a 6.67 kWh charge. A dip below the surplus minimum still
   fills up, like any other charge.
+- **The Safety buffer now works for charging too.** A low charge (and a
+  deficit band charge) lifts the dip to the minimum SOC plus the Safety
+  buffer instead of exactly to the minimum, so a bit more usage or less
+  sun than forecast doesn't take the battery just under it. When to charge
+  still follows the minimum SOC itself.
 - Low charge: it stops at the forecast level at the end of its window plus
   its amount (at most 100%) - the sun during the window no longer counts
   toward the amount (it was in the forecast already) - and it's placed

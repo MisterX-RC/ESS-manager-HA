@@ -726,6 +726,7 @@ def compute_low_charge_plan(
     floor_kwh: Optional[float] = None,
     peak_kwh: Optional[float] = None,
     charge_rates: Optional[list[float]] = None,
+    charge_buffer_kwh: float = 0.0,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price).
@@ -771,6 +772,11 @@ def compute_low_charge_plan(
     to really deliver the amount and avoids quarters the sun already fills,
     and it stops on the forecast level at its end plus the amount; without
     it, the configured charge speed is assumed for every quarter.
+
+    `charge_buffer_kwh` (as of 2026.10.4, the Safety buffer): a charge lifts
+    the dip to the low threshold PLUS this, so a bit more usage or less sun
+    than forecast doesn't take the battery just under it. When to charge
+    still follows the threshold itself.
     """
     prev = prev or {"active": False}
     if not replan and prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
@@ -803,7 +809,7 @@ def compute_low_charge_plan(
         soft = _soft_low_charge(
             forecast, cur_unit, now, charge_speed_kw, low_threshold_kwh, floor_kwh, minimum_charge_target_kwh,
             upper_limit_kwh, usage, all_price, battery_now_kwh, high_threshold_kwh, buy_price, charge_efficiency,
-            discharge_efficiency, peak_kwh, charge_rates,
+            discharge_efficiency, peak_kwh, charge_rates, charge_buffer_kwh,
         )
         if soft is not None:
             return soft
@@ -840,7 +846,7 @@ def compute_low_charge_plan(
     units_to_next_hour = 4 - (now.minute // 15)
     breach_offset_units = units_to_next_hour + (hour_index * 4)
     breach_unit = cur_unit + breach_offset_units
-    deficit = round(low_threshold_kwh - value, 3)
+    deficit = round(low_threshold_kwh + max(charge_buffer_kwh, 0.0) - value, 3)
     future_peak = peak_kwh if peak_kwh is not None else (max(forecast) if forecast else upper_limit_kwh)
     headroom = upper_limit_kwh - future_peak
     target_kwh = max(deficit, headroom)
@@ -919,6 +925,7 @@ def _soft_low_charge(
     discharge_efficiency: float,
     peak_kwh: Optional[float] = None,
     charge_rates: Optional[list[float]] = None,
+    charge_buffer_kwh: float = 0.0,
 ) -> Optional[dict]:
     """compute_low_charge_plan in solar deficit mode (as of v0.5.13), with
     the surplus minimum as the hard floor below the deficit minimum - see
@@ -965,7 +972,7 @@ def _soft_low_charge(
             # rule): nothing a charge could still improve - and no reason to
             # buy right away at whatever the price is now (as of 2026.10.3).
             continue
-        need_soft = low_threshold_kwh - max(dip_min, floor_kwh)
+        need_soft = low_threshold_kwh + max(charge_buffer_kwh, 0.0) - max(dip_min, floor_kwh)
         soft_capped = min(need_soft, max(headroom - need_hard, 0.0))
         rounded_up_to_minimum = False
         if need_hard > 0:
