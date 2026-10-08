@@ -12,6 +12,19 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.5] - 2026-10-08
+
+### Fixed
+- **Deficit mode planned nothing because of a peak that was already
+  behind it.** Live dump: the battery at 82% this afternoon (peak 28.4 of
+  30 kWh), a dip to 5.6 kWh tomorrow night under the 9 kWh deficit minimum
+  - and "only 1.56 kWh fits", measured on this afternoon's peak. A charge
+  tomorrow can't push this afternoon over 100%. What fits is now measured
+  on the highest level from the latest moment the charge could still go in,
+  and the window is placed where it really fits (a charge lifts every hour
+  after it, so any later peak counts). Here: 6.42 kWh tomorrow 13:45-16:15
+  at ~€0.05.
+
 ## [2026.10.4] - 2026-10-08
 
 ### Changed

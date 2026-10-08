@@ -176,7 +176,9 @@ switches. The charge plan therefore treats the two differently:
   charged in the cheapest window before the dip is over (the forecast is
   back above the deficit minimum, or the end of the planning horizon) -
   just what's missing (rounded up to the **Minimum charge target**), and
-  never more than still fits under 100% at the forecast peak, so nothing
+  never more than still fits under 100% at the forecast peaks after the
+  charge (a peak before it, like this afternoon's for a charge tomorrow,
+  doesn't count - the window goes after it), so nothing
   bought now is lost again on a later solar day that fills the battery. If
   less than the Minimum charge target fits, it isn't charged now; the
   deficit minimum is picked up again once that peak is behind it. A dip in

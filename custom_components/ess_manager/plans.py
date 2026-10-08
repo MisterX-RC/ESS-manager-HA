@@ -73,9 +73,9 @@ def _rate_window(
     Cost: the grid energy bought at the buy price, minus what's sent straight
     back (bought while the battery couldn't take it) at the sell price. Ties
     go to the shorter, then the earlier window. `allowed(unit)` can rule out
-    quarters (a window can't run through one); `fits(end)` windows (e.g. the
-    battery would already be full by then, so the amount can't go in). None
-    if nothing fits."""
+    quarters (a window can't run through one); `fits(start, end)` windows
+    (e.g. the battery would already be full by then, or reach 100% later, so
+    the amount can't go in). None if nothing fits."""
     ce = charge_efficiency if charge_efficiency > 0 else 1.0
     n = min(search_end, len(buy), len(rates))
     best = None
@@ -90,7 +90,7 @@ def _rate_window(
             waste = max(import_per_unit - rate / ce, 0.0)
             cost += buy[end] * import_per_unit - (sell[end] if end < len(sell) else buy[end]) * waste
             end += 1
-        if end > start and total >= target_kwh - 1e-9 and (fits is None or fits(end)):
+        if end > start and total >= target_kwh - 1e-9 and (fits is None or fits(start, end)):
             key = (round(cost, 6), end - start, start)
             if best is None or key < best[0]:
                 best = (key, start, end)
@@ -129,9 +129,14 @@ def _place_rate_charge(
     counts toward the amount bought - it was in the forecast already."""
     hour0 = _hour0_start_unit(cur_unit, now)
 
-    def fits(end: int) -> bool:
-        # the amount has to fit on top of the forecast level then
-        return _level_at(forecast, battery_now_kwh, cur_unit, hour0, end) + target_kwh <= upper_limit_kwh + 0.01
+    def fits(start: int, end: int) -> bool:
+        # the amount has to fit on top of the forecast: at the window's end,
+        # and at any later peak (a charge lifts every hour after it - but not
+        # a peak before it, like this afternoon's when charging tonight)
+        if _level_at(forecast, battery_now_kwh, cur_unit, hour0, end) + target_kwh > upper_limit_kwh + 0.01:
+            return False
+        later = forecast[max((start - hour0) // 4, 0):]
+        return not later or max(later) + target_kwh <= upper_limit_kwh + 0.01
 
     window = (
         _rate_window(target_kwh, rates, buy, sell, cur_unit, search_end, charge_speed_kw / 4, charge_efficiency, None, fits)
@@ -973,7 +978,19 @@ def _soft_low_charge(
             # buy right away at whatever the price is now (as of 2026.10.3).
             continue
         need_soft = low_threshold_kwh + max(charge_buffer_kwh, 0.0) - max(dip_min, floor_kwh)
-        soft_capped = min(need_soft, max(headroom - need_hard, 0.0))
+        # What fits is measured on the highest level from the latest moment
+        # the charge could still go in (the end of the dip, or the last
+        # quarter with a known price) - a peak before it, like this
+        # afternoon's when the dip is tomorrow night, doesn't limit a charge
+        # that comes after it (as of 2026.10.4). The window is then placed
+        # where it fits.
+        latest_hour = hard_index if hard_index is not None else max(dip_end - 1, 0)
+        hour0_unit = cur_unit - (now.minute // 15)
+        price_hours = (len(buy_price if buy_price is not None else all_price) - hour0_unit) // 4 - 1
+        latest_hour = max(min(latest_hour, price_hours), 0)
+        later = forecast[latest_hour:]
+        band_headroom = max(upper_limit_kwh - max(later), 0.0) if later else headroom
+        soft_capped = min(need_soft, max(band_headroom - need_hard, 0.0))
         rounded_up_to_minimum = False
         if need_hard > 0:
             # below the floor: like any charge, it fills up to what fits
@@ -988,7 +1005,7 @@ def _soft_low_charge(
             # up to the minimum charge target if that still fits under 100%
             # at the peak, skipped if not - not filled up to the peak
             target_kwh = soft_capped
-            if target_kwh < minimum_charge_target_kwh and headroom >= minimum_charge_target_kwh:
+            if target_kwh < minimum_charge_target_kwh and band_headroom >= minimum_charge_target_kwh:
                 target_kwh = minimum_charge_target_kwh
                 rounded_up_to_minimum = True
             if target_kwh < minimum_charge_target_kwh or target_kwh <= 0:
