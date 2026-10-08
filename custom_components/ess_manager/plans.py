@@ -718,6 +718,9 @@ def compute_low_charge_plan(
         "rounded_up_to_minimum": rounded_up_to_minimum,
         "avg_home_load_kw": round(avg_usage_kwh, 3),
         "effective_charge_per_unit": round(effective_charge_per_unit, 4),
+        # what the grid charge adds per 15 minutes, on top of solar/usage -
+        # for drawing it in the forecast (as of 2026.10.3)
+        "grid_rate_per_unit": round(charge_per_unit * charge_efficiency, 4),
         "discharge_efficiency": discharge_efficiency,
         "units_needed": units_needed,
         "breach_unit": breach_unit,
@@ -793,6 +796,12 @@ def _soft_low_charge(
         dip_min = min(dip)
         hard_index = next((dip_start + i for i, v in enumerate(dip) if v < floor_kwh), None)
         need_hard = max(floor_kwh - dip_min, 0.0)
+        if dip_start == 0 and need_hard <= 0 and dip[0] <= dip_min:
+            # The battery is in the band right now, at the lowest point of
+            # this dip, and only goes up from here on its own (the sun, as a
+            # rule): nothing a charge could still improve - and no reason to
+            # buy right away at whatever the price is now (as of 2026.10.3).
+            continue
         need_soft = low_threshold_kwh - max(dip_min, floor_kwh)
         soft_capped = min(need_soft, max(headroom - need_hard, 0.0))
         target_kwh = max(need_hard + soft_capped, headroom if need_hard > 0 or soft_capped > 0 else 0.0)
@@ -840,6 +849,7 @@ def _soft_low_charge(
             "rounded_up_to_minimum": rounded_up_to_minimum,
             "avg_home_load_kw": round(avg_usage_kwh, 3),
             "effective_charge_per_unit": round(effective_charge_per_unit, 4),
+            "grid_rate_per_unit": round(charge_speed_kw / 4 * charge_efficiency, 4),
             "discharge_efficiency": discharge_efficiency,
             "units_needed": units_needed,
             "breach_unit": breach_unit,
@@ -1037,6 +1047,9 @@ def compute_high_discharge_plan(
         "target_kwh": surplus,
         "avg_home_load_kw": round(avg_usage_kwh, 3),
         "effective_discharge_per_unit": round(effective_discharge_per_unit, 4),
+        # what the grid sale takes out per 15 minutes, on top of solar/usage -
+        # for drawing it in the forecast (as of 2026.10.3)
+        "grid_rate_per_unit": round(discharge_per_unit / discharge_efficiency, 4),
         "discharge_efficiency": discharge_efficiency,
         "capped_by_low_limit": surplus < raw_surplus,
         "low_point_after_sale_kwh": round(low_point_after_sale, 3),
@@ -1116,6 +1129,65 @@ def _plan_draw_window(
     return draw_start, draw_start + units_used, relative / units_used
 
 
+def _level_at(base: list[float], battery_now_kwh: float, cur_unit: int, hour0_unit: int, unit: float) -> float:
+    """The forecast level at `unit` (15-minute units from midnight),
+    interpolated between now and the hourly points (base[h] = the level at
+    the end of hour h)."""
+    points = [(float(cur_unit), battery_now_kwh)] + [(float(hour0_unit + 4 * (h + 1)), float(v)) for h, v in enumerate(base)]
+    if unit <= points[0][0]:
+        return battery_now_kwh
+    for (ua, va), (ub, vb) in zip(points, points[1:]):
+        if unit <= ub:
+            return va + (vb - va) * (unit - ua) / (ub - ua) if ub > ua else vb
+    return points[-1][1]
+
+
+def _plan_draw_levels(
+    plan: dict, base: list[float], cur_unit: int, hour0_unit: int, battery_now_kwh: float, charging: bool
+) -> Optional[list[float]]:
+    """How much a low charge (charging) / high discharge plan adds to /
+    takes from the forecast by the end of each hour (as of 2026.10.3), the
+    way the plan really runs: the grid charges (or sells) at
+    `grid_rate_per_unit` on top of the solar and usage already in the
+    forecast, and stops the moment the battery reaches the plan's target
+    LEVEL. So solar coming in during a charge window counts toward it (less
+    from the grid), as do usage during a sale. Before, the whole amount was
+    drawn on top of the solar - a charge in a sunny window showed the
+    battery going over 100% while in reality it stops on its target first.
+
+    None for plans without `grid_rate_per_unit` (from before; drawn by
+    _plan_draw_window instead)."""
+    rate = plan.get("grid_rate_per_unit")
+    if not plan.get("active") or not rate or plan.get("target_reached"):
+        return None if not rate else [0.0] * len(base)
+    start = plan.get("start_unit", 0)
+    end = plan.get("end_unit", 0)
+    draw_start = max(start, cur_unit)
+    if end <= draw_start:
+        return [0.0] * len(base)
+    if start <= cur_unit and plan.get("target_energy_kwh") is not None:
+        target = float(plan["target_energy_kwh"])
+    else:
+        # a window still ahead: it's planned again right up to its start, so
+        # its target is the level then plus (minus) the amount
+        amount = float(plan.get("target_kwh") or 0)
+        level = _level_at(base, battery_now_kwh, cur_unit, hour0_unit, draw_start)
+        target = level + amount if charging else level - amount
+    out = []
+    done = 0.0
+    for h, value in enumerate(base):
+        hour_start = hour0_unit + 4 * h
+        overlap = max(min(hour_start + 4, end) - max(hour_start, draw_start), 0)
+        if overlap > 0:
+            if charging:
+                room = max(target - float(value), done)
+            else:
+                room = max(float(value) - target, done)
+            done = min(done + rate * overlap, room)
+        out.append(done)
+    return out
+
+
 def compose_forecast_adjusted(
     base: list[float],
     low: dict,
@@ -1166,9 +1238,17 @@ def compose_forecast_adjusted(
     not a per-unit target), so its own rate is left as-is.
     """
     full = full or {"active": False, "phase": None}
-    low_start, low_end, charge_rate = _plan_draw_window(low, cur_unit, battery_now_kwh, charging=True)
-    high_start, high_end, discharge_rate = _plan_draw_window(high, cur_unit, battery_now_kwh, charging=False)
     hour0_start_unit = _hour0_start_unit(cur_unit, now)
+    low_levels = high_levels = None
+    if battery_now_kwh is not None:
+        low_levels = _plan_draw_levels(low, base, cur_unit, hour0_start_unit, battery_now_kwh, charging=True)
+        high_levels = _plan_draw_levels(high, base, cur_unit, hour0_start_unit, battery_now_kwh, charging=False)
+    low_start, low_end, charge_rate = (
+        (0.0, 0.0, 0.0) if low_levels is not None else _plan_draw_window(low, cur_unit, battery_now_kwh, charging=True)
+    )
+    high_start, high_end, discharge_rate = (
+        (0.0, 0.0, 0.0) if high_levels is not None else _plan_draw_window(high, cur_unit, battery_now_kwh, charging=False)
+    )
 
     full_charging = full.get("active") and full.get("phase") in ("scheduled", "charging")
     full_charge_rate = full.get("effective_charge_per_unit", 0) if full_charging else 0
@@ -1189,6 +1269,10 @@ def compose_forecast_adjusted(
         full_overlap = max(min(hour_end, full_end) - max(hour_start, full_start), 0)
         delta += (charge_overlap * charge_rate) - (discharge_overlap * discharge_rate) + (full_overlap * full_charge_rate)
         value = base[h] + delta
+        if low_levels is not None:
+            value += low_levels[h]
+        if high_levels is not None:
+            value -= high_levels[h]
         hold_overlap = max(min(hour_end, hold_end) - max(hour_start, hold_start), 0)
         if hold_overlap > 0:
             value = upper_limit_kwh

@@ -12,7 +12,21 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
-## [2026.10.3] - 2026-10-07
+## [2026.10.3] - 2026-10-08
+
+### Fixed
+- **Deficit mode charged right away at the current price** when the battery
+  was just under the deficit minimum while the sun lifts it back above it
+  on its own (live report: 3.9 kWh under a 4.5 kWh minimum at 09:39 started
+  a 6.6 kWh charge at once, instead of in the cheap 12:00-16:00 window). A
+  dip in the band that's at its lowest right now needs no charge - the plan
+  looks at the next dip, and charges for that one in its cheapest window.
+- **A charge in a sunny window was drawn going over 100%** (and showed a
+  false solar surplus). The charge stops on a battery level, and the sun
+  shining during the window counts toward it - the forecast added the whole
+  amount on top of the sun. It's now drawn the way it runs: the grid charges
+  until the target level, then only the sun. The same for a sale (usage
+  during it counts toward its target level).
 
 ### Changed
 - Status `Solar export` reworked. It now shows when nothing else is going

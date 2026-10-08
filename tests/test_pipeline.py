@@ -2955,6 +2955,43 @@ check("Solar export: never replaces a running action",
 check("Solar export: is a label only (idle)",
       plans.compute_system_status_and_action(all_price=_se_lower, full_unit=56, solar_surplus_now=True, **_se_kw)[1] == "idle")
 
+# 2026.10.3: live report (15 kWh battery, 09:39, 3.9 kWh, deficit minimum 4.5, surplus 0.75): the battery was
+# just under the deficit minimum, the sun lifts it above within the hour - and it started a 6.6 kWh charge
+# right away at 0.16 instead of in the cheap 12:00-16:00 window.
+_lr_fc = [4, 4.81, 5.77, 6.72, 7.58, 8.15, 8.38, 8.36, 7.93, 6.89, 6.13, 5.62, 5.39, 5.28, 5.18, 5.07, 4.97, 4.87, 4.79,
+          4.7, 4.63, 4.41, 4.08, 3.88, 3.81, 3.82, 3.91, 3.96, 4.08, 4.2, 4.26, 4.28, 4.02, 3.31, 2.85, 2.59, 2.3, 2.14,
+          2.04, 1.95, 1.87, 1.77, 1.69, 1.61, 1.54, 1.46, 1.38, 1.27, 1.47, 1.96, 2.55, 3.16, 3.82, 4.35, 4.62, 4.66,
+          4.47, 3.63, 3.25, 2.9, 2.63, 2.43, 2.28, 2.14, 1.99, 1.85, 1.71, 1.59, 1.47, 1.35, 1.23, 1.19, 1.21, 1.35]
+_lr_price = [0.178, 0.152, 0.139, 0.127, 0.139, 0.134, 0.129, 0.118, 0.12, 0.116, 0.114, 0.115, 0.114, 0.111, 0.114,
+             0.113, 0.114, 0.112, 0.112, 0.113, 0.118, 0.117, 0.113, 0.121, 0.126, 0.139, 0.151, 0.151, 0.175, 0.174,
+             0.179, 0.184, 0.206, 0.201, 0.193, 0.179, 0.192, 0.178, 0.163, 0.156, 0.161, 0.142, 0.129, 0.114, 0.12,
+             0.117, 0.106, 0.1, 0.102, 0.09, 0.087, 0.083, 0.091, 0.08, 0.07, 0.063, 0.078, 0.067, 0.07, 0.079, 0.074,
+             0.069, 0.078, 0.089, 0.093, 0.103, 0.117, 0.125, 0.113, 0.136, 0.153, 0.171, 0.153, 0.171, 0.184, 0.2,
+             0.208, 0.21, 0.211, 0.22, 0.22, 0.22, 0.239, 0.239, 0.21, 0.212, 0.2, 0.186, 0.195, 0.195, 0.197, 0.2,
+             0.161, 0.157, 0.154, 0.15]
+_lr_now = datetime(2026, 10, 8, 9, 39)
+_lr = plans.compute_low_charge_plan(None, 38, _lr_fc, _lr_now, 1.7, 4.5, 1.0, 15.0, [0.15] * 121, _lr_price, 72, 3.9,
+                                    high_threshold_kwh=16.5, charge_efficiency=0.9, discharge_efficiency=0.9,
+                                    floor_kwh=0.75, peak_kwh=max(_lr_fc))
+check("deficit band: a dip that's at its lowest right now (the sun lifts it) doesn't start a charge right away",
+      _lr["start_unit"] > 38 and _lr["dip_min_kwh"] == 1.27)
+check("deficit band: the next dip's charge goes in the cheap midday window (11:30-16:30, 0.063-0.10)",
+      46 <= _lr["start_unit"] and _lr["end_unit"] <= 68 and max(_lr_price[_lr["start_unit"]:_lr["end_unit"]]) <= 0.103)
+
+# 2026.10.3: a charge in a sunny window is drawn as it runs - the grid stops at the target level, the sun counts toward it
+_lr_run = {"active": True, "start_unit": 38, "end_unit": 58, "target_kwh": 6.67, "target_energy_kwh": 10.5,
+           "avg_home_load_kw": 0.156, "effective_charge_per_unit": 0.3474, "discharge_efficiency": 0.9,
+           "grid_rate_per_unit": 0.3825, "target_reached": False}
+_lr_adj = plans.compose_forecast_adjusted(_lr_fc, _lr_run, {"active": False}, 38, _lr_now, upper_limit_kwh=15.0,
+                                          battery_now_kwh=3.9)
+check("forecast: the running charge stops at 10.5 kWh and the sun takes it to ~12.2, not over 15 (no false surplus)",
+      abs(max(_lr_adj[:12]) - 12.21) < 0.05 and _lr_adj[3] > 10.5 > _lr_adj[2])
+_lr_sale = {"active": True, "start_unit": 40, "end_unit": 44, "target_kwh": 2.0, "target_energy_kwh": 2.0,
+            "grid_rate_per_unit": 2.5, "target_reached": False}
+_lr_sale_adj = plans.compose_forecast_adjusted([4.0] * 6, {"active": False}, _lr_sale, 40, datetime(2026, 10, 8, 10, 0),
+                                               upper_limit_kwh=15.0, battery_now_kwh=4.0)
+check("forecast: a running sale stops at its target level", _lr_sale_adj[0] == 2.0 and _lr_sale_adj[5] == 2.0)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
