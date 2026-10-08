@@ -105,9 +105,11 @@ charges it, so a grid charge can only add what's left up to that max -
 nothing at all when the sun alone fills it (say a 1.8 kW charger with
 2.5 kW of sun and 0.4 kW of house use). The charge plans (low charge, full
 charge, spike top-up, negative price charge) work out per quarter what the
-grid really adds: a window is made long enough to deliver its amount, skips
-quarters the sun already fills however cheap they are, and is costed on
-what's really bought (minus what would go straight back to the grid). A
+grid really adds: the sun only makes a window longer - quarters it already
+fills add nothing, so the window runs on until the amount is in - and the
+cheapest window is still chosen, costed on what's really bought (minus
+what would go straight back to the grid, which only costs extra with a
+transport tariff). A
 low charge stops at the forecast level at the end of its window plus its
 amount (never above 100%), so the sun shining during the window doesn't
 count toward what was meant to be bought; and it's only planned where the

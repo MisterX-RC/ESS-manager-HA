@@ -3026,7 +3026,14 @@ check("charge plan with the rates: its per-quarter rates are kept for drawing",
 
 _rw = plans._rate_window(1.0, [0.4] * 8 + [0.0] * 8 + [0.4] * 8, [0.30] * 8 + [0.05] * 8 + [0.20] * 8,
                          [0.30] * 8 + [0.05] * 8 + [0.20] * 8, 0, 24, 0.45, 0.9)
-check("rate window: skips quarters the grid can't add anything in, however cheap", _rw == (16, 19))
+check("rate window: quarters the grid can't add anything in don't count toward the amount", _rw == (16, 19))
+# sun 09-11 / 15-17 1.2 kW, 11-15 2.5 kW, house 0.4, 1.8 kW charger; 09:00-17:00 cheap (0.10)
+_sw_net = [round((2.5 if 11 <= (6 + h) % 24 < 15 else (1.2 if 9 <= (6 + h) % 24 < 11 or 15 <= (6 + h) % 24 < 17 else 0.0))
+                 - 0.4, 2) for h in range(48)]
+_sw_rates = forecasting.grid_charge_rates(_sw_net, datetime(2026, 10, 8, 6, 0), 1.8, 1.8, 192, 0.9, 0.9)
+_sw_price = [0.25] * 36 + [0.10] * 32 + [0.22] * 28 + [0.20] * 96
+check("rate window: the sun only makes the cheap window longer - 4 kWh in 09:00-16:45 (through the full-sun hours), "
+      "not moved to the pricier night", plans._rate_window(4.0, _sw_rates, _sw_price, _sw_price, 24, 120, 0.45, 0.9) == (36, 67))
 
 # negative price charge in the sun: only what the battery can still take
 _nr_kw = dict(now=datetime(2026, 10, 8, 6, 0), all_price=[0.10] * 48 + [-0.30] * 8 + [0.10] * 40, threshold=-0.20,

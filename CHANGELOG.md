@@ -19,10 +19,11 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   Per quarter they now work out what a grid charge really adds: the
   battery takes at most your max battery charge speed, and in a sunny hour
   the sun already charges it - with a 1.8 kW charger, 2.5 kW of sun and
-  0.4 kW of house use the grid adds nothing at all. A charge window is made
-  long enough to really deliver its amount, avoids quarters the sun already
-  fills (however cheap), and is costed on what's really bought minus what
-  would go straight back to the grid. Low charge, full charge, the spike
+  0.4 kW of house use the grid adds nothing at all. The sun only makes a
+  charge window longer: it runs on until the amount is really in, and the
+  cheapest window is still chosen - costed on what's really bought minus
+  what would go straight back to the grid (which only costs extra with a
+  transport tariff). Low charge, full charge, the spike
   top-up and the negative price charge (how much it can take in its window)
   all use it.
 - Low charge: it stops at the forecast level at the end of its window plus
