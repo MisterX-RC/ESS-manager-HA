@@ -174,14 +174,17 @@ switches. The charge plan therefore treats the two differently:
 - A dip that only reaches into the band between the two minimums is
   charged in the cheapest window before the dip is over (the forecast is
   back above the deficit minimum, or the end of the planning horizon) -
-  and only as much as still fits under 100% at the forecast peak, so
-  nothing bought now is lost again on a later solar day that fills the
-  battery. If less than the **Minimum charge target** fits, it isn't
-  charged now; the deficit minimum is picked up again once that peak is
-  behind it.
+  just what's missing (rounded up to the **Minimum charge target**), and
+  never more than still fits under 100% at the forecast peak, so nothing
+  bought now is lost again on a later solar day that fills the battery. If
+  less than the Minimum charge target fits, it isn't charged now; the
+  deficit minimum is picked up again once that peak is behind it. A dip in
+  the band that's at its lowest right now (the sun lifts it on its own)
+  needs no charge.
 
-Like any charge, one that happens anyway fills up to what fits under 100%
-at the peak.
+A charge for a dip below the surplus minimum fills up to what fits under
+100% at the peak, like any other charge; a band-only charge doesn't (as of
+2026.10.4).
 
 By default the integration only decides: its `Status` sensor says what
 should happen and your own automation acts on it - see "Wiring it to your

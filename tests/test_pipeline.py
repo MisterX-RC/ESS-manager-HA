@@ -3043,6 +3043,16 @@ check("negative price plan with the rates: nothing to gain when the sun already 
       plans.compute_negative_price_plan(None, 24, charge_rates=[0.0] * 96, **_nr_kw)["raw_potential_kwh"] == 0.0
       and plans.compute_negative_price_plan(None, 24, **_nr_kw)["raw_potential_kwh"] == 3.24)
 
+# 2026.10.4: a dip only in the deficit band charges just what's missing, not up to 100 % at the peak
+check("deficit band: just the deficit (4.5 - 1.27 = 3.23 kWh), not filled up to the peak (6.62 would fit)",
+      _lr["target_kwh"] == 3.23 and not _lr["rounded_up_to_minimum"])
+_lr_small = plans.compute_low_charge_plan(None, 38, [round(v + 2.73, 2) for v in _lr_fc], _lr_now, 1.7, 4.5, 1.0, 15.0,
+                                          [0.15] * 121, _lr_price, 72, 6.63, high_threshold_kwh=16.5,
+                                          charge_efficiency=0.9, discharge_efficiency=0.9, floor_kwh=0.75,
+                                          peak_kwh=max(_lr_fc) + 2.73)
+check("deficit band: a small deficit (0.5 kWh) is rounded up to the minimum charge target (1.0), still not filled up",
+      _lr_small["target_kwh"] == 1.0 and _lr_small["rounded_up_to_minimum"] and _lr_small["soft_deficit_kwh"] == 0.5)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

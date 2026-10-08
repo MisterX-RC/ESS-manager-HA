@@ -26,6 +26,11 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   transport tariff). Low charge, full charge, the spike
   top-up and the negative price charge (how much it can take in its window)
   all use it.
+- Deficit mode: a dip that only reaches into the band between the two
+  minimums charges just what's missing (rounded up to the Minimum charge
+  target), no longer filled up to 100% at the peak. Live report: 0.55 kWh
+  missing became a 6.67 kWh charge. A dip below the surplus minimum still
+  fills up, like any other charge.
 - Low charge: it stops at the forecast level at the end of its window plus
   its amount (at most 100%) - the sun during the window no longer counts
   toward the amount (it was in the forecast already) - and it's placed

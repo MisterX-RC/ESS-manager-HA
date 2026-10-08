@@ -933,10 +933,11 @@ def _soft_low_charge(
       under 100% at the forecast peak, deadline the end of the dip (when
       the forecast is back at the deficit minimum, or the end of the
       horizon) unless the hard part's deadline is earlier.
-    Like the one-threshold plan, a charge that happens anyway fills up to
-    what fits under 100% at the peak (headroom). A soft-only charge
-    smaller than the minimum charge target is skipped; a dip that then has
-    nothing to do passes on to the next one."""
+    A dip below the floor fills up to what fits under 100% at the peak
+    (headroom), like the one-threshold plan. A dip only in the band charges
+    just what's missing (as of 2026.10.4; it used to fill up too), rounded
+    up to the minimum charge target when that fits, skipped when not; a dip
+    that then has nothing to do passes on to the next one."""
     n = len(forecast)
     units_to_next_hour = 4 - (now.minute // 15)
     future_peak = peak_kwh if peak_kwh is not None else (max(forecast) if forecast else upper_limit_kwh)
@@ -966,22 +967,31 @@ def _soft_low_charge(
             continue
         need_soft = low_threshold_kwh - max(dip_min, floor_kwh)
         soft_capped = min(need_soft, max(headroom - need_hard, 0.0))
-        target_kwh = max(need_hard + soft_capped, headroom if need_hard > 0 or soft_capped > 0 else 0.0)
         rounded_up_to_minimum = False
         if need_hard > 0:
+            # below the floor: like any charge, it fills up to what fits
+            target_kwh = max(need_hard + soft_capped, headroom)
             if target_kwh < minimum_charge_target_kwh:
                 room = (high_threshold_kwh - future_peak) if high_threshold_kwh is not None else minimum_charge_target_kwh
                 rounded = max(target_kwh, min(minimum_charge_target_kwh, room))
                 rounded_up_to_minimum = rounded > target_kwh
                 target_kwh = rounded
-        elif target_kwh < minimum_charge_target_kwh or target_kwh <= 0:
-            if skipped is None:
-                skipped = {
-                    "deficit_kwh": round(need_soft, 3),
-                    "fits_kwh": round(soft_capped, 3),
-                    "dip_min_kwh": round(dip_min, 3),
-                }
-            continue
+        else:
+            # only the band (as of 2026.10.4): just what's missing - rounded
+            # up to the minimum charge target if that still fits under 100%
+            # at the peak, skipped if not - not filled up to the peak
+            target_kwh = soft_capped
+            if target_kwh < minimum_charge_target_kwh and headroom >= minimum_charge_target_kwh:
+                target_kwh = minimum_charge_target_kwh
+                rounded_up_to_minimum = True
+            if target_kwh < minimum_charge_target_kwh or target_kwh <= 0:
+                if skipped is None:
+                    skipped = {
+                        "deficit_kwh": round(need_soft, 3),
+                        "fits_kwh": round(soft_capped, 3),
+                        "dip_min_kwh": round(dip_min, 3),
+                    }
+                continue
         target_kwh = round(target_kwh, 3)
 
         if hard_index is not None:
