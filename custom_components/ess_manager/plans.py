@@ -51,6 +51,106 @@ def _best_price_window(
     return best_start
 
 
+def _rate_window(
+    target_kwh: float,
+    rates: list[float],
+    buy: list[float],
+    sell: list[float],
+    search_start: int,
+    search_end: int,
+    import_per_unit: float,
+    charge_efficiency: float = 1.0,
+    allowed=None,
+    fits=None,
+) -> Optional[tuple[int, int]]:
+    """The cheapest contiguous charge window [start, end) inside
+    [search_start, search_end) whose per-unit `rates` (what the grid really
+    adds to the battery each quarter - forecasting.grid_charge_rates) add up
+    to `target_kwh` (as of 2026.10.4). A quarter where the sun already fills
+    the battery's max charge speed adds nothing, so a window has to be
+    longer - or lie elsewhere - to deliver the same energy.
+
+    Cost: the grid energy bought at the buy price, minus what's sent straight
+    back (bought while the battery couldn't take it) at the sell price. Ties
+    go to the shorter, then the earlier window. `allowed(unit)` can rule out
+    quarters (a window can't run through one); `fits(end)` windows (e.g. the
+    battery would already be full by then, so the amount can't go in). None
+    if nothing fits."""
+    ce = charge_efficiency if charge_efficiency > 0 else 1.0
+    n = min(search_end, len(buy), len(rates))
+    best = None
+    for start in range(max(search_start, 0), n):
+        total = cost = 0.0
+        end = start
+        while end < n and total < target_kwh - 1e-9:
+            if allowed is not None and not allowed(end):
+                break
+            rate = rates[end]
+            total += rate
+            waste = max(import_per_unit - rate / ce, 0.0)
+            cost += buy[end] * import_per_unit - (sell[end] if end < len(sell) else buy[end]) * waste
+            end += 1
+        if end > start and total >= target_kwh - 1e-9 and (fits is None or fits(end)):
+            key = (round(cost, 6), end - start, start)
+            if best is None or key < best[0]:
+                best = (key, start, end)
+    return (best[1], best[2]) if best else None
+
+
+def _rate_window_from(target_kwh: float, rates: list[float], start: int, max_units: int = 96) -> tuple[int, int]:
+    """Fallback when no window fits before the deadline: from `start`, as
+    long as it takes to deliver `target_kwh` (at most `max_units`)."""
+    total = 0.0
+    end = start
+    while end < len(rates) and end - start < max_units and total < target_kwh - 1e-9:
+        total += rates[end]
+        end += 1
+    return start, max(end, start + 1)
+
+
+def _place_rate_charge(
+    target_kwh: float,
+    rates: list[float],
+    buy: list[float],
+    sell: list[float],
+    cur_unit: int,
+    search_end: int,
+    now: datetime,
+    forecast: list[float],
+    battery_now_kwh: float,
+    upper_limit_kwh: float,
+    charge_speed_kw: float,
+    charge_efficiency: float,
+) -> dict:
+    """Window, length and stop level for a charge of `target_kwh` on top of
+    the forecast, with the grid's real per-quarter `rates` (as of 2026.10.4).
+    The stop level is the forecast level at the window's end plus the
+    amount (at most 100%): the sun shining during the window no longer
+    counts toward the amount bought - it was in the forecast already."""
+    hour0 = _hour0_start_unit(cur_unit, now)
+
+    def fits(end: int) -> bool:
+        # the amount has to fit on top of the forecast level then
+        return _level_at(forecast, battery_now_kwh, cur_unit, hour0, end) + target_kwh <= upper_limit_kwh + 0.01
+
+    window = (
+        _rate_window(target_kwh, rates, buy, sell, cur_unit, search_end, charge_speed_kw / 4, charge_efficiency, None, fits)
+        or _rate_window(target_kwh, rates, buy, sell, cur_unit, search_end, charge_speed_kw / 4, charge_efficiency)
+        or _rate_window_from(target_kwh, rates, cur_unit)
+    )
+    start, end = window
+    units = max(end - start, 1)
+    level_end = _level_at(forecast, battery_now_kwh, cur_unit, hour0, start + units)
+    return {
+        "start_unit": start,
+        "end_unit": start + units,
+        "units_needed": units,
+        "effective_charge_per_unit": round(target_kwh / units, 4),
+        "grid_rates": [round(r, 4) for r in rates[start : start + units]],
+        "target_energy_kwh": round(min(level_end + target_kwh, upper_limit_kwh), 3),
+    }
+
+
 def _extend_flat_price_window(
     prices: list[float],
     start: int,
@@ -112,6 +212,7 @@ def compute_negative_price_plan(
     charge_efficiency: float = 1.0,
     discharge_efficiency: float = 1.0,
     replan: bool = False,
+    charge_rates: Optional[list[float]] = None,
 ) -> dict:
     """`all_price` is the sell price, `buy_price` what buying costs (price
     + transport, as of v0.4.0; defaults to all_price). Charging is a buy:
@@ -158,6 +259,11 @@ def compute_negative_price_plan(
     units = charge_end - charge_start
 
     charge_per_unit = (negative_price_charge_speed_kw / 4) * charge_efficiency
+    if charge_rates is not None and units > 0:
+        # As of 2026.10.4: what the grid can really add in the window, the
+        # max charge speed minus the sun already charging (`charge_rates`,
+        # at the negative price charge speed).
+        charge_per_unit = sum(charge_rates[charge_start:charge_end]) / units
     raw_potential_kwh = round(units * charge_per_unit, 2)
 
     hour0_start_unit = _hour0_start_unit(cur_unit, now)
@@ -287,6 +393,7 @@ def compute_spike_plan(
     charge_efficiency: float = 1.0,
     discharge_efficiency: float = 1.0,
     replan: bool = False,
+    charge_rates: Optional[list[float]] = None,
 ) -> dict:
     """`all_price` is the sell price, `buy_price` what buying costs (price
     + transport, as of v0.4.0; defaults to all_price). The spread is the
@@ -447,6 +554,43 @@ def compute_spike_plan(
             charge_start = best_start
         charge_end = charge_start + charge_units_needed
 
+    if charge_rates is not None and charge_needed_kwh > 0:
+        # As of 2026.10.4: with what the grid really adds per quarter (the
+        # max charge speed minus the sun already charging), so the window is
+        # long enough and skips quarters the sun already fills.
+        allowed = None
+        if topup_price_cap is not None:
+            allowed = lambda u: masked_prices[u] <= topup_price_cap  # noqa: E731
+        window = _rate_window(
+            charge_needed_kwh, charge_rates, masked_prices, prices, cur_unit, high_abs, charge_per_unit,
+            charge_efficiency, allowed,
+        )
+        if window is None and allowed is not None:
+            # a top-up: the paying run that delivers the most, if that's enough
+            best_run = None
+            for st in range(cur_unit, min(high_abs, len(charge_rates))):
+                total, en = 0.0, st
+                while en < min(high_abs, len(charge_rates)) and allowed(en) and total < charge_needed_kwh:
+                    total += charge_rates[en]
+                    en += 1
+                if en > st and (best_run is None or total > best_run[2] + 1e-9):
+                    best_run = (st, en, total)
+            if best_run is not None and best_run[2] >= minimum_charge_target_kwh:
+                window = (best_run[0], best_run[1])
+                charge_needed_kwh = round(best_run[2], 3)
+            else:
+                charge_needed_kwh = 0.0
+        elif window is None:
+            window = _rate_window_from(charge_needed_kwh, charge_rates, cur_unit, max(high_abs - cur_unit, 1))
+            charge_needed_kwh = min(charge_needed_kwh, sum(charge_rates[window[0]:window[1]]))
+        if charge_needed_kwh > 0 and window is not None:
+            charge_start, charge_end = window
+            charge_units_needed = charge_end - charge_start
+            effective_charge_per_unit = charge_needed_kwh / charge_units_needed
+        else:
+            charge_start = charge_end = cur_unit
+            charge_units_needed = 0
+
     discharge_per_unit = spike_discharge_speed_kw / 4
     relevant_usage_d = usage[0 : hour_index_high + 1]
     avg_usage_kwh_d = sum(relevant_usage_d) / len(relevant_usage_d) if relevant_usage_d else 0
@@ -581,6 +725,7 @@ def compute_low_charge_plan(
     replan: bool = False,
     floor_kwh: Optional[float] = None,
     peak_kwh: Optional[float] = None,
+    charge_rates: Optional[list[float]] = None,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price).
@@ -619,6 +764,13 @@ def compute_low_charge_plan(
     than the running sum says) and here the highest UNCLIPPED level within
     the horizon, which is what "how much still fits under 100% / under max
     SOC at the peak" is measured against. None = the forecast's own maximum.
+
+    `charge_rates` (as of 2026.10.4): per quarter what a grid charge really
+    adds (forecasting.grid_charge_rates - the battery's max charge speed
+    minus the solar already charging it). With it the window is long enough
+    to really deliver the amount and avoids quarters the sun already fills,
+    and it stops on the forecast level at its end plus the amount; without
+    it, the configured charge speed is assumed for every quarter.
     """
     prev = prev or {"active": False}
     if not replan and prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
@@ -651,7 +803,7 @@ def compute_low_charge_plan(
         soft = _soft_low_charge(
             forecast, cur_unit, now, charge_speed_kw, low_threshold_kwh, floor_kwh, minimum_charge_target_kwh,
             upper_limit_kwh, usage, all_price, battery_now_kwh, high_threshold_kwh, buy_price, charge_efficiency,
-            discharge_efficiency, peak_kwh,
+            discharge_efficiency, peak_kwh, charge_rates,
         )
         if soft is not None:
             return soft
@@ -709,8 +861,14 @@ def compute_low_charge_plan(
     buy = buy_price if buy_price is not None else all_price
     search_end = min(breach_unit, len(buy))
     best_start = _best_price_window(buy, cur_unit, search_end, units_needed, cheapest=True)
+    placed = None
+    if charge_rates is not None:
+        placed = _place_rate_charge(
+            target_kwh, charge_rates, buy, all_price, cur_unit, search_end, now, forecast, battery_now_kwh,
+            upper_limit_kwh, charge_speed_kw, charge_efficiency,
+        )
 
-    return {
+    plan = {
         "active": True,
         "deficit_kwh": deficit,
         "dip_min_kwh": round(value, 3),
@@ -738,6 +896,9 @@ def compute_low_charge_plan(
         "target_energy_kwh": round(battery_now_kwh + target_kwh, 3),
         "target_reached": False,
     }
+    if placed:
+        plan.update(placed)
+    return plan
 
 
 def _soft_low_charge(
@@ -757,6 +918,7 @@ def _soft_low_charge(
     charge_efficiency: float,
     discharge_efficiency: float,
     peak_kwh: Optional[float] = None,
+    charge_rates: Optional[list[float]] = None,
 ) -> Optional[dict]:
     """compute_low_charge_plan in solar deficit mode (as of v0.5.13), with
     the surplus minimum as the hard floor below the deficit minimum - see
@@ -837,7 +999,7 @@ def _soft_low_charge(
         buy = buy_price if buy_price is not None else all_price
         search_end = min(breach_unit, len(buy))
         best_start = _best_price_window(buy, cur_unit, search_end, units_needed, cheapest=True)
-        return {
+        plan = {
             "active": True,
             "deficit_kwh": round(need_hard + need_soft, 3),
             "hard_deficit_kwh": round(need_hard, 3),
@@ -858,6 +1020,12 @@ def _soft_low_charge(
             "target_energy_kwh": round(battery_now_kwh + target_kwh, 3),
             "target_reached": False,
         }
+        if charge_rates is not None:
+            plan.update(_place_rate_charge(
+                target_kwh, charge_rates, buy, all_price, cur_unit, search_end, now, forecast, battery_now_kwh,
+                upper_limit_kwh, charge_speed_kw, charge_efficiency,
+            ))
+        return plan
     if skipped is not None:
         return {"active": False, "breach_unit": 999999, "soft_skipped": skipped}
     return None
@@ -1158,14 +1326,17 @@ def _plan_draw_levels(
     None for plans without `grid_rate_per_unit` (from before; drawn by
     _plan_draw_window instead)."""
     rate = plan.get("grid_rate_per_unit")
-    if not plan.get("active") or not rate or plan.get("target_reached"):
-        return None if not rate else [0.0] * len(base)
+    unit_rates = plan.get("grid_rates")  # per quarter of the window (as of 2026.10.4)
+    if not plan.get("active") or not (rate or unit_rates) or plan.get("target_reached"):
+        return None if not (rate or unit_rates) else [0.0] * len(base)
     start = plan.get("start_unit", 0)
     end = plan.get("end_unit", 0)
     draw_start = max(start, cur_unit)
     if end <= draw_start:
         return [0.0] * len(base)
-    if start <= cur_unit and plan.get("target_energy_kwh") is not None:
+    if (start <= cur_unit or unit_rates) and plan.get("target_energy_kwh") is not None:
+        # running - or (2026.10.4) planned with the forecast level at its end,
+        # which a window still ahead already is
         target = float(plan["target_energy_kwh"])
     else:
         # a window still ahead: it's planned again right up to its start, so
@@ -1177,13 +1348,18 @@ def _plan_draw_levels(
     done = 0.0
     for h, value in enumerate(base):
         hour_start = hour0_unit + 4 * h
-        overlap = max(min(hour_start + 4, end) - max(hour_start, draw_start), 0)
-        if overlap > 0:
+        lo = max(hour_start, draw_start)
+        hi = min(hour_start + 4, end)
+        if hi > lo:
+            if unit_rates:
+                add = sum(unit_rates[u - start] for u in range(lo, hi) if 0 <= u - start < len(unit_rates))
+            else:
+                add = rate * (hi - lo)
             if charging:
                 room = max(target - float(value), done)
             else:
                 room = max(float(value) - target, done)
-            done = min(done + rate * overlap, room)
+            done = min(done + add, room)
         out.append(done)
     return out
 
@@ -1308,9 +1484,14 @@ def compute_full_charge_plan(
     buy_price: Optional[list[float]] = None,
     charge_efficiency: float = 1.0,
     replan: bool = False,
+    charge_rates: Optional[list[float]] = None,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price).
+
+    `charge_rates` (as of 2026.10.4): what the grid really adds per quarter
+    (the max charge speed minus the sun already charging) - the window is
+    made long enough with it, avoiding quarters the sun already fills.
 
     `replan` (as of v0.5.12): a setting changed since the last cycle, so a
     running charge session is not kept but checked again - is it still
@@ -1414,7 +1595,7 @@ def compute_full_charge_plan(
             {"active": False, "phase": None}, cur_unit, now, interval_days, time_since_days, soc_now_percent,
             max_hold_minutes, voltage_diff, battery_now_kwh, high_threshold_kwh, usage, charge_speed_kw, all_price,
             battery_forecast, battery_voltage, target_voltage, balance_threshold, buy_price=buy_price,
-            charge_efficiency=charge_efficiency,
+            charge_efficiency=charge_efficiency, charge_rates=charge_rates,
         )
         if fresh.get("active") and fresh.get("phase") == "scheduled" and fresh.get("start_unit", -1) <= cur_unit:
             # still needed, and the cheapest window is now: keep charging
@@ -1614,6 +1795,12 @@ def compute_full_charge_plan(
     # regression on the cap's purpose. Applies uniformly regardless of
     # whether this session's target was actually capped.
     best_start = _best_price_window(all_price, search_start, search_end, units_needed, cheapest=True)
+    if charge_rates is not None:
+        window = _rate_window(
+            target_kwh, charge_rates, all_price, all_price, search_start, search_end, charge_per_unit, charge_efficiency
+        ) or _rate_window_from(target_kwh, charge_rates, search_start)
+        best_start, units_needed = window[0], max(window[1] - window[0], 1)
+        effective_charge_per_unit = target_kwh / units_needed
     start_unit, end_unit = _extend_flat_price_window(
         all_price, best_start, best_start + units_needed, min_start=search_start, max_end=search_end
     )

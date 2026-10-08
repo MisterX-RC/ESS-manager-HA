@@ -271,3 +271,39 @@ def rate_spill(net: list[float], now: datetime, max_charge_kw: Optional[float], 
         over = max(float(value) - max_charge_kw / eff, 0.0)
         out.append(round(over * (fraction_remaining if h == 0 else 1.0), 3))
     return out
+
+
+def grid_charge_rates(
+    net: list[float],
+    now: datetime,
+    speed_kw: float,
+    max_charge_kw: Optional[float],
+    n_units: int,
+    charge_efficiency: float = 1.0,
+    discharge_efficiency: float = 1.0,
+) -> list[float]:
+    """Per 15-minute unit (index = units from today's midnight, like the
+    prices), how much a grid charge at `speed_kw` really adds to the battery
+    on top of the forecast (battery side, kWh) - as of 2026.10.4.
+
+    The battery takes at most `max_charge_kw`. Solar left over after usage
+    (`net`, per forecast hour, hour 0 = this one) already charges it, so in a
+    sunny hour the grid can only add what's left up to that max - nothing at
+    all when the sun alone already fills the max charge speed. In an hour
+    without solar the grid charge also covers the house, which the forecast
+    otherwise takes out of the battery. Units before this hour are 0."""
+    ce = charge_efficiency if charge_efficiency > 0 else 1.0
+    de = discharge_efficiency if discharge_efficiency > 0 else 1.0
+    cap = float(max_charge_kw) if max_charge_kw and max_charge_kw > 0 else float("inf")
+    speed = min(max(float(speed_kw or 0.0), 0.0), cap)
+
+    def gain(kw: float) -> float:
+        return min(kw * ce, cap) if kw > 0 else kw / de
+
+    hour0 = now.hour * 4
+    out = [0.0] * max(n_units, 0)
+    for u in range(hour0, len(out)):
+        h = (u - hour0) // 4
+        x = float(net[h]) if h < len(net) and net[h] is not None else 0.0
+        out[u] = round(max(gain(speed + x) - gain(x), 0.0) / 4, 4)
+    return out

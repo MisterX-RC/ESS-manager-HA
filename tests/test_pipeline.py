@@ -2992,6 +2992,50 @@ _lr_sale_adj = plans.compose_forecast_adjusted([4.0] * 6, {"active": False}, _lr
                                                upper_limit_kwh=15.0, battery_now_kwh=4.0)
 check("forecast: a running sale stops at its target level", _lr_sale_adj[0] == 2.0 and _lr_sale_adj[5] == 2.0)
 
+# ---------------------------------------------------------------------------
+# 2026.10.4: the charge plans know what the grid can really add per quarter
+# (the battery's max charge speed minus the sun already charging it)
+# ---------------------------------------------------------------------------
+_gr_now = datetime(2026, 10, 8, 6, 0)
+_gr_net = [round((2.5 if 9 <= (6 + h) % 24 < 16 and h < 24 else 0.0) - 0.4, 2) for h in range(72)]  # 2.5 kW sun, 0.4 kW house
+_gr = forecasting.grid_charge_rates(_gr_net, _gr_now, 1.8, 1.8, 192, 0.9, 0.9)
+check("charge rates: no sun - the grid charge plus the house it now covers (1.8 x 0.9 - 0.4 x 0.9 + 0.4 / 0.9) / 4",
+      abs(_gr[24] - round((1.4 * 0.9 + 0.4 / 0.9) / 4, 4)) < 1e-4)
+check("charge rates: the sun alone already fills the 1.8 kW max charge speed - the grid adds nothing", _gr[44] == 0.0)
+check("charge rates: before this hour 0", _gr[0] == 0.0 and _gr[23] == 0.0)
+check("charge rates: half the sun - the grid fills the rest up to the max charge speed",
+      forecasting.grid_charge_rates([1.0], datetime(2026, 10, 8, 12, 0), 1.8, 1.8, 52, 1.0, 1.0)[48] == round(0.8 / 4, 4))
+
+# A 10 kWh battery with a 1.8 kW charger, 2.5 kW sun and 0.4 kW house: the sun fills it today, then two dark days.
+# The cheapest hours (0.08) are in the sun, where the grid can't add anything.
+_gr_raw = forecasting.build_battery_forecast(_gr_net, 5.5, _gr_now, 1.8, 3.0, 0.9, 0.9)
+_gr_fc, _ = forecasting.clip_at_capacity(_gr_raw, 5.5, 10.0)
+_gr_price = [0.25] * 36 + [0.20] * 8 + [0.08] * 20 + [0.22] * 32 + [0.18] * 96
+_gr_kw = dict(charge_speed_kw=1.8, low_threshold_kwh=3.0, minimum_charge_target_kwh=0.5, upper_limit_kwh=10.0,
+              usage=[0.4] * 121, all_price=_gr_price, planning_horizon_hours=48, battery_now_kwh=5.5,
+              high_threshold_kwh=11.0, charge_efficiency=0.9, discharge_efficiency=0.9, peak_kwh=max(_gr_raw[:49]))
+_gr_old = plans.compute_low_charge_plan(None, 24, _gr_fc, _gr_now, **_gr_kw)
+_gr_new = plans.compute_low_charge_plan(None, 24, _gr_fc, _gr_now, charge_rates=_gr, **_gr_kw)
+check("charge plan without the rates: a window in the sun, where the grid adds only a fraction",
+      _gr_old["start_unit"] < 64 and sum(_gr[_gr_old["start_unit"]:_gr_old["end_unit"]]) < _gr_old["target_kwh"] / 2)
+check("charge plan with the rates: a window where the grid really delivers the amount (tonight, after the sun)",
+      _gr_new["start_unit"] >= 64 and sum(_gr[_gr_new["start_unit"]:_gr_new["end_unit"]]) >= _gr_new["target_kwh"] - 1e-6)
+check("charge plan with the rates: never stops above 100 %", _gr_new["target_energy_kwh"] <= 10.0)
+check("charge plan with the rates: its per-quarter rates are kept for drawing",
+      len(_gr_new["grid_rates"]) == _gr_new["end_unit"] - _gr_new["start_unit"])
+
+_rw = plans._rate_window(1.0, [0.4] * 8 + [0.0] * 8 + [0.4] * 8, [0.30] * 8 + [0.05] * 8 + [0.20] * 8,
+                         [0.30] * 8 + [0.05] * 8 + [0.20] * 8, 0, 24, 0.45, 0.9)
+check("rate window: skips quarters the grid can't add anything in, however cheap", _rw == (16, 19))
+
+# negative price charge in the sun: only what the battery can still take
+_nr_kw = dict(now=datetime(2026, 10, 8, 6, 0), all_price=[0.10] * 48 + [-0.30] * 8 + [0.10] * 40, threshold=-0.20,
+              battery_forecast=[5.0] * 30, discharge_speed_kw=3.0, negative_price_charge_speed_kw=1.8,
+              low_threshold_kwh=1.0, high_threshold_kwh=10.0, charge_efficiency=0.9)
+check("negative price plan with the rates: nothing to gain when the sun already fills the max charge speed",
+      plans.compute_negative_price_plan(None, 24, charge_rates=[0.0] * 96, **_nr_kw)["raw_potential_kwh"] == 0.0
+      and plans.compute_negative_price_plan(None, 24, **_nr_kw)["raw_potential_kwh"] == 3.24)
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

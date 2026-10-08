@@ -12,6 +12,25 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.4] - 2026-10-08
+
+### Changed
+- **The charge plans take the sun and the max charge speed into account.**
+  Per quarter they now work out what a grid charge really adds: the
+  battery takes at most your max battery charge speed, and in a sunny hour
+  the sun already charges it - with a 1.8 kW charger, 2.5 kW of sun and
+  0.4 kW of house use the grid adds nothing at all. A charge window is made
+  long enough to really deliver its amount, avoids quarters the sun already
+  fills (however cheap), and is costed on what's really bought minus what
+  would go straight back to the grid. Low charge, full charge, the spike
+  top-up and the negative price charge (how much it can take in its window)
+  all use it.
+- Low charge: it stops at the forecast level at the end of its window plus
+  its amount (at most 100%) - the sun during the window no longer counts
+  toward the amount (it was in the forecast already) - and it's placed
+  where the amount still fits in the battery. The forecast draws it with
+  the same per-quarter rates (new plan attribute `grid_rates`).
+
 ## [2026.10.3] - 2026-10-08
 
 ### Fixed

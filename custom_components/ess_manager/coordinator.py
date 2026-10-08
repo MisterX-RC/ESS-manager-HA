@@ -757,6 +757,20 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         current_price_unit = (now.hour * 4) + (now.minute // 15)
 
+        # What a grid charge really adds to the battery per quarter (as of
+        # 2026.10.4): the battery's max charge speed minus the solar already
+        # charging it, so the charge plans skip quarters the sun already fills
+        # and make their windows long enough.
+        rate_units = max(len(all_price), 192)
+        charge_rates = forecasting.grid_charge_rates(
+            net_energy, now, charge_speed_kw, max_battery_charge_speed_kw, rate_units,
+            charge_efficiency, discharge_efficiency,
+        )
+        negative_charge_rates = forecasting.grid_charge_rates(
+            net_energy, now, negative_price_charge_speed_kw, max_battery_charge_speed_kw, rate_units,
+            charge_efficiency, discharge_efficiency,
+        )
+
         # -- full charge plan ("days since last full" tracking) -----------------
         # Computed early, before every other plan, for two reasons: (1) so
         # battery_forecast_adjusted below can reflect it (see v0.1.14), and
@@ -838,6 +852,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 buy_price=buy_price,
                 charge_efficiency=charge_efficiency,
                 replan=replan,
+                charge_rates=charge_rates,
             )
         else:
             self._full_charge_plan = {"active": False, "phase": None}
@@ -879,6 +894,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 charge_efficiency=charge_efficiency,
                 discharge_efficiency=discharge_efficiency,
                 replan=replan,
+                charge_rates=negative_charge_rates,
             )
         else:
             self._negative_price_plan = {"active": False}
@@ -907,6 +923,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 charge_efficiency=charge_efficiency,
                 discharge_efficiency=discharge_efficiency,
                 replan=replan,
+                charge_rates=charge_rates,
             )
         else:
             self._spike_plan = {"active": False}
@@ -944,6 +961,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             replan=replan,
             floor_kwh=deficit_floor_kwh,
             peak_kwh=horizon_peak_kwh,
+            charge_rates=charge_rates,
         )
         # A full charge relying on a future solar peak (either genuinely
         # scheduled to buy up to it, or silently skipped because that peak

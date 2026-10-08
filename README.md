@@ -99,6 +99,20 @@ it's at least the **Minimum charge target**; the sale is sized on what the
 battery is then expected to hold at the peak. (Up to v0.5.11 the spike and
 negative price plans were fixed as a whole.)
 
+**Charging with the sun in mind** (as of 2026.10.4). The battery takes at
+most your **max battery charge speed**. In a sunny hour the sun already
+charges it, so a grid charge can only add what's left up to that max -
+nothing at all when the sun alone fills it (say a 1.8 kW charger with
+2.5 kW of sun and 0.4 kW of house use). The charge plans (low charge, full
+charge, spike top-up, negative price charge) work out per quarter what the
+grid really adds: a window is made long enough to deliver its amount, skips
+quarters the sun already fills however cheap they are, and is costed on
+what's really bought (minus what would go straight back to the grid). A
+low charge stops at the forecast level at the end of its window plus its
+amount (never above 100%), so the sun shining during the window doesn't
+count toward what was meant to be bought; and it's only planned where the
+amount still fits in the battery.
+
 **A settings change re-checks running windows.** When you change one of the
 integration's numbers (or save Configure), the next cycle plans everything
 afresh, running windows included - so a charge started because of a
