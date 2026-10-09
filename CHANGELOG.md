@@ -23,6 +23,12 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   low surplus minimum) as soon as the forecast no longer ran all the way
   empty. The Solar mode sensor has a new `held` attribute: true while the
   previous mode is kept this way.
+- **A charge for a dip in the band (deficit mode) is bought before the
+  dip's lowest point.** Until now the deadline was the end of the dip, so
+  part of it could be bought after the lowest point - for example the last
+  1.29 kWh at 10:45 while the dip bottomed out at 08:00 and the battery was
+  already climbing on the sun. Energy bought then lifts nothing; now the
+  minimum + Safety buffer is really there at the lowest moment.
 - **The solar mode survives a restart or an update.** It's stored with the
   plans; the first time after this update it's taken from the Solar mode
   sensor's history, so updating doesn't reset a deficit to surplus either.

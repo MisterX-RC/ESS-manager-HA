@@ -196,8 +196,9 @@ switches. The charge plan therefore treats the two differently:
 - A dip below the **surplus minimum** is charged for before the battery
   gets there, the full amount, exactly as in surplus mode.
 - A dip that only reaches into the band between the two minimums is
-  charged in the cheapest window before the dip is over (the forecast is
-  back above the deficit minimum, or the end of the planning horizon) -
+  charged in the cheapest window before its lowest point (as of
+  2026.10.8 - until then before the dip was over, so part of it could be
+  bought after the lowest point, when it no longer lifts anything) -
   just what's missing (rounded up to the **Minimum charge target**), and
   never more than still fits under 100% at the forecast peaks after the
   charge (a peak before it, like this afternoon's for a charge tomorrow,

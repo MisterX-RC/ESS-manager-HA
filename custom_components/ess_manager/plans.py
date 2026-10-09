@@ -960,8 +960,8 @@ def compute_low_charge_plan(
     below it is charged for before the battery gets there, uncapped, as
     always. The band between the two is not urgent (deficit mode looks 120
     hours ahead): a dip that only reaches into that band is charged in the
-    cheapest window before the dip is over (or before the battery would
-    reach the floor), and only as much as still fits under 100% at the
+    cheapest window before its lowest point (as of 2026.10.8; before the
+    dip was over until then) or before the battery would reach the floor, and only as much as still fits under 100% at the
     forecast peak - nothing bought now is lost again to a solar day that
     fills the battery later. Less than the minimum charge target fitting
     means no charge for it now (the deficit minimum is picked up again
@@ -1175,10 +1175,12 @@ def _soft_low_charge(
     a charge is planned:
     - hard part: from its lowest point up to the floor - always, uncapped,
       deadline the first hour it would cross the floor;
-    - soft part: from there up to the deficit minimum - only what fits
-      under 100% at the forecast peak, deadline the end of the dip (when
-      the forecast is back at the deficit minimum, or the end of the
-      horizon) unless the hard part's deadline is earlier.
+    - soft part: from there up to the deficit minimum (plus the Safety
+      buffer) - only what fits under 100% at the forecast peak, deadline
+      the dip's lowest point (as of 2026.10.8; it used to be the end of
+      the dip, so part of it could be bought after the lowest point, when
+      it no longer lifts anything) unless the hard part's deadline is
+      earlier.
     A dip below the floor fills up to what fits under 100% at the peak
     (headroom), like the one-threshold plan. A dip only in the band charges
     just what's missing (as of 2026.10.4; it used to fill up too), rounded
@@ -1203,6 +1205,10 @@ def _soft_low_charge(
         h = dip_end
         dip = forecast[dip_start:dip_end]
         dip_min = min(dip)
+        # the hour of the lowest point: what's bought for this dip has to
+        # be in by then - a charge after it doesn't lift the lowest point
+        # (as of 2026.10.8)
+        bottom = dip_start + dip.index(dip_min)
         hard_index = next((dip_start + i for i, v in enumerate(dip) if v < floor_kwh), None)
         need_hard = max(floor_kwh - dip_min, 0.0)
         if dip_start == 0 and need_hard <= 0 and dip[0] <= dip_min:
@@ -1213,12 +1219,12 @@ def _soft_low_charge(
             continue
         need_soft = low_threshold_kwh + max(charge_buffer_kwh, 0.0) - max(dip_min, floor_kwh)
         # What fits is measured on the highest level from the latest moment
-        # the charge could still go in (the end of the dip, or the last
+        # the charge could still go in (the dip's lowest point, or the last
         # quarter with a known price) - a peak before it, like this
         # afternoon's when the dip is tomorrow night, doesn't limit a charge
         # that comes after it (as of 2026.10.4). The window is then placed
         # where it fits.
-        latest_hour = hard_index if hard_index is not None else max(dip_end - 1, 0)
+        latest_hour = hard_index if hard_index is not None else bottom
         hour0_unit = cur_unit - (now.minute // 15)
         price_hours = (len(buy_price if buy_price is not None else all_price) - hour0_unit) // 4 - 1
         latest_hour = max(min(latest_hour, price_hours), 0)
@@ -1256,7 +1262,7 @@ def _soft_low_charge(
         if hard_index is not None:
             deadline_offset = units_to_next_hour + hard_index * 4
         else:
-            deadline_offset = units_to_next_hour + max(dip_end - 1, 0) * 4
+            deadline_offset = units_to_next_hour + bottom * 4
         breach_unit = cur_unit + deadline_offset
 
         relevant_usage = usage[0 : (hard_index if hard_index is not None else dip_start) + 1]
@@ -1291,8 +1297,9 @@ def _soft_low_charge(
         }
         if charge_rates is not None:
             # As of 2026.10.6: the cheapest quarters, in blocks - below the
-            # floor each part before it's needed (hard), the band whenever
-            # before the dip is over, and only where it fits under 100%.
+            # floor each part before it's needed (hard), the band before
+            # the dip's lowest point (as of 2026.10.8), and only where it
+            # fits under 100%.
             hour0_unit = cur_unit - (now.minute // 15)
             requirements: list[tuple[int, float, bool]] = []
             if need_hard > 0:
@@ -1301,7 +1308,7 @@ def _soft_low_charge(
                     envelope = max(envelope, floor_kwh - forecast[h])
                     if envelope > 0:
                         requirements.append((hour0_unit + 4 * (h + 1), round(envelope, 4), True))
-            requirements.append((hour0_unit + 4 * dip_end, target_kwh, False))
+            requirements.append((hour0_unit + 4 * (bottom + 1), target_kwh, False))
             units = _schedule_charge(
                 requirements, charge_rates, buy, all_price, cur_unit, len(buy), charge_speed_kw / 4,
                 charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
