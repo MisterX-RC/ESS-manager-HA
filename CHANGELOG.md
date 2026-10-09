@@ -12,6 +12,17 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.8] - 2026-10-09
+
+### Fixed
+- **Short charge blocks show blue in the Battery forecast card again.** The
+  SOC line was coloured per segment between two hourly forecast points,
+  judged by that segment's start time. A charge block shorter than the gap
+  between two points (like a 30-minute buy at 15:00-15:30) fell between
+  them and stayed green. The line is now split exactly at the start and end
+  of every charge/discharge block, so each block is coloured however short
+  it is.
+
 ## [2026.10.7] - 2026-10-09
 
 ### Changed

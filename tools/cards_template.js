@@ -732,7 +732,23 @@ class EssManagerBatteryCard extends EssChartCard {
       const w = m.windows.find((win) => t >= win.start && t < win.stop);
       return w ? w.kind : "normal";
     };
-    const all = m.hist.map((p) => [...p, true]).concat(m.future.map((p) => [...p, false]));
+    // The forecast has a point per hour; a short charge block (30 minutes,
+    // as of 2026.10.6) can fall between two of them, so the line gets extra
+    // points on the plan windows' edges (on the line itself) to colour it.
+    const edges = [];
+    for (const w of m.windows) edges.push(w.start, w.stop);
+    const future = [];
+    m.future.forEach((p, i) => {
+      if (i > 0) {
+        const [ta, va] = m.future[i - 1];
+        const [tb, vb] = p;
+        for (const e of edges.filter((t) => t > ta && t < tb).sort((a, b) => a - b)) {
+          future.push([e, va + ((vb - va) * (e - ta)) / (tb - ta)]);
+        }
+      }
+      future.push(p);
+    });
+    const all = m.hist.map((p) => [...p, true]).concat(future.map((p) => [...p, false]));
     let run = null;
     const runs = [];
     for (let i = 1; i < all.length; i++) {
