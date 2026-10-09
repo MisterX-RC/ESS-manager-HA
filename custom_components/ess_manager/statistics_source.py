@@ -72,3 +72,19 @@ async def async_fetch_hourly_sums(
             series[epoch] = float(value)
         result[entity_id] = series
     return result
+
+
+async def async_last_recorded_state(hass: HomeAssistant, entity_id: str, wanted: Iterable[str]) -> str | None:
+    """The most recent recorded state of `entity_id` that is one of
+    `wanted` (compared lower-case) - skipping unavailable/unknown, which an
+    entity briefly is around a restart. None when the recorder has none (or
+    can't be read). Used once, to carry the solar mode over the update that
+    starts storing it (2026.10.8)."""
+    from homeassistant.components.recorder.history import get_last_state_changes
+
+    wanted_lower = {w.lower() for w in wanted}
+    changes = await get_instance(hass).async_add_executor_job(get_last_state_changes, hass, 10, entity_id)
+    for state in reversed(changes.get(entity_id.lower(), [])):
+        if state.state.lower() in wanted_lower:
+            return state.state.lower()
+    return None

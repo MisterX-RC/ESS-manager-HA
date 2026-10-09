@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -78,7 +79,7 @@ from .const import (
 )
 from .controller import ControlSettings, EssController
 from .energy_source import async_get_energy_prefs
-from .statistics_source import async_fetch_hourly_sums
+from .statistics_source import async_fetch_hourly_sums, async_last_recorded_state
 from .usage_forecast import (
     HISTORY_NONE,
     HISTORY_STATUS_NONE,
@@ -240,6 +241,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._full_charge_plan = data.get("full_charge_plan")
             last_full = data.get("last_full_reached")
             self._last_full_reached = dt_util.parse_datetime(last_full) if last_full else None
+            # the solar mode it was in, so a forecast that stays between 0%
+            # and 100% keeps it after a restart or an update (2026.10.8)
+            self._last_solar_mode = data.get("solar_mode")
+            if "solar_mode" not in data:
+                # stored by a version from before 2026.10.8: take it from
+                # the Solar mode sensor's history, once
+                self._last_solar_mode = await self._async_recorded_solar_mode()
         else:
             # Nothing stored yet: a brand-new installation (as of v0.2.13).
             # Assume the battery has just been balanced, so the internal
@@ -255,6 +263,24 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         self._restored = True
 
+    async def _async_recorded_solar_mode(self) -> Optional[str]:
+        """The Solar mode sensor's last recorded Deficit/Surplus, or None."""
+        try:
+            entity_id = er.async_get(self.hass).async_get_entity_id(
+                "sensor", DOMAIN, f"{self.entry.entry_id}_solar_mode"
+            )
+            if not entity_id:
+                return None
+            mode = await async_last_recorded_state(
+                self.hass, entity_id, (forecasting.SOLAR_MODE_DEFICIT, forecasting.SOLAR_MODE_SURPLUS)
+            )
+        except Exception as err:  # noqa: BLE001 - the recorder is optional here; surplus is the fallback
+            _LOGGER.debug("ESS Manager: no recorded solar mode (%s)", err)
+            return None
+        if mode:
+            _LOGGER.info("ESS Manager (%s): solar mode %s taken over from the sensor's history", self.entry.title, mode)
+        return mode
+
     async def _async_persist(self) -> None:
         await self.store.async_save(
             {
@@ -264,6 +290,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "high_discharge_plan": self._high_discharge_plan,
                 "full_charge_plan": self._full_charge_plan,
                 "last_full_reached": self._last_full_reached.isoformat() if self._last_full_reached else None,
+                "solar_mode": self._last_solar_mode,
             }
         )
 
@@ -738,7 +765,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Solar deficit or surplus (as of v0.4.2): does the raw forecast run
         # empty before solar fills the battery? That decides which minimum
         # SOC - and so the low threshold every plan uses - applies.
-        solar_mode = forecasting.compute_solar_mode(battery_forecast, capacity_kwh)
+        # Between 0% and 100% all along: the mode stays what it was (as of
+        # 2026.10.8 - also across a restart, see _async_restore).
+        solar_mode = forecasting.compute_solar_mode(battery_forecast, capacity_kwh, self._last_solar_mode)
         min_soc_percent = (
             min_soc_deficit_percent
             if solar_mode["mode"] == forecasting.SOLAR_MODE_DEFICIT

@@ -171,17 +171,21 @@ whether the sun or the grid refills the battery, so there are two:
   (solar and usage only, no planned charges or sales) runs empty (below 0%)
   before it would fill up past 100%. The grid will have to refill the
   battery, so keep a real reserve.
-- **Minimum SOC (solar surplus)** - used otherwise: the forecast fills up
-  past 100% before it would run empty, or never runs empty at all within
-  the 5 days. The sun refills the battery, so this one can be set close
-  to 0. A short dip followed by a climb to 100% stays surplus, so it
-  doesn't trigger a charge the sun would make useless.
+- **Minimum SOC (solar surplus)** - used when the forecast fills up past
+  100% before it would run empty. The sun refills the battery, so this one
+  can be set close to 0. A short dip followed by a climb to 100% stays
+  surplus, so it doesn't trigger a charge the sun would make useless.
 
 The whole 121-hour forecast counts, and the nearest of the two moments
-decides. The minimum in use is the low threshold for every plan - when to
+decides. 0% and 100% are the only switch points: when the forecast does
+neither within the 5 days (it stays between 0% and 100% all along), the
+mode simply stays what it was (as of 2026.10.8 - before that it went back
+to surplus). The mode is stored, so a restart or an update keeps it too; a
+brand-new installation starts in surplus. The minimum in use is the low threshold for every plan - when to
 charge, and how far a sale may go. The **Solar mode** sensor shows
-`Deficit` or `Surplus`, the minimum in use and in how many hours the raw
-forecast runs empty or fills up; the battery chart's min SOC line follows
+`Deficit` or `Surplus`, the minimum in use, in how many hours the raw
+forecast runs empty or fills up, and `held` (true while it does neither and
+the previous mode is kept); the battery chart's min SOC line follows
 the minimum in use.
 
 **In deficit mode the surplus minimum stays the hard floor.** Deficit mode

@@ -153,7 +153,7 @@ SOLAR_MODE_DEFICIT = "deficit"
 SOLAR_MODE_SURPLUS = "surplus"
 
 
-def compute_solar_mode(raw_forecast: list[float], capacity_kwh: float) -> dict:
+def compute_solar_mode(raw_forecast: list[float], capacity_kwh: float, previous_mode: Optional[str] = None) -> dict:
     """Whether solar carries the house over the whole forecast (surplus) or
     the grid will be needed (deficit), from the RAW battery forecast
     (solar and usage only - no planned charges or sales), all 121 hours.
@@ -162,10 +162,14 @@ def compute_solar_mode(raw_forecast: list[float], capacity_kwh: float) -> dict:
       the empty hour; the first hour it goes above 100% of capacity (the
       battery would fill up on solar alone) is the full hour.
     - Deficit when it runs empty before it fills up (or runs empty and
-      never fills up); surplus otherwise - including when it never runs
-      empty at all. A small dip right now followed by a climb to 100%
+      never fills up); surplus when it fills up first (or fills up and
+      never runs empty). A small dip right now followed by a climb to 100%
       therefore stays surplus: the sun refills the battery before it's
       empty, so a charge from the grid would be wasted.
+    - Neither within the forecast (it stays between 0% and 100% all along):
+      the mode stays what it was (`previous_mode`, as of 2026.10.8) - 0%
+      and 100% are the two switch points, in between nothing changes.
+      Surplus when there's no previous mode (a brand-new installation).
 
     Deficit uses the higher "Minimum SOC (solar deficit)" (backup energy
     for a grid failure when the grid is what refills the battery);
@@ -173,11 +177,20 @@ def compute_solar_mode(raw_forecast: list[float], capacity_kwh: float) -> dict:
     """
     empty_hour = next((h for h, kwh in enumerate(raw_forecast) if kwh < 0), None)
     full_hour = next((h for h, kwh in enumerate(raw_forecast) if kwh > capacity_kwh), None)
+    if empty_hour is None and full_hour is None:
+        held = previous_mode in (SOLAR_MODE_DEFICIT, SOLAR_MODE_SURPLUS)
+        return {
+            "mode": previous_mode if held else SOLAR_MODE_SURPLUS,
+            "empty_hour": None,
+            "full_hour": None,
+            "held": held,
+        }
     deficit = empty_hour is not None and (full_hour is None or empty_hour < full_hour)
     return {
         "mode": SOLAR_MODE_DEFICIT if deficit else SOLAR_MODE_SURPLUS,
         "empty_hour": empty_hour,
         "full_hour": full_hour,
+        "held": False,
     }
 
 

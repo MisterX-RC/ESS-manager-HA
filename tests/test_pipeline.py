@@ -2578,12 +2578,25 @@ check("solar mode: a dip just above 0 followed by a climb past 100% -> surplus (
       _sm(_dip, 30.0)["mode"] == "surplus" and _sm(_dip, 30.0)["full_hour"] is not None)
 _empty_first = [5.0] * 10 + [-1.0] * 20 + [31.0] * 91
 check("solar mode: empty before full -> deficit (the nearest breach decides)",
-      _sm(_empty_first, 30.0) == {"mode": "deficit", "empty_hour": 10, "full_hour": 30})
+      _sm(_empty_first, 30.0) == {"mode": "deficit", "empty_hour": 10, "full_hour": 30, "held": False})
 _full_first = [20.0] * 8 + [31.0] * 32 + [-1.0] * 81
 check("solar mode: full before empty -> surplus",
-      _sm(_full_first, 30.0) == {"mode": "surplus", "empty_hour": 40, "full_hour": 8})
+      _sm(_full_first, 30.0) == {"mode": "surplus", "empty_hour": 40, "full_hour": 8, "held": False})
 check("solar mode: the whole 121 hours count (empty only in hour 120 -> deficit)",
       _sm([10.0] * 120 + [-0.1], 30.0)["mode"] == "deficit")
+
+# 2026.10.8: between 0% and 100% all along -> the mode stays what it was (0% and 100% are the switch points)
+_between = [12.0, 9.0, 6.0, 2.0] + [8.0] * 117
+check("solar mode: between 0% and 100% after a deficit -> stays deficit",
+      _sm(_between, 30.0, "deficit") == {"mode": "deficit", "empty_hour": None, "full_hour": None, "held": True})
+check("solar mode: between 0% and 100% after a surplus -> stays surplus",
+      _sm(_between, 30.0, "surplus")["mode"] == "surplus" and _sm(_between, 30.0, "surplus")["held"])
+check("solar mode: between 0% and 100% with nothing known yet -> surplus (not held)",
+      _sm(_between, 30.0) == {"mode": "surplus", "empty_hour": None, "full_hour": None, "held": False})
+check("solar mode: a previous deficit doesn't hold once the forecast fills up first",
+      _sm(_full_first, 30.0, "deficit")["mode"] == "surplus")
+check("solar mode: a previous surplus doesn't hold once the forecast runs empty first",
+      _sm(_empty_first, 30.0, "surplus")["mode"] == "deficit")
 
 # ---------------------------------------------------------------------------
 # v0.4.3: charge / discharge efficiency

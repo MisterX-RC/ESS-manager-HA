@@ -14,6 +14,19 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.10.8] - 2026-10-09
 
+### Changed
+- **The solar mode only switches at 0% and 100%.** Deficit when the raw
+  forecast runs empty first, surplus when it fills up past 100% first -
+  and when it does neither within the 5 days (it stays between 0% and 100%
+  all along), the mode now stays what it was. Until now that case always
+  meant surplus, so a deficit from yesterday fell back to surplus (and the
+  low surplus minimum) as soon as the forecast no longer ran all the way
+  empty. The Solar mode sensor has a new `held` attribute: true while the
+  previous mode is kept this way.
+- **The solar mode survives a restart or an update.** It's stored with the
+  plans; the first time after this update it's taken from the Solar mode
+  sensor's history, so updating doesn't reset a deficit to surplus either.
+
 ### Fixed
 - **Short charge blocks show blue in the Battery forecast card again.** The
   SOC line was coloured per segment between two hourly forecast points,

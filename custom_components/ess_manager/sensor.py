@@ -337,8 +337,9 @@ class EssManagerSolarModeSensor(CoordinatorEntity[EssManagerCoordinator], Sensor
     State: "Deficit" (the raw forecast runs empty before solar fills the
     battery: the higher solar-deficit minimum applies) or "Surplus" (the
     lower solar-surplus minimum applies). Attributes: the minimum in use,
-    both minimums, and in how many hours the raw forecast runs empty / goes
-    above 100% (None = not within the 121-hour forecast).
+    both minimums, in how many hours the raw forecast runs empty / goes
+    above 100% (None = not within the 121-hour forecast), and `held` - true
+    when neither happens and the previous mode is simply kept.
     """
 
     _attr_has_entity_name = True
@@ -375,6 +376,8 @@ class EssManagerSolarModeSensor(CoordinatorEntity[EssManagerCoordinator], Sensor
             "min_soc_surplus_percent": mode["min_soc_surplus_percent"],
             "empty_in_hours": mode["empty_hour"],
             "full_in_hours": mode["full_hour"],
+            # between 0% and 100% all along: the previous mode is kept
+            "held": mode.get("held", False),
         }
 
 
