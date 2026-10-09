@@ -12,6 +12,17 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.7] - 2026-10-09
+
+### Changed
+- **A low charge buys what's missing up to the minimum SOC plus the Safety
+  buffer - no longer filled up to 100% at the coming peak.** Until now a
+  charge that happened anyway also filled the battery to what fit under
+  100%: live report (15 kWh battery, 1.7 kW charger): 5.4 kWh needed, 11.07
+  kWh planned, five hours of charging. Now it's those 5.4 kWh (rounded up
+  to the Minimum charge target), in the cheapest quarters before they're
+  needed. To stay further from the minimum, raise the Safety buffer.
+
 ## [2026.10.6] - 2026-10-09
 
 ### Changed

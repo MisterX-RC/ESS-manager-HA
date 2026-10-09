@@ -1064,8 +1064,11 @@ def compute_low_charge_plan(
     breach_unit = cur_unit + breach_offset_units
     deficit = round(low_threshold_kwh + max(charge_buffer_kwh, 0.0) - value, 3)
     future_peak = peak_kwh if peak_kwh is not None else (max(forecast) if forecast else upper_limit_kwh)
-    headroom = upper_limit_kwh - future_peak
-    target_kwh = max(deficit, headroom)
+    # Just what's missing to keep the dip at the low threshold + Safety
+    # buffer (as of 2026.10.7; until then a charge also filled up to 100% at
+    # the coming peak - in a slow system that meant hours of charging for
+    # energy that wasn't needed). Rounded up to the minimum charge target.
+    target_kwh = deficit
     rounded_up_to_minimum = False
     if target_kwh < minimum_charge_target_kwh:
         room = (high_threshold_kwh - future_peak) if high_threshold_kwh is not None else minimum_charge_target_kwh
@@ -1224,8 +1227,9 @@ def _soft_low_charge(
         soft_capped = min(need_soft, max(band_headroom - need_hard, 0.0))
         rounded_up_to_minimum = False
         if need_hard > 0:
-            # below the floor: like any charge, it fills up to what fits
-            target_kwh = max(need_hard + soft_capped, headroom)
+            # below the floor: what's missing up to the floor and the band
+            # (as of 2026.10.7 no longer filled up to 100% at the peak)
+            target_kwh = need_hard + soft_capped
             if target_kwh < minimum_charge_target_kwh:
                 room = (high_threshold_kwh - future_peak) if high_threshold_kwh is not None else minimum_charge_target_kwh
                 rounded = max(target_kwh, min(minimum_charge_target_kwh, room))

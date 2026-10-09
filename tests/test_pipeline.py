@@ -2523,10 +2523,10 @@ _low_args = dict(cur_unit=0, forecast_with_spike=[10.0] * 20 + [2.0] * 20, now=d
                  usage=[1.0] * 121, all_price=_raw, planning_horizon_hours=72, battery_now_kwh=10.0)
 _low_raw = plans.compute_low_charge_plan(None, **_low_args)
 _low_buy = plans.compute_low_charge_plan(None, **_low_args, buy_price=_buy)
-check("low charge plan without transport covers the cheapest raw price (16:00-18:00)",
-      _low_raw["start_unit"] <= 64 and _low_raw["end_unit"] >= 72)
-check("low charge plan with transport covers the cheapest BUY price (10:00-12:00) instead",
-      _low_buy["start_unit"] <= 40 and _low_buy["end_unit"] >= 48 and _low_buy["end_unit"] <= 64)
+check("low charge plan without transport goes in the cheapest raw price (16:00-18:00)",
+      64 <= _low_raw["start_unit"] and _low_raw["end_unit"] <= 72)
+check("low charge plan with transport goes in the cheapest BUY price (10:00-12:00) instead",
+      40 <= _low_buy["start_unit"] and _low_buy["end_unit"] <= 48)
 
 # Negative price plan: raw price below the threshold, but not once transport is added
 _negraw = [0.10] * 40 + [-0.25] * 8 + [0.10] * 48
@@ -2600,7 +2600,7 @@ check("efficiency: the max charge/discharge caps are on the battery side",
       _ef_cap[0] == 30.0 and _ef_cap[1] == 20.0)
 
 _lowargs_eff = dict(cur_unit=0, forecast_with_spike=[10.0] * 5 + [2.0] * 20, now=now_top_of_hour, charge_speed_kw=7.0,
-                    low_threshold_kwh=3.0, minimum_charge_target_kwh=5.0, upper_limit_kwh=30.0, usage=[1.0] * 121,
+                    low_threshold_kwh=3.0, minimum_charge_target_kwh=10.0, upper_limit_kwh=30.0, usage=[1.0] * 121,
                     all_price=[0.30] * 40 + [0.10] * 20 + [0.30] * 40, planning_horizon_hours=72, battery_now_kwh=10.0)
 _low100 = plans.compute_low_charge_plan(None, **_lowargs_eff)
 _low90 = plans.compute_low_charge_plan(None, **_lowargs_eff, charge_efficiency=0.9)
@@ -3128,6 +3128,15 @@ check("minimum duration: 60 min -> a block of 4 quarters around it", len(_md4) =
 check("minimum duration: blocks are trimmed back to what's needed (never below the minimum)",
       plans._schedule_charge([(24, 1.0, True)], _md_rates, _md_price, _md_price, 8, 24, 0.5, 1.0, 2, [], 0, 1e9)
       in ([14, 15], [15, 16]))
+
+# 2026.10.7: a charge buys what's missing up to the low threshold + Safety buffer - no longer filled up to 100%
+_nf = plans.compute_low_charge_plan(None, 0, [10.0] * 5 + [2.0] * 20, now_top_of_hour, 7.0, 3.0, 1.0, 30.0, usage_flat,
+                                    all_price, 72, 10.0, charge_buffer_kwh=1.5)
+check("no fill: just the deficit + buffer (3.0 + 1.5 - 2.0 = 2.5), not up to 100 % at the peak (20 would fit)",
+      _nf["target_kwh"] == 2.5)
+check("no fill: still rounded up to the minimum charge target",
+      plans.compute_low_charge_plan(None, 0, [10.0] * 5 + [2.0] * 20, now_top_of_hour, 7.0, 3.0, 5.0, 30.0, usage_flat,
+                                    all_price, 72, 10.0, high_threshold_kwh=33.0, charge_buffer_kwh=1.5)["target_kwh"] == 5.0)
 
 print()
 if FAILURES:

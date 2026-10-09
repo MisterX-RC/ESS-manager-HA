@@ -61,7 +61,10 @@ Five planning engines, all documented in detail in the code
 (`custom_components/ess_manager/plans.py`):
 
 1. **Low charge plan** - charges before the battery would otherwise drop
-   below your minimum SOC, during the cheapest available price window.
+   below your minimum SOC, in the cheapest quarters before it's needed -
+   just what's missing to keep the dip at the minimum SOC plus the
+   **Safety buffer** (rounded up to the **Minimum charge target**), not a
+   full battery.
 2. **High discharge plan** - discharges before the battery would otherwise
    overshoot your maximum SOC, during the priciest available price window,
    selling the forecast peak back down to 100% (so with a max SOC of 110%
@@ -201,9 +204,9 @@ switches. The charge plan therefore treats the two differently:
   the band that's at its lowest right now (the sun lifts it on its own)
   needs no charge.
 
-A charge for a dip below the surplus minimum fills up to what fits under
-100% at the peak, like any other charge; a band-only charge doesn't (as of
-2026.10.4).
+A charge for a dip below the surplus minimum buys what's missing up to
+the surplus minimum plus the band part that fits. No charge fills the
+battery up to 100% any more (as of 2026.10.7).
 
 By default the integration only decides: its `Status` sensor says what
 should happen and your own automation acts on it - see "Wiring it to your
