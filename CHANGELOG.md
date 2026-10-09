@@ -12,6 +12,31 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.6] - 2026-10-09
+
+### Changed
+- **Charging in the cheapest quarters, each part before it's needed.** The
+  low charge plan (deficit band included) and the full charge plan no
+  longer look for one long window that holds the whole amount - which
+  pulled in dearer hours around a short cheap valley, and bought a deficit
+  of several days in one go. Every part of the charge is now bought in the
+  cheapest quarters before the moment it's needed: a dip that runs from
+  tonight to the day after tomorrow gets tonight only what's needed to
+  reach tomorrow's cheaper valley, the rest there. That can be several
+  blocks; the plan's window is the first one, `blocks` lists them all (with
+  their amounts and stop levels), and after each block the rest is planned
+  again. What's only needed after the last known price is planned once the
+  next prices are in. A charge goes where the battery still has room for
+  it, as long as it can.
+- Status card: "+2" next to the Buy block's times when there are more
+  blocks (hover for when). The price and battery charts draw all blocks.
+  The Charge amount sensor and the Buy block show the first block's amount.
+
+### Added
+- **Minimum charge duration** (number, 15-120 minutes in steps of 15,
+  default 30): the shortest charge block, so a charge doesn't switch on and
+  off every quarter.
+
 ## [2026.10.5] - 2026-10-08
 
 ### Fixed

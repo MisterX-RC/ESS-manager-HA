@@ -156,6 +156,208 @@ def _place_rate_charge(
     }
 
 
+def _schedule_charge(
+    requirements: list[tuple[int, float, bool]],
+    rates: list[float],
+    buy: list[float],
+    sell: list[float],
+    cur_unit: int,
+    last_unit: int,
+    import_per_unit: float,
+    charge_efficiency: float,
+    min_block_units: int,
+    base: list[float],
+    hour0_unit: int,
+    cap_kwh: float,
+) -> list[int]:
+    """The cheapest quarters to charge in (as of 2026.10.6), possibly split
+    over several blocks, each part of the amount bought before it's needed.
+
+    `requirements` are (deadline unit, kWh that must be in by then, hard):
+    cumulative, so a dip that deepens over two days asks for a little by
+    tonight and the rest by the day after - each part goes into the
+    cheapest quarter before its own deadline, not all of it before the
+    first one. Every part goes where every later forecast hour stays under
+    `cap_kwh` if it can; a hard requirement is met however it must (over
+    100% if nothing fits, and - if nothing is left before its deadline - in
+    the first free quarters after it); a soft one is simply left out. Requirements after `last_unit` (prices not known yet)
+    are left for later: they're planned when the prices come in.
+
+    `rates`: what the grid really adds per quarter (grid_charge_rates);
+    cost per kWh = (bought - sent straight back) / added. Blocks shorter
+    than `min_block_units` are lengthened into their cheapest neighbours,
+    then quarters no requirement needs any more are trimmed off the ends
+    (never below that length). Returns the chosen units, sorted."""
+    ce = charge_efficiency if charge_efficiency > 0 else 1.0
+    n = min(last_unit, len(rates), len(buy))
+    chosen: set[int] = set()
+    added = [0.0] * len(base)
+
+    def cost(u: int) -> float:
+        rate = rates[u]
+        waste = max(import_per_unit - rate / ce, 0.0)
+        price_sell = sell[u] if u < len(sell) else buy[u]
+        return (buy[u] * import_per_unit - price_sell * waste) / rate
+
+    def hour_of(u: int) -> int:
+        return max((u - hour0_unit) // 4, 0)
+
+    def fits(u: int) -> bool:
+        later = range(hour_of(u), len(base))
+        return not base or all(base[h] + added[h] + rates[u] <= cap_kwh + 0.01 for h in later)
+
+    def take(u: int) -> None:
+        chosen.add(u)
+        for h in range(hour_of(u), len(added)):
+            added[h] += rates[u]
+
+    def delivered_before(units: set[int], deadline: int) -> float:
+        return sum(rates[u] for u in units if u < deadline)
+
+    met: list[tuple[int, float]] = []
+    for deadline, need, hard in sorted(requirements):
+        if deadline > n:
+            if hard:
+                continue  # needed after the known prices: planned when they come in
+            deadline = n
+        while delivered_before(chosen, deadline) < need - 1e-6:
+            free = [u for u in range(cur_unit, min(deadline, n)) if u not in chosen and rates[u] > 1e-6]
+            # where it fits under 100% (so a long drain is bought bit by bit,
+            # not all at once); a hard need that can't fit anywhere goes in
+            # anyway
+            options = [u for u in free if fits(u)] or (free if hard else [])
+            if options:
+                # equal cost: next to a quarter already taken (fewer blocks)
+                take(min(options, key=lambda u: (round(cost(u), 6), 0 if (u - 1 in chosen or u + 1 in chosen) else 1, u)))
+                continue
+            if hard:
+                # too late to make it all before the deadline: the rest as
+                # soon as possible after it
+                short = need - delivered_before(chosen, deadline)
+                for u in range(cur_unit, n):
+                    if short <= 1e-6:
+                        break
+                    if u not in chosen and rates[u] > 1e-6:
+                        take(u)
+                        short -= rates[u]
+            break
+        got = delivered_before(chosen, deadline)
+        # what was reached by each deadline is kept when trimming (also a
+        # hard need that was only partly in time - all of that counts)
+        met.append((deadline, min(need, got)))
+        if got < need - 1e-6 and not hard:
+            break
+
+    def runs(units: set[int]) -> list[list[int]]:
+        out: list[list[int]] = []
+        for u in sorted(units):
+            if out and u == out[-1][-1] + 1:
+                out[-1].append(u)
+            else:
+                out.append([u])
+        return out
+
+    # lengthen blocks that are too short
+    for _ in range(len(rates)):
+        short = [r for r in runs(chosen) if len(r) < min_block_units]
+        if not short:
+            break
+        grown = False
+        for run in short:
+            options = [u for u in (run[0] - 1, run[-1] + 1) if cur_unit <= u < n and u not in chosen]
+            if not options:
+                continue
+            fitting = [u for u in options if rates[u] > 1e-6 and fits(u)] or options
+            take(min(fitting, key=lambda u: (round(cost(u), 6) if rates[u] > 1e-6 else 1e9, u)))
+            grown = True
+        if not grown:
+            break
+
+    # trim what's no longer needed off the ends of blocks
+    def still_met(units: set[int]) -> bool:
+        return all(delivered_before(units, d) >= need - 1e-6 for d, need in met)
+
+    # whole blocks no requirement needs any more (most expensive first)
+    for run in sorted(runs(chosen), key=lambda r: -sum(cost(u) if rates[u] > 1e-6 else 1e9 for u in r) / len(r)):
+        if still_met(chosen - set(run)):
+            for u in run:
+                chosen.discard(u)
+                for h in range(hour_of(u), len(added)):
+                    added[h] -= rates[u]
+
+    trimmed = True
+    while trimmed:
+        trimmed = False
+        edges = []
+        for run in runs(chosen):
+            if len(run) > min_block_units:
+                edges += [run[0], run[-1]]
+        for u in sorted(set(edges), key=lambda u: -(cost(u) if rates[u] > 1e-6 else 1e9)):
+            if still_met(chosen - {u}):
+                chosen.discard(u)
+                for h in range(hour_of(u), len(added)):
+                    added[h] -= rates[u]
+                trimmed = True
+                break
+    return sorted(chosen)
+
+
+def _charge_blocks(
+    units: list[int],
+    rates: list[float],
+    total_kwh: float,
+    base: list[float],
+    battery_now_kwh: float,
+    cur_unit: int,
+    hour0_unit: int,
+    cap_kwh: float,
+) -> list[dict]:
+    """The chosen quarters as blocks: [{start_unit, end_unit, kwh,
+    target_level_kwh, rates}] - kwh what the grid adds in the block (the
+    last one only up to `total_kwh`), target_level_kwh the battery level it
+    stops at: the forecast level at its end plus everything planned up to
+    and including it (at most `cap_kwh`)."""
+    blocks: list[dict] = []
+    cumulative = 0.0
+    for u in units:
+        if blocks and u == blocks[-1]["end_unit"]:
+            blocks[-1]["end_unit"] = u + 1
+            blocks[-1]["rates"].append(round(rates[u], 4))
+        else:
+            blocks.append({"start_unit": u, "end_unit": u + 1, "rates": [round(rates[u], 4)]})
+    out = []
+    for block in blocks:
+        energy = min(sum(block["rates"]), max(total_kwh - cumulative, 0.0))
+        cumulative += energy
+        level_end = _level_at(base, battery_now_kwh, cur_unit, hour0_unit, block["end_unit"])
+        block["kwh"] = round(energy, 3)
+        block["target_level_kwh"] = round(min(level_end + cumulative, cap_kwh), 3)
+        if energy > 0:
+            out.append(block)
+    return out
+
+
+def _blocks_plan(blocks: list[dict], total_kwh: float) -> dict:
+    """The plan fields for a block schedule: the first block is the plan's
+    own window (start_unit/end_unit, what the status and the stop follow);
+    the rest are listed in `blocks` and planned again once it's done."""
+    first = blocks[0]
+    units = first["end_unit"] - first["start_unit"]
+    return {
+        "start_unit": first["start_unit"],
+        "end_unit": first["end_unit"],
+        "units_needed": units,
+        "block_kwh": first["kwh"],
+        "effective_charge_per_unit": round(first["kwh"] / units, 4),
+        "grid_rates": first["rates"],
+        "target_energy_kwh": first["target_level_kwh"],
+        "planned_kwh": round(sum(b["kwh"] for b in blocks), 3),
+        "blocks": [
+            {k: b[k] for k in ("start_unit", "end_unit", "kwh", "target_level_kwh", "rates")} for b in blocks
+        ],
+    }
+
+
 def _extend_flat_price_window(
     prices: list[float],
     start: int,
@@ -732,6 +934,7 @@ def compute_low_charge_plan(
     peak_kwh: Optional[float] = None,
     charge_rates: Optional[list[float]] = None,
     charge_buffer_kwh: float = 0.0,
+    min_charge_units: int = 2,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price).
@@ -782,6 +985,14 @@ def compute_low_charge_plan(
     the dip to the low threshold PLUS this, so a bit more usage or less sun
     than forecast doesn't take the battery just under it. When to charge
     still follows the threshold itself.
+
+    With `charge_rates` (as of 2026.10.6) the charge isn't one window but
+    the cheapest quarters before each part of it is needed - a dip that
+    deepens over two days is bought partly tonight and partly in a cheaper
+    valley later, when that's still in time - in blocks of at least
+    `min_charge_units` quarters (the Minimum charge duration). The plan's
+    window is the first block; `blocks` lists them all, and the rest is
+    planned again once the first is done.
     """
     prev = prev or {"active": False}
     if not replan and prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
@@ -814,7 +1025,7 @@ def compute_low_charge_plan(
         soft = _soft_low_charge(
             forecast, cur_unit, now, charge_speed_kw, low_threshold_kwh, floor_kwh, minimum_charge_target_kwh,
             upper_limit_kwh, usage, all_price, battery_now_kwh, high_threshold_kwh, buy_price, charge_efficiency,
-            discharge_efficiency, peak_kwh, charge_rates, charge_buffer_kwh,
+            discharge_efficiency, peak_kwh, charge_rates, charge_buffer_kwh, min_charge_units,
         )
         if soft is not None:
             return soft
@@ -874,10 +1085,29 @@ def compute_low_charge_plan(
     best_start = _best_price_window(buy, cur_unit, search_end, units_needed, cheapest=True)
     placed = None
     if charge_rates is not None:
-        placed = _place_rate_charge(
-            target_kwh, charge_rates, buy, all_price, cur_unit, search_end, now, forecast, battery_now_kwh,
-            upper_limit_kwh, charge_speed_kw, charge_efficiency,
+        # each part of the dip bought before it's needed (hard); what it
+        # fills up beyond that (headroom, the minimum) before the dip is
+        # over, where it fits (as of 2026.10.6)
+        hour0_unit = cur_unit - (now.minute // 15)
+        level = low_threshold_kwh + max(charge_buffer_kwh, 0.0)
+        requirements = []
+        envelope = 0.0
+        for h in range(hour_index, dip_end):
+            envelope = max(envelope, level - forecast[h])
+            if envelope > 0:
+                requirements.append((hour0_unit + 4 * (h + 1), round(envelope, 4), True))
+        if target_kwh > envelope + 1e-6:
+            requirements.append((hour0_unit + 4 * dip_end, target_kwh, False))
+        units = _schedule_charge(
+            requirements, charge_rates, buy, all_price, cur_unit, len(buy), charge_speed_kw / 4,
+            charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
         )
+        blocks = _charge_blocks(units, charge_rates, target_kwh, forecast, battery_now_kwh, cur_unit, hour0_unit,
+                                upper_limit_kwh)
+        if not blocks:
+            # everything needed after the known prices: planned when they come
+            return {"active": False, "breach_unit": breach_unit, "deferred_kwh": round(target_kwh, 3)}
+        placed = _blocks_plan(blocks, target_kwh)
 
     plan = {
         "active": True,
@@ -931,6 +1161,7 @@ def _soft_low_charge(
     peak_kwh: Optional[float] = None,
     charge_rates: Optional[list[float]] = None,
     charge_buffer_kwh: float = 0.0,
+    min_charge_units: int = 2,
 ) -> Optional[dict]:
     """compute_low_charge_plan in solar deficit mode (as of v0.5.13), with
     the surplus minimum as the hard floor below the deficit minimum - see
@@ -1055,10 +1286,31 @@ def _soft_low_charge(
             "target_reached": False,
         }
         if charge_rates is not None:
-            plan.update(_place_rate_charge(
-                target_kwh, charge_rates, buy, all_price, cur_unit, search_end, now, forecast, battery_now_kwh,
-                upper_limit_kwh, charge_speed_kw, charge_efficiency,
-            ))
+            # As of 2026.10.6: the cheapest quarters, in blocks - below the
+            # floor each part before it's needed (hard), the band whenever
+            # before the dip is over, and only where it fits under 100%.
+            hour0_unit = cur_unit - (now.minute // 15)
+            requirements: list[tuple[int, float, bool]] = []
+            if need_hard > 0:
+                envelope = 0.0
+                for h in range(dip_start, dip_end):
+                    envelope = max(envelope, floor_kwh - forecast[h])
+                    if envelope > 0:
+                        requirements.append((hour0_unit + 4 * (h + 1), round(envelope, 4), True))
+            requirements.append((hour0_unit + 4 * dip_end, target_kwh, False))
+            units = _schedule_charge(
+                requirements, charge_rates, buy, all_price, cur_unit, len(buy), charge_speed_kw / 4,
+                charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
+            )
+            blocks = _charge_blocks(units, charge_rates, target_kwh, forecast, battery_now_kwh, cur_unit, hour0_unit,
+                                    upper_limit_kwh)
+            if not blocks:
+                if need_hard > 0:
+                    return {"active": False, "breach_unit": breach_unit, "deferred_kwh": target_kwh}
+                if skipped is None:
+                    skipped = {"deficit_kwh": round(need_soft, 3), "fits_kwh": 0.0, "dip_min_kwh": round(dip_min, 3)}
+                continue
+            plan.update(_blocks_plan(blocks, target_kwh))
         return plan
     if skipped is not None:
         return {"active": False, "breach_unit": 999999, "soft_skipped": skipped}
@@ -1363,6 +1615,26 @@ def _plan_draw_levels(
     unit_rates = plan.get("grid_rates")  # per quarter of the window (as of 2026.10.4)
     if not plan.get("active") or not (rate or unit_rates) or plan.get("target_reached"):
         return None if not (rate or unit_rates) else [0.0] * len(base)
+    blocks = plan.get("blocks") if charging else None
+    if blocks:
+        # several blocks (as of 2026.10.6): each adds its quarters' rates up
+        # to its own stop level (the first one may be running and locked)
+        out = []
+        done = 0.0
+        for h, value in enumerate(base):
+            hour_start = hour0_unit + 4 * h
+            for i, block in enumerate(blocks):
+                lo = max(hour_start, block["start_unit"], cur_unit)
+                hi = min(hour_start + 4, block["end_unit"])
+                if hi <= lo:
+                    continue
+                rates_b = block.get("rates") or []
+                add = sum(rates_b[u - block["start_unit"]] for u in range(lo, hi) if 0 <= u - block["start_unit"] < len(rates_b))
+                target = float(plan["target_energy_kwh"]) if i == 0 and plan.get("target_energy_kwh") is not None \
+                    else float(block["target_level_kwh"])
+                done = min(done + add, max(target - float(value), done))
+            out.append(done)
+        return out
     start = plan.get("start_unit", 0)
     end = plan.get("end_unit", 0)
     draw_start = max(start, cur_unit)
@@ -1519,6 +1791,7 @@ def compute_full_charge_plan(
     charge_efficiency: float = 1.0,
     replan: bool = False,
     charge_rates: Optional[list[float]] = None,
+    min_charge_units: int = 2,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price).
@@ -1629,7 +1902,7 @@ def compute_full_charge_plan(
             {"active": False, "phase": None}, cur_unit, now, interval_days, time_since_days, soc_now_percent,
             max_hold_minutes, voltage_diff, battery_now_kwh, high_threshold_kwh, usage, charge_speed_kw, all_price,
             battery_forecast, battery_voltage, target_voltage, balance_threshold, buy_price=buy_price,
-            charge_efficiency=charge_efficiency, charge_rates=charge_rates,
+            charge_efficiency=charge_efficiency, charge_rates=charge_rates, min_charge_units=min_charge_units,
         )
         if fresh.get("active") and fresh.get("phase") == "scheduled" and fresh.get("start_unit", -1) <= cur_unit:
             # still needed, and the cheapest window is now: keep charging
@@ -1829,15 +2102,31 @@ def compute_full_charge_plan(
     # regression on the cap's purpose. Applies uniformly regardless of
     # whether this session's target was actually capped.
     best_start = _best_price_window(all_price, search_start, search_end, units_needed, cheapest=True)
+    blocks_fields: dict = {}
     if charge_rates is not None:
-        window = _rate_window(
-            target_kwh, charge_rates, all_price, all_price, search_start, search_end, charge_per_unit, charge_efficiency
-        ) or _rate_window_from(target_kwh, charge_rates, search_start)
-        best_start, units_needed = window[0], max(window[1] - window[0], 1)
-        effective_charge_per_unit = target_kwh / units_needed
-    start_unit, end_unit = _extend_flat_price_window(
-        all_price, best_start, best_start + units_needed, min_start=search_start, max_end=search_end
-    )
+        # As of 2026.10.6: the cheapest quarters before the deadline, in
+        # blocks of at least the Minimum charge duration; the first block is
+        # the session, the rest is planned again after it.
+        hour0 = _hour0_start_unit(cur_unit, now)
+        units = _schedule_charge(
+            [(search_end, target_kwh, True)], charge_rates, all_price, all_price, search_start, search_end,
+            charge_per_unit, charge_efficiency, max(min_charge_units, 1), [], hour0, float("inf"),
+        )
+        blocks = _charge_blocks(units, charge_rates, target_kwh, battery_forecast, battery_now_kwh, cur_unit, hour0,
+                                float("inf"))
+        if blocks:
+            blocks_fields = _blocks_plan(blocks, target_kwh)
+            best_start = blocks_fields["start_unit"]
+            units_needed = blocks_fields["units_needed"]
+            effective_charge_per_unit = blocks_fields["effective_charge_per_unit"]
+            for key in ("target_energy_kwh", "grid_rates"):
+                blocks_fields.pop(key, None)
+    if blocks_fields:
+        start_unit, end_unit = best_start, best_start + units_needed
+    else:
+        start_unit, end_unit = _extend_flat_price_window(
+            all_price, best_start, best_start + units_needed, min_start=search_start, max_end=search_end
+        )
 
     return {
         "active": True,
@@ -1865,6 +2154,7 @@ def compute_full_charge_plan(
         # this path doesn't itself decide whether the retry restriction
         # is still needed.
         "retry_after_timeout": retry_after_timeout,
+        **blocks_fields,
     }
 
 

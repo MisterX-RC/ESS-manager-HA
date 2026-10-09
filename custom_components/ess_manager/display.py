@@ -43,7 +43,8 @@ def charge_display(
     """
     if full.get("active") and full.get("phase") in ("scheduled", "charging"):
         return (
-            round(full["target_kwh"], 2),
+            # with blocks (as of 2026.10.6): what this block charges
+            round(full.get("block_kwh", full["target_kwh"]), 2),
             _format_time(now, cur_unit, full["start_unit"]),
             _format_time(now, cur_unit, full["end_unit"]),
         )
@@ -68,7 +69,7 @@ def charge_display(
         )
     if low.get("active"):
         return (
-            round(low["target_kwh"], 2),
+            round(low.get("block_kwh", low["target_kwh"]), 2),
             _format_time(now, cur_unit, low["start_unit"]),
             _format_time(now, cur_unit, low["end_unit"]),
         )
@@ -195,6 +196,24 @@ def _card_side(
     }
 
 
+def _add_blocks(side: dict, plan: dict, cur_unit: int, now: datetime) -> None:
+    """A charge in several blocks (as of 2026.10.6): the side shows the first
+    (or running) one; `blocks` lists the ones after it as {start, stop,
+    energy_kwh} and `more_blocks` counts them, for the cards."""
+    later = [b for b in (plan.get("blocks") or [])[1:] if b.get("end_unit", 0) > cur_unit]
+    if not later:
+        return
+    side["more_blocks"] = len(later)
+    side["blocks"] = [
+        {
+            "start": _unit_datetime(now, cur_unit, b["start_unit"]).isoformat(),
+            "stop": _unit_datetime(now, cur_unit, b["end_unit"]).isoformat(),
+            "energy_kwh": round(float(b.get("kwh", 0) or 0), 2),
+        }
+        for b in later
+    ]
+
+
 def _holding_side(
     full: dict, balance: dict, cur_unit: int, now: datetime, battery_now_kwh: float, capacity_kwh: float
 ) -> dict:
@@ -304,10 +323,11 @@ def card_plans(
         buy = _holding_side(full, balance or {}, *common)
     elif full.get("active") and full.get("phase") in ("scheduled", "charging"):
         buy = _card_side(
-            "full_charge", True, full["start_unit"], full["end_unit"], full.get("target_kwh", 0),
+            "full_charge", True, full["start_unit"], full["end_unit"], full.get("block_kwh", full.get("target_kwh", 0)),
             capacity_kwh, full.get("effective_charge_per_unit", 0) * 4, False, *common,
         )
         buy["phase"] = full["phase"]
+        _add_blocks(buy, full, cur_unit, now)
     elif neg.get("active") and cur_unit < neg.get("charge_end_unit", -1):
         target = (neg.get("level_at_start_kwh") or 0) + (neg.get("achievable_charge_kwh") or 0)
         buy = _card_side(
@@ -320,11 +340,14 @@ def card_plans(
             spike.get("charge_target_level_kwh"), spike.get("effective_charge_per_unit", 0) * 4, False, *common,
         )
     elif low.get("active"):
+        # with blocks (as of 2026.10.6) the block shows its own amount
+        low_block = {**low, "target_kwh": low.get("block_kwh", low.get("target_kwh", 0))}
         buy = _card_side(
-            "low_charge", True, low["start_unit"], low["end_unit"], low.get("target_kwh", 0),
-            ahead_target(low, True), low.get("effective_charge_per_unit", 0) * 4, low.get("target_reached", False),
+            "low_charge", True, low["start_unit"], low["end_unit"], low_block.get("target_kwh", 0),
+            ahead_target(low_block, True), low.get("effective_charge_per_unit", 0) * 4, low.get("target_reached", False),
             *common,
         )
+        _add_blocks(buy, low, cur_unit, now)
 
     sell = None
     if neg.get("active") and cur_unit < neg.get("discharge_end_unit", -1) and neg.get("discharge_needed_kwh", 0) > 0:

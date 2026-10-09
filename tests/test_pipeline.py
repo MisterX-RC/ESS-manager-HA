@@ -3018,8 +3018,10 @@ _gr_old = plans.compute_low_charge_plan(None, 24, _gr_fc, _gr_now, **_gr_kw)
 _gr_new = plans.compute_low_charge_plan(None, 24, _gr_fc, _gr_now, charge_rates=_gr, **_gr_kw)
 check("charge plan without the rates: a window in the sun, where the grid adds only a fraction",
       _gr_old["start_unit"] < 64 and sum(_gr[_gr_old["start_unit"]:_gr_old["end_unit"]]) < _gr_old["target_kwh"] / 2)
-check("charge plan with the rates: a window where the grid really delivers the amount (tonight, after the sun)",
-      _gr_new["start_unit"] >= 64 and sum(_gr[_gr_new["start_unit"]:_gr_new["end_unit"]]) >= _gr_new["target_kwh"] - 1e-6)
+check("charge plan with the rates: a window where the grid really delivers (tonight, after the sun)",
+      _gr_new["start_unit"] >= 64 and sum(_gr[_gr_new["start_unit"]:_gr_new["end_unit"]]) >= _gr_new["block_kwh"] - 1e-3)
+check("charge plan with the rates (2026.10.6): only what's needed before the last known price now, the rest later",
+      _gr_new["planned_kwh"] < _gr_new["target_kwh"] and _gr_new["blocks"][-1]["end_unit"] <= len(_gr_price))
 check("charge plan with the rates: never stops above 100 %", _gr_new["target_energy_kwh"] <= 10.0)
 check("charge plan with the rates: its per-quarter rates are kept for drawing",
       len(_gr_new["grid_rates"]) == _gr_new["end_unit"] - _gr_new["start_unit"])
@@ -3084,6 +3086,48 @@ check("deficit band: placed after that peak, in tomorrow's cheapest quarters (13
       and max(_d30_price[_d30["start_unit"]:_d30["end_unit"]]) <= 0.064)
 check("deficit band: it fits under 100 % at every later peak",
       max(_d30_fc[(_d30["start_unit"] - 56) // 4:73]) + _d30["target_kwh"] <= 30.0)
+
+# ---------------------------------------------------------------------------
+# 2026.10.6: each part of a charge before it's needed, in the cheapest quarters, in blocks
+# ---------------------------------------------------------------------------
+# 18:00, 10 kWh, threshold 9, the battery drains 0.5 kWh an hour for two days; tonight 0.20, tomorrow 11-15 0.05
+_tp_now = datetime(2026, 10, 9, 18, 0)
+_tp_net = [-0.5] * 72
+_tp_fc = forecasting.build_battery_forecast(_tp_net, 10.0, _tp_now, 5.0, 5.0, 1.0, 1.0)
+_tp_price = [0.25] * 72 + [0.20] * 24 + [0.25] * 44 + [0.05] * 16 + [0.25] * 36
+_tp_rates = forecasting.grid_charge_rates(_tp_net, _tp_now, 3.0, 5.0, 192, 1.0, 1.0)
+_tp_kw = dict(high_threshold_kwh=33.0, charge_efficiency=1.0, discharge_efficiency=1.0, charge_rates=_tp_rates)
+_tp = plans.compute_low_charge_plan(None, 72, _tp_fc, _tp_now, 3.0, 9.0, 0.5, 30.0, [0.5] * 121, _tp_price, 48, 10.0,
+                                    min_charge_units=2, **_tp_kw)
+check("blocks: tonight (0.20) only what's needed until the cheap valley tomorrow 11:00 (9 - 1.5 = 7.5 kWh)",
+      _tp["start_unit"] == 72 and _tp["block_kwh"] == 7.5 and _tp["blocks"][0]["target_level_kwh"] == 16.25)
+check("blocks: the rest in tomorrow's cheap valley (0.05), up to the last known price (14.25 kWh in all)",
+      len(_tp["blocks"]) == 2 and _tp_price[_tp["blocks"][1]["start_unit"]] == 0.05 and _tp["planned_kwh"] == 14.25)
+check("blocks: what's needed after the known prices waits for them (23.5 kWh needed in all)",
+      _tp["target_kwh"] == 23.5 and _tp["planned_kwh"] < _tp["target_kwh"])
+_tp_adj = plans.compose_forecast_adjusted(_tp_fc, _tp, {"active": False}, 72, _tp_now, upper_limit_kwh=30.0,
+                                          battery_now_kwh=10.0)
+check("blocks: drawn with both blocks - down to exactly 9 kWh at 11:00, then up again",
+      _tp_adj[16] == 9.0 and _tp_adj[18] > 13.0)
+_tp_sum = display.card_plans({"active": False}, {"active": False}, {"active": False}, _tp, {"active": False}, 72,
+                             _tp_now, 10.0, 30.0)
+check("blocks: the status card shows the first block (7.5 kWh) and +1 more",
+      _tp_sum["buy"]["energy_kwh"] == 7.5 and _tp_sum["buy"]["more_blocks"] == 1
+      and _tp_sum["buy"]["blocks"][0]["start"].startswith("2026-10-10T11:00"))
+check("blocks: the Charge amount sensor follows the block",
+      display.charge_display({"active": False}, {"active": False}, {"active": False}, _tp, 72, _tp_now)[0] == 7.5)
+
+# the minimum charge duration: one cheap quarter in the middle of a dear stretch becomes a block of that length
+_md_rates = [0.0] * 8 + [0.5] * 16
+_md_price = [0.0] * 8 + [0.30] * 7 + [0.05] + [0.30] * 8
+_md1 = plans._schedule_charge([(24, 0.5, True)], _md_rates, _md_price, _md_price, 8, 24, 0.5, 1.0, 1, [], 0, 1e9)
+_md4 = plans._schedule_charge([(24, 0.5, True)], _md_rates, _md_price, _md_price, 8, 24, 0.5, 1.0, 4, [], 0, 1e9)
+check("minimum duration: 15 min -> just the one cheap quarter", _md1 == [15])
+check("minimum duration: 60 min -> a block of 4 quarters around it", len(_md4) == 4 and 15 in _md4
+      and _md4 == list(range(_md4[0], _md4[0] + 4)))
+check("minimum duration: blocks are trimmed back to what's needed (never below the minimum)",
+      plans._schedule_charge([(24, 1.0, True)], _md_rates, _md_price, _md_price, 8, 24, 0.5, 1.0, 2, [], 0, 1e9)
+      in ([14, 15], [15, 16]))
 
 print()
 if FAILURES:

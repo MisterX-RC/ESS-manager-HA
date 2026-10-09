@@ -31,6 +31,7 @@ const I18N = {
     planned: "planned", running: "running", done: "done", of: "of", stop: "stop",
     left: (d) => `${d} left`, no_sell: "No sale planned", no_buy: "No charge planned",
     spike: "Spike", negative: "Negative price", balancing: "Balancing", balancing_max: (d) => `max ${d}`, cell_diff: "Cell voltage difference", pack_voltage: "Battery voltage",
+    more_blocks: (n) => `+${n}`, more_blocks_tip: (n) => `and ${n} more ${n === 1 ? "block" : "blocks"}`,
     active: "Active", inactive: "Inactive", below: "below", auto_control: "Automatic control",
     h: "h", min: "min", ago: (h) => `-${h} h`, now: "now", settings: "Settings",
     // battery card
@@ -68,6 +69,7 @@ const I18N = {
     planned: "gepland", running: "bezig", done: "klaar", of: "van", stop: "stop",
     left: (d) => `nog ${d}`, no_sell: "Geen sale gepland", no_buy: "Geen laadactie gepland",
     spike: "Spike", negative: "Negatieve prijs", balancing: "Balanceren", balancing_max: (d) => `max ${d}`, cell_diff: "Celspanningsverschil", pack_voltage: "Accuspanning",
+    more_blocks: (n) => `+${n}`, more_blocks_tip: (n) => `en nog ${n} ${n === 1 ? "blok" : "blokken"}`,
     active: "Actief", inactive: "Inactief", below: "onder", auto_control: "Automatische aansturing",
     h: "u", min: "min", ago: (h) => `-${h} u`, now: "nu", settings: "Instellingen",
     battery_title: "Batterijprognose", today: "vandaag", horizon: "planningshorizon",
@@ -318,6 +320,12 @@ function planWindows(attrs) {
     if (side === "sell" && p.source === "spike") kind = "spike";
     if (side === "buy" && p.source === "negative_price") kind = "negative";
     out.push({ side, kind, source: p.source, start, stop });
+    // a charge in several blocks (as of 2026.10.6): the later ones too
+    for (const b of p.blocks || []) {
+      const bs = Date.parse(b.start);
+      const be = Date.parse(b.stop);
+      if (be > bs) out.push({ side, kind, source: p.source, start: bs, stop: be });
+    }
   }
   return out;
 }
@@ -1567,7 +1575,7 @@ class EssManagerStatusCard extends HTMLElement {
     const barColor = holding ? BALANCE_COLOR : color;
     const soc = plan.target_soc_percent;
     return `<div class="block" style="border-color:${outline}">${head}
-      <div class="times"><span>${plan.started ? "" : `<span class="dim">${esc(this._weekday(plan.start))}</span> `}${esc(this._time(plan.start))}</span><span>${esc(this._time(plan.stop))}</span></div>
+      <div class="times"><span>${plan.started ? "" : `<span class="dim">${esc(this._weekday(plan.start))}</span> `}${esc(this._time(plan.start))}</span><span>${esc(this._time(plan.stop))}${plan.more_blocks ? ` <span class="dim" title="${esc(this._moreBlocksTip(plan))}">${esc(this._t("more_blocks")(plan.more_blocks))}</span>` : ""}</span></div>
       <div class="bar" title="${below}" style="background:${tint(barColor, 0.22)}"><div class="fill" style="width:${fill.toFixed(1)}%;background:${barColor}"></div><div class="bartext">${inBar}</div></div>
       ${holding ? this._balanceStat(plan) : `<div class="stat">${icon("bolt", color, 16)}<b>${this._num(energy, 1)}</b><span class="dim unit">kWh</span><span class="dim arrow">\u2192</span>${
         soc == null ? "" : `${batteryIcon(soc, color)}<b>${this._num(soc, 0)} %</b>`
@@ -1580,6 +1588,12 @@ class EssManagerStatusCard extends HTMLElement {
   // The holding phase's stat row: the cell voltage difference and the goal
   // (green once below it); the battery voltage against its target as a
   // tooltip.
+  // the later blocks of a charge in several blocks, for the "+2" tooltip
+  _moreBlocksTip(plan) {
+    const list = (plan.blocks || []).map((b) => `${this._weekday(b.start)} ${this._time(b.start)}\u2013${this._time(b.stop)}`);
+    return [this._t("more_blocks_tip")(plan.more_blocks)].concat(list).join("\n");
+  }
+
   _balanceStat(plan) {
     const diff = plan.voltage_diff_mv;
     const goal = plan.balance_threshold_mv;

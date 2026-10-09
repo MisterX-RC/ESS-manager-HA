@@ -240,6 +240,7 @@ NUM_SPIKE_DISCHARGE_SPEED_KW = "spike_discharge_speed_kw"
 NUM_NEGATIVE_PRICE_THRESHOLD = "negative_price_threshold"
 NUM_SPIKE_MARGIN = "spike_margin"
 NUM_MINIMUM_CHARGE_TARGET_KWH = "minimum_charge_target_kwh"
+NUM_MINIMUM_CHARGE_MINUTES = "minimum_charge_minutes"
 NUM_SAFETY_BUFFER_PERCENT = "safety_buffer_percent"
 NUM_TRANSPORT_TARIFF = "transport_tariff"
 NUM_PLANNING_HORIZON_HOURS = "planning_horizon_hours"
@@ -365,6 +366,19 @@ NUMBER_DEFINITIONS = [
         0.5,
         "kWh",
         lambda data: 5.0,
+    ),
+    (
+        # The shortest charge block (as of 2026.10.6): a charge may be split
+        # over the cheapest quarters before it's needed, but never into
+        # blocks shorter than this.
+        NUM_MINIMUM_CHARGE_MINUTES,
+        "Minimum charge duration",
+        "mdi:timer-sand",
+        15,
+        120,
+        15,
+        "min",
+        lambda data: 30,
     ),
     (
         # Kept on top of the low threshold when selling (as of v0.2.17) -

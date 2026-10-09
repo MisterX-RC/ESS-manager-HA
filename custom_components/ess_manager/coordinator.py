@@ -60,6 +60,7 @@ from .const import (
     NUM_MAX_SOC_PERCENT,
     NUM_MIN_SOC_PERCENT,
     NUM_MIN_SOC_SURPLUS_PERCENT,
+    NUM_MINIMUM_CHARGE_MINUTES,
     NUM_MINIMUM_CHARGE_TARGET_KWH,
     NUM_NEGATIVE_PRICE_CHARGE_SPEED_KW,
     NUM_NEGATIVE_PRICE_THRESHOLD,
@@ -695,6 +696,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         negative_price_threshold = self.get_number(NUM_NEGATIVE_PRICE_THRESHOLD, -0.20)
         spike_margin = self.get_number(NUM_SPIKE_MARGIN, 0.40)
         minimum_charge_target_kwh = self.get_number(NUM_MINIMUM_CHARGE_TARGET_KWH, 5.0)
+        # the shortest charge block, in quarters (as of 2026.10.6)
+        min_charge_units = max(int(round(self.get_number(NUM_MINIMUM_CHARGE_MINUTES, 30.0) / 15)), 1)
         safety_buffer_percent = self.get_number(NUM_SAFETY_BUFFER_PERCENT, 5.0)
         planning_horizon_hours = int(self.get_number(NUM_PLANNING_HORIZON_HOURS, 72))
         full_charge_interval_days = self.get_number(NUM_FULL_CHARGE_INTERVAL_DAYS, 14.0)
@@ -853,6 +856,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 charge_efficiency=charge_efficiency,
                 replan=replan,
                 charge_rates=charge_rates,
+                min_charge_units=min_charge_units,
             )
         else:
             self._full_charge_plan = {"active": False, "phase": None}
@@ -965,6 +969,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # charge up to the low threshold plus the same Safety buffer a
             # sale keeps (as of 2026.10.4)
             charge_buffer_kwh=safety_buffer_kwh,
+            min_charge_units=min_charge_units,
         )
         # A full charge relying on a future solar peak (either genuinely
         # scheduled to buy up to it, or silently skipped because that peak
