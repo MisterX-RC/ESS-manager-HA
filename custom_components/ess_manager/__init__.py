@@ -162,9 +162,70 @@ async def _async_register_cards(hass: HomeAssistant) -> None:
         from homeassistant.components.frontend import add_extra_js_url
 
         integration = await async_get_integration(hass, DOMAIN)
-        add_extra_js_url(hass, f"{CARDS_URL}?v={integration.version}")
+        url = f"{CARDS_URL}?v={integration.version}"
+        add_extra_js_url(hass, url)
     except Exception as err:  # noqa: BLE001 - the cards are optional, planning isn't
         _LOGGER.warning("ESS Manager: could not load the dashboard cards: %s", err)
+        return
+    await _async_sync_lovelace_resource(hass, url)
+
+
+def _lovelace_resources(hass: HomeAssistant):
+    """The dashboard resources collection when it's managed from the UI
+    (storage mode), else None - in YAML mode resources live in the user's
+    own configuration, which an integration doesn't touch."""
+    data = hass.data.get("lovelace")
+    resources = data.get("resources") if isinstance(data, dict) else getattr(data, "resources", None)
+    if resources is None or not hasattr(resources, "async_create_item"):
+        return None
+    return resources
+
+
+def _is_cards_resource(item: dict) -> bool:
+    return str(item.get("url", "")).split("?", 1)[0] == CARDS_URL
+
+
+async def _async_sync_lovelace_resource(hass: HomeAssistant, url: str) -> None:
+    """Also load the cards as a dashboard resource (as of 2026.10.9).
+
+    The extra module above is imported once, when the page starts - before
+    the app has a connection. When that fails (the iOS app resuming with
+    the network not back yet, Home Assistant restarting) the frontend never
+    tries again, and every ESS Manager card shows "Configuration error"
+    until the page is reloaded. Dashboard resources are loaded after the
+    connection is up, so they don't have that problem. Loading the file
+    twice is harmless (the cards are only defined once). Kept on the
+    current version, never duplicated, removed with the last installation.
+    """
+    try:
+        resources = _lovelace_resources(hass)
+        if resources is None:
+            return
+        await resources.async_get_info()  # loads the collection from storage
+        ours = [item for item in resources.async_items() if _is_cards_resource(item)]
+        if not ours:
+            await resources.async_create_item({"res_type": "module", "url": url})
+            _LOGGER.info("ESS Manager: added the dashboard cards as a dashboard resource (%s)", url)
+            return
+        first, *extra = ours
+        if first.get("url") != url or first.get("type") != "module":
+            await resources.async_update_item(first["id"], {"res_type": "module", "url": url})
+        for item in extra:
+            await resources.async_delete_item(item["id"])
+    except Exception as err:  # noqa: BLE001 - the extra module still loads the cards
+        _LOGGER.warning("ESS Manager: could not add the cards as a dashboard resource: %s", err)
+
+
+async def _async_remove_lovelace_resource(hass: HomeAssistant) -> None:
+    try:
+        resources = _lovelace_resources(hass)
+        if resources is None:
+            return
+        await resources.async_get_info()
+        for item in [item for item in resources.async_items() if _is_cards_resource(item)]:
+            await resources.async_delete_item(item["id"])
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("ESS Manager: could not remove the cards' dashboard resource: %s", err)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -222,9 +283,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Deleting the installation also clears its Repairs notices, if any."""
+    """Deleting the installation also clears its Repairs notices, if any,
+    and with the last one the cards' dashboard resource."""
     for kind in _ISSUE_KINDS:
         ir.async_delete_issue(hass, DOMAIN, _issue_id(kind, entry))
+    # the last installation gone: the cards' dashboard resource goes too
+    if not [e for e in hass.config_entries.async_entries(DOMAIN) if e.entry_id != entry.entry_id]:
+        await _async_remove_lovelace_resource(hass)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

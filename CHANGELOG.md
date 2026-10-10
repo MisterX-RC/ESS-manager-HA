@@ -12,6 +12,23 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.9] - 2026-10-10
+
+### Fixed
+- **The ESS Manager cards no longer show "Configuration error" after the
+  app starts.** The card file was only loaded once, when the page starts -
+  before the app has a connection. When that failed (the iOS app coming
+  back from the background with the network not back yet, or Home
+  Assistant restarting) Home Assistant never tried again, and all ESS
+  Manager cards showed "Configuration error" until the page was reloaded
+  or the app restarted. The integration now also adds the card file as a
+  dashboard resource (Settings > Dashboards > Resources), which Home
+  Assistant loads after the connection is up. It's kept on the current
+  version, never added twice (a copy you added by hand is taken over) and
+  removed again when you delete the last ESS Manager installation.
+  Dashboards whose resources are set in YAML aren't touched - add
+  `/ess_manager/ess-manager-cards.js` there yourself as a JavaScript module.
+
 ## [2026.10.8] - 2026-10-09
 
 ### Changed
