@@ -71,6 +71,16 @@ Five planning engines, all documented in detail in the code
    a sale is always at least 10% of the battery),
    never selling below your minimum SOC plus the **Safety buffer**. A
    low charge lifts the dip to that same minimum + buffer.
+   Selling before the battery would run full only pays when it earns
+   clearly more (2 ct/kWh) than what the sun gets for that energy anyway -
+   above 100% the extra solar simply goes to the grid at that hour's price.
+   When it doesn't (say the best moment before the overflow is 0.13 while
+   the overflow exports at 0.125 and tonight goes to 0.24), the overflow is
+   left to the grid and what's still too much is sold before the next
+   overflow, at its best price (as of 2026.10.10; the Status attribute
+   `high_discharge_plan.overflow_to_grid` lists what was left to the grid).
+   An expensive morning before a cheap midday overflow is still sold in
+   the morning.
 3. **Full charge plan** *(optional)* - periodically charges all the way to
    100% and holds there briefly to let the BMS balance cells, on a
    configurable interval.

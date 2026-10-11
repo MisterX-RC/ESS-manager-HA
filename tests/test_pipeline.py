@@ -3169,6 +3169,45 @@ check("band dip: all of it bought before the lowest point (08:00-09:00), none af
 check("band dip: in the cheap night (0.01-0.02), not at 10:45",
       all(max(_eb_price[b["start_unit"]:b["end_unit"]]) <= 0.02 for b in _eb["blocks"]))
 
+
+# 2026.10.10: a sale before an overflow has to beat the overflow's own price. Live dump (30 kWh, max SOC 110%,
+# 14:40): it planned 3.72 kWh at 16:30-17:00 (0.119/0.149) because the forecast passes 110% at 17:00, while the
+# overflow it prevents would go to the grid at ~0.126 anyway and the price kept rising (0.24 tonight, 0.288
+# tomorrow 08:00). Now the overflow goes to the grid and the rest (1.82 kWh) is sold before tomorrow's overflow.
+_ov_fc = [28.4, 30.13, 31.61, 31.9, 31.4, 30.44, 29.78, 28.98, 28.38, 27.84, 27.32, 26.82, 26.31, 25.82, 25.33, 24.79, 24.16, 23.36, 23.2, 23.84, 24.94, 26.88, 29.41, 30.54, 28.82, 31.24, 33.33, 33.72, 33.12, 31.88, 31.26, 30.71, 30.19, 29.63, 29.12, 28.63, 28.14, 27.64, 27.15, 26.62, 26.07, 24.94, 24.36, 24.18, 24.35, 24.76, 25.18, 25.73, 26.22, 26.46, 26.17, 24.29, 23.38, 21.99, 21.01, 20.46, 19.92, 19.4, 18.89, 18.39, 17.89, 17.39, 16.89, 16.35, 15.79, 14.82, 14.41, 14.59, 15.38, 17.03, 19.22, 21.47, 22.69]
+_ov_price = [0.142, 0.118, 0.104, 0.097, 0.112, 0.106, 0.105, 0.098, 0.105, 0.099, 0.101, 0.099, 0.098, 0.1, 0.103, 0.1, 0.102, 0.103, 0.104, 0.105, 0.104, 0.1, 0.102, 0.104, 0.099, 0.103, 0.107, 0.114, 0.125, 0.129, 0.123, 0.127, 0.14, 0.141, 0.144, 0.139, 0.136, 0.129, 0.117, 0.106, 0.112, 0.095, 0.076, 0.052, 0.045, 0.029, 0.025, 0.034, 0.025, 0.026, 0.023, 0.018, 0.016, 0.014, 0.012, 0.017, 0.019, 0.025, 0.035, 0.047, 0.04, 0.057, 0.075, 0.098, 0.094, 0.106, 0.119, 0.149, 0.15, 0.19, 0.216, 0.232, 0.217, 0.228, 0.229, 0.238, 0.224, 0.234, 0.24, 0.242, 0.241, 0.235, 0.233, 0.226, 0.226, 0.215, 0.212, 0.206, 0.206, 0.203, 0.201, 0.19, 0.199, 0.189, 0.182, 0.166, 0.18, 0.179, 0.178, 0.176, 0.175, 0.17, 0.172, 0.172, 0.174, 0.17, 0.165, 0.163, 0.166, 0.166, 0.165, 0.167, 0.164, 0.163, 0.165, 0.171, 0.166, 0.171, 0.178, 0.198, 0.195, 0.215, 0.227, 0.241, 0.24, 0.257, 0.263, 0.269, 0.288, 0.276, 0.254, 0.236, 0.263, 0.227, 0.21, 0.187, 0.211, 0.194, 0.186, 0.175, 0.183, 0.171, 0.164, 0.161, 0.156, 0.154, 0.15, 0.146, 0.146, 0.142, 0.142, 0.139, 0.14, 0.143, 0.15, 0.153, 0.151, 0.155, 0.161, 0.165, 0.155, 0.171, 0.192, 0.208, 0.187, 0.223, 0.248, 0.268, 0.259, 0.26, 0.277, 0.291, 0.284, 0.282, 0.28, 0.272, 0.273, 0.257, 0.247, 0.225, 0.217, 0.205, 0.193, 0.184, 0.196, 0.188, 0.189, 0.177, 0.182, 0.178, 0.177, 0.173]
+_ov_usage = [2.045, 0.821, 0.756, 1.32, 0.957, 0.954, 0.659, 0.801, 0.601, 0.545, 0.516, 0.502, 0.509, 0.489, 0.493, 0.541, 0.63, 0.795, 0.523, 0.51, 0.606, 0.581, 0.579, 2.245, 5.007, 0.649, 0.715, 1.432, 0.898, 1.246, 0.621, 0.548, 0.521, 0.557, 0.51, 0.488, 0.496, 0.497, 0.495, 0.526, 0.548, 1.13, 0.663, 0.627, 0.786, 0.766, 0.66, 0.658, 0.818, 0.72, 0.881, 2.099, 0.957, 1.387, 0.98, 0.549, 0.541, 0.52, 0.508, 0.501, 0.505, 0.497, 0.5, 0.543, 0.558, 0.968, 0.526, 0.59, 0.766, 0.646, 0.666, 0.879, 1.597]
+_ov_kw = dict(safety_buffer_kwh=3.0, sale_target_kwh=30.0)
+_ov_old = plans.compute_high_discharge_plan(None, 58, _ov_fc, datetime(2026, 10, 11, 14, 40), 10.0, 31.5, 1.5, _ov_usage,
+                                            _ov_price, 72, 28.14, **_ov_kw)
+_ov = plans.compute_high_discharge_plan(None, 58, _ov_fc, datetime(2026, 10, 11, 14, 40), 10.0, 31.5, 1.5, _ov_usage,
+                                        _ov_price, 72, 28.14, capacity_kwh=30.0, **_ov_kw)
+check("overflow: without the capacity it still sells before the first overflow (16:30, 3.72 kWh)",
+      _ov_old["start_unit"] == 66 and _ov_old["surplus_kwh"] == 3.72 and "overflow_to_grid" not in _ov_old)
+check("overflow: today's overflow (15:00-18:00, 1.9 kWh at ~0.126) goes to the grid - a sale at ~0.134 isn't worth it",
+      len(_ov["overflow_to_grid"]) == 1 and _ov["overflow_to_grid"][0]["start_unit"] == 60
+      and _ov["overflow_to_grid"][0]["end_unit"] == 72 and _ov["overflow_to_grid"][0]["kwh"] == 1.9
+      and abs(_ov["overflow_to_grid"][0]["price"] - 0.1258) < 0.0005)
+check("overflow: the rest (tomorrow's peak minus what went to the grid) is sold before tomorrow's overflow, at its best price",
+      _ov["active"] and _ov["surplus_kwh"] == 1.82 and _ov["breach_unit"] == 168 and _ov["start_unit"] >= 72
+      and _ov_price[_ov["start_unit"]] == max(_ov_price[72:168]))
+check("overflow: the deferred sale keeps the safety floor (low point after it above 4.5)",
+      _ov["low_point_after_sale_kwh"] > _ov["sale_floor_kwh"] == 4.5)
+
+# the classic case stays: an expensive morning before a cheap midday overflow -> sell in the morning
+_mo_fc = [25.0, 26.0, 27.5, 29.5, 31.0, 32.5, 33.0, 32.0, 30.5, 29.0] + [28.0 - 0.5 * h for h in range(40)]
+_mo_price = [0.10] * 24 + [0.30] * 8 + [0.05] * 32 + [0.20] * 32 + [0.10] * 96
+_mo = plans.compute_high_discharge_plan(None, 24, _mo_fc, datetime(2026, 10, 12, 6, 0), 10.0, 31.5, 1.5, [0.5] * 50,
+                                        _mo_price, 48, 25.0, safety_buffer_kwh=3.0, sale_target_kwh=30.0, capacity_kwh=30.0)
+check("overflow: a sale at 0.30 before a midday overflow at 0.05 still happens before the overflow",
+      _mo["active"] and _mo["start_unit"] < _mo["breach_unit"] and _mo_price[_mo["start_unit"]] == 0.30
+      and "overflow_to_grid" not in _mo)
+# overflow hours without known prices: can't compare, so the sale stays before the first overflow
+_mo2 = plans.compute_high_discharge_plan(None, 24, _mo_fc, datetime(2026, 10, 12, 6, 0), 10.0, 31.5, 1.5, [0.5] * 50,
+                                         [0.05] * 34, 48, 25.0, safety_buffer_kwh=3.0, sale_target_kwh=30.0, capacity_kwh=30.0)
+check("overflow: overflow prices not known yet -> sale before the first overflow, as before",
+      _mo2["active"] and "overflow_to_grid" not in _mo2)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

@@ -12,6 +12,26 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.10] - 2026-10-11
+
+### Changed
+- **A sale before the battery runs full has to be worth it.** The high
+  discharge plan sold before the moment the forecast passes your max SOC,
+  at the best price before then - even when that price was no better than
+  what the sun gets for the same energy: above 100% the extra solar goes
+  to the grid at that hour's price anyway. A live example sold 3.72 kWh at
+  16:30 for ~0.13 to prevent an overflow that would have exported at
+  ~0.125, while the price went to 0.24 that evening and 0.29 the next
+  morning. Now a sale before an overflow has to earn at least 2 ct/kWh more
+  than the overflow hours' price; otherwise the overflow is left to the
+  grid and what's still too much is sold before the next overflow, at the
+  best price until then (in the example 1.82 kWh the next morning at
+  0.288). An expensive morning before a cheap midday overflow is still
+  sold in the morning, and when the overflow hours' prices aren't known yet
+  nothing changes. New Status attribute `high_discharge_plan.overflow_to_grid`
+  (when, how much, at what price, and what the sale before it would have
+  earned).
+
 ## [2026.10.9] - 2026-10-10
 
 ### Fixed

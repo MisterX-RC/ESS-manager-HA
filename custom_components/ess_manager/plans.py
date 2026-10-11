@@ -1328,6 +1328,12 @@ def _soft_low_charge(
     return None
 
 
+# How much more (EUR/kWh) a sale before an overflow has to earn than the
+# price the sun would export that energy at during the overflow (as of
+# 2026.10.10) - below that the overflow is simply left to the grid.
+OVERFLOW_SALE_MARGIN = 0.02
+
+
 def compute_high_discharge_plan(
     prev: Optional[dict],
     cur_unit: int,
@@ -1345,8 +1351,15 @@ def compute_high_discharge_plan(
     sale_target_kwh: Optional[float] = None,
     discharge_efficiency: float = 1.0,
     replan: bool = False,
+    capacity_kwh: Optional[float] = None,
 ) -> dict:
-    """`sale_target_kwh` (as of v0.3.2) is where a sale brings the forecast
+    """`capacity_kwh` (as of 2026.10.10): 100%. With a max SOC above it, a
+    sale before an overflow has to earn clearly more than the overflow
+    hours' price, or the overflow goes to the grid and the surplus that's
+    left is sold before the next one (`overflow_to_grid` lists what was
+    left to the grid). None = always sell before the first overflow.
+
+    `sale_target_kwh` (as of v0.3.2) is where a sale brings the forecast
     peak down to: the coordinator passes 100% of capacity. The HIGH
     threshold (max SOC, e.g. 110%) is still what triggers a sale, but once
     triggered it sells the peak down to 100% rather than to just under the
@@ -1410,24 +1423,142 @@ def compute_high_discharge_plan(
 
     forecast = forecast_with_spike[0 : planning_horizon_hours + 1]
     discharge_per_unit = discharge_speed_kw / 4
+    hour0_unit = _hour0_start_unit(cur_unit, now)
+    units_to_next_hour = 4 - (now.minute // 15)
+
+    # A sale before an overflow only pays when it earns clearly more than
+    # what the sun would get for that energy anyway (as of 2026.10.10): the
+    # battery can't go above 100%, so without the sale the excess solar
+    # simply goes to the grid at that hour's price. When the best moment
+    # before the overflow isn't worth more than that (a live dump: a sale at
+    # 16:30 for ~0.13 while the overflow would export at ~0.125 and the
+    # evening went to 0.24), the overflow is left to the grid and the
+    # remaining surplus is sold before the NEXT overflow - e.g. on tonight's
+    # peak. Needs the capacity, a max SOC above 100% and the prices of the
+    # overflow hours; otherwise the sale stays before the first overflow.
+    skipped: list[dict] = []
+    search_from = cur_unit
+    hour_from = 0
+    plan = None
+    for _ in range(4):
+        plan = _high_discharge_sale(
+            forecast, hour_from, search_from, cur_unit, hour0_unit, units_to_next_hour, discharge_per_unit,
+            high_threshold_kwh, low_threshold_kwh, usage, all_price, battery_now_kwh, safety_buffer_kwh,
+            sale_target_kwh, discharge_efficiency,
+        )
+        if plan is None or capacity_kwh is None or capacity_kwh >= high_threshold_kwh:
+            break
+        episode = _overflow_episode(forecast, battery_now_kwh, capacity_kwh, hour0_unit, all_price)
+        if episode is None or episode["first_hour"] > plan["breach_hour"]:
+            break
+        if plan["window_price"] >= episode["price"] + OVERFLOW_SALE_MARGIN:
+            break
+        skipped.append(
+            {
+                "start_unit": hour0_unit + 4 * episode["first_hour"],
+                "end_unit": hour0_unit + 4 * episode["end_hour"],
+                "kwh": round(episode["kwh"], 3),
+                "price": round(episode["price"], 4),
+                "sale_price_before": round(plan["window_price"], 4),
+            }
+        )
+        forecast = episode["after"]
+        hour_from = episode["end_hour"]
+        search_from = max(search_from, hour0_unit + 4 * episode["end_hour"])
+        plan = None
+    if plan is None:
+        out = {"active": False, "breach_unit": 999999}
+        if skipped:
+            out["overflow_to_grid"] = skipped
+        return out
+    plan.pop("breach_hour")
+    plan.pop("window_price")
+    plan["target_energy_kwh"] = round(battery_now_kwh - plan["surplus_kwh"], 3)
+    plan["target_reached"] = False
+    if skipped:
+        plan["overflow_to_grid"] = skipped
+    return plan
+
+
+def _overflow_episode(
+    forecast: list[float], start_kwh: float, capacity_kwh: float, hour0_unit: int, sell: list[float]
+) -> Optional[dict]:
+    """The first stretch of hours in which the (unclipped) forecast would
+    push the battery over 100%: first_hour, end_hour (the first hour after
+    it), the kWh that would go to the grid, their spill-weighted sell price,
+    and `after` - the forecast with that overflow gone to the grid (held at
+    100% during it, every hour after it lower by the spilled kWh; later
+    overflows are left in, to be found again). None when nothing overflows
+    or the overflow hours' prices aren't known yet."""
+    first = None
+    end = len(forecast)
+    level = start_kwh
+    prev_raw = start_kwh
+    spilled = 0.0
+    value = 0.0
+    for h, raw in enumerate(forecast):
+        level += raw - prev_raw
+        prev_raw = raw
+        spill = level - capacity_kwh
+        if spill > 1e-6:
+            if first is None:
+                first = h
+            prices = [sell[u] for u in range(hour0_unit + 4 * h, hour0_unit + 4 * h + 4) if 0 <= u < len(sell)]
+            if len(prices) < 4:
+                return None
+            spilled += spill
+            value += spill * sum(prices) / 4
+            level = capacity_kwh
+        elif first is not None:
+            end = h
+            break
+    if first is None or spilled <= 1e-6:
+        return None
+    after = [
+        round(min(v, capacity_kwh), 3) if h < end else round(v - spilled, 3) for h, v in enumerate(forecast)
+    ]
+    return {"first_hour": first, "end_hour": end, "kwh": spilled, "price": value / spilled, "after": after}
+
+
+def _high_discharge_sale(
+    forecast: list[float],
+    hour_from: int,
+    search_from: int,
+    cur_unit: int,
+    hour0_unit: int,
+    units_to_next_hour: int,
+    discharge_per_unit: float,
+    high_threshold_kwh: float,
+    low_threshold_kwh: float,
+    usage: list[float],
+    all_price: list[float],
+    battery_now_kwh: float,
+    safety_buffer_kwh: float,
+    sale_target_kwh: Optional[float],
+    discharge_efficiency: float,
+) -> Optional[dict]:
+    """compute_high_discharge_plan's sale for the first hour from
+    `hour_from` on where `forecast` goes over the high threshold, in a
+    window starting at `search_from` or later; None when there's nothing to
+    sell. Carries `breach_hour` and `window_price` for the caller."""
+
 
     hour_index = None
-    for h in range(len(forecast)):
+    for h in range(hour_from, len(forecast)):
         if forecast[h] > high_threshold_kwh:
             hour_index = h
             break
 
     if hour_index is None:
-        return {"active": False, "breach_unit": 999999}
+        return None
 
-    units_to_next_hour = 4 - (now.minute // 15)
     breach_offset_units = units_to_next_hour + (hour_index * 4)
     breach_unit = cur_unit + breach_offset_units
-    future_peak = max(forecast) if forecast else high_threshold_kwh
+    future_peak = max(forecast[hour_from:]) if forecast[hour_from:] else high_threshold_kwh
     target_peak_kwh = high_threshold_kwh if sale_target_kwh is None else min(sale_target_kwh, high_threshold_kwh)
     raw_surplus = round(future_peak - target_peak_kwh, 3)
     if raw_surplus <= 0:
-        return {"active": False, "breach_unit": 999999}
+        return None
 
     relevant_usage = usage[0 : hour_index + 1]
     avg_usage_kwh = sum(relevant_usage) / len(relevant_usage) if relevant_usage else 0
@@ -1436,7 +1567,6 @@ def compute_high_discharge_plan(
     # the discharge efficiency (as of v0.4.3).
     effective_discharge_per_unit = (discharge_per_unit + avg_usage_per_unit) / discharge_efficiency
     search_end = min(breach_unit, len(all_price))
-    hour0_unit = _hour0_start_unit(cur_unit, now)
     sale_floor_kwh = low_threshold_kwh + max(safety_buffer_kwh, 0.0)
 
     # Safety cap, based on WHERE the sale actually lands: the battery may not
@@ -1481,7 +1611,7 @@ def compute_high_discharge_plan(
         window = all_price[start : start + units]
         return amount * (sum(window) / len(window)) if window else 0.0
 
-    best = _size_from(cur_unit)
+    best = _size_from(search_from) if search_from < search_end else None
     # If the best-priced window lands before a low point that caps (or
     # blocks) the sale, also try selling only after the lowest point before
     # the breach - a slightly cheaper slot that can sell more (or at all)
@@ -1495,16 +1625,17 @@ def compute_high_discharge_plan(
     # window has run, the next cycle simply plans another (smaller) sale
     # before the breach.
     if best is None or best[0] < raw_surplus:
-        pre_breach = forecast[0 : hour_index + 1]
-        low_h = pre_breach.index(min(pre_breach))
+        pre_breach = forecast[hour_from : hour_index + 1]
+        low_h = hour_from + pre_breach.index(min(pre_breach))
         after_low_start = hour0_unit + (low_h + 1) * 4
-        if cur_unit < after_low_start < search_end:
+        if search_from < after_low_start < search_end:
             alt = _size_from(after_low_start)
             if alt is not None and (best is None or _revenue(alt) > _revenue(best)):
                 best = alt
     if best is None:
-        return {"active": False, "breach_unit": 999999}
+        return None
     surplus, units_needed, best_start, low_point_after_sale = best
+    window = all_price[best_start : best_start + units_needed]
 
     return {
         "active": True,
@@ -1524,9 +1655,11 @@ def compute_high_discharge_plan(
         "start_unit": best_start,
         "end_unit": best_start + units_needed,
         "units_needed": units_needed,
-        "target_energy_kwh": round(battery_now_kwh - surplus, 3),
-        "target_reached": False,
+        "breach_hour": hour_index,
+        "window_price": sum(window) / len(window) if window else 0.0,
     }
+
+
 
 
 def _plan_draw_window(
