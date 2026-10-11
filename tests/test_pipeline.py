@@ -1661,10 +1661,16 @@ dip_after_sale_plan = plans.compute_high_discharge_plan(
     battery_now_kwh=10.0,
 )
 check(
-    "discharge plan still caps the sale by a low point that comes after it (6.0 - 4.5 = 1.5 kWh, not the full 3.5)",
-    dip_after_sale_plan["surplus_kwh"] == 1.5
-    and dip_after_sale_plan["capped_by_low_limit"] is True
+    "discharge plan still caps a sale by a low point that comes after it (6.0 - 4.5 = 1.5 kWh in the pricey hour 0)",
+    dip_after_sale_plan["start_unit"] == 0 and dip_after_sale_plan["block_kwh"] == 1.5
     and dip_after_sale_plan["low_point_after_sale_kwh"] == 6.0,
+)
+# 2026.10.10 (blocks): the rest of the surplus is sold after that low point - the full 3.5 kWh in total
+check(
+    "discharge plan sells the rest after the low point in a second block (3.5 kWh in total, not capped)",
+    dip_after_sale_plan["surplus_kwh"] == 3.5 and dip_after_sale_plan["capped_by_low_limit"] is False
+    and len(dip_after_sale_plan["blocks"]) == 2 and dip_after_sale_plan["blocks"][1]["start_unit"] >= 20
+    and dip_after_sale_plan["blocks"][1]["kwh"] == 2.0,
 )
 
 # The sale floor is the low threshold + the Safety buffer (v0.2.17): with a
@@ -1686,7 +1692,7 @@ dip_after_sale_mct_plan = plans.compute_high_discharge_plan(
 )
 check(
     "discharge plan never sells into the safety buffer above the low threshold (1.0 kWh, not 1.5)",
-    dip_after_sale_mct_plan["surplus_kwh"] == 1.0 and dip_after_sale_mct_plan["sale_floor_kwh"] == 5.0,
+    dip_after_sale_mct_plan["block_kwh"] == 1.0 and dip_after_sale_mct_plan["sale_floor_kwh"] == 5.0,
 )
 # ...and no buffer sells right down to the low threshold.
 dip_after_sale_low_mct_plan = plans.compute_high_discharge_plan(
@@ -1705,7 +1711,7 @@ dip_after_sale_low_mct_plan = plans.compute_high_discharge_plan(
 )
 check(
     "discharge plan's sale floor is the bare low threshold with no safety buffer",
-    dip_after_sale_low_mct_plan["surplus_kwh"] == 1.5 and dip_after_sale_low_mct_plan["sale_floor_kwh"] == 4.5,
+    dip_after_sale_low_mct_plan["block_kwh"] == 1.5 and dip_after_sale_low_mct_plan["sale_floor_kwh"] == 4.5,
 )
 
 # When the priciest slot sits just before a low point that almost blocks the
@@ -1726,7 +1732,8 @@ after_dip_plan = plans.compute_high_discharge_plan(
 )
 check(
     "discharge plan moves the sale after a blocking low point when that lets it sell the full surplus",
-    after_dip_plan["surplus_kwh"] == 3.5 and after_dip_plan["start_unit"] >= 8 and after_dip_plan["capped_by_low_limit"] is False,
+    after_dip_plan["surplus_kwh"] == 3.5 and after_dip_plan["capped_by_low_limit"] is False
+    and after_dip_plan["blocks"][-1]["start_unit"] >= 8 and after_dip_plan["blocks"][-1]["kwh"] >= 3.4,
 )
 
 # _extend_flat_price_window - the houseboat-style "extend into a flat
@@ -2262,8 +2269,11 @@ plan_0924 = plans.compute_high_discharge_plan(
     _d924["usage"], _d924["all_price"], 72, 26.82, False, 0.0,
 )
 check("capped evening sale wins over a bigger but cheaper morning sale (starts today 18:45)", plan_0924["start_unit"] == 75)
-check("the evening sale is capped by the overnight low point (18.23 kWh)", plan_0924["surplus_kwh"] == 18.23 and plan_0924["capped_by_low_limit"])
-check("the capped sale keeps the battery above the floor after it", plan_0924["low_point_after_sale_kwh"] - plan_0924["surplus_kwh"] >= 3.0)
+check("the evening block is capped by the overnight low point (18.23 kWh)", plan_0924["block_kwh"] == 18.23)
+check("the evening block keeps the battery above the floor after it", plan_0924["low_point_after_sale_kwh"] - plan_0924["block_kwh"] >= 3.0)
+check("2026.10.10 (blocks): the remaining 0.42 kWh is sold after the low point (tomorrow), 18.65 kWh in total",
+      plan_0924["surplus_kwh"] == 18.65 and not plan_0924["capped_by_low_limit"] and len(plan_0924["blocks"]) == 2
+      and plan_0924["blocks"][1]["start_unit"] >= 128 and plan_0924["blocks"][1]["kwh"] == 0.42)
 
 # The fallback still wins when it earns more. Cap every price before
 # tomorrow 08:00 at X: the capped evening sale earns 18.23 * X, the full
@@ -2279,12 +2289,18 @@ def _plan_with_cap(x):
     )
 
 
-_p214 = _plan_with_cap(0.214)
-_p216 = _plan_with_cap(0.216)
-check("the after-low-point sale wins when it earns more (tomorrow 08:00, full 18.65 kWh)",
-      _p214["start_unit"] == 128 and _p214["surplus_kwh"] == 18.65)
-check("...and loses again as soon as the capped evening sale earns more",
-      _p216["start_unit"] < 96 and _p216["surplus_kwh"] == 18.23)
+def _blocks_revenue(plan, prices):
+    return sum(b["kwh"] * sum(prices[b["start_unit"]:b["end_unit"]]) / (b["end_unit"] - b["start_unit"]) for b in plan["blocks"])
+
+
+# 2026.10.10 (blocks): no longer either/or - the blocks earn at least what the better single option did
+for _x in (0.214, 0.216):
+    _px = list(_d924["all_price"])
+    for _u in range(61, 128):
+        _px[_u] = min(_px[_u], _x)
+    _plan_x = _plan_with_cap(_x)
+    check(f"blocks earn at least the best single window (prices before tomorrow 08:00 capped at {_x})",
+          _plan_x["surplus_kwh"] == 18.65 and _blocks_revenue(_plan_x, _px) >= max(3.922, 18.23 * _x) - 0.01)
 
 # ---------------------------------------------------------------------------
 # v0.2.17: Minimum charge target = the smallest amount a charge buys; the
@@ -3207,6 +3223,21 @@ _mo2 = plans.compute_high_discharge_plan(None, 24, _mo_fc, datetime(2026, 10, 12
                                          [0.05] * 34, 48, 25.0, safety_buffer_kwh=3.0, sale_target_kwh=30.0, capacity_kwh=30.0)
 check("overflow: overflow prices not known yet -> sale before the first overflow, as before",
       _mo2["active"] and "overflow_to_grid" not in _mo2)
+
+
+# 2026.10.10: a sale in blocks is shown and drawn like a charge in blocks
+_sb_now = datetime(2026, 9, 24, 15, 27)
+_sb_cards = display.card_plans({}, {}, {}, {}, plan_0924, 61, _sb_now, 26.82, 30.0, forecast=_d924["forecast"])
+check("sale blocks: the Sell side shows the first block's amount and '+1' for the block after it",
+      _sb_cards["sell"]["energy_kwh"] == 18.23 and _sb_cards["sell"]["more_blocks"] == 1
+      and _sb_cards["sell"]["blocks"][0]["energy_kwh"] == 0.42)
+check("sale blocks: the discharge sensors show the first block",
+      display.discharge_display({}, {}, plan_0924, 61, _sb_now)[0] == 18.23)
+_sb_adj = plans.compose_forecast_adjusted(_d924["forecast"], {"active": False}, plan_0924, 61, _sb_now,
+                                          battery_now_kwh=26.82)
+_sb_drop = [round(a - b, 2) for a, b in zip(_d924["forecast"], _sb_adj)]
+check("sale blocks: both blocks are drawn (the drop grows after the second one and never exceeds the 18.65 kWh)",
+      _sb_drop[10] > 10 and _sb_drop[-1] > _sb_drop[16] and max(_sb_drop) <= 18.65 + 0.01)
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

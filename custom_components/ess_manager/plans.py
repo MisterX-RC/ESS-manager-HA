@@ -1352,8 +1352,14 @@ def compute_high_discharge_plan(
     discharge_efficiency: float = 1.0,
     replan: bool = False,
     capacity_kwh: Optional[float] = None,
+    min_sale_units: int = 2,
 ) -> dict:
-    """`capacity_kwh` (as of 2026.10.10): 100%. With a max SOC above it, a
+    """`min_sale_units` (as of 2026.10.10): the shortest sale block in
+    quarters (the coordinator passes the Minimum charge duration). A sale
+    goes into the priciest quarters before the breach, possibly in several
+    blocks; the first block is the plan's window, `blocks` lists them all.
+
+    `capacity_kwh` (as of 2026.10.10): 100%. With a max SOC above it, a
     sale before an overflow has to earn clearly more than the overflow
     hours' price, or the overflow goes to the grid and the surplus that's
     left is sold before the next one (`overflow_to_grid` lists what was
@@ -1444,7 +1450,7 @@ def compute_high_discharge_plan(
         plan = _high_discharge_sale(
             forecast, hour_from, search_from, cur_unit, hour0_unit, units_to_next_hour, discharge_per_unit,
             high_threshold_kwh, low_threshold_kwh, usage, all_price, battery_now_kwh, safety_buffer_kwh,
-            sale_target_kwh, discharge_efficiency,
+            sale_target_kwh, discharge_efficiency, min_sale_units,
         )
         if plan is None or capacity_kwh is None or capacity_kwh >= high_threshold_kwh:
             break
@@ -1473,7 +1479,7 @@ def compute_high_discharge_plan(
         return out
     plan.pop("breach_hour")
     plan.pop("window_price")
-    plan["target_energy_kwh"] = round(battery_now_kwh - plan["surplus_kwh"], 3)
+    plan["target_energy_kwh"] = round(battery_now_kwh - plan["block_kwh"], 3)
     plan["target_reached"] = False
     if skipped:
         plan["overflow_to_grid"] = skipped
@@ -1536,6 +1542,7 @@ def _high_discharge_sale(
     safety_buffer_kwh: float,
     sale_target_kwh: Optional[float],
     discharge_efficiency: float,
+    min_block_units: int = 1,
 ) -> Optional[dict]:
     """compute_high_discharge_plan's sale for the first hour from
     `hour_from` on where `forecast` goes over the high threshold, in a
@@ -1568,74 +1575,32 @@ def _high_discharge_sale(
     effective_discharge_per_unit = (discharge_per_unit + avg_usage_per_unit) / discharge_efficiency
     search_end = min(breach_unit, len(all_price))
     sale_floor_kwh = low_threshold_kwh + max(safety_buffer_kwh, 0.0)
-
-    # Safety cap, based on WHERE the sale actually lands: the battery may not
-    # be forecast to drop below sale_floor_kwh (the low threshold plus the
-    # Safety buffer) after the sale. Selling
-    # energy lowers the battery for every hour from the sale onward, never
-    # for hours before it - so only low points from the sale's own hour
-    # onward can be pushed under the floor by it. (Previously
-    # the cap used the lowest point anywhere in the horizon: a live report
-    # had it capped at 0.84 kWh because of a 05:00 low point, while the sale
-    # itself was scheduled for 19:45 that evening - long after that low
-    # point - and the lowest point after the sale left room for the full
-    # 1.79 kWh surplus.) Everything after the sale up to the end of the
-    # horizon is still checked, including after the peak: with a max SOC
-    # below 100% the peak isn't clipped, so the sold energy really is
-    # missing from every later hour too.
-    #
-    # Size and placement depend on each other (the amount sets how many
-    # units the window needs, the window sets which low points count), so
-    # start from the full surplus and only ever shrink it until the window
-    # it lands in is safe - a few rounds at most.
-    def _size_from(search_start: int) -> Optional[tuple[float, int, int, float]]:
-        amount = raw_surplus
-        low_point = None
-        for _ in range(6):
-            units = max(math.ceil(amount / effective_discharge_per_unit), 1)
-            start = _best_price_window(all_price, search_start, search_end, units, cheapest=False)
-            sale_hour = min(max((start - hour0_unit) // 4, 0), len(forecast) - 1)
-            low_point = min(forecast[sale_hour:])
-            capped = round(min(amount, low_point - sale_floor_kwh), 3)
-            if capped <= 0:
-                return None
-            if capped >= amount:
-                return amount, units, start, low_point
-            amount = capped
-        units = max(math.ceil(amount / effective_discharge_per_unit), 1)
-        start = _best_price_window(all_price, search_start, search_end, units, cheapest=False)
-        return amount, units, start, low_point
-
-    def _revenue(option: tuple[float, int, int, float]) -> float:
-        amount, units, start, _ = option
-        window = all_price[start : start + units]
-        return amount * (sum(window) / len(window)) if window else 0.0
-
-    best = _size_from(search_from) if search_from < search_end else None
-    # If the best-priced window lands before a low point that caps (or
-    # blocks) the sale, also try selling only after the lowest point before
-    # the breach - a slightly cheaper slot that can sell more (or at all)
-    # can be worth more than an expensive slot that has to sell less.
-    #
-    # The two are compared by what they EARN (kWh x the window's average
-    # price), not by kWh (as of v0.2.16): a live dump picked tomorrow
-    # 08:00 (18.65 kWh at 0.210 = 3.92) over this evening (18.23 kWh at
-    # 0.267 = 4.87) only because it sold 0.42 kWh more. Whatever a capped
-    # sale leaves unsold is still above the high threshold, so once that
-    # window has run, the next cycle simply plans another (smaller) sale
-    # before the breach.
-    if best is None or best[0] < raw_surplus:
-        pre_breach = forecast[hour_from : hour_index + 1]
-        low_h = hour_from + pre_breach.index(min(pre_breach))
-        after_low_start = hour0_unit + (low_h + 1) * 4
-        if search_from < after_low_start < search_end:
-            alt = _size_from(after_low_start)
-            if alt is not None and (best is None or _revenue(alt) > _revenue(best)):
-                best = alt
-    if best is None:
+    if search_from >= search_end:
         return None
-    surplus, units_needed, best_start, low_point_after_sale = best
-    window = all_price[best_start : best_start + units_needed]
+
+    # The priciest quarters before the breach, in blocks (as of 2026.10.10;
+    # one window until then) - each part only where the forecast stays at or
+    # above the floor (low threshold + Safety buffer) from that quarter on,
+    # since a sale lowers every hour after it. That also covers what the
+    # single window needed two searches for (a pricey slot before a low point
+    # vs. a cheaper one after it that can sell more): every quarter is
+    # checked against the low points after it on its own. Whatever can't be
+    # sold safely is left for a later sale.
+    units, assigned = _schedule_sale(
+        raw_surplus, effective_discharge_per_unit, all_price, search_from, search_end, max(min_block_units, 1),
+        forecast, hour0_unit, sale_floor_kwh,
+    )
+    if not units:
+        return None
+    surplus = round(sum(assigned.values()), 3)
+    if surplus <= 0:
+        return None
+    blocks = _sale_blocks(units, assigned, forecast, battery_now_kwh, cur_unit, hour0_unit)
+    first = blocks[0]
+    first_hour = min(max((units[0] - hour0_unit) // 4, 0), len(forecast) - 1)
+    # the lowest forecast point from the sale on (before the sale), as before
+    low_point_after_sale = min(forecast[first_hour:])
+    sold_value = sum(all_price[u] * e for u, e in assigned.items())
 
     return {
         "active": True,
@@ -1647,19 +1612,208 @@ def _high_discharge_sale(
         # for drawing it in the forecast (as of 2026.10.3)
         "grid_rate_per_unit": round(discharge_per_unit / discharge_efficiency, 4),
         "discharge_efficiency": discharge_efficiency,
-        "capped_by_low_limit": surplus < raw_surplus,
+        "capped_by_low_limit": surplus < raw_surplus - 1e-6,
         "low_point_after_sale_kwh": round(low_point_after_sale, 3),
         "sale_floor_kwh": round(sale_floor_kwh, 3),
         "sale_target_kwh": round(target_peak_kwh, 3),
         "breach_unit": breach_unit,
-        "start_unit": best_start,
-        "end_unit": best_start + units_needed,
-        "units_needed": units_needed,
+        "start_unit": first["start_unit"],
+        "end_unit": first["end_unit"],
+        "units_needed": first["end_unit"] - first["start_unit"],
+        # the first block is the plan's own window (what the status and the
+        # stop follow); the rest is planned again once it has run
+        "block_kwh": first["kwh"],
+        "planned_kwh": surplus,
+        "blocks": blocks,
         "breach_hour": hour_index,
-        "window_price": sum(window) / len(window) if window else 0.0,
+        "window_price": sold_value / surplus,
     }
 
 
+def _schedule_sale(
+    amount: float,
+    rate: float,
+    sell: list[float],
+    search_from: int,
+    search_end: int,
+    min_block_units: int,
+    base: list[float],
+    hour0_unit: int,
+    floor_kwh: float,
+) -> tuple[list[int], dict[int, float]]:
+    """The priciest quarters in [search_from, search_end) to sell `amount`
+    kWh in at `rate` kWh per quarter (battery side), possibly in several
+    blocks (as of 2026.10.10). A quarter is only used where the forecast
+    stays at or above `floor_kwh` from its hour on with everything chosen
+    so far taken out. Blocks shorter than `min_block_units` are lengthened
+    into their priciest neighbours, then quarters no longer needed are
+    trimmed off. Returns the chosen units (sorted) and the kWh each one
+    sells - front-loaded per block, the way the plan runs (full speed until
+    the block's amount is out)."""
+    n = min(search_end, len(sell))
+    chosen: set[int] = set()
+
+    def hour_of(u: int) -> int:
+        return max((u - hour0_unit) // 4, 0)
+
+    def removed_by(assign: dict[int, float]) -> list[float]:
+        out = [0.0] * len(base)
+        for u, e in assign.items():
+            for h in range(hour_of(u), len(base)):
+                out[h] += e
+        return out
+
+    def margin(assign: dict[int, float]) -> float:
+        if not assign or not base:
+            return float("inf")
+        removed = removed_by(assign)
+        h0 = min(hour_of(u) for u in assign)
+        return min(base[h] - removed[h] for h in range(min(h0, len(base) - 1), len(base))) - floor_kwh
+
+    delivered = 0.0
+    removed = [0.0] * len(base)
+    taken: dict[int, float] = {}
+    while delivered < amount - 1e-6:
+        want = min(rate, amount - delivered)
+        # lowest forecast level from each hour on, with what's chosen so far
+        # taken out - a quarter fits when that minus its own part stays at
+        # or above the floor
+        suffix = [0.0] * (len(base) + 1)
+        suffix[len(base)] = float("inf")
+        for h in range(len(base) - 1, -1, -1):
+            suffix[h] = min(base[h] - removed[h], suffix[h + 1])
+        # what each free quarter can still sell: its share, as far as the
+        # floor after it allows (a part of a quarter is fine)
+        room = {}
+        for u in range(search_from, n):
+            if u in chosen:
+                continue
+            fit = want if not base else min(want, suffix[min(hour_of(u), len(base) - 1)] - floor_kwh)
+            if fit >= min(0.05, want) - 1e-9:
+                room[u] = fit
+        if not room:
+            break
+        # priciest first; equal price: next to a quarter already taken
+        # (fewer blocks), then the earliest
+        u = max(room, key=lambda x: (round(sell[x], 6), 1 if (x - 1 in chosen or x + 1 in chosen) else 0, -x))
+        e = room[u]
+        chosen.add(u)
+        taken[u] = e
+        for h in range(hour_of(u), len(base)):
+            removed[h] += e
+        delivered += e
+    if not chosen:
+        return [], {}
+
+    def runs(units: set[int]) -> list[list[int]]:
+        out: list[list[int]] = []
+        for u in sorted(units):
+            if out and u == out[-1][-1] + 1:
+                out[-1].append(u)
+            else:
+                out.append([u])
+        return out
+
+    # lengthen blocks that are too short (into the pricier neighbour)
+    for _ in range(len(sell)):
+        short = [r for r in runs(chosen) if len(r) < min_block_units]
+        if not short:
+            break
+        grown = False
+        for run in short:
+            options = [u for u in (run[0] - 1, run[-1] + 1) if search_from <= u < n and u not in chosen]
+            if options:
+                chosen.add(max(options, key=lambda x: (round(sell[x], 6), x)))
+                grown = True
+        if not grown:
+            break
+
+    # trim what's not needed any more (a block keeps what the greedy pick
+    # gave it - its own stop level): blocks that sell nothing, then block
+    # edges as long as the rest still holds the block's amount (never below
+    # the minimum length)
+    def amount_of(run: list[int]) -> float:
+        return sum(taken.get(u, 0.0) for u in run)
+
+    for run in runs(chosen):
+        if amount_of(run) <= 1e-9:
+            chosen -= set(run)
+    trimmed = True
+    while trimmed:
+        trimmed = False
+        for run in runs(chosen):
+            if len(run) <= min_block_units:
+                continue
+            need = amount_of(run)
+            for u in sorted((run[0], run[-1]), key=lambda x: sell[x]):
+                if rate * (len(run) - 1) >= need - 1e-6:
+                    # the energy of a trimmed quarter moves to the rest
+                    moved = taken.pop(u, 0.0)
+                    chosen.discard(u)
+                    rest = [x for x in run if x != u]
+                    for v in rest:
+                        if moved <= 1e-9:
+                            break
+                        add = min(rate - taken.get(v, 0.0), moved)
+                        taken[v] = taken.get(v, 0.0) + add
+                        moved -= add
+                    trimmed = True
+                    break
+            if trimmed:
+                break
+
+    # each block runs front-loaded (full speed until its amount is out)
+    def front(units: set[int], block_amounts: list[float]) -> dict[int, float]:
+        out: dict[int, float] = {}
+        for run, amount_b in zip(runs(units), block_amounts):
+            left = amount_b
+            for u in run:
+                e = min(rate, max(left, 0.0))
+                out[u] = e
+                left -= e
+        return out
+
+    amounts = [amount_of(r) for r in runs(chosen)]
+    assign = front(chosen, amounts)
+    for _ in range(4):
+        m = margin(assign)
+        if m >= -1e-6:
+            break
+        # moving a block's energy to its start can cross a low point: the
+        # earliest block sells that much less
+        amounts[0] = max(amounts[0] + m, 0.0)
+        assign = front(chosen, amounts)
+    # a block's padding quarters stay in it (it runs that long at most);
+    # blocks that ended up selling nothing go
+    keep: set[int] = set()
+    for run in runs(chosen):
+        if sum(assign.get(u, 0.0) for u in run) > 1e-9:
+            keep |= set(run)
+    return sorted(keep), {u: assign.get(u, 0.0) for u in keep}
+
+
+def _sale_blocks(
+    units: list[int], assign: dict[int, float], base: list[float], battery_now_kwh: float, cur_unit: int,
+    hour0_unit: int,
+) -> list[dict]:
+    """The chosen sale quarters as blocks: [{start_unit, end_unit, kwh,
+    target_level_kwh}] - kwh what the block sells, target_level_kwh the
+    forecast level at its start minus everything sold up to and including
+    it (where it stops)."""
+    blocks: list[dict] = []
+    for u in units:
+        if blocks and u == blocks[-1]["end_unit"]:
+            blocks[-1]["end_unit"] = u + 1
+            blocks[-1]["kwh"] += assign[u]
+        else:
+            blocks.append({"start_unit": u, "end_unit": u + 1, "kwh": assign[u]})
+    sold = 0.0
+    for block in blocks:
+        level = _level_at(base, battery_now_kwh, cur_unit, hour0_unit, max(block["start_unit"], cur_unit))
+        block["target_level_kwh"] = round(level - sold - block["kwh"], 3)
+        sold += block["kwh"]
+        block["kwh"] = round(block["kwh"], 3)
+    return blocks
 
 
 def _plan_draw_window(
@@ -1759,6 +1913,32 @@ def _plan_draw_levels(
     unit_rates = plan.get("grid_rates")  # per quarter of the window (as of 2026.10.4)
     if not plan.get("active") or not (rate or unit_rates) or plan.get("target_reached"):
         return None if not (rate or unit_rates) else [0.0] * len(base)
+    if not charging and plan.get("blocks") and len(plan["blocks"]) > 1:
+        # a sale in several blocks (as of 2026.10.10): each takes out its
+        # quarters at the grid rate until the battery is at the level it was
+        # at when the block started minus the block's amount (the first one
+        # may be running: its own target)
+        out = []
+        done = 0.0
+        targets: dict[int, float] = {}
+        for h, value in enumerate(base):
+            hour_start = hour0_unit + 4 * h
+            for i, block in enumerate(plan["blocks"]):
+                lo = max(hour_start, block["start_unit"], cur_unit)
+                hi = min(hour_start + 4, block["end_unit"])
+                if hi <= lo:
+                    continue
+                if i not in targets:
+                    if i == 0 and plan.get("target_energy_kwh") is not None and block["start_unit"] <= cur_unit:
+                        targets[i] = float(plan["target_energy_kwh"])
+                    else:
+                        start = max(block["start_unit"], cur_unit)
+                        level = _level_at(base, battery_now_kwh, cur_unit, hour0_unit, start) - done
+                        targets[i] = level - float(block.get("kwh", 0) or 0)
+                add = (rate or 0.0) * (hi - lo)
+                done = min(done + add, max(float(value) - targets[i], done))
+            out.append(done)
+        return out
     blocks = plan.get("blocks") if charging else None
     if blocks:
         # several blocks (as of 2026.10.6): each adds its quarters' rates up

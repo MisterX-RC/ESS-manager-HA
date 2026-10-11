@@ -96,7 +96,8 @@ def discharge_display(
         )
     if high.get("active"):
         return (
-            round(high["target_kwh"], 2),
+            # with blocks (as of 2026.10.10) the first block's own amount
+            round(high.get("block_kwh", high["target_kwh"]), 2),
             _format_time(now, cur_unit, high["start_unit"]),
             _format_time(now, cur_unit, high["end_unit"]),
         )
@@ -197,7 +198,7 @@ def _card_side(
 
 
 def _add_blocks(side: dict, plan: dict, cur_unit: int, now: datetime) -> None:
-    """A charge in several blocks (as of 2026.10.6): the side shows the first
+    """A charge (as of 2026.10.6) or sale (2026.10.10) in several blocks: the side shows the first
     (or running) one; `blocks` lists the ones after it as {start, stop,
     energy_kwh} and `more_blocks` counts them, for the cards."""
     later = [b for b in (plan.get("blocks") or [])[1:] if b.get("end_unit", 0) > cur_unit]
@@ -363,9 +364,12 @@ def card_plans(
             target, spike.get("effective_discharge_per_unit", 0) * 4, False, *common,
         )
     elif high.get("active"):
+        # with blocks (as of 2026.10.10) the block shows its own amount
+        high_block = {**high, "target_kwh": high.get("block_kwh", high.get("target_kwh", 0))}
         sell = _card_side(
-            "high_discharge", False, high["start_unit"], high["end_unit"], high.get("target_kwh", 0),
-            ahead_target(high, False), high.get("effective_discharge_per_unit", 0) * 4, high.get("target_reached", False),
-            *common,
+            "high_discharge", False, high["start_unit"], high["end_unit"], high_block.get("target_kwh", 0),
+            ahead_target(high_block, False), high.get("effective_discharge_per_unit", 0) * 4,
+            high.get("target_reached", False), *common,
         )
+        _add_blocks(sell, high, cur_unit, now)
     return {"buy": buy, "sell": sell}

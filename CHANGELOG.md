@@ -15,6 +15,17 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ## [2026.10.10] - 2026-10-11
 
 ### Changed
+- **Sales can be split over several blocks, like charges.** A sale used to
+  be one window before the breach. It now goes into the priciest quarters
+  before it's needed, possibly in several blocks of at least the
+  **Minimum charge/sale duration** (the existing setting, renamed - one
+  setting for both). Each quarter is only used as far as the forecast stays
+  at or above minimum SOC + Safety buffer from then on, so a sale capped by
+  a low point no longer has to choose between selling less at the best
+  moment or everything at a cheaper one: it sells what fits at the best
+  moment and the rest after the low point. The first block is the plan's
+  window; the status card shows "+N" for the blocks after it and the charts
+  draw them all, as for a charge.
 - **A sale before the battery runs full has to be worth it.** The high
   discharge plan sold before the moment the forecast passes your max SOC,
   at the best price before then - even when that price was no better than

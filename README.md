@@ -119,7 +119,7 @@ window that holds the whole amount. Every part of a charge is bought in the
 cheapest quarters before the moment it's needed: if the battery runs short
 tonight and keeps draining until the day after tomorrow, it buys tonight
 only what's needed to reach tomorrow's cheaper valley, and the rest there.
-That can mean several blocks - each at least the **Minimum charge duration**
+That can mean several blocks - each at least the **Minimum charge/sale duration**
 (15-120 minutes, default 30), so it doesn't switch on and off every quarter.
 The plan's window (what the Status, the stop and the status card follow) is
 the first block; the status card shows "+2" for the blocks after it (hover
@@ -128,6 +128,16 @@ again from the real battery level. A part that's only needed after the last
 known price waits until the next prices are in (they're published around
 13:00, well before). A charge also only goes where the battery has room
 for it (under 100% at every later hour) as long as it can.
+
+**Selling in the priciest quarters too** (as of 2026.10.10). A sale isn't
+one window either: it goes into the priciest quarters before the moment
+it's needed, possibly in several blocks of at least the same **Minimum
+charge/sale duration**. Each quarter is only used as far as the forecast
+stays at or above your minimum SOC + Safety buffer from then on, so a sale
+that can't go all at once before a low point (say tonight's 19:30 peak,
+with a low point at 07:00) sells what fits there and the rest after that
+low point - instead of either selling less, or all of it at the cheaper
+moment. The first block is the plan's window, like a charge.
 
 **Charging with the sun in mind** (as of 2026.10.4). The battery takes at
 most your **max battery charge speed**. In a sunny hour the sun already
@@ -484,7 +494,7 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Negative price threshold | Price (EUR/kWh) below which charging is considered "getting paid" |
 | Spike margin | Minimum day price spread (EUR/kWh) to treat a day as spike-worthy |
 | Minimum charge target | The smallest amount (kWh) any charge buys. Low charge plan: the dip is lifted back to the low threshold; if that needs less than this, the charge is rounded up to it (but never so far that a later peak would cross your max SOC and just be sold again). Spike plan: a pre-peak top-up smaller than this is skipped. Full-charge balancing and the negative price plan are not affected |
-| Minimum charge duration | The shortest charge block, in minutes (15-120 in steps of 15, default 30). A charge may be split over the cheapest quarters before it's needed, but never into blocks shorter than this |
+| Minimum charge/sale duration | The shortest charge or sale block, in minutes (15-120 in steps of 15, default 30). A charge may be split over the cheapest quarters before it's needed, a sale over the priciest ones (as of 2026.10.10), but never into blocks shorter than this |
 | Safety buffer | % of battery capacity kept on top of your min SOC (default 5%), both ways. Selling: a sale never brings the forecast below min SOC + buffer - e.g. min SOC 10% + buffer 5% = sales stop at 15%, so a sale doesn't end in buying energy back. Charging (as of 2026.10.4): a charge lifts the dip to min SOC + buffer, not just to min SOC, so a bit more usage or less sun than forecast doesn't take the battery just under it (when to charge still follows min SOC itself). 0 = right down to / up to min SOC |
 | Transport tariff | Base grid transport tariff (EUR/kWh, default 0): buying costs price + (tariff x factor for that hour), selling doesn't - see "Grid transport tariff" above. 0 = no transport |
 | Planning horizon | How many hours ahead the low/high plans are allowed to react to (price data usually doesn't exist much beyond ~48h anyway) |

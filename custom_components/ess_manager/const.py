@@ -372,7 +372,7 @@ NUMBER_DEFINITIONS = [
         # over the cheapest quarters before it's needed, but never into
         # blocks shorter than this.
         NUM_MINIMUM_CHARGE_MINUTES,
-        "Minimum charge duration",
+        "Minimum charge/sale duration",
         "mdi:timer-sand",
         15,
         120,

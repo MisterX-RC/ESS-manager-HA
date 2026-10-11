@@ -1044,6 +1044,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # a sale before an overflow has to beat the overflow's own price
             # (as of 2026.10.10)
             capacity_kwh=upper_limit_kwh,
+            # sales in blocks too, no shorter than a charge block (2026.10.10)
+            min_sale_units=min_charge_units,
         )
         if replan:
             # only what this cycle saw - a change made meanwhile still counts
