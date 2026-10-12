@@ -40,6 +40,8 @@ _LOGGER = logging.getLogger(__name__)
 CARDS_FILE = Path(__file__).parent / "frontend" / "ess-manager-cards.js"
 CARDS_URL = f"/{DOMAIN}/ess-manager-cards.js"
 _FRONTEND_REGISTERED = f"{DOMAIN}_frontend_registered"
+# Added to the dashboard resource's URL, so it differs from the extra module's.
+RESOURCE_SUFFIX = "resource=1"
 
 README_USAGE_URL = "https://github.com/MisterX-RC/ESS-manager-HA#household-usage-forecast"
 
@@ -168,7 +170,11 @@ async def _async_register_cards(hass: HomeAssistant) -> None:
     except Exception as err:  # noqa: BLE001 - the cards are optional, planning isn't
         _LOGGER.warning("ESS Manager: could not load the dashboard cards: %s", err)
         return
-    await _async_sync_lovelace_resource(hass, url)
+    # A different URL than the extra module above (as of 2026.10.12): the
+    # browser remembers a module that failed to load under its URL for the
+    # rest of the page's life, so a resource with the same URL failed along
+    # with it - exactly when it was needed.
+    await _async_sync_lovelace_resource(hass, f"{url}&{RESOURCE_SUFFIX}")
 
 
 def _lovelace_resources(hass: HomeAssistant):

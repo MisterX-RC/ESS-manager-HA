@@ -12,6 +12,17 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.12] - 2026-10-12
+
+### Fixed
+- **Cards still showing "Configuration error" after the app comes back.**
+  The dashboard resource from 2026.10.9 had exactly the same URL as the card
+  file Home Assistant loads when the page starts. When that first load
+  failed (the app starting without a connection), the browser remembered the
+  failure for that URL, so the resource - meant to load the cards once the
+  connection is up - failed along with it. The resource now has its own URL
+  (`...&resource=1`); an existing resource is updated automatically.
+
 ## [2026.10.11] - 2026-10-12
 
 ### Added

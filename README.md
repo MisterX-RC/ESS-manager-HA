@@ -758,12 +758,16 @@ browser refresh), edit a dashboard, choose **Add card** and search for
 All of them are drawn by the integration itself - nothing else to install
 (since v0.5.1 also not apexcharts-card). The integration loads the card
 file on every page and also adds it as a dashboard resource
-(`/ess_manager/ess-manager-cards.js`, under Settings > Dashboards >
-Resources), kept on the current version and removed again with the last
-installation. That resource is what keeps the cards from showing
+(`/ess_manager/ess-manager-cards.js?v=<version>&resource=1`, under
+Settings > Dashboards > Resources), kept on the current version and removed
+again with the last installation. Its URL deliberately differs from the
+file loaded on every page: a browser remembers a module that failed to load
+under its URL until the page is reloaded. That resource is what keeps the cards from showing
 "Configuration error" when the app starts without a connection yet (e.g.
 the iOS app coming back from the background) - with dashboards whose
-resources are set in YAML, add it there yourself as a JavaScript module. Each card only asks for the
+resources are set in YAML, add it there yourself as a JavaScript module
+(`url: /ess_manager/ess-manager-cards.js?resource=1`, `type: module` - with
+something after the `?`, so it differs from the file loaded on every page). Each card only asks for the
 installation's **Status** sensor (picked automatically when there's one);
 it finds the other sensors itself. In YAML:
 
