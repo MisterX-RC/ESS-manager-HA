@@ -33,6 +33,7 @@ control = _load("control")
 forecasting = _load("forecasting")
 plans = _load("plans")
 display = _load("display")
+ev = _load("ev")
 usage_forecast = _load("usage_forecast")
 transport = _load("transport")
 
@@ -3238,6 +3239,207 @@ _sb_adj = plans.compose_forecast_adjusted(_d924["forecast"], {"active": False}, 
 _sb_drop = [round(a - b, 2) for a, b in zip(_d924["forecast"], _sb_adj)]
 check("sale blocks: both blocks are drawn (the drop grows after the second one and never exceeds the 18.65 kWh)",
       _sb_drop[10] > 10 and _sb_drop[-1] > _sb_drop[16] and max(_sb_drop) <= 18.65 + 0.01)
+
+
+# ---------------------------------------------------------------------------
+# 2026.10.11: electric car sessions (ev.py)
+# ---------------------------------------------------------------------------
+from zoneinfo import ZoneInfo as _ZI
+_tz = _ZI("Europe/Amsterdam")
+_mon = datetime(2026, 10, 12, tzinfo=_tz)  # a Monday
+_evh: dict = {}
+_sur: dict = {}
+def _put(day, hour, values, surplus=None):
+    e0 = int(datetime.combine(day.date(), datetime.min.time().replace(hour=hour), tzinfo=_tz).timestamp())
+    for i, v in enumerate(values):
+        _evh[e0 + i * 3600] = v
+        if surplus is not None:
+            _sur[e0 + i * 3600] = surplus[i]
+for _w in range(1, 7):
+    _past = _mon - timedelta(weeks=_w)
+    for _h in range(24):  # data exists every hour (0 when not charging)
+        _evh.setdefault(int(datetime.combine(_past.date(), datetime.min.time().replace(hour=_h), tzinfo=_tz).timestamp()), 0.0)
+    if _w in (1, 2, 3, 5):
+        _put(_past, 18, [3.0, 3.6, 3.6])          # Monday evening, 10.2 kWh
+    if _w == 4:
+        _put(_past, 19, [3.6, 3.6, 1.0])          # same group, an hour later
+    if _w in (2, 6):
+        _put(_past + timedelta(days=1), 20, [3.6, 3.6])   # Tuesday: only 2 of 6 weeks
+    _put(_past + timedelta(days=2), 11, [2.0, 3.0, 2.5], surplus=[2.5, 3.5, 3.0]) if _w <= 4 else None  # Wednesday solar
+_days = [_mon + timedelta(days=i) for i in range(5)]
+_pred = ev.detect_sessions(_evh, _sur, _days, 6, 3, 6, 16, _tz)
+_by_day = {s["key"][:10]: s for s in _pred}
+check("ev: Monday evening predicted (5 of 6 weeks, start 18:00, 9.8 kWh average: 4x 10.2 + 8.2)",
+      "2026-10-12" in _by_day and _by_day["2026-10-12"]["key"] == "2026-10-12T18"
+      and abs(_by_day["2026-10-12"]["kwh"] - 9.8) < 0.01 and _by_day["2026-10-12"]["mode"] == "fixed")
+check("ev: the charging current comes from the typical full hour (3.6 kWh in an hour on 3 phases -> 5 A, at least the min 6 A)",
+      _by_day["2026-10-12"]["current_a"] == 6)
+check("ev: Tuesday (2 of 6 weeks, not more than half) is not predicted", "2026-10-13" not in _by_day)
+check("ev: Wednesday's sessions that fit in the solar surplus become a solar session",
+      _by_day["2026-10-14"]["mode"] == "solar" and _by_day["2026-10-14"]["solar_history"] is True
+      and _by_day["2026-10-14"]["key"] == "2026-10-14T11")
+check("ev: no prediction without history", ev.detect_sessions({}, None, _days, 6, 3, 6, 16, _tz) == [])
+
+check("ev: power from current - 16 A on 3 phases is 11.04 kW, 6 A on 1 phase 1.38 kW",
+      ev.power_kw(16, 3) == 11.04 and ev.power_kw(6, 1) == 1.38)
+
+# a car with a battery: the session in %, the start SOC worked back from the target
+_car = {"id": "c1", "name": "Gezinsauto", "capacity_kwh": 60, "target_soc": 80}
+_s = ev.apply_car({"id": "x", "start": 0, "kwh": 10.2}, _car)
+check("ev: 10.2 kWh on a 60 kWh car with target 80% starts at 63%", _s["start_soc"] == 63 and _s["target_soc"] == 80)
+_s2 = ev.apply_car({"id": "x", "start": 0, "kwh": 10.2, "start_soc": 30, "target_soc": 80}, _car)
+check("ev: a lower start SOC makes the session bigger (30% -> 80% = 30 kWh)", _s2["kwh"] == 30.0)
+
+_now = int(datetime(2026, 10, 12, 14, 20, tzinfo=_tz).timestamp())
+_lst = ev.build_sessions(_pred, {"h:2026-10-12T18": {"current_a": 16, "enabled": True}},
+                         [{"id": "m1", "start": int(datetime(2026, 10, 13, 9, tzinfo=_tz).timestamp()), "kwh": 5.0,
+                           "mode": "fixed", "current_a": 10, "car": None, "enabled": False}],
+                         [_car], _now, _now + 5 * 86400)
+check("ev: an override marks the session 'edited', a manual one 'manual', sorted by start",
+      [s["label"] for s in _lst] == ["edited", "manual", "history"] and _lst[0]["current_a"] == 16)
+check("ev: with one car every session is that car's (in %)", all(s["car"] == "c1" and s["start_soc"] is not None for s in _lst))
+_lst2 = ev.build_sessions(_pred, {}, [], [_car, {"id": "c2", "name": "Werkauto", "capacity_kwh": 52, "target_soc": 90}],
+                          _now, _now + 5 * 86400)
+check("ev: with two cars a historical session has no car (kWh only)", all(s["car"] is None and s["start_soc"] is None for s in _lst2))
+_late = int(datetime(2026, 10, 12, 19, 30, tzinfo=_tz).timestamp())
+check("ev: a session more than an hour past its start without charging is gone",
+      not any(s["key"] == "2026-10-12T18" for s in ev.build_sessions(_pred, {}, [], [], _late, _late + 86400)))
+check("ev: ...unless it's running",
+      any(s.get("key") == "2026-10-12T18" and s["running"]
+          for s in ev.build_sessions(_pred, {}, [], [], _late, _late + 86400, running_id="h:2026-10-12T18")))
+
+# profiles: fixed 16 A / 3 phases = 11.04 kW, 20 kWh from 18:00 -> done at 19:48:42
+_h0 = int(datetime(2026, 10, 12, 14, tzinfo=_tz).timestamp())
+_fixed = {"id": "f", "start": int(datetime(2026, 10, 12, 18, tzinfo=_tz).timestamp()), "kwh": 20.0, "mode": "fixed", "current_a": 16}
+_prof, _info = ev.session_profile(_fixed, _now, _h0, 24, [0.0] * 24, 3, 6, 16, _h0 + 10 * 3600)
+check("ev: fixed session 11.04 kW from 18:00: 11.04 kWh at 18:00, the rest at 19:00, done 19:48",
+      _prof[4] == 11.04 and abs(_prof[5] - 8.96) < 0.001 and sum(_prof) == 20.0
+      and datetime.fromtimestamp(_info["end"], _tz).strftime("%H:%M") == "19:48" and _info["warning"] is None)
+# solar: surplus per hour 2 / 5 / 8 / 3 kWh from 11:00; min 6 A on 3 phases = 4.14 kW, so the 2 and 3 don't start it
+_sol = {"id": "s", "start": int(datetime(2026, 10, 12, 11, tzinfo=_tz).timestamp()), "kwh": 10.0, "mode": "solar", "current_a": 16}
+_h11 = int(datetime(2026, 10, 12, 11, tzinfo=_tz).timestamp())
+_net = [2.0, 5.0, 8.0, 3.0] + [0.0] * 20
+_ps, _is = ev.session_profile(_sol, _h11, _h11, 24, _net, 3, 6, 16, _h11 + 13 * 3600)
+check("ev: solar session takes only the surplus above the min current: 0, 5, 5 (of 8), done 13:37",
+      _ps[:4] == [0.0, 5.0, 5.0, 0.0] and datetime.fromtimestamp(_is["end"], _tz).strftime("%H:%M") == "13:37")
+_ps2, _is2 = ev.session_profile({**_sol, "kwh": 20.0}, _h11, _h11, 24, _net, 3, 6, 16, _h11 + 13 * 3600)
+check("ev: not enough surplus that day -> 'short', charged 13 kWh, no end", _is2["warning"] == "short" and _is2["kwh"] == 13.0 and _is2["end"] is None)
+_ps3, _is3 = ev.session_profile(_sol, _h11, _h11, 24, [1.0] * 24, 3, 6, 16, _h11 + 13 * 3600)
+check("ev: no surplus above the min current that day -> 'no_surplus'", _is3["warning"] == "no_surplus" and sum(_ps3) == 0)
+# a running session: what's already delivered counts, hour 0 is a full-hour value
+_run = {**_fixed, "start": _h0}
+_pr, _ir = ev.session_profile(_run, _now, _h0, 24, [0.0] * 24, 3, 6, 16, _h0 + 10 * 3600, delivered_kwh=15.0)
+check("ev: running session: 5 kWh left, in the current hour (scaled to a full-hour value: 5 / (40/60))",
+      abs(_pr[0] - 7.5) < 0.001 and sum(_pr[1:]) == 0)
+_tot, _sess = ev.ev_forecast([_fixed, {**_sol, "enabled": False}], _now, _h0, 24, [0.0] * 24, 3, 6, 16, _tz)
+check("ev: a switched-off session doesn't count in the forecast, but still gets its info",
+      abs(sum(_tot) - 20.0) < 0.001 and len(_sess) == 2 and _sess[1]["warning"] == "no_surplus")
+
+# the house usage forecast leaves the car's history out (always, also with
+# prediction off); a charger younger than the history counts as 0
+def _ev_sums(age_hours, per_hour):
+    first = usage_base_epoch - age_hours * HOUR_S
+    series, total = {}, 0.0
+    for epoch in range(first, usage_base_epoch, HOUR_S):
+        total += per_hour(epoch)
+        series[epoch] = round(total, 6)
+    return series
+
+# the meter includes the car: 1 kWh house every hour, plus 4 kWh car at 17 UTC
+_sums_ev = {
+    "sensor.new_meter": _ev_sums(24 * 7 * 6 + 2, lambda e: 1.0 + (4.0 if (e // HOUR_S) % 24 == 17 else 0.0)),
+    "sensor.ev": _ev_sums(24 * 7 * 6 + 2, lambda e: 4.0 if (e // HOUR_S) % 24 == 17 else 0.0),
+}
+_fe, _ = usage_forecast.compute_usage_forecast_from_consumption_detailed(
+    _sums_ev, ["sensor.new_meter"], usage_now, 48, 6, subtract_entities=["sensor.ev"])
+_fw, _ = usage_forecast.compute_usage_forecast_from_consumption_detailed(
+    _sums_ev, ["sensor.new_meter"], usage_now, 48, 6)
+check("usage: the car's history is taken out of the house usage forecast (1 kWh every hour, also at 17 UTC)",
+      all(abs(v - 1.0) < 1e-6 for v in _fe) and max(_fw) > 4.9)
+_young_ev = {**_sums_ev, "sensor.ev": _ev_sums(30, lambda e: 4.0 if (e // HOUR_S) % 24 == 17 else 0.0)}
+_fy, _ = usage_forecast.compute_usage_forecast_from_consumption_detailed(
+    _young_ev, ["sensor.new_meter"], usage_now, 48, 6, subtract_entities=["sensor.ev"])
+check("usage: a charger younger than the history counts as 0 there, never below 0",
+      min(_fy) >= 0 and len(_fy) == 48)
+_evh2, _sur2 = usage_forecast.ev_hourly_history(
+    _sums_ev, ["sensor.ev"], None, [], usage_base_epoch - 48 * HOUR_S, usage_base_epoch)
+check("ev history: the car's kWh per hour, no surplus without solar statistics",
+      _sur2 is None and len(_evh2) == 48 and abs(sum(_evh2.values()) - 8.0) < 1e-6)
+_sums_sol = {
+    "sensor.imp": _ev_sums(50, lambda e: 1.0 + (4.0 if (e // HOUR_S) % 24 == 17 else 0.0)),
+    "sensor.exp": _ev_sums(50, lambda e: 2.0),
+    "sensor.pv": _ev_sums(50, lambda e: 3.0),
+    "sensor.ev": _ev_sums(50, lambda e: 4.0 if (e // HOUR_S) % 24 == 17 else 0.0),
+}
+_evh3, _sur3 = usage_forecast.ev_hourly_history(
+    _sums_sol, ["sensor.ev"], (["sensor.imp"], ["sensor.exp"], ["sensor.pv"], None, None), ["sensor.pv"],
+    usage_base_epoch - 24 * HOUR_S, usage_base_epoch)
+_e17 = [e for e in _evh3 if (e // HOUR_S) % 24 == 17][0]
+check("ev history: solar surplus = solar minus the house without the car (3 - 2 = 1 kWh, also while charging)",
+      abs(_sur3[_e17] - 1.0) < 1e-6 and all(abs(v - 1.0) < 1e-6 for v in _sur3.values()))
+
+# ev_runtime: the card's edits, the running session, the forecast
+ev_runtime = _load("ev_runtime")
+_rt = ev_runtime.EvRuntime()
+_rt.history = (_evh, _sur)
+_conf1 = {"phases": 3, "min_current": 6, "max_current": 16, "predict": True, "cars": [_car]}
+_n1 = datetime(2026, 10, 12, 14, 20, tzinfo=_tz)
+_tot1, _a1 = _rt.update(_conf1, _n1, _tz, 6, [0.0] * 121, 0.0, 100.0)
+check("ev runtime: predicted sessions with the single car, in %, and the evening session in the forecast",
+      [s["id"] for s in _a1["sessions"]][:2] == ["h:2026-10-12T18", "h:2026-10-14T11"]
+      and _a1["sessions"][0]["car"] == "c1" and _a1["sessions"][0]["target_soc"] == 80
+      and abs(sum(_tot1) - _a1["total_kwh"]) < 0.01 and _tot1[4] > 0)
+check("ev runtime: a solar session without surplus warns, and is in the list with a red border",
+      _a1["sessions"][1]["warning"] == "no_surplus" and _a1["sessions"][1]["solar_history"] is True)
+_rt.save("h:2026-10-12T18", {"start_soc": 30, "current_a": 16}, int(_n1.timestamp()))
+_tot2, _a2 = _rt.update(_conf1, _n1, _tz, 6, [0.0] * 121, 0.0, 100.0)
+_s18 = _a2["sessions"][0]
+check("ev runtime: an edit (start 30%) makes it 'edited', 30 kWh at 16 A, and keeps the average for 'back to average'",
+      _s18["label"] == "edited" and _s18["kwh"] == 30.0 and _s18["current_a"] == 16 and _s18["power_kw"] == 11.04
+      and _s18["history"]["start_soc"] == 64 and abs(sum(_tot2) - 30.0 - (_a2["total_kwh"] - 30.0)) < 0.01)
+_mid = _rt.save(None, {"start": int(datetime(2026, 10, 13, 9, 30, tzinfo=_tz).timestamp()), "kwh": 5.0, "mode": "fixed"}, int(_n1.timestamp()))
+_tot3, _a3 = _rt.update(_conf1, _n1, _tz, 6, [0.0] * 121, 0.0, 100.0)
+check("ev runtime: a manual session lands in order, on the whole hour, labelled 'manual'",
+      [s["id"] for s in _a3["sessions"]][1] == _mid and _a3["sessions"][1]["label"] == "manual"
+      and _a3["sessions"][1]["start"].startswith("2026-10-13T09:00"))
+# the charger starts at 17:50: the 18:00 session runs and starts now (17:00 hour)
+_n4 = datetime(2026, 10, 12, 17, 50, tzinfo=_tz)
+_tot4, _a4 = _rt.update(_conf1, _n4, _tz, 6, [0.0] * 121, 7400.0, 100.0)
+_r4 = _a4["sessions"][0]
+check("ev runtime: charging 10 min early -> that session runs, starting in the current hour",
+      _r4["running"] and _r4["id"] == "h:2026-10-12T18" and _r4["start"].startswith("2026-10-12T17:00"))
+_rt.save("h:2026-10-12T18", {"start": int(datetime(2026, 10, 13, 20, tzinfo=_tz).timestamp()), "target_soc": 75}, int(_n4.timestamp()))
+_tot5, _a5 = _rt.update(_conf1, datetime(2026, 10, 12, 18, 30, tzinfo=_tz), _tz, 6, [0.0] * 121, 7400.0, 107.0)
+_r5 = _a5["sessions"][0]
+check("ev runtime: a running session keeps its start (the target can change: 30 -> 75% = 27 kWh); 7 kWh delivered counts, 20 stays planned",
+      _r5["start"].startswith("2026-10-12T17:00") and _r5["delivered_kwh"] == 7.0 and _r5["kwh"] == 27.0
+      and abs(sum(_tot5[1:]) + _tot5[0] * 0.5 - (20.0 + 5.0)) < 0.05)  # + the 5 kWh manual session
+_rt.update(_conf1, datetime(2026, 10, 12, 19, 0, tzinfo=_tz), _tz, 6, [0.0] * 121, 0.0, 120.0)
+_tot6, _a6 = _rt.update(_conf1, datetime(2026, 10, 12, 19, 11, tzinfo=_tz), _tz, 6, [0.0] * 121, 0.0, 120.0)
+check("ev runtime: 10 minutes without power -> the session is done and gone",
+      _rt.running is None and "h:2026-10-12T18" in _rt.done
+      and not any(s["id"] == "h:2026-10-12T18" for s in _a6["sessions"]))
+_rt2 = ev_runtime.EvRuntime()
+_tot7, _a7 = _rt2.update({**_conf1, "predict": False}, _n1, _tz, 6, [0.0] * 121, 3000.0, 50.0)
+check("ev runtime: prediction off -> empty list; a charge without a session becomes a manual running session",
+      len(_a7["sessions"]) == 1 and _a7["sessions"][0]["label"] == "manual" and _a7["sessions"][0]["running"]
+      and _a7["sessions"][0]["start"].startswith("2026-10-12T14:00"))
+_rt2.remove(_a7["sessions"][0]["id"])
+check("ev runtime: removing a manual session deletes it (and stops following it)", _rt2.manual == [] and _rt2.running is None)
+_rt3 = ev_runtime.EvRuntime()
+_rt3.restore(_rt.as_store())
+check("ev runtime: the store round-trips", _rt3.as_store() == _rt.as_store())
+# two solar sessions the same day share the surplus
+_rt4 = ev_runtime.EvRuntime()
+_h = lambda hh: int(datetime(2026, 10, 12, hh, tzinfo=_tz).timestamp())
+_rt4.save(None, {"start": _h(11), "kwh": 6.0, "mode": "solar"}, _h(10))
+_rt4.save(None, {"start": _h(11), "kwh": 6.0, "mode": "solar"}, _h(10))
+_net4 = [0.0] * 121
+_net4[1] = 6.0
+_net4[2] = 6.0  # 11:00 and 12:00
+_tot8, _a8 = _rt4.update({**_conf1, "cars": []}, datetime(2026, 10, 12, 10, 0, tzinfo=_tz), _tz, 6, _net4, 0.0, None)
+check("ev runtime: two solar sessions share the surplus (6 + 6 kWh, not 12 + 6)",
+      abs(sum(_tot8) - 12.0) < 0.01 and _tot8[1] == 6.0 and _tot8[2] == 6.0)
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

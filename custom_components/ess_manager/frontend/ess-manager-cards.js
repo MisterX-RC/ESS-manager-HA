@@ -5,6 +5,7 @@
  *   custom:ess-manager-battery-card   battery forecast: five whole days, measured + expected
  *   custom:ess-manager-price-card     today's and tomorrow's prices with the planned moments
  *   custom:ess-manager-status-card    Sell / Buy blocks, price plans, control toggle, timeline
+ *   custom:ess-manager-ev-card        the electric car's charging sessions (as of 2026.10.11)
  *
  * Each card only needs `entity:` - the installation's Status sensor. All
  * three are drawn by this file itself (as of v0.5.1 also the battery and
@@ -64,6 +65,29 @@ const I18N = {
     ed_automation: "Your own ESS automation (when the integration doesn't control the battery itself)",
     ed_hours: "Timeline period (h)", ed_show_history: "Show the timeline",
     ed_spike_color: "Spike plan", ed_negative_plan_color: "Negative price plan",
+
+    // EV card
+    ev_title: "Electric cars", ev_sub: (n) => `charging sessions in the planning \u00b7 next ${n} days`,
+    ev_sessions: (n) => `${n} ${n === 1 ? "session" : "sessions"}`,
+    ev_off: "The electric car is switched off - switch it on in the integration's Configure (price plans page).",
+    ev_none: "No charging sessions predicted for the coming days.", ev_none_manual: "No charging sessions yet - add one below.",
+    ev_hist_legend: "solar session from history: depends on the sun \u00b7 tap to make it a fixed session",
+    ev_add: "Add manual session", ev_label_history: "average", ev_label_edited: "edited", ev_label_manual: "manual",
+    ev_mode_solar_hist: "solar surplus (history)", ev_mode_solar: "solar surplus", ev_charging_now: "charging now",
+    ev_now_soc: (p, k) => `now \u00b1 ${p}% \u00b7 ${k} charged`, ev_charged: (k) => `${k} charged`,
+    ev_warn_none: "No solar surplus that day - this session won't charge.",
+    ev_warn_short: (got, need) => `Not enough sun that day: \u00b1 ${got} of ${need}`,
+    ev_edit_aria: "Edit", ev_count: "Count this session", ev_edit_running: "Edit running session", ev_edit: "Edit session", ev_new: "New session",
+    ev_no_car: "No car", ev_car: "Car", ev_day: "Day", ev_start: "Start time",
+    ev_running_note: "The charger is charging: day and start time are fixed, the rest can still change.",
+    ev_start_soc: "Battery at start", ev_target: "Target", ev_energy: "Energy", ev_mode: "Way of charging",
+    ev_fixed: "Fixed current", ev_solar: "Solar surplus", ev_current: "Charging current", ev_phases: (n) => `${n} ${n === 1 ? "phase" : "phases"}`,
+    ev_solar_hint: (lo, hi) => `Charges on what the sun has left after the house, from ${lo} up to ${hi}.`,
+    ev_hist_hint: "From history this session charged on the sun - switch to a fixed current to make it independent of the sun.",
+    ev_hist_mark: (p) => `dash = expected battery at start according to history (${p}%)`,
+    ev_back_average: "Back to average", ev_remove: "Delete", ev_cancel: "Cancel", ev_save: "Save",
+    ev_left: (k) => `${k} to go`, ev_at: "done at", ev_in_plan: (k) => `${k} in the planning`,
+    ed_ev_color: "Car",
   },
   nl: {
     planned: "gepland", running: "bezig", done: "klaar", of: "van", stop: "stop",
@@ -98,6 +122,28 @@ const I18N = {
     ed_automation: "Je eigen ESS-automatisering (als de integratie de accu niet zelf aanstuurt)",
     ed_hours: "Periode tijdlijn (u)", ed_show_history: "Tijdlijn tonen",
     ed_spike_color: "Spike-plan", ed_negative_plan_color: "Negatieve-prijsplan",
+
+    ev_title: "Elektrische auto's", ev_sub: (n) => `laadsessies in de planning \u00b7 komende ${n} dagen`,
+    ev_sessions: (n) => `${n} ${n === 1 ? "sessie" : "sessies"}`,
+    ev_off: "De elektrische auto staat uit - zet hem aan bij Configureren van de integratie (pagina prijsplannen).",
+    ev_none: "Geen laadsessies voorspeld voor de komende dagen.", ev_none_manual: "Nog geen laadsessies - voeg er hieronder een toe.",
+    ev_hist_legend: "zon-sessie volgens de historie: hangt van de zon af \u00b7 tik om er een vaste sessie van te maken",
+    ev_add: "Handmatige sessie toevoegen", ev_label_history: "gemiddelde", ev_label_edited: "aangepast", ev_label_manual: "handmatig",
+    ev_mode_solar_hist: "zon-overschot (historie)", ev_mode_solar: "zon-overschot", ev_charging_now: "laadt nu",
+    ev_now_soc: (p, k) => `nu \u00b1 ${p}% \u00b7 ${k} geladen`, ev_charged: (k) => `${k} geladen`,
+    ev_warn_none: "Geen zon-overschot die dag - deze sessie laadt niet.",
+    ev_warn_short: (got, need) => `Te weinig zon die dag: \u00b1 ${got} van ${need}`,
+    ev_edit_aria: "Bewerk", ev_count: "Sessie meenemen", ev_edit_running: "Lopende sessie bewerken", ev_edit: "Sessie bewerken", ev_new: "Nieuwe sessie",
+    ev_no_car: "Geen auto", ev_car: "Auto", ev_day: "Dag", ev_start: "Starttijd",
+    ev_running_note: "De laadpaal laadt (vermogen > 0): dag en starttijd liggen vast, de rest kun je nog aanpassen.",
+    ev_start_soc: "Accu bij start", ev_target: "Doel", ev_energy: "Energie", ev_mode: "Manier van laden",
+    ev_fixed: "Vast vermogen", ev_solar: "Zon-overschot", ev_current: "Laadstroom", ev_phases: (n) => `${n} ${n === 1 ? "fase" : "fasen"}`,
+    ev_solar_hint: (lo, hi) => `Laadt op wat de zon na het huis overhoudt, van ${lo} tot ${hi}.`,
+    ev_hist_hint: "Volgens de historie laadde deze sessie op de zon - kies vast vermogen om hem los van de zon te maken.",
+    ev_hist_mark: (p) => `streepje = verwachte stand bij start volgens historie (${p}%)`,
+    ev_back_average: "Terug naar gemiddelde", ev_remove: "Verwijderen", ev_cancel: "Annuleren", ev_save: "Opslaan",
+    ev_left: (k) => `Nog ${k}`, ev_at: "klaar om", ev_in_plan: (k) => `${k} in de planning`,
+    ed_ev_color: "Auto",
   },
 };
 
@@ -1801,6 +1847,642 @@ class EssManagerStatusCard extends HTMLElement {
   }
 }
 
+// -- EV card (as of 2026.10.11) ------------------------------------------------------
+// The electric car's charging sessions in the planning (the Status sensor's
+// `ev` attribute): predicted from history ("average"), edited, or added by
+// hand; a checkbox per session decides whether it counts. Tap a session to
+// edit it in the block at the bottom: day and start hour (fixed while it's
+// running), the car and - with a battery size - its start and target SOC,
+// a fixed charging current or solar surplus only. A solar session predicted
+// from history has a red border: it depends on the sun.
+const EV_DEFAULTS = {
+  title: "",
+  ev_color: [67, 197, 158],
+  solar_color: [242, 201, 76],
+};
+const EV_COLOR_KEYS = ["ev_color", "solar_color"];
+const EV_SCHEMA = (t) => [
+  { name: "title", selector: { text: {} } },
+  {
+    type: "expandable",
+    flatten: true,
+    name: "colours",
+    title: t("ed_colours"),
+    schema: [{ type: "grid", name: "", schema: EV_COLOR_KEYS.map((name) => ({ name, selector: { color_rgb: {} } })) }],
+  },
+];
+const EV_VOLTAGE = 230;
+const EV_WARN = "#ff8a65";
+const EV_HIST_BORDER = "#e5534b";
+const evPower = (amps, phases) => Math.max(Number(amps) || 0, 0) * EV_VOLTAGE * Math.max(Number(phases) || 1, 1) / 1000;
+
+const EV_CSS = `
+  .ev-list { display: flex; flex-direction: column; gap: 6px; }
+  .ev-row { display: flex; align-items: center; gap: 4px; padding: 8px 4px 8px 12px; border-radius: 10px; background: rgba(127,127,127,.12); }
+  .ev-row.off { opacity: .55; }
+  .ev-row.hist { outline: 2px solid ${EV_HIST_BORDER}; outline-offset: -2px; }
+  .ev-row.sel { outline: 2px solid var(--ev); outline-offset: -2px; background: color-mix(in srgb, var(--ev) 14%, transparent); }
+  .ev-row.run { outline: 2px solid var(--ev); outline-offset: -2px; background: color-mix(in srgb, var(--ev) 14%, transparent); }
+  .ev-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; background: transparent; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .ev-line { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .ev-when { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .ev-kwh { font-size: 14px; font-weight: 600; white-space: nowrap; }
+  .ev-row.off .ev-kwh { text-decoration: line-through; color: var(--secondary-text-color, #a0a0a0); }
+  .ev-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--secondary-text-color, #a0a0a0); }
+  .ev-meta .car { color: var(--primary-text-color, #e1e1e1); }
+  .chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: color-mix(in srgb, var(--ev) 22%, transparent); }
+  .chip.strong { background: var(--ev); color: #0f1f19; }
+  .ev-warn { font-size: 12px; color: ${EV_WARN}; display: flex; gap: 6px; align-items: center; }
+  .socline { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .socline .from { color: var(--secondary-text-color, #a0a0a0); min-width: 30px; }
+  .socline .to { font-weight: 600; min-width: 30px; text-align: right; }
+  .bar { position: relative; flex: 1 1 auto; height: 8px; border-radius: 4px; background: rgba(127,127,127,.3); overflow: hidden; }
+  .bar i { position: absolute; top: 0; bottom: 0; }
+  .ev-check { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
+  .ev-check input { width: 20px; height: 20px; accent-color: var(--ev); cursor: pointer; }
+  .dot { width: 8px; height: 8px; border-radius: 4px; background: var(--ev); flex-shrink: 0; }
+  .legend-hist { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--secondary-text-color, #a0a0a0); }
+  .legend-hist span { width: 14px; height: 14px; border-radius: 4px; border: 2px solid ${EV_HIST_BORDER}; box-sizing: border-box; flex: 0 0 auto; }
+  .ev-add { min-height: 48px; border-radius: 10px; border: 1px dashed rgba(127,127,127,.5); background: transparent; color: inherit; font: inherit; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; }
+  .ev-empty { font-size: 14px; color: var(--secondary-text-color, #a0a0a0); padding: 6px 2px; }
+  .ev-edit { border-radius: 12px; background: rgba(127,127,127,.12); padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+  .ev-edit .head { display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 600; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  @container (max-width: 400px) { .grid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid3 .fld:first-child { grid-column: 1 / -1; } }
+  .fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--secondary-text-color, #a0a0a0); min-width: 0; }
+  .fld select, .fld .locked { min-height: 44px; border-radius: 8px; background: var(--ha-card-background, var(--card-background-color, #1c1c1c)); color: var(--primary-text-color, #e1e1e1); border: 1px solid rgba(127,127,127,.35); padding: 0 8px; font: inherit; font-size: 15px; box-sizing: border-box; width: 100%; }
+  .fld select:disabled, .fld .locked { color: var(--secondary-text-color, #8a8a8a); display: flex; align-items: center; gap: 6px; }
+  .note { font-size: 12px; color: var(--secondary-text-color, #a0a0a0); margin-top: -6px; }
+  .slider { display: flex; flex-direction: column; gap: 6px; }
+  .slider .lab { display: flex; justify-content: space-between; font-size: 13px; }
+  .slider .lab label { color: var(--secondary-text-color, #a0a0a0); }
+  .slider .lab span { font-weight: 600; }
+  .slider input { width: 100%; accent-color: var(--ev); }
+  .slider .ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color, #7a7a7a); }
+  .socbig { position: relative; height: 22px; border-radius: 11px; background: rgba(127,127,127,.3); }
+  .socbig i { position: absolute; top: 0; bottom: 0; }
+  .socbig .txt { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #0f1f19; white-space: nowrap; overflow: hidden; }
+  .socbig .mark { position: absolute; top: -4px; bottom: -4px; width: 0; border-left: 2px dashed var(--secondary-text-color, #bdbdbd); }
+  .hint { font-size: 11px; color: var(--secondary-text-color, #9b9b9b); }
+  .seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 22px; background: var(--ha-card-background, var(--card-background-color, #1c1c1c)); }
+  .seg button { min-height: 40px; border-radius: 18px; border: 0; background: transparent; color: inherit; font: inherit; font-size: 14px; cursor: pointer; }
+  .seg button[aria-checked="true"] { background: var(--ev); color: #0f1f19; font-weight: 600; }
+  .result { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--ev) 10%, transparent); font-size: 14px; }
+  .result.warn { background: color-mix(in srgb, ${EV_WARN} 14%, transparent); }
+  .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .actions .grow { flex: 1 1 auto; }
+  .btn { min-height: 44px; padding: 0 18px; border-radius: 22px; border: 1px solid rgba(127,127,127,.45); background: transparent; color: inherit; font: inherit; font-size: 14px; cursor: pointer; }
+  .btn.primary { border: 0; background: var(--ev); color: #0f1f19; font-weight: 600; padding: 0 22px; }
+  .btn.link { border: 0; padding: 0 12px; text-decoration: underline; color: var(--secondary-text-color, #9b9b9b); font-size: 13px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .err { font-size: 13px; color: ${EV_WARN}; }
+`;
+
+const ICON_LOCK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>';
+const ICON_CLOCK = (c) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex-shrink:0"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>`;
+const ICON_PLUS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
+
+class EssManagerEvCard extends EssChartCard {
+  static get info() {
+    return {
+      name: "ESS Manager - Electric car",
+      description: "The electric car's charging sessions in the planning: check, edit or add them.",
+      schema: EV_SCHEMA,
+      defaults: EV_DEFAULTS,
+      labels: { title: "ed_title", ev_color: "ed_ev_color", solar_color: "ed_solar_color" },
+    };
+  }
+
+  getCardSize() {
+    return 7;
+  }
+
+  setConfig(config) {
+    this._edit = null;
+    this._error = null;
+    super.setConfig(config);
+  }
+
+  _opt() {
+    return colorOptions(this._config, EV_DEFAULTS, EV_COLOR_KEYS);
+  }
+
+  _num(v, d) {
+    return formats(this._hass).num(v, d);
+  }
+
+  _kwh(v) {
+    return `${this._num(Number(v) || 0, 1)} kWh`;
+  }
+
+  _kw(v) {
+    return `${this._num(Number(v) || 0, 1)} kW`;
+  }
+
+  _day(ms) {
+    return formats(this._hass).dayLabel(ms);
+  }
+
+  _time(ms) {
+    return formats(this._hass).time(ms);
+  }
+
+  _duration(ms) {
+    const m = Math.max(Math.round(ms / 60000), 0);
+    const h = Math.floor(m / 60);
+    return h ? `${h} ${this._t("h")} ${String(m % 60).padStart(2, "0")} ${this._t("min")}` : `${m} ${this._t("min")}`;
+  }
+
+  _ev() {
+    const st = this._hass && this._hass.states[this._config.entity];
+    return st && st.attributes ? st.attributes.ev : undefined;
+  }
+
+  _car(ev, id) {
+    return (ev.cars || []).find((c) => c.id === id) || null;
+  }
+
+  // The 5 days the card plans: [midnight ms, ...]
+  _days(ev) {
+    const out = [localMidnight(this._hass, Date.now())];
+    for (let i = 1; i < (ev.days || 5); i++) out.push(nextMidnight(this._hass, out[i - 1]));
+    return out;
+  }
+
+  // -- the edit block's state ---------------------------------------------------
+  _openSession(ev, s) {
+    const car = this._car(ev, s.car);
+    const start = Date.parse(s.start);
+    const day = localMidnight(this._hass, start);
+    this._edit = {
+      id: s.id,
+      label: s.label,
+      running: !!s.running,
+      day,
+      hour: formats(this._hass).clock(start)[0],
+      car: s.car || "",
+      kwh: Number(s.kwh) || 0,
+      start_soc: s.start_soc != null ? Number(s.start_soc) : null,
+      target_soc: s.target_soc != null ? Number(s.target_soc) : car ? Number(car.target_soc) || 80 : null,
+      mode: s.mode || "fixed",
+      current_a: Number(s.current_a) || ev.max_current,
+      enabled: s.enabled !== false,
+      delivered: Number(s.delivered_kwh) || 0,
+      history: s.history || null,
+      solar_history: !!s.solar_history,
+    };
+    this._error = null;
+  }
+
+  _openNew(ev) {
+    const cars = ev.cars || [];
+    const car = cars.length === 1 ? cars[0] : null;
+    const now = Date.now();
+    const next = Math.floor(now / HOUR_MS) * HOUR_MS + HOUR_MS;
+    const target = car ? Number(car.target_soc) || 80 : null;
+    this._edit = {
+      id: null,
+      label: "manual",
+      running: false,
+      day: localMidnight(this._hass, next),
+      hour: formats(this._hass).clock(next)[0],
+      car: car ? car.id : "",
+      kwh: 10,
+      start_soc: car && car.capacity_kwh ? Math.max(target - Math.round((10 / car.capacity_kwh) * 100), 0) : null,
+      target_soc: target,
+      mode: "fixed",
+      current_a: ev.max_current,
+      enabled: true,
+      delivered: 0,
+      history: null,
+      solar_history: false,
+    };
+    this._error = null;
+  }
+
+  _startMs(e) {
+    // the chosen hour on the chosen day (corrected on a daylight saving day)
+    let t = e.day + e.hour * HOUR_MS;
+    const c = formats(this._hass).clock(t)[0];
+    if (c !== e.hour) t += ((((e.hour - c + 36) % 24) - 12) * HOUR_MS);
+    return t;
+  }
+
+  // The energy: from the SOCs with a car with a battery size, else the kWh.
+  _editKwh(ev, e) {
+    const car = this._car(ev, e.car);
+    if (car && car.capacity_kwh && e.start_soc != null && e.target_soc != null) {
+      return Math.max(((e.target_soc - e.start_soc) / 100) * car.capacity_kwh, 0);
+    }
+    return Math.max(Number(e.kwh) || 0, 0);
+  }
+
+  // What the edit gives: {end ms | null, warning, got kWh} - fixed: the
+  // current from the start; solar: per hour the house surplus (house_net_120h)
+  // between the min and max current, until the end of that day.
+  _preview(ev, e) {
+    const need = Math.max(this._editKwh(ev, e) - (e.running ? e.delivered : 0), 0);
+    const now = Date.now();
+    const begin = Math.max(this._startMs(e), now);
+    if (need <= 1e-9) return { end: begin, warning: null, got: 0, need };
+    const phases = ev.phases || 3;
+    if (e.mode !== "solar") {
+      const kw = evPower(clamp(e.current_a, ev.min_current, ev.max_current), phases);
+      return { end: begin + (need / kw) * HOUR_MS, warning: null, got: need, need };
+    }
+    const net = ev.house_net_120h || [];
+    const hour0 = Math.floor(now / HOUR_MS) * HOUR_MS;
+    const dayEnd = nextMidnight(this._hass, localMidnight(this._hass, this._startMs(e)));
+    const pMax = evPower(ev.max_current, phases);
+    const pMin = evPower(ev.min_current, phases);
+    let left = need;
+    let end = null;
+    for (let h = 0; h < net.length && left > 1e-9; h++) {
+      const w0 = hour0 + h * HOUR_MS;
+      if (w0 >= dayEnd) break;
+      const lo = Math.max(w0, begin);
+      const hi = Math.min(w0 + HOUR_MS, dayEnd);
+      if (hi <= lo) continue;
+      const spare = Math.max(Number(net[h]) || 0, 0);
+      const rate = spare >= pMin ? Math.min(spare, pMax) : 0;
+      if (!rate) continue;
+      const take = Math.min((rate * (hi - lo)) / HOUR_MS, left);
+      left -= take;
+      if (left <= 1e-9) end = lo + (take / rate) * HOUR_MS;
+    }
+    const got = need - left;
+    const warning = got <= 0.05 ? "no_surplus" : left > 0.05 ? "short" : null;
+    return { end, warning, got, need };
+  }
+
+  // -- rendering ------------------------------------------------------------------
+  _render() {
+    if (!this._hass || !this._config || !this.shadowRoot) return;
+    if (this._dragging) return; // never replace a slider while it's being dragged
+    const active = this.shadowRoot.activeElement;
+    if (active && active.tagName === "SELECT") return; // nor a list that's open
+    const st = this._hass.states[this._config.entity];
+    const opt = this._opt();
+    const css = BASE_CSS + EV_CSS + `ha-card { --ev: ${opt.ev_color}; --evsun: ${opt.solar_color}; }`;
+    if (!isStatusSensor(st)) {
+      setCardContent(this, css, notStatusMessage(this._hass, this._config.entity, st));
+      return;
+    }
+    const ev = st.attributes.ev;
+    if (!ev) {
+      setCardContent(this, css, `<div style="padding:4px">${esc(this._t("ev_off"))}</div>`);
+      return;
+    }
+    const sessions = ev.sessions || [];
+    if (this._edit && this._edit.id && !sessions.some((s) => s.id === this._edit.id)) this._edit = null;
+    const cars = ev.cars || [];
+    const counted = sessions.filter((s) => s.enabled);
+    const total = counted.reduce((a, s) => a + (Number(s.charged_kwh) || 0), 0);
+    const title = this._config.title || (cars.length === 1 ? cars[0].name : this._t("ev_title"));
+    let html = `
+      <div class="top">
+        <div style="display:flex;flex-direction:column;gap:2px;flex-grow:1;min-width:0">
+          <div class="title">${esc(title)}</div>
+          <div class="dim" style="font-size:13px">${esc(this._t("ev_sub")(ev.days || 5))}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+          <div style="font-size:20px;font-weight:600;white-space:nowrap">${esc(this._kwh(total))}</div>
+          <div class="dim" style="font-size:12px">${esc(this._t("ev_sessions")(counted.length))}</div>
+        </div>
+      </div>
+      <div class="ev-list">`;
+    if (!sessions.length) {
+      html += `<div class="ev-empty">${esc(this._t(ev.predict ? "ev_none" : "ev_none_manual"))}</div>`;
+    }
+    for (const s of sessions) html += this._row(ev, s, opt);
+    html += "</div>";
+    if (sessions.some((s) => s.solar_history)) {
+      html += `<div class="legend-hist"><span></span>${esc(this._t("ev_hist_legend"))}</div>`;
+    }
+    if (!this._edit || this._edit.id) {
+      html += `<button type="button" class="ev-add" data-act="add">${ICON_PLUS}${esc(this._t("ev_add"))}</button>`;
+    }
+    if (this._edit) html += this._editBlock(ev, opt);
+    if (setCardContent(this, css, html)) this._wire(ev);
+  }
+
+  _row(ev, s, opt) {
+    const start = Date.parse(s.start);
+    const end = s.end ? Date.parse(s.end) : null;
+    const car = this._car(ev, s.car);
+    const solar = s.mode === "solar";
+    const sel = this._edit && this._edit.id === s.id;
+    const cls = ["ev-row", s.enabled ? "" : "off", s.running ? "run" : sel ? "sel" : s.solar_history ? "hist" : ""].join(" ");
+    const stop = end ? `${solar ? "\u00b1 " : ""}${this._time(end)}` : "\u2014";
+    const chip = { history: "ev_label_history", edited: "ev_label_edited", manual: "ev_label_manual" }[s.label] || "ev_label_manual";
+    const mode = solar ? this._t(s.solar_history ? "ev_mode_solar_hist" : "ev_mode_solar") : this._kw(s.power_kw);
+    let when = `${esc(this._day(start))} \u00b7 ${esc(this._time(start))} \u2192 ${esc(stop)}`;
+    if (s.running) when = `<span class="dot"></span>${esc(this._t("ev_charging_now"))} \u00b7 ${when}`;
+    let right = `+${esc(this._kwh(s.kwh))}`;
+    if (s.running && ev.power_w) right = esc(this._kw(ev.power_w / 1000));
+    let bar = "";
+    if (car && car.capacity_kwh && s.start_soc != null && s.target_soc != null) {
+      const from = clamp(s.start_soc, 0, 100);
+      const to = clamp(s.target_soc, from, 100);
+      const color = solar ? "var(--evsun)" : "var(--ev)";
+      let fill = `<i style="left:0;width:${from}%;background:rgba(127,127,127,.6)"></i><i style="left:${from}%;width:${to - from}%;background:${color}"></i>`;
+      let mid = "";
+      if (s.running) {
+        const nowSoc = clamp(from + ((Number(s.delivered_kwh) || 0) / car.capacity_kwh) * 100, from, to);
+        fill = `<i style="left:0;width:${from}%;background:rgba(127,127,127,.6)"></i><i style="left:${from}%;width:${nowSoc - from}%;background:${color}"></i><i style="left:${nowSoc}%;width:${to - nowSoc}%;background:${color};opacity:.35"></i>`;
+        mid = `<span class="dim">${esc(this._t("ev_now_soc")(Math.round(nowSoc), this._kwh(s.delivered_kwh)))}</span>`;
+      }
+      bar = `<div class="socline"><span class="from">${Math.round(from)}%</span><div class="bar">${fill}</div><span class="to">${Math.round(to)}%</span></div>${mid ? `<div style="font-size:12px;text-align:center">${mid}</div>` : ""}`;
+    } else if (s.running) {
+      const part = s.kwh ? clamp(((Number(s.delivered_kwh) || 0) / s.kwh) * 100, 0, 100) : 0;
+      bar = `<div class="socline"><div class="bar"><i style="left:0;width:${part}%;background:var(--ev)"></i></div><span class="to">${esc(this._t("ev_charged")(this._kwh(s.delivered_kwh)))}</span></div>`;
+    }
+    let warn = "";
+    if (s.warning === "no_surplus") warn = `<div class="ev-warn">${esc(this._t("ev_warn_none"))}</div>`;
+    else if (s.warning === "short") warn = `<div class="ev-warn">${esc(this._t("ev_warn_short")(this._kwh(s.charged_kwh), this._kwh(s.kwh)))}</div>`;
+    return `
+      <div class="${cls}">
+        <button type="button" class="ev-main" data-open="${esc(s.id)}" aria-label="${esc(this._t("ev_edit_aria"))} ${esc(this._day(start))} ${esc(this._time(start))}">
+          <div class="ev-line"><div class="ev-when">${when}</div><div class="ev-kwh">${right}</div></div>
+          <div class="ev-meta">
+            <span class="chip${s.label === "history" ? "" : " strong"}">${esc(this._t(chip))}</span>
+            ${car ? `<span class="car">${esc(car.name)} \u00b7</span>` : ""}
+            <span>${esc(mode)}</span>
+          </div>
+          ${bar}${warn}
+        </button>
+        <label class="ev-check"><input type="checkbox" data-toggle="${esc(s.id)}" ${s.enabled ? "checked" : ""} aria-label="${esc(this._t("ev_count"))}"></label>
+      </div>`;
+  }
+
+  _editBlock(ev, opt) {
+    const e = this._edit;
+    const cars = ev.cars || [];
+    const car = this._car(ev, e.car);
+    const days = this._days(ev);
+    const head = e.running ? "ev_edit_running" : e.id ? "ev_edit" : "ev_new";
+    const chip = { history: "ev_label_history", edited: "ev_label_edited", manual: "ev_label_manual" }[e.label] || "ev_label_manual";
+    const nowHour = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+    // car, day, start time
+    let carField = "";
+    if (cars.length) {
+      const opts = (cars.length > 1 ? [`<option value="" ${e.car ? "" : "selected"}>${esc(this._t("ev_no_car"))}</option>`] : [])
+        .concat(cars.map((c) => `<option value="${esc(c.id)}" ${c.id === e.car ? "selected" : ""}>${esc(c.name)}</option>`));
+      carField = `<label class="fld">${esc(this._t("ev_car"))}<select data-f="car" ${cars.length === 1 ? "disabled" : ""}>${opts.join("")}</select></label>`;
+    }
+    const dayOpts = days.map((d) => `<option value="${d}" ${d === e.day ? "selected" : ""}>${esc(this._day(d))}</option>`).join("");
+    const hourOpts = [];
+    for (let h = 0; h < 24; h++) {
+      const ms = this._startMs({ day: e.day, hour: h });
+      if (ms < nowHour && h !== e.hour) continue; // past hours
+      hourOpts.push(`<option value="${h}" ${h === e.hour ? "selected" : ""}>${String(h).padStart(2, "0")}:00</option>`);
+    }
+    const dayField = `<label class="fld">${esc(this._t("ev_day"))}<select data-f="day" ${e.running ? "disabled" : ""}>${dayOpts}</select></label>`;
+    const timeField = e.running
+      ? `<label class="fld">${esc(this._t("ev_start"))}<span class="locked">${ICON_LOCK}${String(e.hour).padStart(2, "0")}:00</span></label>`
+      : `<label class="fld">${esc(this._t("ev_start"))}<select data-f="hour">${hourOpts.join("")}</select></label>`;
+    let out = `
+      <div class="ev-edit">
+        <div class="head"><span>${esc(this._t(head))}</span><span class="chip">${esc(this._t(chip))}</span></div>
+        <div class="${carField ? "grid3" : "grid2"}">${carField}${dayField}${timeField}</div>`;
+    if (e.running) out += `<div class="note">${esc(this._t("ev_running_note"))}</div>`;
+    // energy: SOCs with a battery size, else kWh
+    if (car && car.capacity_kwh) {
+      if (e.start_soc == null) e.start_soc = Math.max((e.target_soc || 80) - Math.round((e.kwh / car.capacity_kwh) * 100), 0);
+      if (e.target_soc == null) e.target_soc = Number(car.target_soc) || 80;
+      out += `<div data-k="socbig">${this._socBig(ev, e, car)}</div>`;
+      out += `
+        <div class="grid2">
+          ${this._slider("start_soc", this._t("ev_start_soc"), e.start_soc, 0, 100, 1, `${Math.round(e.start_soc)}%`, "var(--secondary-text-color,#9b9b9b)")}
+          ${this._slider("target_soc", this._t("ev_target"), e.target_soc, 0, 100, 1, `${Math.round(e.target_soc)}%`)}
+        </div>`;
+    } else {
+      out += this._slider("kwh", this._t("ev_energy"), e.kwh, 0.5, Math.max(100, Math.ceil(e.kwh)), 0.5, this._kwh(e.kwh));
+    }
+    // mode
+    out += `
+      <div class="seg" role="radiogroup" aria-label="${esc(this._t("ev_mode"))}">
+        <button type="button" role="radio" data-mode="fixed" aria-checked="${e.mode !== "solar"}">${esc(this._t("ev_fixed"))}</button>
+        <button type="button" role="radio" data-mode="solar" aria-checked="${e.mode === "solar"}">${esc(this._t("ev_solar"))}</button>
+      </div>`;
+    const phases = ev.phases || 3;
+    if (e.mode === "solar") {
+      out += `<div class="hint" style="font-size:12px">${esc(this._t("ev_solar_hint")(`${ev.min_current} A \u00b7 ${this._kw(evPower(ev.min_current, phases))}`, `${ev.max_current} A \u00b7 ${this._kw(evPower(ev.max_current, phases))}`))}</div>`;
+      if (e.solar_history) out += `<div class="hint">${esc(this._t("ev_hist_hint"))}</div>`;
+    } else {
+      const a = clamp(Math.round(e.current_a), ev.min_current, ev.max_current);
+      out += `
+        <div class="slider">
+          <div class="lab"><label for="ev-amp">${esc(this._t("ev_current"))}</label><span data-k="amp">${a} A \u00b7 ${esc(this._kw(evPower(a, phases)))}</span></div>
+          <input id="ev-amp" type="range" data-s="current_a" min="${ev.min_current}" max="${ev.max_current}" step="1" value="${a}">
+          <div class="ends"><span>${ev.min_current} A \u00b7 ${esc(this._kw(evPower(ev.min_current, phases)))}</span><span>${esc(this._t("ev_phases")(phases))}</span><span>${ev.max_current} A \u00b7 ${esc(this._kw(evPower(ev.max_current, phases)))}</span></div>
+        </div>`;
+    }
+    out += `<div data-k="result">${this._result(ev, e)}</div>`;
+    if (this._error) out += `<div class="err">${esc(this._error)}</div>`;
+    let extra = "";
+    if (e.id && e.label === "edited") extra = `<button type="button" class="btn link" data-act="average">${esc(this._t("ev_back_average"))}</button>`;
+    else if (e.id && e.label === "manual") extra = `<button type="button" class="btn link" data-act="remove">${esc(this._t("ev_remove"))}</button>`;
+    out += `
+        <div class="actions">${extra}<div class="grow"></div>
+          <button type="button" class="btn" data-act="cancel">${esc(this._t("ev_cancel"))}</button>
+          <button type="button" class="btn primary" data-act="save" ${this._saving ? "disabled" : ""}>${esc(this._t("ev_save"))}</button>
+        </div>
+      </div>`;
+    return out;
+  }
+
+  _slider(key, label, value, min, max, step, text, accent) {
+    return `
+      <div class="slider">
+        <div class="lab"><label for="ev-${key}">${esc(label)}</label><span data-k="${key}">${esc(text)}</span></div>
+        <input id="ev-${key}" type="range" data-s="${key}" min="${min}" max="${max}" step="${step}" value="${value}"${accent ? ` style="accent-color:${accent}"` : ""}>
+      </div>`;
+  }
+
+  _socBig(ev, e, car) {
+    const from = clamp(e.start_soc, 0, 100);
+    const to = clamp(e.target_soc, from, 100);
+    const kwh = this._editKwh(ev, e);
+    const color = e.mode === "solar" ? "var(--evsun)" : "var(--ev)";
+    let html = `<div style="display:flex;flex-direction:column;gap:8px"><div class="socbig"><i style="left:0;width:${from}%;border-radius:11px 0 0 11px;background:rgba(127,127,127,.6)"></i><i style="left:${from}%;width:${to - from}%;background:${color}"></i>`;
+    const label = `+${Math.round(to - from)}% \u00b7 +${esc(this._kwh(kwh))}`;
+    // a narrow segment: the text next to it instead of in it
+    if (to - from >= 30) html += `<div class="txt" style="left:${from}%;width:${to - from}%">${label}</div>`;
+    else if (to <= 62) html += `<div class="txt" style="left:calc(${to}% + 8px);color:var(--primary-text-color,#e1e1e1)">${label}</div>`;
+    else html += `<div class="txt" style="right:calc(${100 - from}% + 8px);color:var(--primary-text-color,#e1e1e1)">${label}</div>`;
+    const histSoc = e.history && e.history.start_soc;
+    if (histSoc != null) html += `<div class="mark" style="left:${clamp(histSoc, 0, 100)}%"></div>`;
+    html += "</div>";
+    if (histSoc != null) html += `<div class="hint">${esc(this._t("ev_hist_mark")(Math.round(histSoc)))}</div>`;
+    return html + "</div>";
+  }
+
+  _result(ev, e) {
+    const p = this._preview(ev, e);
+    const car = this._car(ev, e.car);
+    const soc = car && car.capacity_kwh && e.target_soc != null ? `${Math.round(e.target_soc)}% ` : "";
+    const kwh = this._editKwh(ev, e);
+    if (e.mode === "solar" && p.warning === "no_surplus") {
+      return `<div class="result warn">${ICON_CLOCK(EV_WARN)}<div>${esc(this._t("ev_warn_none"))}</div></div>`;
+    }
+    if (e.mode === "solar" && p.warning === "short") {
+      return `<div class="result warn">${ICON_CLOCK(EV_WARN)}<div>${esc(this._t("ev_warn_short")(this._kwh(p.got + (e.running ? e.delivered : 0)), this._kwh(kwh)))}</div></div>`;
+    }
+    const end = p.end != null ? `${e.mode === "solar" ? "\u00b1 " : ""}${this._time(p.end)}` : "\u2014";
+    if (e.running) {
+      return `<div class="result">${ICON_CLOCK("var(--ev)")}<div>${esc(this._t("ev_left")(this._kwh(p.need)))} \u00b7 ${esc(soc)}${esc(this._t("ev_at"))} <b>${esc(end)}</b></div></div>`;
+    }
+    const dur = p.end != null ? ` \u00b7 ${esc(this._duration(p.end - Math.max(this._startMs(e), Date.now())))}` : "";
+    return `<div class="result">${ICON_CLOCK("var(--ev)")}<div>${esc(soc)}${esc(this._t("ev_at"))} <b>${esc(end)}</b>${dur} \u00b7 ${esc(this._t("ev_in_plan")(this._kwh(kwh)))}</div></div>`;
+  }
+
+  // Live texts while a slider moves (the sliders themselves stay in place).
+  _live(ev) {
+    const e = this._edit;
+    const root = this.shadowRoot;
+    const set = (k, html) => {
+      const el = root.querySelector(`[data-k="${k}"]`);
+      if (el) el.innerHTML = html;
+    };
+    const car = this._car(ev, e.car);
+    if (car && car.capacity_kwh) {
+      set("socbig", this._socBig(ev, e, car));
+      set("start_soc", `${Math.round(e.start_soc)}%`);
+      set("target_soc", `${Math.round(e.target_soc)}%`);
+    } else set("kwh", esc(this._kwh(e.kwh)));
+    const a = clamp(Math.round(e.current_a), ev.min_current, ev.max_current);
+    set("amp", `${a} A \u00b7 ${esc(this._kw(evPower(a, ev.phases || 3)))}`);
+    set("result", this._result(ev, e));
+  }
+
+  _rerender() {
+    this._dragging = false;
+    this._essInner = null;
+    this._render();
+  }
+
+  _wire(ev) {
+    const root = this.shadowRoot;
+    root.querySelectorAll("[data-open]").forEach((el) =>
+      el.addEventListener("click", () => {
+        const id = el.getAttribute("data-open");
+        const s = (ev.sessions || []).find((x) => x.id === id);
+        if (this._edit && this._edit.id === id) this._edit = null;
+        else if (s) this._openSession(ev, s);
+        this._rerender();
+        if (this._edit) requestAnimationFrame(() => {
+          const block = root.querySelector(".ev-edit");
+          if (block && block.scrollIntoView) block.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        });
+      })
+    );
+    root.querySelectorAll("[data-toggle]").forEach((el) =>
+      el.addEventListener("change", () => this._call("ev_session_save", { id: el.getAttribute("data-toggle"), enabled: el.checked }))
+    );
+    const act = (name, fn) => {
+      const el = root.querySelector(`[data-act="${name}"]`);
+      if (el) el.addEventListener("click", fn);
+    };
+    act("add", () => {
+      this._openNew(ev);
+      this._rerender();
+      requestAnimationFrame(() => {
+        const block = root.querySelector(".ev-edit");
+        if (block && block.scrollIntoView) block.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+    });
+    act("cancel", () => {
+      this._edit = null;
+      this._rerender();
+    });
+    act("save", () => this._save(ev));
+    act("average", () => this._call("ev_session_remove", { id: this._edit.id }, true));
+    act("remove", () => this._call("ev_session_remove", { id: this._edit.id }, true));
+    if (!this._edit) return;
+    const e = this._edit;
+    root.querySelectorAll("[data-mode]").forEach((el) =>
+      el.addEventListener("click", () => {
+        e.mode = el.getAttribute("data-mode");
+        this._rerender();
+      })
+    );
+    root.querySelectorAll("select[data-f]").forEach((el) =>
+      el.addEventListener("change", () => {
+        const f = el.getAttribute("data-f");
+        if (f === "car") {
+          e.car = el.value;
+          const car = this._car(ev, e.car);
+          if (car && car.capacity_kwh) {
+            e.target_soc = e.target_soc != null ? e.target_soc : Number(car.target_soc) || 80;
+            e.start_soc = Math.max(e.target_soc - Math.round((e.kwh / car.capacity_kwh) * 100), 0);
+          } else {
+            e.start_soc = null;
+          }
+        } else if (f === "day") {
+          e.day = Number(el.value);
+        } else if (f === "hour") e.hour = Number(el.value);
+        this._rerender();
+      })
+    );
+    root.querySelectorAll("input[data-s]").forEach((el) => {
+      const key = el.getAttribute("data-s");
+      el.addEventListener("pointerdown", () => {
+        this._dragging = true;
+      });
+      for (const type of ["pointerup", "pointercancel"]) el.addEventListener(type, () => {
+        this._dragging = false;
+      });
+      el.addEventListener("input", () => {
+        const v = Number(el.value);
+        e[key] = v;
+        if (key === "start_soc" && e.target_soc != null && v > e.target_soc) e.target_soc = v;
+        if (key === "target_soc" && e.start_soc != null && v < e.start_soc) e.start_soc = v;
+        const car = this._car(ev, e.car);
+        if (car && car.capacity_kwh) e.kwh = this._editKwh(ev, e);
+        this._live(ev);
+      });
+      el.addEventListener("change", () => this._rerender());
+    });
+  }
+
+  _save(ev) {
+    const e = this._edit;
+    const car = this._car(ev, e.car);
+    const data = {
+      mode: e.mode,
+      current_a: clamp(Math.round(e.current_a), ev.min_current, ev.max_current),
+      car: e.car || null,
+      enabled: e.enabled,
+    };
+    if (e.id) data.id = e.id;
+    if (!e.running) data.start = new Date(this._startMs(e)).toISOString();
+    if (car && car.capacity_kwh) {
+      data.start_soc = Math.round(e.start_soc);
+      data.target_soc = Math.round(e.target_soc);
+    } else {
+      data.kwh = Math.round(e.kwh * 10) / 10;
+      data.start_soc = null;
+      data.target_soc = null;
+    }
+    this._call("ev_session_save", data, true);
+  }
+
+  async _call(service, data, close) {
+    this._saving = true;
+    this._error = null;
+    try {
+      await this._hass.callService(ESS_DOMAIN, service, { entity_id: this._config.entity, ...data });
+      if (close) this._edit = null;
+    } catch (err) {
+      this._error = (err && err.message) || String(err);
+    }
+    this._saving = false;
+    this._rerender();
+  }
+}
+
 // -- Registration -------------------------------------------------------------------
 if (!customElements.get("ess-manager-card-editor")) {
   customElements.define("ess-manager-card-editor", EssManagerCardEditor);
@@ -1810,6 +2492,7 @@ for (const [type, cls] of [
   ["ess-manager-status-card", EssManagerStatusCard],
   ["ess-manager-battery-card", EssManagerBatteryCard],
   ["ess-manager-price-card", EssManagerPriceCard],
+  ["ess-manager-ev-card", EssManagerEvCard],
 ]) {
   if (customElements.get(type)) continue;
   customElements.define(type, cls);

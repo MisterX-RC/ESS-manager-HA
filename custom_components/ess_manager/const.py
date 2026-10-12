@@ -146,6 +146,30 @@ CONF_ENABLE_FULL_CHARGE_PLAN = "enable_full_charge_plan"
 CONF_ENABLE_SPIKE_PLAN = "enable_spike_plan"
 CONF_ENABLE_NEGATIVE_PRICE_PLAN = "enable_negative_price_plan"
 
+# Electric car charging from the home battery (as of 2026.10.11) - see ev.py.
+# The charger's energy statistic is always taken out of the household usage
+# history; the car enters the 120-hour forecast only through its sessions
+# (predicted from history, edited or added on the EV card).
+CONF_EV_ENABLED = "ev_enabled"
+CONF_EV_ENERGY_ENTITY = "ev_energy_entity"
+CONF_EV_POWER_ENTITY = "ev_power_entity"
+CONF_EV_MIN_CURRENT = "ev_min_current"
+CONF_EV_MAX_CURRENT = "ev_max_current"
+CONF_EV_PHASES = "ev_phases"
+CONF_EV_PREDICT = "ev_predict"
+CONF_EV_CARS = "ev_cars"
+DEFAULT_EV_ENABLED = False
+DEFAULT_EV_MIN_CURRENT = 6
+DEFAULT_EV_MAX_CURRENT = 16
+EV_MAX_CURRENT_LIMIT = 75
+DEFAULT_EV_PHASES = 3
+DEFAULT_EV_PREDICT = True
+DEFAULT_EV_TARGET_SOC = 80
+# how many local days of sessions the card shows (today + 4)
+EV_DAYS = 5
+SERVICE_EV_SESSION_SAVE = "ev_session_save"
+SERVICE_EV_SESSION_REMOVE = "ev_session_remove"
+
 # Seed values only - the live, user-adjustable copies of these live as
 # `number` entities once the config entry is set up (see number.py). These
 # CONF_* keys are only consulted the first time those number entities are

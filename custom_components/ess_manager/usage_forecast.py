@@ -159,9 +159,16 @@ def compute_usage_forecast_detailed(
     now: datetime,
     forecast_hours: int,
     lookback_weeks: int,
+    subtract_entities: Optional[list[str]] = None,
 ) -> tuple[list[float], list[str]]:
     """Build the h0..h(forecast_hours-1) usage forecast array, plus how
-    each hour was found. h0 is the current (floor-aligned) hour, matching
+    each hour was found.
+
+    `subtract_entities` (as of 2026.10.11): energy statistics taken out of
+    every historical hour - the electric car's charger, which enters the
+    forecast through its own sessions instead (ev.py). A missing value
+    there counts as 0 (a charger younger than the history), never drops the
+    week; an hour never goes below 0. h0 is the current (floor-aligned) hour, matching
     forecasting.build_net_energy's expectations exactly.
 
     Normally: the same hour on the same weekday, 1..lookback_weeks back
@@ -177,8 +184,10 @@ def compute_usage_forecast_detailed(
     recent_first = base_epoch - RECENT_DAYS * DAY_SECONDS
     recent_last = base_epoch - HOUR_SECONDS
 
+    subtract = [e for e in (subtract_entities or []) if e]
+
     def sample(epoch: int) -> Optional[float]:
-        return _week_sample(
+        value = _week_sample(
             hourly_sums,
             import_entities,
             export_entities,
@@ -187,6 +196,11 @@ def compute_usage_forecast_detailed(
             battery_discharge_entity,
             epoch,
         )
+        if value is None or not subtract:
+            return value
+        for entity_id in subtract:
+            value -= max(_hour_delta(hourly_sums, entity_id, epoch) or 0.0, 0.0)
+        return max(value, 0.0)
 
     result: list[float] = []
     sources: list[str] = []
@@ -330,6 +344,7 @@ def compute_usage_forecast_from_consumption_detailed(
     now: datetime,
     forecast_hours: int,
     lookback_weeks: int,
+    subtract_entities: Optional[list[str]] = None,
 ) -> tuple[list[float], list[str]]:
     """compute_usage_forecast_from_consumption plus the per-hour sources
     (see compute_usage_forecast_detailed)."""
@@ -343,7 +358,38 @@ def compute_usage_forecast_from_consumption_detailed(
         now=now,
         forecast_hours=forecast_hours,
         lookback_weeks=lookback_weeks,
+        subtract_entities=subtract_entities,
     )
+
+
+def ev_hourly_history(
+    hourly_sums: dict[str, dict[int, float]],
+    ev_entities: list[str],
+    house_terms: Optional[tuple],
+    solar_entities: list[str],
+    start_epoch: int,
+    end_epoch: int,
+) -> tuple[dict[int, float], Optional[dict[int, float]]]:
+    """The electric car's energy per hour (hour start epoch -> kWh) from
+    `start_epoch` up to `end_epoch`, and - when the house is derived from
+    the energy balance with solar statistics (`house_terms` = import,
+    export, solar, battery charge, battery discharge) - the solar surplus
+    per hour: solar minus the house without the car (None otherwise). For
+    ev.detect_sessions (as of 2026.10.11)."""
+    ev: dict[int, float] = {}
+    surplus: Optional[dict[int, float]] = {} if house_terms and solar_entities else None
+    for epoch in range(start_epoch, end_epoch, HOUR_SECONDS):
+        deltas = [_hour_delta(hourly_sums, e, epoch) for e in ev_entities]
+        if any(d is None for d in deltas):
+            continue
+        car = max(sum(deltas), 0.0)
+        ev[epoch] = round(car, 3)
+        if surplus is not None:
+            house = _week_sample(hourly_sums, *house_terms, epoch)
+            solar = [_hour_delta(hourly_sums, e, epoch) for e in solar_entities]
+            if house is not None and not any(d is None for d in solar):
+                surplus[epoch] = round(sum(solar) - max(house - car, 0.0), 3)
+    return ev, surplus
 
 
 def energy_prefs_to_sources(prefs: Optional[dict[str, Any]]) -> dict[str, list[str]]:

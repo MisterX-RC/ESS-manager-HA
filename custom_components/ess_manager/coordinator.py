@@ -19,6 +19,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from . import control, display, forecasting, plans, transport
+from .ev_runtime import EvRuntime
 from .const import (
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_VOLTAGE_ENTITY,
@@ -26,6 +27,19 @@ from .const import (
     CONF_ENABLE_FULL_CHARGE_PLAN,
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
+    CONF_EV_CARS,
+    CONF_EV_ENABLED,
+    CONF_EV_ENERGY_ENTITY,
+    CONF_EV_MAX_CURRENT,
+    CONF_EV_MIN_CURRENT,
+    CONF_EV_PHASES,
+    CONF_EV_POWER_ENTITY,
+    CONF_EV_PREDICT,
+    DEFAULT_EV_MAX_CURRENT,
+    DEFAULT_EV_MIN_CURRENT,
+    DEFAULT_EV_PHASES,
+    DEFAULT_EV_PREDICT,
+    EV_DAYS,
     CONF_FULL_CHARGE_TRACKING_SOURCE,
     CONF_GRID_SETPOINT_ENTITY,
     CONF_GRID_SETPOINT_SIGN,
@@ -86,6 +100,7 @@ from .usage_forecast import (
     compute_usage_forecast_detailed,
     compute_usage_forecast_from_consumption_detailed,
     energy_prefs_to_sources,
+    ev_hourly_history,
     measured_hours,
     summarize_usage_history,
     usage_cache_is_stale,
@@ -103,6 +118,31 @@ USAGE_HISTORY_ISSUE = "usage_forecast_no_history"
 # small constant worth reintroducing as another number entity later.
 IDLE_SETPOINT_W = 0.0
 IDLE_TOLERANCE_W = 50.0
+
+
+def ev_energy_entity(conf: dict[str, Any]) -> Optional[str]:
+    """The car charger's energy statistic when the EV feature is on (as of
+    2026.10.11) - taken out of the household usage history - else None."""
+    if not conf.get(CONF_EV_ENABLED):
+        return None
+    return conf.get(CONF_EV_ENERGY_ENTITY) or None
+
+
+def _state_in_unit(hass: HomeAssistant, entity_id: Optional[str], kilo_units: tuple[str, ...], factor: float) -> Optional[float]:
+    """An entity's numeric state; multiplied by `factor` when its unit is
+    one of `kilo_units` (kW -> W, Wh -> kWh, ...). None when unknown."""
+    if not entity_id:
+        return None
+    state = hass.states.get(entity_id)
+    if state is None or state.state in (None, "unknown", "unavailable"):
+        return None
+    try:
+        value = float(state.state)
+    except (TypeError, ValueError):
+        return None
+    if state.attributes.get("unit_of_measurement") in kilo_units:
+        value *= factor
+    return value
 
 
 def _efficiency(percent: Any) -> float:
@@ -190,6 +230,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._transport_factors: Optional[dict[int, list[float]]] = None
         # Direct control (as of v0.2.14) - see controller.py.
         self.controller = EssController(hass, entry.title)
+        # The electric car (as of 2026.10.11) - see ev_runtime.py.
+        self.ev = EvRuntime()
 
     def control_settings(self) -> ControlSettings:
         return ControlSettings({**self.entry.data, **self.entry.options})
@@ -244,6 +286,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # the solar mode it was in, so a forecast that stays between 0%
             # and 100% keeps it after a restart or an update (2026.10.8)
             self._last_solar_mode = data.get("solar_mode")
+            self.ev.restore(data.get("ev"))
             if "solar_mode" not in data:
                 # stored by a version from before 2026.10.8: take it from
                 # the Solar mode sensor's history, once
@@ -281,6 +324,15 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.info("ESS Manager (%s): solar mode %s taken over from the sensor's history", self.entry.title, mode)
         return mode
 
+    def now(self) -> datetime:
+        return dt_util.now()
+
+    async def async_persist_state(self) -> None:
+        """Store now (after an edit on the EV card), not only at the end of
+        the next cycle."""
+        if self._restored:
+            await self._async_persist()
+
     async def _async_persist(self) -> None:
         await self.store.async_save(
             {
@@ -291,6 +343,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "full_charge_plan": self._full_charge_plan,
                 "last_full_reached": self._last_full_reached.isoformat() if self._last_full_reached else None,
                 "solar_mode": self._last_solar_mode,
+                "ev": self.ev.as_store(),
             }
         )
 
@@ -331,9 +384,15 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # projects.
         range_start = base_hour - timedelta(weeks=lookback_weeks, hours=1)
         range_end = base_hour + timedelta(hours=1)
+        ev_entity = ev_energy_entity(conf)
+        if ev_entity:
+            # the car's sessions are looked up per whole local day
+            range_start -= timedelta(days=1)
 
         try:
-            hourly_sums = await async_fetch_hourly_sums(self.hass, consumption_entities, range_start, range_end)
+            hourly_sums = await async_fetch_hourly_sums(
+                self.hass, [*consumption_entities, *([ev_entity] if ev_entity else [])], range_start, range_end
+            )
         except Exception as err:  # noqa: BLE001 - a statistics/DB hiccup shouldn't fail the whole update
             _LOGGER.warning("ESS Manager: could not fetch usage-forecast statistics: %s", err)
             if self._usage_forecast_cache is not None:
@@ -347,7 +406,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             now,
             FORECAST_HOURS,
             lookback_weeks,
+            subtract_entities=[ev_entity] if ev_entity else None,
         )
+        if ev_entity:
+            self.ev.history = ev_hourly_history(
+                hourly_sums, [ev_entity], None, [], int(range_start.timestamp()), int(base_hour.timestamp())
+            )
         self._usage_forecast_computed_at = now
         self._set_usage_history(hour_sources, lookback_weeks)
         return self._usage_forecast_cache
@@ -454,6 +518,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         base_hour = now.replace(minute=0, second=0, microsecond=0)
         range_start = base_hour - timedelta(weeks=lookback_weeks, hours=1)
         range_end = base_hour + timedelta(hours=1)
+        ev_entity = ev_energy_entity(conf)
+        if ev_entity:
+            all_ids.append(ev_entity)
+            range_start -= timedelta(days=1)  # whole local days for the car's sessions
 
         try:
             hourly_sums = await async_fetch_hourly_sums(self.hass, all_ids, range_start, range_end)
@@ -474,7 +542,17 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             now,
             FORECAST_HOURS,
             lookback_weeks,
+            subtract_entities=[ev_entity] if ev_entity else None,
         )
+        if ev_entity:
+            self.ev.history = ev_hourly_history(
+                hourly_sums,
+                [ev_entity],
+                (sources["import"], sources["export"], sources["solar"], sources["battery_charge"], sources["battery_discharge"]),
+                sources["solar"],
+                int(range_start.timestamp()),
+                int(base_hour.timestamp()),
+            )
         self._usage_forecast_computed_at = now
         self._set_usage_history(hour_sources, lookback_weeks)
         return self._usage_forecast_cache
@@ -744,6 +822,30 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         merged_solar_points = forecasting.merge_hourly_points(solar_points)
         solar_forecast = forecasting.build_solar_forecast(merged_solar_points, now, FORECAST_HOURS)
         net_energy = forecasting.build_net_energy(solar_forecast, usage_forecast)
+        # The electric car (as of 2026.10.11): its sessions are added to the
+        # household usage (whose history leaves the car out); a solar
+        # session charges on what the solar forecast has left after the house.
+        ev_attribute = None
+        if conf.get(CONF_EV_ENABLED):
+            ev_total, ev_attribute = self.ev.update(
+                {
+                    "phases": conf.get(CONF_EV_PHASES, DEFAULT_EV_PHASES),
+                    "min_current": conf.get(CONF_EV_MIN_CURRENT, DEFAULT_EV_MIN_CURRENT),
+                    "max_current": conf.get(CONF_EV_MAX_CURRENT, DEFAULT_EV_MAX_CURRENT),
+                    "predict": conf.get(CONF_EV_PREDICT, DEFAULT_EV_PREDICT),
+                    "cars": conf.get(CONF_EV_CARS) or [],
+                },
+                now,
+                dt_util.get_default_time_zone(),
+                int(conf.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS)),
+                net_energy,
+                _state_in_unit(self.hass, conf.get(CONF_EV_POWER_ENTITY), ("kW",), 1000.0),
+                _state_in_unit(self.hass, conf.get(CONF_EV_ENERGY_ENTITY), ("Wh",), 0.001),
+                EV_DAYS,
+            )
+            if any(ev_total):
+                usage_forecast = [round(u + e, 3) for u, e in zip(usage_forecast, ev_total)]
+                net_energy = forecasting.build_net_energy(solar_forecast, usage_forecast)
         battery_now_kwh = round(capacity_kwh * (soc_now_percent / 100), 2)
         # max_battery_charge_speed_kw/max_battery_discharge_speed_kw are the
         # battery's own physical power limit - distinct from
@@ -1191,6 +1293,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._energy_dashboard_sources if usage_source == USAGE_SOURCE_ENERGY_DASHBOARD else None
             ),
             "net_energy_120h": net_energy,
+            # The electric car's sessions and forecast (as of 2026.10.11) -
+            # ev_runtime.EvRuntime.update; None while the EV is switched off.
+            "ev": ev_attribute,
             "battery_forecast": battery_forecast,
             "battery_forecast_with_negative_price": forecast_with_negative_price,
             "battery_forecast_with_spike": forecast_with_spike,

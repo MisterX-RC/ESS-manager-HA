@@ -31,6 +31,7 @@ from .const import (
 )
 from .coordinator import EssManagerCoordinator
 from .energy_source import async_get_energy_prefs
+from .services import async_setup_services, async_unload_services
 from .usage_forecast import energy_prefs_to_sources
 
 _LOGGER = logging.getLogger(__name__)
@@ -257,6 +258,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _async_update_usage_source_issue(hass, entry)
 
     await coordinator.async_config_entry_first_refresh()
+    # the EV card's services (as of 2026.10.11)
+    async_setup_services(hass)
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
@@ -279,6 +282,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
+        if not [v for v in hass.data[DOMAIN].values() if isinstance(v, dict) and "coordinator" in v]:
+            async_unload_services(hass)
     return unload_ok
 
 

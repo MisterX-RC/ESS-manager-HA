@@ -12,6 +12,30 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.11] - 2026-10-12
+
+### Added
+- **Electric car that charges from the home battery.** Switch it on in
+  Configure (price plans page); two new pages ask for the charger's energy
+  and power sensor, the minimum/maximum charging current (default 6/16 A, up
+  to 75 A), the phases, whether sessions are predicted from history, and
+  your cars (name, battery size, target). The charger's energy is always
+  taken out of the household usage history; the car enters the 120-hour
+  forecast only through its charging sessions - predicted from history
+  (same weekday and hour in more than half of the lookback weeks, with the
+  average energy and current, solar sessions recognised), edited, or added
+  by hand. Fixed current or solar surplus only; a running session (power
+  above 0) keeps its start and counts what's already charged. See
+  "Electric car" in the README.
+- **Electric car card** (`custom:ess-manager-ev-card`): the sessions of
+  the coming five days with a checkbox each, labels (average / edited /
+  manual), SOC bars for a car with a battery size, a red border for a solar
+  session from history, warnings when the sun won't do it, and an edit block
+  (day, start time, car, start/target SOC or energy, fixed current or solar
+  surplus, the resulting end time). Services `ess_manager.ev_session_save`
+  and `ess_manager.ev_session_remove`, and the Status sensor's `ev`
+  attribute.
+
 ## [2026.10.10] - 2026-10-11
 
 ### Changed

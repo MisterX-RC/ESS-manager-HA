@@ -72,6 +72,8 @@ STATUS_ATTRIBUTES = [
     "control",
     # The status card's Buy / Sell blocks (as of v0.5.0) - display.card_plans.
     "card_plans",
+    # The electric car's sessions (as of 2026.10.11) - the EV card.
+    "ev",
 ]
 
 # The value sensors the status dashboard card shows (as of v0.4.4) - their

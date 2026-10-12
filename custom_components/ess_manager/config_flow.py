@@ -10,6 +10,7 @@ first one - see _EssManagerSteps for the page order.
 """
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 import voluptuous as vol
@@ -38,6 +39,21 @@ from .const import (
     CONF_ENABLE_FULL_CHARGE_PLAN,
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
+    CONF_EV_CARS,
+    CONF_EV_ENABLED,
+    CONF_EV_ENERGY_ENTITY,
+    CONF_EV_MAX_CURRENT,
+    CONF_EV_MIN_CURRENT,
+    CONF_EV_PHASES,
+    CONF_EV_POWER_ENTITY,
+    CONF_EV_PREDICT,
+    DEFAULT_EV_ENABLED,
+    DEFAULT_EV_MAX_CURRENT,
+    DEFAULT_EV_MIN_CURRENT,
+    DEFAULT_EV_PHASES,
+    DEFAULT_EV_PREDICT,
+    DEFAULT_EV_TARGET_SOC,
+    EV_MAX_CURRENT_LIMIT,
     CONF_FULL_CHARGE_TARGET_VOLTAGE,
     CONF_FULL_CHARGE_TRACKING_SOURCE,
     CONF_GRID_SETPOINT_ENTITY,
@@ -322,8 +338,81 @@ def _plans_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_ENABLE_SPIKE_PLAN, default=defaults.get(CONF_ENABLE_SPIKE_PLAN, DEFAULT_ENABLE_SPIKE_PLAN)
             ): selector.BooleanSelector(),
+            # the electric car (as of 2026.10.11) - its own pages follow
+            vol.Required(CONF_EV_ENABLED, default=defaults.get(CONF_EV_ENABLED, DEFAULT_EV_ENABLED)): selector.BooleanSelector(),
         }
     )
+
+
+EV_PHASE_OPTIONS = [
+    selector.SelectOptionDict(value="1", label="1 phase"),
+    selector.SelectOptionDict(value="3", label="3 phases"),
+]
+
+# Fields of the cars page that aren't settings themselves.
+EV_CAR_REMOVE = "ev_car_remove"
+EV_CAR_NAME = "ev_car_name"
+EV_CAR_CAPACITY = "ev_car_capacity_kwh"
+EV_CAR_TARGET = "ev_car_target_soc"
+EV_CAR_ADD_ANOTHER = "ev_car_add_another"
+
+
+def _ev_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """The car charger (as of 2026.10.11): its energy and power sensors, the
+    charging current range and phases, and whether sessions are predicted
+    from the history."""
+    current = _number(1, EV_MAX_CURRENT_LIMIT, 1, "A")
+    return vol.Schema(
+        {
+            vol.Optional(CONF_EV_ENERGY_ENTITY, default=defaults.get(CONF_EV_ENERGY_ENTITY)): _optional_entity_selector(),
+            vol.Optional(CONF_EV_POWER_ENTITY, default=defaults.get(CONF_EV_POWER_ENTITY)): _optional_entity_selector(),
+            vol.Required(
+                CONF_EV_MIN_CURRENT, default=defaults.get(CONF_EV_MIN_CURRENT, DEFAULT_EV_MIN_CURRENT)
+            ): current,
+            vol.Required(
+                CONF_EV_MAX_CURRENT, default=defaults.get(CONF_EV_MAX_CURRENT, DEFAULT_EV_MAX_CURRENT)
+            ): current,
+            vol.Required(
+                CONF_EV_PHASES, default=str(defaults.get(CONF_EV_PHASES, DEFAULT_EV_PHASES))
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=EV_PHASE_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+            ),
+            vol.Required(CONF_EV_PREDICT, default=defaults.get(CONF_EV_PREDICT, DEFAULT_EV_PREDICT)): selector.BooleanSelector(),
+        }
+    )
+
+
+def _ev_cars_schema(cars: list[dict[str, Any]]) -> vol.Schema:
+    """Add a car (name, battery, target) and/or remove existing ones; "add
+    another" shows the page again."""
+    fields: dict[Any, Any] = {}
+    if cars:
+        fields[vol.Optional(EV_CAR_REMOVE, default=[])] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[selector.SelectOptionDict(value=c["id"], label=c["name"]) for c in cars],
+                multiple=True,
+                mode=selector.SelectSelectorMode.LIST,
+            )
+        )
+    fields.update(
+        {
+            vol.Optional(EV_CAR_NAME): selector.TextSelector(),
+            vol.Optional(EV_CAR_CAPACITY): _number(1, 250, 0.1, "kWh"),
+            vol.Required(EV_CAR_TARGET, default=DEFAULT_EV_TARGET_SOC): _number(10, 100, 1, "%"),
+            vol.Required(EV_CAR_ADD_ANOTHER, default=False): selector.BooleanSelector(),
+        }
+    )
+    return vol.Schema(fields)
+
+
+def _cars_text(cars: list[dict[str, Any]]) -> str:
+    if not cars:
+        return "(none)"
+    lines = []
+    for c in cars:
+        battery = f"{c['capacity_kwh']:g} kWh, target {c['target_soc']:g}%" if c.get("capacity_kwh") else "no battery size (kWh only)"
+        lines.append(f"- {c['name']}: {battery}")
+    return "\n".join(lines)
 
 
 def _control_schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -426,6 +515,8 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
         CONF_HIGH_CELL_VOLTAGE_ENTITY,
         CONF_BATTERY_VOLTAGE_ENTITY,
         CONF_DAYS_SINCE_FULL_CHARGE_ENTITY,
+        CONF_EV_ENERGY_ENTITY,
+        CONF_EV_POWER_ENTITY,
     ):
         if key in data and not data.get(key):
             data[key] = None
@@ -441,7 +532,10 @@ class _EssManagerSteps:
          / `usage_consumption`)
       3. `full_charge` - only when full-charge balancing is switched on
       4. `system` - battery/system values
-      5. `plans` - the negative-price and spike plan switches, explained
+      5. `plans` - the negative-price and spike plan switches, explained,
+         and the electric car switch
+      5a. `ev` and `ev_cars` - only with the electric car: the charger, and
+         the cars (as of 2026.10.11)
       6. `control` - whether ESS Manager sends the setpoint itself
       7. `control_target` - only when it does: where to, unit, sign, idle
 
@@ -539,8 +633,64 @@ class _EssManagerSteps:
     async def async_step_plans(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
             self._data.update(user_input)
+            if user_input.get(CONF_EV_ENABLED):
+                return await self.async_step_ev()
             return await self.async_step_control()
         return self.async_show_form(step_id="plans", data_schema=_plans_schema(self._defaults()))
+
+    async def async_step_ev(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            cleaned = _clean(user_input)
+            if not cleaned.get(CONF_EV_ENERGY_ENTITY) or not cleaned.get(CONF_EV_POWER_ENTITY):
+                errors["base"] = "ev_entities_required"
+            elif float(cleaned[CONF_EV_MIN_CURRENT]) > float(cleaned[CONF_EV_MAX_CURRENT]):
+                errors["base"] = "ev_current_range"
+            else:
+                cleaned[CONF_EV_PHASES] = int(cleaned[CONF_EV_PHASES])
+                cleaned[CONF_EV_MIN_CURRENT] = int(cleaned[CONF_EV_MIN_CURRENT])
+                cleaned[CONF_EV_MAX_CURRENT] = int(cleaned[CONF_EV_MAX_CURRENT])
+                self._data.update(cleaned)
+                return await self.async_step_ev_cars()
+        return self.async_show_form(
+            step_id="ev", data_schema=_ev_schema({**self._defaults(), **self._data}), errors=errors
+        )
+
+    async def async_step_ev_cars(self, user_input: dict[str, Any] | None = None):
+        cars = [dict(c) for c in self._data.get(CONF_EV_CARS, self._defaults().get(CONF_EV_CARS) or [])]
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            remove = set(user_input.get(EV_CAR_REMOVE) or [])
+            cars = [c for c in cars if c["id"] not in remove]
+            name = (user_input.get(EV_CAR_NAME) or "").strip()
+            if name:
+                if any(c["name"].lower() == name.lower() for c in cars):
+                    errors["base"] = "ev_car_exists"
+                else:
+                    capacity = user_input.get(EV_CAR_CAPACITY)
+                    cars.append(
+                        {
+                            "id": uuid.uuid4().hex[:8],
+                            "name": name,
+                            "capacity_kwh": float(capacity) if capacity else None,
+                            "target_soc": float(user_input.get(EV_CAR_TARGET, DEFAULT_EV_TARGET_SOC)),
+                        }
+                    )
+            if not errors:
+                self._data[CONF_EV_CARS] = cars
+                if user_input.get(EV_CAR_ADD_ANOTHER):
+                    return self.async_show_form(
+                        step_id="ev_cars",
+                        data_schema=_ev_cars_schema(cars),
+                        description_placeholders={"cars": _cars_text(cars)},
+                    )
+                return await self.async_step_control()
+        return self.async_show_form(
+            step_id="ev_cars",
+            data_schema=_ev_cars_schema(cars),
+            errors=errors,
+            description_placeholders={"cars": _cars_text(cars)},
+        )
 
     async def async_step_control(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:

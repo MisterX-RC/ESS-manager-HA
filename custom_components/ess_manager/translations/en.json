@@ -60,10 +60,34 @@
       },
       "plans": {
         "title": "Price plans",
-        "description": "Two optional plans that act on the electricity price. Both can be switched on or off later in Configure.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.",
+        "description": "Two optional plans that act on the electricity price. Both can be switched on or off later in Configure.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.\n\n**Electric car** - for a car that charges from the home battery: its charging sessions are planned with the rest (see the next pages).",
         "data": {
           "enable_negative_price_plan": "Enable the negative price plan",
-          "enable_spike_plan": "Enable the spike arbitrage plan"
+          "enable_spike_plan": "Enable the spike arbitrage plan",
+          "ev_enabled": "Electric car that charges from the home battery - its pages follow"
+        }
+      },
+      "ev": {
+        "title": "Electric car - charger",
+        "description": "Only for a car that charges from the home battery: its charging then really comes out of the battery, so the planning has to know when it charges and how much.\n\nThe charger's energy is always taken out of the household usage history; the car only enters the 120-hour forecast through its charging sessions, shown and edited on the EV card (`custom:ess-manager-ev-card`).\n\n**Predict sessions from history** - a session that starts around the same hour on the same weekday in more than half of your lookback weeks is predicted, with its average energy and charging current (and on solar surplus when it charged from the sun). Off: the list starts empty and every session is added by hand on the card.",
+        "data": {
+          "ev_energy_entity": "Charger energy sensor (cumulative kWh)",
+          "ev_power_entity": "Charger power sensor (W) - above 0 a session is running: its day and start time are then fixed",
+          "ev_min_current": "Minimum charging current (A) - the charger doesn't charge below this (it also decides when solar surplus is enough)",
+          "ev_max_current": "Maximum charging current (A)",
+          "ev_phases": "Phases the charger uses (230 V per phase)",
+          "ev_predict": "Predict sessions from history"
+        }
+      },
+      "ev_cars": {
+        "title": "Electric car - cars",
+        "description": "Your cars. With a battery size, a session is shown in % and its start SOC is worked back from the target (you can change it on the card). With one car, every session is that car's; with more cars, a predicted session has no car (kWh only) until you pick one on the card.\n\nCurrent cars:\n\n{cars}\n\nFill in a name to add a car; tick \"Add another\" to add more.",
+        "data": {
+          "ev_car_remove": "Remove",
+          "ev_car_name": "Name of a new car (optional)",
+          "ev_car_capacity_kwh": "Its battery size (kWh, optional)",
+          "ev_car_target_soc": "Its usual target (%)",
+          "ev_car_add_another": "Add another car after this one"
         }
       },
       "control": {
@@ -90,7 +114,10 @@
       "days_since_full_charge_entity_required": "Select a days-since-full-charge sensor - required when using the external-sensor tracking option.",
       "usage_consumption_entities_required": "Select at least one home energy consumption entity.",
       "energy_dashboard_not_configured": "No grid import is configured in the Energy dashboard. Add your grid source there first (Settings > Dashboards > Energy), or pick another usage source.",
-      "control_target_wrong_type": "Pick a number or input_number entity."
+      "control_target_wrong_type": "Pick a number or input_number entity.",
+      "ev_entities_required": "Select the charger's energy sensor and power sensor.",
+      "ev_current_range": "The minimum charging current can't be higher than the maximum.",
+      "ev_car_exists": "A car with this name already exists."
     },
     "abort": {
       "already_configured": "An ESS Manager instance with this name already exists."
@@ -150,10 +177,34 @@
       },
       "plans": {
         "title": "Price plans",
-        "description": "Two optional plans that act on the electricity price.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.",
+        "description": "Two optional plans that act on the electricity price.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.\n\n**Electric car** - for a car that charges from the home battery: its charging sessions are planned with the rest (see the next pages).",
         "data": {
           "enable_negative_price_plan": "Enable the negative price plan",
-          "enable_spike_plan": "Enable the spike arbitrage plan"
+          "enable_spike_plan": "Enable the spike arbitrage plan",
+          "ev_enabled": "Electric car that charges from the home battery - its pages follow"
+        }
+      },
+      "ev": {
+        "title": "Electric car - charger",
+        "description": "Only for a car that charges from the home battery: its charging then really comes out of the battery, so the planning has to know when it charges and how much.\n\nThe charger's energy is always taken out of the household usage history; the car only enters the 120-hour forecast through its charging sessions, shown and edited on the EV card (`custom:ess-manager-ev-card`).\n\n**Predict sessions from history** - a session that starts around the same hour on the same weekday in more than half of your lookback weeks is predicted, with its average energy and charging current (and on solar surplus when it charged from the sun). Off: the list starts empty and every session is added by hand on the card.",
+        "data": {
+          "ev_energy_entity": "Charger energy sensor (cumulative kWh)",
+          "ev_power_entity": "Charger power sensor (W) - above 0 a session is running: its day and start time are then fixed",
+          "ev_min_current": "Minimum charging current (A) - the charger doesn't charge below this (it also decides when solar surplus is enough)",
+          "ev_max_current": "Maximum charging current (A)",
+          "ev_phases": "Phases the charger uses (230 V per phase)",
+          "ev_predict": "Predict sessions from history"
+        }
+      },
+      "ev_cars": {
+        "title": "Electric car - cars",
+        "description": "Your cars. With a battery size, a session is shown in % and its start SOC is worked back from the target (you can change it on the card). With one car, every session is that car's; with more cars, a predicted session has no car (kWh only) until you pick one on the card.\n\nCurrent cars:\n\n{cars}\n\nFill in a name to add a car; tick \"Add another\" to add more.",
+        "data": {
+          "ev_car_remove": "Remove",
+          "ev_car_name": "Name of a new car (optional)",
+          "ev_car_capacity_kwh": "Its battery size (kWh, optional)",
+          "ev_car_target_soc": "Its usual target (%)",
+          "ev_car_add_another": "Add another car after this one"
         }
       },
       "control": {
@@ -179,7 +230,10 @@
       "days_since_full_charge_entity_required": "Select a days-since-full-charge sensor - required when using the external-sensor tracking option.",
       "usage_consumption_entities_required": "Select at least one home energy consumption entity.",
       "energy_dashboard_not_configured": "No grid import is configured in the Energy dashboard. Add your grid source there first (Settings > Dashboards > Energy), or pick another usage source.",
-      "control_target_wrong_type": "Pick a number or input_number entity."
+      "control_target_wrong_type": "Pick a number or input_number entity.",
+      "ev_entities_required": "Select the charger's energy sensor and power sensor.",
+      "ev_current_range": "The minimum charging current can't be higher than the maximum.",
+      "ev_car_exists": "A car with this name already exists."
     }
   },
   "issues": {
@@ -194,6 +248,68 @@
     "usage_forecast_no_history": {
       "title": "ESS Manager: not enough household usage history yet",
       "description": "**{entry_title}**: {hours} of the next {total} hours have no household usage history yet, so the plans count 0 kWh of household usage for them. This happens right after adding a new statistic to the Energy dashboard, or choosing a new consumption sensor, that has less than a day of data.\n\nAs soon as a day of history exists, the average of the last days is used, and after a week the normal same-weekday average takes over. This notice disappears by itself. Until then, keep an eye on the planned charges and sales. The \"Usage forecast history\" sensor shows the progress."
+    }
+  },
+  "services": {
+    "ev_session_save": {
+      "name": "Save charging session",
+      "description": "Create or change an electric car charging session (used by the EV card).",
+      "fields": {
+        "entity_id": {
+          "name": "Status sensor",
+          "description": "The ESS Manager Status sensor of the installation (may be left out with a single installation)."
+        },
+        "id": {
+          "name": "Session",
+          "description": "The session's id; leave out to add a manual session."
+        },
+        "start": {
+          "name": "Start",
+          "description": "Start (rounded down to the whole hour). Fixed while the session is running."
+        },
+        "kwh": {
+          "name": "Energy",
+          "description": "Energy to charge (kWh). With a car with a battery size, the start and target SOC decide it instead."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "fixed: a fixed charging current; solar: only the solar surplus after the house."
+        },
+        "current_a": {
+          "name": "Charging current",
+          "description": "Charging current (A) for a fixed session."
+        },
+        "car": {
+          "name": "Car",
+          "description": "The car's id (from the Status sensor's ev attribute)."
+        },
+        "start_soc": {
+          "name": "Start SOC",
+          "description": "The car's battery at the start (%)."
+        },
+        "target_soc": {
+          "name": "Target SOC",
+          "description": "The car's target (%)."
+        },
+        "enabled": {
+          "name": "Counted",
+          "description": "Whether the session counts in the planning."
+        }
+      }
+    },
+    "ev_session_remove": {
+      "name": "Remove charging session",
+      "description": "Delete a manual session, or put a predicted session back to its average.",
+      "fields": {
+        "entity_id": {
+          "name": "Status sensor",
+          "description": "The ESS Manager Status sensor of the installation (may be left out with a single installation)."
+        },
+        "id": {
+          "name": "Session",
+          "description": "The session's id."
+        }
+      }
     }
   }
 }

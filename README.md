@@ -359,6 +359,66 @@ hour it happened to tick over in, giving odd (even negative) hourly swings.
 Both options read the recorder's statistics converted to kWh, so sensors
 reporting in Wh or MWh work too.
 
+## Electric car
+
+For an electric car that charges **from the home battery** (as of
+2026.10.11). A car that doesn't take power from the battery doesn't need
+any of this - its charging never shows up in the battery's planning.
+
+Switch it on in Configure, on the price plans page (**Electric car that
+charges from the home battery**); two pages follow:
+
+- **The charger**: its **energy sensor** (cumulative kWh - Wh works too)
+  and **power sensor** (W or kW), the **minimum and maximum charging
+  current** (default 6 and 16 A, up to 75 A), the **phases** (1 or 3, at
+  230 V per phase - 16 A on 3 phases is 11.0 kW) and **Predict sessions
+  from history**.
+- **The cars**: a name, optionally the battery size (kWh) and the usual
+  target (%). Add as many as you like ("Add another car"), or remove them.
+
+**Household usage without the car.** The charger's energy is always taken
+out of the household usage history (also with prediction off), so the
+usage forecast is the house alone. The car only enters the 120-hour
+forecast through its **charging sessions**: they're added to the usage the
+plans work with (`energy_usage_120h` - the battery card's usage includes
+them). The measured usage in the battery card still includes the car.
+
+**Predicted sessions.** With prediction on, a session that started around
+the same hour on the same weekday in **more than half** of your lookback
+weeks is predicted for that day: at the most common whole start hour, with
+the average energy, and charging at the typical full hour's current (between
+your minimum and maximum). When it charged from the solar surplus (at least
+80% of its energy fitted in what the sun had left after the house - only
+known with the Energy dashboard as usage source) it's predicted as a solar
+session, with a red border on the card. With prediction off the list
+starts empty and every session is added by hand.
+
+**Cars.** With **one** car, every session (predicted ones too) is that car's
+and - with a battery size - shown in %: the start SOC is worked back from
+the target and the energy, and changing it changes the energy and the
+duration. With **more** cars a predicted session has no car (kWh only)
+until you pick one.
+
+**Fixed current or solar surplus.** A fixed session charges at its current
+from its start until its energy is in. A solar session charges per hour on
+what the solar forecast has left after the house, at most the maximum
+current and only when that's at least the minimum current, until the end of
+its day; sessions on the same day share the surplus in start order. When
+there's no surplus that day, or not enough, the card says so.
+
+**Running.** While the power sensor is above 0 (50 W), the session it
+belongs to (started up to an hour early or late) is running: its day and
+start time are fixed, the rest can still change, and what's already charged
+(from the energy sensor) counts. Charging that matches no session becomes a
+manual session from the current hour (with the typical energy - change it
+on the card). Ten minutes without power and the session is done.
+
+Edits are stored and survive a restart; the planning is worked out again
+right after each one. The sessions are on the Status sensor's `ev`
+attribute; the card uses the services `ess_manager.ev_session_save` and
+`ess_manager.ev_session_remove` (also usable in automations - see
+Developer tools > Actions).
+
 ## Grid transport tariff
 
 In the Netherlands grid transport is going to be charged per kWh, with a
@@ -693,8 +753,9 @@ browser refresh), edit a dashboard, choose **Add card** and search for
 | ESS Manager - Battery forecast (`custom:ess-manager-battery-card`) | five whole days: the measured and the expected battery level, solar, usage, the planned buy / sell moments and how long you'd last without the grid |
 | ESS Manager - Prices (`custom:ess-manager-price-card`) | today's and tomorrow's prices coloured by price level, with the planned buy / sell moments |
 | ESS Manager - Status (`custom:ess-manager-status-card`) | the planned sale and charge with their progress, the price plans, the control toggle and a timeline |
+| ESS Manager - Electric car (`custom:ess-manager-ev-card`) | the electric car's charging sessions in the planning: check, edit or add them (only with the electric car switched on, see [Electric car](#electric-car)) |
 
-All three are drawn by the integration itself - nothing else to install
+All of them are drawn by the integration itself - nothing else to install
 (since v0.5.1 also not apexcharts-card). The integration loads the card
 file on every page and also adds it as a dashboard resource
 (`/ess_manager/ess-manager-cards.js`, under Settings > Dashboards >
@@ -837,6 +898,35 @@ Assistant language (Dutch or English).
 | `hours` | `24` | how many hours the timeline shows |
 | `sell_color` / `buy_color` | red / blue | the Sell / Buy colours (`[r, g, b]` or `"#rrggbb"`) - the timeline follows them too (a darker shade for a normal charge / discharge, the colour itself for a negative price charge / spike discharge) |
 | `spike_color` / `negative_color` | amber / turquoise | the colour of an active spike / negative price plan |
+
+**Electric car card.** The car's charging sessions for today and the next
+four days (see [Electric car](#electric-car)), with the total that's in the
+planning. Each session shows its day, start and expected end, its energy,
+a chip - **average** (predicted from history), **edited** or **manual** -
+the car and how it charges (the power, or solar surplus); with a car with a
+battery size a bar from the start to the target SOC. A checkbox per session
+decides whether it counts in the planning (unticked it stays in the list,
+struck through). A solar session predicted from history has a **red
+border**: whether it charges depends on the sun. A running session is
+outlined and shows "charging now", the live power and how far it is. A
+solar session that won't get (all of) its energy that day says so in
+orange.
+
+Tap a session to edit it in the block at the bottom: the car (with more
+than one), the day and the start hour (fixed while it's running, with a
+lock), the start and target SOC (with a battery size - the dashed line is
+the start SOC the history expects) or the energy, and **Fixed current**
+(a slider between your minimum and maximum current, with the power) or
+**Solar surplus**. Below it what that gives: when it's done, how long it
+takes and the kWh in the planning, or a warning for a solar session. **Save**
+stores it (the chip becomes "edited"), **Back to average** drops the edit
+of a predicted session, **Delete** removes a manual one. **Add manual
+session** opens an empty block (the next whole hour, your maximum current).
+
+| Option | Default | What it does |
+|---|---|---|
+| `title` | the car's name with one car, otherwise `Electric cars` | the card's title |
+| `ev_color` / `solar_color` | green / yellow | the car colour (fixed current) and the solar colour |
 
 `dashboard/` still has the old chart cards as plain apexcharts-card YAML
 and the old status card (`entities_card.yaml`), for when you'd rather
