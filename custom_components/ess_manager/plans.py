@@ -993,6 +993,16 @@ def compute_low_charge_plan(
     `min_charge_units` quarters (the Minimum charge duration). The plan's
     window is the first block; `blocks` lists them all, and the rest is
     planned again once the first is done.
+
+    Follow-up (as of 2026.10.13): once the first block of a charge in
+    several blocks has started, the plan carries `follow_up_until` (epoch:
+    the end of its last block). Until then a dip counts from the low
+    threshold PLUS the Safety buffer, not the threshold itself - the first
+    block often already lifts the forecast above the threshold, and without
+    this the rest of the charge (the buffer) was dropped, so a bit more
+    usage or less sun than forecast brought the breach back. What the
+    follow-up buys isn't rounded up to the minimum charge target (the
+    original charge already was); less than FOLLOW_UP_MIN_KWH is left out.
     """
     prev = prev or {"active": False}
     if not replan and prev.get("active") and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
@@ -1012,32 +1022,45 @@ def compute_low_charge_plan(
         # specifically so a brief post-stop dip in the setpoint readback
         # can never flip it back to "Actief"/"Start charge" and restart
         # the session - see the same reasoning in compute_high_discharge_plan.
-        if not prev.get("target_reached") and battery_now_kwh >= prev.get("target_energy_kwh", float("inf")):
-            updated = dict(prev)
-            updated["target_reached"] = True
-            return updated
-        return prev
+        updated = prev
+        if len(prev.get("blocks") or []) > 1:
+            until = _unit_epoch(now, cur_unit, prev["blocks"][-1]["end_unit"])
+            if (prev.get("follow_up_until") or 0) < until:
+                updated = {**prev, "follow_up_until": until}
+        if not updated.get("target_reached") and battery_now_kwh >= updated.get("target_energy_kwh", float("inf")):
+            updated = {**updated, "target_reached": True}
+        return updated
 
     forecast = forecast_with_spike[0 : planning_horizon_hours + 1]
     charge_per_unit = charge_speed_kw / 4
+    # the rest of a charge in several blocks whose first block ran (as of
+    # 2026.10.13): dips count from the threshold + Safety buffer until then
+    follow_until = prev.get("follow_up_until")
+    follow_up = follow_until is not None and now.timestamp() < follow_until
+    detect_kwh = low_threshold_kwh + max(charge_buffer_kwh, 0.0) if follow_up else low_threshold_kwh
+
+    def _carry(plan: dict) -> dict:
+        if follow_up and (plan.get("follow_up_until") or 0) < follow_until:
+            plan = {**plan, "follow_up_until": follow_until}
+        return plan
 
     if floor_kwh is not None and floor_kwh < low_threshold_kwh:
         soft = _soft_low_charge(
             forecast, cur_unit, now, charge_speed_kw, low_threshold_kwh, floor_kwh, minimum_charge_target_kwh,
             upper_limit_kwh, usage, all_price, battery_now_kwh, high_threshold_kwh, buy_price, charge_efficiency,
-            discharge_efficiency, peak_kwh, charge_rates, charge_buffer_kwh, min_charge_units,
+            discharge_efficiency, peak_kwh, charge_rates, charge_buffer_kwh, min_charge_units, follow_up,
         )
         if soft is not None:
-            return soft
+            return _carry(soft)
 
     hour_index = None
     for h in range(len(forecast)):
-        if forecast[h] < low_threshold_kwh:
+        if forecast[h] < detect_kwh:
             hour_index = h
             break
 
     if hour_index is None:
-        return {"active": False, "breach_unit": 999999}
+        return _carry({"active": False, "breach_unit": 999999})
 
     # Size the charge against the LOWEST point of this dip, not the first
     # hour it crosses below the threshold. The forecast usually keeps falling
@@ -1054,7 +1077,7 @@ def compute_low_charge_plan(
     # had this same first-crossing-only sizing; it was ported as-is.)
     dip_end = len(forecast)
     for h in range(hour_index + 1, len(forecast)):
-        if forecast[h] >= low_threshold_kwh:
+        if forecast[h] >= detect_kwh:
             dip_end = h
             break
     value = min(forecast[hour_index:dip_end])
@@ -1070,7 +1093,9 @@ def compute_low_charge_plan(
     # energy that wasn't needed). Rounded up to the minimum charge target.
     target_kwh = deficit
     rounded_up_to_minimum = False
-    if target_kwh < minimum_charge_target_kwh:
+    if follow_up and target_kwh < FOLLOW_UP_MIN_KWH:
+        return _carry({"active": False, "breach_unit": 999999})
+    if target_kwh < minimum_charge_target_kwh and not follow_up:
         room = (high_threshold_kwh - future_peak) if high_threshold_kwh is not None else minimum_charge_target_kwh
         rounded = max(target_kwh, min(minimum_charge_target_kwh, room))
         rounded_up_to_minimum = rounded > target_kwh
@@ -1109,7 +1134,7 @@ def compute_low_charge_plan(
                                 upper_limit_kwh)
         if not blocks:
             # everything needed after the known prices: planned when they come
-            return {"active": False, "breach_unit": breach_unit, "deferred_kwh": round(target_kwh, 3)}
+            return _carry({"active": False, "breach_unit": breach_unit, "deferred_kwh": round(target_kwh, 3)})
         placed = _blocks_plan(blocks, target_kwh)
 
     plan = {
@@ -1142,7 +1167,19 @@ def compute_low_charge_plan(
     }
     if placed:
         plan.update(placed)
-    return plan
+    if follow_up:
+        plan["follow_up"] = True
+    return _carry(plan)
+
+
+def _unit_epoch(now: datetime, cur_unit: int, unit: int) -> int:
+    """Epoch of the start of 15-minute `unit` (counted like `cur_unit`)."""
+    quarter = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+    return int(quarter.timestamp()) + (unit - cur_unit) * 900
+
+
+# Less than this isn't worth a follow-up charge (kWh, as of 2026.10.13).
+FOLLOW_UP_MIN_KWH = 0.1
 
 
 def _soft_low_charge(
@@ -1165,6 +1202,7 @@ def _soft_low_charge(
     charge_rates: Optional[list[float]] = None,
     charge_buffer_kwh: float = 0.0,
     min_charge_units: int = 2,
+    follow_up: bool = False,
 ) -> Optional[dict]:
     """compute_low_charge_plan in solar deficit mode (as of v0.5.13), with
     the surplus minimum as the hard floor below the deficit minimum - see
@@ -1185,21 +1223,27 @@ def _soft_low_charge(
     (headroom), like the one-threshold plan. A dip only in the band charges
     just what's missing (as of 2026.10.4; it used to fill up too), rounded
     up to the minimum charge target when that fits, skipped when not; a dip
-    that then has nothing to do passes on to the next one."""
+    that then has nothing to do passes on to the next one.
+
+    `follow_up` (as of 2026.10.13, see compute_low_charge_plan): dips count
+    from the deficit minimum + Safety buffer, and a band-only dip charges
+    what's missing without the minimum charge target (at least
+    FOLLOW_UP_MIN_KWH)."""
     n = len(forecast)
+    band_top = low_threshold_kwh + max(charge_buffer_kwh, 0.0) if follow_up else low_threshold_kwh
     units_to_next_hour = 4 - (now.minute // 15)
     future_peak = peak_kwh if peak_kwh is not None else (max(forecast) if forecast else upper_limit_kwh)
     headroom = max(upper_limit_kwh - future_peak, 0.0)
     skipped = None
     h = 0
     while h < n:
-        if forecast[h] >= low_threshold_kwh:
+        if forecast[h] >= band_top:
             h += 1
             continue
         dip_start = h
         dip_end = n
         for k in range(dip_start + 1, n):
-            if forecast[k] >= low_threshold_kwh:
+            if forecast[k] >= band_top:
                 dip_end = k
                 break
         h = dip_end
@@ -1236,7 +1280,7 @@ def _soft_low_charge(
             # below the floor: what's missing up to the floor and the band
             # (as of 2026.10.7 no longer filled up to 100% at the peak)
             target_kwh = need_hard + soft_capped
-            if target_kwh < minimum_charge_target_kwh:
+            if target_kwh < minimum_charge_target_kwh and not follow_up:
                 room = (high_threshold_kwh - future_peak) if high_threshold_kwh is not None else minimum_charge_target_kwh
                 rounded = max(target_kwh, min(minimum_charge_target_kwh, room))
                 rounded_up_to_minimum = rounded > target_kwh
@@ -1246,10 +1290,15 @@ def _soft_low_charge(
             # up to the minimum charge target if that still fits under 100%
             # at the peak, skipped if not - not filled up to the peak
             target_kwh = soft_capped
-            if target_kwh < minimum_charge_target_kwh and band_headroom >= minimum_charge_target_kwh:
-                target_kwh = minimum_charge_target_kwh
-                rounded_up_to_minimum = True
-            if target_kwh < minimum_charge_target_kwh or target_kwh <= 0:
+            if follow_up:
+                # the rest of a charge that already ran: just what's missing
+                minimum_needed = FOLLOW_UP_MIN_KWH
+            else:
+                minimum_needed = minimum_charge_target_kwh
+                if target_kwh < minimum_charge_target_kwh and band_headroom >= minimum_charge_target_kwh:
+                    target_kwh = minimum_charge_target_kwh
+                    rounded_up_to_minimum = True
+            if target_kwh < minimum_needed or target_kwh <= 0:
                 if skipped is None:
                     skipped = {
                         "deficit_kwh": round(need_soft, 3),

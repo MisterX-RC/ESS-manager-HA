@@ -12,6 +12,21 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.13] - 2026-10-13
+
+### Fixed
+- **The second block of a split charge was often dropped.** A charge in
+  several blocks fills the dip up to minimum SOC + Safety buffer, but a new
+  charge only starts when the forecast drops below minimum SOC itself. After
+  the first block the dip was often already above minimum SOC (only the
+  buffer was still missing), so when the plan was worked out again the
+  rest of the charge disappeared - and a bit more usage or less sun than
+  forecast then brought the low breach back, often at a worse price. Now,
+  once the first block of such a charge has run, the plan keeps counting
+  from minimum SOC + buffer until its last planned block, so the rest is
+  still bought (in its cheap block, just what's missing - not rounded up to
+  the minimum charge target again). Also in solar deficit mode.
+
 ## [2026.10.12] - 2026-10-12
 
 ### Fixed

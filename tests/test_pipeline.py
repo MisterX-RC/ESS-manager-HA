@@ -3441,6 +3441,43 @@ _tot8, _a8 = _rt4.update({**_conf1, "cars": []}, datetime(2026, 10, 12, 10, 0, t
 check("ev runtime: two solar sessions share the surplus (6 + 6 kWh, not 12 + 6)",
       abs(sum(_tot8) - 12.0) < 0.01 and _tot8[1] == 6.0 and _tot8[2] == 6.0)
 
+# ---------------------------------------------------------------------------
+# 2026.10.13: the rest of a charge in blocks isn't dropped once the first block lifted the dip above the threshold
+# ---------------------------------------------------------------------------
+# 20:00, 12 kWh, threshold 9 + Safety buffer 1, -0.5 kWh an hour until 05:00; cheap (0.10) at 21:00 and 03:00 (30 min each)
+_fu_price = [0.30] * 192
+for _u in (84, 85, 108, 109):
+    _fu_price[_u] = 0.10
+_fu_net = [-0.5] * 9 + [2.0] * 20 + [-0.5] * 40
+def _fu(now, batt, net, prev, unit, floor=None):
+    fc = forecasting.build_battery_forecast(net, batt, now, 5.0, 5.0, 1.0, 1.0)
+    rates = forecasting.grid_charge_rates(net, now, 3.0, 5.0, 192, 1.0, 1.0)
+    return plans.compute_low_charge_plan(prev, unit, fc, now, 3.0, 9.0, 0.5, 30.0, [0.5] * 121, _fu_price, 48, batt,
+                                         high_threshold_kwh=33.0, charge_efficiency=1.0, discharge_efficiency=1.0,
+                                         charge_rates=rates, charge_buffer_kwh=1.0, min_charge_units=2, floor_kwh=floor)
+_fu1 = _fu(datetime(2026, 10, 13, 20, 0), 12.0, _fu_net, None, 80)
+check("follow-up: 2.5 kWh in two blocks - 1.5 at 21:00 and 1.0 at 03:00",
+      [b["start_unit"] for b in _fu1["blocks"]] == [84, 108] and [b["kwh"] for b in _fu1["blocks"]] == [1.5, 1.0])
+_fu2 = _fu(datetime(2026, 10, 13, 21, 0), 11.5, _fu_net[1:], _fu1, 84)
+check("follow-up: while the first block runs the plan gets follow_up_until = the end of the last block (03:30)",
+      _fu2["follow_up_until"] == int(datetime(2026, 10, 14, 3, 30).timestamp()) and _fu2["start_unit"] == 84)
+# after the first block: 12.75 kWh, the dip's lowest point now 9.0 - not under the threshold any more
+_fu3 = _fu(datetime(2026, 10, 13, 21, 30), 12.75, _fu_net[1:], _fu2, 86)
+check("follow-up: the second block stays (1.0 kWh at 03:00, up to threshold + buffer), not rounded up to the minimum",
+      _fu3["active"] and _fu3["start_unit"] == 108 and _fu3["target_kwh"] == 1.0 and _fu3.get("follow_up")
+      and _fu3["follow_up_until"] == _fu2["follow_up_until"])
+check("follow-up: without it the second block was dropped (the old behaviour)",
+      not _fu(datetime(2026, 10, 13, 21, 30), 12.75, _fu_net[1:], {**_fu2, "follow_up_until": None}, 86)["active"])
+check("follow-up: the marker is carried while nothing is needed, and ends at its time",
+      _fu(datetime(2026, 10, 13, 21, 30), 14.0, _fu_net[1:], _fu2, 86) == {"active": False, "breach_unit": 999999, "follow_up_until": _fu2["follow_up_until"]}
+      and not _fu(datetime(2026, 10, 14, 3, 45), 9.6, _fu_net[8:], _fu2, 96 + 15)["active"])
+# (a smaller solar day after it, so the band charge fits under 100 % at the peak)
+_fu_net2 = [-0.5] * 9 + [0.5] * 20 + [0.0] * 40
+_fu5 = _fu(datetime(2026, 10, 13, 21, 30), 12.75, _fu_net2[1:], _fu2, 86, floor=7.0)
+check("follow-up: in solar deficit mode too (the band up to deficit minimum + buffer)",
+      _fu5["active"] and _fu5["target_kwh"] == 1.0 and _fu5["follow_up_until"] == _fu2["follow_up_until"]
+      and not _fu(datetime(2026, 10, 13, 21, 30), 12.75, _fu_net2[1:], {**_fu2, "follow_up_until": None}, 86, floor=7.0)["active"])
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

@@ -64,7 +64,11 @@ Five planning engines, all documented in detail in the code
    below your minimum SOC, in the cheapest quarters before it's needed -
    just what's missing to keep the dip at the minimum SOC plus the
    **Safety buffer** (rounded up to the **Minimum charge target**), not a
-   full battery.
+   full battery. A charge split over several blocks is finished: once its
+   first block has run, the rest still counts up to minimum SOC + buffer
+   (not just minimum SOC) until the last planned block, so it isn't dropped
+   just because the first block already lifted the dip above the minimum
+   (as of 2026.10.13).
 2. **High discharge plan** - discharges before the battery would otherwise
    overshoot your maximum SOC, during the priciest available price window,
    selling the forecast peak back down to 100% (so with a max SOC of 110%
@@ -555,7 +559,7 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Spike margin | Minimum day price spread (EUR/kWh) to treat a day as spike-worthy |
 | Minimum charge target | The smallest amount (kWh) any charge buys. Low charge plan: the dip is lifted back to the low threshold; if that needs less than this, the charge is rounded up to it (but never so far that a later peak would cross your max SOC and just be sold again). Spike plan: a pre-peak top-up smaller than this is skipped. Full-charge balancing and the negative price plan are not affected |
 | Minimum charge/sale duration | The shortest charge or sale block, in minutes (15-120 in steps of 15, default 30). A charge may be split over the cheapest quarters before it's needed, a sale over the priciest ones (as of 2026.10.10), but never into blocks shorter than this |
-| Safety buffer | % of battery capacity kept on top of your min SOC (default 5%), both ways. Selling: a sale never brings the forecast below min SOC + buffer - e.g. min SOC 10% + buffer 5% = sales stop at 15%, so a sale doesn't end in buying energy back. Charging (as of 2026.10.4): a charge lifts the dip to min SOC + buffer, not just to min SOC, so a bit more usage or less sun than forecast doesn't take the battery just under it (when to charge still follows min SOC itself). 0 = right down to / up to min SOC |
+| Safety buffer | % of battery capacity kept on top of your min SOC (default 5%), both ways. Selling: a sale never brings the forecast below min SOC + buffer - e.g. min SOC 10% + buffer 5% = sales stop at 15%, so a sale doesn't end in buying energy back. Charging (as of 2026.10.4): a charge lifts the dip to min SOC + buffer, not just to min SOC, so a bit more usage or less sun than forecast doesn't take the battery just under it (when to charge still follows min SOC itself - except for the rest of a charge in several blocks whose first block has run, which counts from min SOC + buffer until its last block, as of 2026.10.13). 0 = right down to / up to min SOC |
 | Transport tariff | Base grid transport tariff (EUR/kWh, default 0): buying costs price + (tariff x factor for that hour), selling doesn't - see "Grid transport tariff" above. 0 = no transport |
 | Planning horizon | How many hours ahead the low/high plans are allowed to react to (price data usually doesn't exist much beyond ~48h anyway) |
 | Full charge interval | Days between full-charge/balance cycles |
