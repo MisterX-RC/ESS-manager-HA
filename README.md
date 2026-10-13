@@ -168,7 +168,7 @@ deficit does the same, since it changes the minimum SOC every plan works
 with. A (re)start of Home Assistant or the integration does it too (as of
 2026.10.14), so a window stored before the restart is checked against the
 current settings and forecast. When a sensor it needs (battery SOC, price)
-isn't there yet right after a restart, the entities are unavailable until
+isn't there yet right after a restart (as of 2026.10.15), the entities are unavailable until
 the next cycle (every 30 s) finds it - no reload needed. For the first 10
 minutes after a start it also waits for the solar forecast sensor(s) and the
 household usage statistics, so it never plans with "no sun" or "no usage"

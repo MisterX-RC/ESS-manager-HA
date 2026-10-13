@@ -12,22 +12,9 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
-## [2026.10.14] - 2026-10-13
+## [2026.10.15] - 2026-10-13
 
 ### Fixed
-- **A running full charge showed the whole charge instead of its first
-  block.** Since 2026.10.6 a full charge can be split over blocks, but when
-  a session started (scheduled -> charging) the block details were dropped:
-  the status card and the Charge amount sensor then showed the full amount
-  (e.g. 17.2 kWh in a one-hour window that only does 1.6 kWh) and a "done"
-  figure that was simply that amount minus what's still missing to 100%.
-  They now show the block that runs.
-- **A full charge session worked out with another capacity or max SOC is
-  planned again.** Each session remembers the max-SOC level (capacity x max
-  SOC) it was sized against; when that changes (a changed capacity number,
-  or values that weren't there yet), the session is worked out afresh
-  instead of started with the old amount - also right at its start, where a
-  changed setting used to be ignored.
 - **Entities unavailable after an update / restart until a manual reload.**
   When the first cycle failed at startup (the battery SOC or price sensor
   not there yet), setup was turned into a retry while the number, switch
@@ -46,6 +33,23 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   right away. The entities stay unavailable meanwhile (as when the battery
   SOC or price sensor is missing, which always stops planning). After the 10
   minutes it plans with what there is, as before.
+
+## [2026.10.14] - 2026-10-13
+
+### Fixed
+- **A running full charge showed the whole charge instead of its first
+  block.** Since 2026.10.6 a full charge can be split over blocks, but when
+  a session started (scheduled -> charging) the block details were dropped:
+  the status card and the Charge amount sensor then showed the full amount
+  (e.g. 17.2 kWh in a one-hour window that only does 1.6 kWh) and a "done"
+  figure that was simply that amount minus what's still missing to 100%.
+  They now show the block that runs.
+- **A full charge session worked out with another capacity or max SOC is
+  planned again.** Each session remembers the max-SOC level (capacity x max
+  SOC) it was sized against; when that changes (a changed capacity number,
+  or values that weren't there yet), the session is worked out afresh
+  instead of started with the old amount - also right at its start, where a
+  changed setting used to be ignored.
 - **After a restart everything is planned afresh.** Timo's update to
   2026.10.13 came back from the reboot charging a full charge sized for a
   30 kWh battery with 7 kW charge speed (the setup values) instead of the
