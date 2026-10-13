@@ -6,6 +6,7 @@
  *   custom:ess-manager-price-card     today's and tomorrow's prices with the planned moments
  *   custom:ess-manager-status-card    Sell / Buy blocks, price plans, control toggle, timeline
  *   custom:ess-manager-ev-card        the electric car's charging sessions (as of 2026.10.11)
+ *   custom:ess-manager-heatpump-card  the heat pump forecast from the weather (as of 2026.10.16)
  *
  * Each card only needs `entity:` - the installation's Status sensor. All
  * three are drawn by this file itself (as of v0.5.1 also the battery and
@@ -88,6 +89,29 @@ const I18N = {
     ev_back_average: "Back to average", ev_remove: "Delete", ev_cancel: "Cancel", ev_save: "Save",
     ev_left: (k) => `${k} to go`, ev_at: "done at", ev_in_plan: (k) => `${k} in the planning`,
     ed_ev_color: "Car",
+    // heat pump card
+    hp_title: "Heat pump", hp_off: "The heat pump model is switched off - switch it on in the integration's Configure (price plans page).",
+    hp_sub_active: (n) => `model active \u00b7 ${n} heating days`, hp_sub_learning: "model still learning", hp_sub_summer: "summer \u00b7 no heating",
+    hp_sub_fallback: "model not used: 6-week average", hp_sub_correction: (p) => `model active \u00b7 correction ${p}`,
+    hp_next_days: "next 5 days", hp_average: "6-week average", hp_view: "View",
+    hp_tab_forecast: "Forecast", hp_tab_signature: "Signature", hp_tab_memory: "Memory",
+    hp_heating_days: "Heating days in the journal", hp_learning_text: "Until there are enough days at different temperatures, the planning uses the 6-week average, as before.",
+    hp_summer_text: (b) => `No heating in the coming days: only the daily base of ${b}.`,
+    hp_fallback_fit: "The model isn't used right now: it doesn't fit the measured days well enough yet. The planning uses the 6-week average.",
+    hp_fallback_weather: "The model isn't used right now: no weather forecast. The planning uses the 6-week average.",
+    hp_corr_more: "Used more than the model said over the last days - taken along for now; the model itself doesn't change.",
+    hp_corr_less: "Used less than the model said over the last days - taken along for now; the model itself doesn't change.",
+    hp_setpoint_change: (d) => `Wanted temperature ${d} since a few days.`,
+    hp_wind: "wind", hp_sun: "sun", hp_model: "model", hp_average_learning: "6-week average (model still learning)",
+    hp_none_note: "No own metering: the bars are the household's day totals; only the weather difference is added to the planning.",
+    hp_no_model: "No model yet - it needs at least two weeks of days.", hp_axis: "outdoor \u00b0C (day, smoothed)",
+    hp_balance: "Balance temperature", hp_per_degree: "Per degree colder", hp_per_day: "per day", hp_base: "Base",
+    hp_wind_t: "Wind", hp_wind_unit: "kWh per m/s per degree", hp_sun_t: "Sun", hp_sun_unit: "kWh per kWh of sun",
+    hp_cool_t: "Cooling", hp_from: "from", hp_per_degree_short: "per degree", hp_error: "Error 14 days",
+    hp_measured_day: "measured day (fainter = older)", hp_expected: "expected",
+    hp_outdoor: "outdoor", hp_days: "days", hp_measured: "measured", hp_last: "last", hp_to: "to",
+    hp_memory_note: (n, h) => `Frost days of last winter keep counting until a newer day of the same class comes. Journal: ${n} days, ${h} heating days.`,
+    ed_hp_color: "Heat pump",
   },
   nl: {
     planned: "gepland", running: "bezig", done: "klaar", of: "van", stop: "stop",
@@ -144,6 +168,28 @@ const I18N = {
     ev_back_average: "Terug naar gemiddelde", ev_remove: "Verwijderen", ev_cancel: "Annuleren", ev_save: "Opslaan",
     ev_left: (k) => `Nog ${k}`, ev_at: "klaar om", ev_in_plan: (k) => `${k} in de planning`,
     ed_ev_color: "Auto",
+    hp_title: "Warmtepomp", hp_off: "Het warmtepompmodel staat uit - zet het aan bij Configureren van de integratie (pagina prijsplannen).",
+    hp_sub_active: (n) => `model actief \u00b7 ${n} stookdagen`, hp_sub_learning: "model leert nog", hp_sub_summer: "zomer \u00b7 niet stoken",
+    hp_sub_fallback: "model niet gebruikt: 6-weken-gemiddelde", hp_sub_correction: (p) => `model actief \u00b7 correctie ${p}`,
+    hp_next_days: "komende 5 dagen", hp_average: "6-weken-gemiddelde", hp_view: "Weergave",
+    hp_tab_forecast: "Verwachting", hp_tab_signature: "Signatuur", hp_tab_memory: "Geheugen",
+    hp_heating_days: "Stookdagen in het dagboek", hp_learning_text: "Tot er genoeg dagen met verschillende temperaturen zijn, rekent de planning met het 6-weken-gemiddelde, zoals nu.",
+    hp_summer_text: (b) => `De komende dagen niet stoken: alleen de vaste basis van ${b} per dag.`,
+    hp_fallback_fit: "Het model wordt nu niet gebruikt: het past nog niet goed genoeg bij de gemeten dagen. De planning rekent met het 6-weken-gemiddelde.",
+    hp_fallback_weather: "Het model wordt nu niet gebruikt: geen weersverwachting. De planning rekent met het 6-weken-gemiddelde.",
+    hp_corr_more: "De laatste dagen meer verbruikt dan het model zei - tijdelijk meegenomen; het model zelf verandert er niet door.",
+    hp_corr_less: "De laatste dagen minder verbruikt dan het model zei - tijdelijk meegenomen; het model zelf verandert er niet door.",
+    hp_setpoint_change: (d) => `Gewenste temperatuur sinds een paar dagen ${d}.`,
+    hp_wind: "wind", hp_sun: "zon", hp_model: "model", hp_average_learning: "6-weken-gemiddelde (model leert nog)",
+    hp_none_note: "Geen eigen meting: de balken zijn de dagtotalen van het huis; alleen het verschil door het weer gaat de planning in.",
+    hp_no_model: "Nog geen model - daar zijn minstens twee weken aan dagen voor nodig.", hp_axis: "buiten \u00b0C (etmaal, uitgevlakt)",
+    hp_balance: "Grenstemperatuur", hp_per_degree: "Per graad kouder", hp_per_day: "per dag", hp_base: "Basis",
+    hp_wind_t: "Wind", hp_wind_unit: "kWh per m/s per graad", hp_sun_t: "Zon", hp_sun_unit: "kWh per kWh zon",
+    hp_cool_t: "Koelen", hp_from: "vanaf", hp_per_degree_short: "per graad", hp_error: "Afwijking 14 dagen",
+    hp_measured_day: "gemeten dag (vager = ouder)", hp_expected: "verwachting",
+    hp_outdoor: "buiten", hp_days: "dagen", hp_measured: "gemeten", hp_last: "laatst", hp_to: "tot",
+    hp_memory_note: (n, h) => `Vorstdagen van vorige winter tellen mee tot er een nieuwere dag in dezelfde klasse is. Dagboek: ${n} dagen, ${h} stookdagen.`,
+    ed_hp_color: "Warmtepomp",
   },
 };
 
@@ -2483,6 +2529,299 @@ class EssManagerEvCard extends EssChartCard {
   }
 }
 
+// -- Heat pump card (as of 2026.10.16) --------------------------------------------------
+// The heat pump model (the Status sensor's `heat_pump` attribute): the state
+// and the total of the coming days at the top, a notice when the model
+// learns, rests for the summer, corrects or isn't used, and three tabs -
+// Forecast (per day, with the 6-week average as a marker), Signature (the
+// days measured against the outdoor temperature with the model's line) and
+// Memory (per temperature class: measured against the model).
+const HP_DEFAULTS = {
+  title: "",
+  hp_color: [255, 154, 92],
+};
+const HP_COLOR_KEYS = ["hp_color"];
+const HP_SCHEMA = (t) => [
+  { name: "title", selector: { text: {} } },
+  {
+    type: "expandable",
+    flatten: true,
+    name: "colours",
+    title: t("ed_colours"),
+    schema: [{ type: "grid", name: "", schema: HP_COLOR_KEYS.map((name) => ({ name, selector: { color_rgb: {} } })) }],
+  },
+];
+const HP_FC_COLOR = "#6fa8dc";
+const HP_WARN = "#e5534b";
+const HP_CSS = `
+  .hp-banner { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 10px; background: rgba(127,127,127,.14); font-size: 13px; line-height: 18px; }
+  .hp-banner.warn { background: color-mix(in srgb, ${HP_WARN} 16%, transparent); outline: 1px solid ${HP_WARN}; }
+  .hp-banner.sun { background: color-mix(in srgb, #f2c94c 12%, transparent); }
+  .hp-chip { font-size: 12px; padding: 2px 8px; border-radius: 10px; font-weight: 600; flex-shrink: 0; }
+  .hp-progress { position: relative; height: 8px; border-radius: 4px; background: rgba(127,127,127,.3); margin-top: 6px; }
+  .hp-progress i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--hp); }
+  .hp-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 22px; background: rgba(127,127,127,.14); }
+  .hp-tabs button { min-height: 40px; border-radius: 18px; border: 0; background: transparent; color: inherit; font: inherit; font-size: 14px; cursor: pointer; }
+  .hp-tabs button[aria-selected="true"] { background: var(--hp); color: #2a160a; font-weight: 600; }
+  .hp-days { display: flex; flex-direction: column; gap: 6px; }
+  .hp-day { display: flex; flex-direction: column; gap: 6px; padding: 9px 12px; border-radius: 10px; background: rgba(127,127,127,.12); }
+  .hp-line { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 14px; font-weight: 600; }
+  .hp-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--secondary-text-color, #a0a0a0); }
+  .hp-bar { position: relative; height: 8px; border-radius: 4px; background: rgba(127,127,127,.3); }
+  .hp-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+  .hp-bar b { position: absolute; top: -3px; bottom: -3px; width: 3px; border-radius: 2px; background: var(--primary-text-color, #e1e1e1); opacity: .85; }
+  .hp-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .hp-tile { background: rgba(127,127,127,.14); border-radius: 10px; padding: 9px 10px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .hp-tile span:first-child { font-size: 12px; color: var(--secondary-text-color, #a0a0a0); }
+  .hp-tile span:nth-child(2) { font-size: 16px; font-weight: 600; }
+  .hp-tile span:nth-child(3) { font-size: 11px; color: var(--secondary-text-color, #8f8f8f); }
+  .hp-table { display: flex; flex-direction: column; gap: 4px; }
+  .hp-row { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, .7fr) minmax(0, 1fr) minmax(0, .9fr) minmax(0, 1.3fr); gap: 0 8px; align-items: center; padding: 7px 8px; border-radius: 8px; font-size: 13px; background: rgba(127,127,127,.12); }
+  .hp-row.head { background: transparent; font-size: 12px; color: var(--secondary-text-color, #a0a0a0); padding-top: 0; padding-bottom: 0; }
+  .hp-row span:nth-child(2), .hp-row span:nth-child(3), .hp-row span:nth-child(4) { text-align: right; }
+  .hp-row span:nth-child(5) { font-size: 12px; color: var(--secondary-text-color, #a0a0a0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hp-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--secondary-text-color, #a0a0a0); }
+  .hp-legend span { display: flex; align-items: center; gap: 6px; }
+  .hp-note { font-size: 12px; line-height: 17px; color: var(--secondary-text-color, #8f8f8f); }
+  @container (max-width: 400px) { .hp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+`;
+const COMPASS = { nl: ["N", "NO", "O", "ZO", "Z", "ZW", "W", "NW"], en: ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] };
+
+class EssManagerHeatPumpCard extends EssChartCard {
+  static get info() {
+    return {
+      name: "ESS Manager - Heat pump",
+      description: "The heat pump forecast from the weather: the coming days, the energy signature and what the model has learned.",
+      schema: HP_SCHEMA,
+      defaults: HP_DEFAULTS,
+      labels: { title: "ed_title", hp_color: "ed_hp_color" },
+    };
+  }
+
+  getCardSize() {
+    return 7;
+  }
+
+  _num(v, d) {
+    return formats(this._hass).num(v, d);
+  }
+
+  _kwh(v) {
+    return `${this._num(Number(v) || 0, 1)} kWh`;
+  }
+
+  _dayLabel(iso, i) {
+    const ms = Date.parse(`${iso}T12:00:00`);
+    const label = formats(this._hass).dayLabel(ms);
+    return i === 0 ? `${label} (${this._t("today")})` : label;
+  }
+
+  _compass(deg) {
+    if (deg == null) return "";
+    const names = COMPASS[hassLang(this._hass).slice(0, 2)] || COMPASS.en;
+    return names[Math.round(((Number(deg) % 360) + 360) % 360 / 45) % 8];
+  }
+
+  _render() {
+    if (!this._hass || !this._config || !this.shadowRoot) return;
+    const st = this._hass.states[this._config.entity];
+    const opt = colorOptions(this._config, HP_DEFAULTS, HP_COLOR_KEYS);
+    const css = BASE_CSS + HP_CSS + `ha-card { --hp: ${opt.hp_color}; }`;
+    if (!isStatusSensor(st)) {
+      setCardContent(this, css, notStatusMessage(this._hass, this._config.entity, st));
+      return;
+    }
+    const hp = st.attributes.heat_pump;
+    if (!hp) {
+      setCardContent(this, css, `<div style="padding:4px">${esc(this._t("hp_off"))}</div>`);
+      return;
+    }
+    const tab = this._tab || "forecast";
+    const used = !!hp.used;
+    const corr = Number(hp.correction) || 1;
+    const correcting = used && Math.abs(corr - 1) >= 0.05;
+    const subs = {
+      active: this._t("hp_sub_active")(hp.heating_days || 0),
+      learning: this._t("hp_sub_learning"),
+      summer: this._t("hp_sub_summer"),
+      fallback: this._t("hp_sub_fallback"),
+    };
+    let sub = subs[hp.state] || "";
+    if (correcting) sub = this._t("hp_sub_correction")(this._pct(corr));
+    const total = used ? hp.total_kwh : hp.average_total_kwh;
+    const title = this._config.title || this._t("hp_title");
+    let html = `
+      <div class="top">
+        <div style="display:flex;flex-direction:column;gap:2px;flex-grow:1;min-width:0">
+          <div class="title">${esc(title)}</div>
+          <div class="dim" style="font-size:13px">${esc(sub)}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+          <div style="font-size:20px;font-weight:600;white-space:nowrap">${total != null ? esc(this._kwh(total)) : "\u2014"}</div>
+          <div class="dim" style="font-size:12px">${esc(this._t(used ? "hp_next_days" : "hp_average"))}</div>
+        </div>
+      </div>`;
+    html += this._banner(hp, correcting, corr);
+    html += `
+      <div class="hp-tabs" role="tablist" aria-label="${esc(this._t("hp_view"))}">
+        <button type="button" role="tab" data-tab="forecast" aria-selected="${tab === "forecast"}">${esc(this._t("hp_tab_forecast"))}</button>
+        <button type="button" role="tab" data-tab="signature" aria-selected="${tab === "signature"}">${esc(this._t("hp_tab_signature"))}</button>
+        <button type="button" role="tab" data-tab="memory" aria-selected="${tab === "memory"}">${esc(this._t("hp_tab_memory"))}</button>
+      </div>`;
+    if (tab === "signature") html += this._signature(hp, opt);
+    else if (tab === "memory") html += this._memory(hp);
+    else html += this._forecast(hp, opt);
+    if (setCardContent(this, css, html)) {
+      this.shadowRoot.querySelectorAll("[data-tab]").forEach((el) =>
+        el.addEventListener("click", () => {
+          this._tab = el.getAttribute("data-tab");
+          this._essInner = null;
+          this._render();
+        })
+      );
+    }
+  }
+
+  _pct(f) {
+    const p = Math.round((f - 1) * 100);
+    return `${p > 0 ? "+" : ""}${p} %`;
+  }
+
+  _banner(hp, correcting, corr) {
+    if (hp.state === "learning") {
+      const need = hp.heating_days_needed || 21;
+      const have = Math.min(hp.heating_days || 0, need);
+      return `<div class="hp-banner" style="flex-direction:column;align-items:stretch;gap:2px">
+        <div style="display:flex;justify-content:space-between"><span class="dim">${esc(this._t("hp_heating_days"))}</span><b>${have} ${esc(this._t("of"))} ${need}</b></div>
+        <div class="hp-progress"><i style="width:${Math.round((have / need) * 100)}%"></i></div>
+        <div style="margin-top:4px">${esc(this._t("hp_learning_text"))}</div>
+      </div>`;
+    }
+    if (hp.state === "summer") {
+      const base = hp.model && hp.model.base_kwh_day;
+      return `<div class="hp-banner sun">${icon("sun", "#f2c94c", 18)}<div>${esc(this._t("hp_summer_text")(base != null ? this._kwh(base) : "\u2014"))}</div></div>`;
+    }
+    if (hp.state === "fallback") {
+      return `<div class="hp-banner">${icon("cog", "var(--secondary-text-color,#a0a0a0)", 18)}<div>${esc(this._t(hp.weather_days ? "hp_fallback_fit" : "hp_fallback_weather"))}</div></div>`;
+    }
+    if (correcting) {
+      const sp = hp.setpoint_change_c;
+      const extra = sp != null ? " " + this._t("hp_setpoint_change")(`${sp > 0 ? "+" : ""}${this._num(sp, 1)} \u00b0C`) : "";
+      return `<div class="hp-banner warn"><span class="hp-chip" style="background:${HP_WARN};color:#fff">${esc(this._pct(corr))}</span><div>${esc(this._t(corr > 1 ? "hp_corr_more" : "hp_corr_less"))}${esc(extra)}</div></div>`;
+    }
+    return "";
+  }
+
+  _forecast(hp, opt) {
+    const days = hp.days || [];
+    const used = !!hp.used;
+    const vals = days.map((d) => (used ? d.kwh : d.average_kwh) || 0).concat(days.map((d) => d.average_kwh || 0));
+    const max = Math.max(4, ...vals) * 1.1;
+    const color = used ? "var(--hp)" : "#8a8a8a";
+    let html = '<div class="hp-days">';
+    days.forEach((d, i) => {
+      const v = used ? d.kwh : d.average_kwh;
+      const meta = [];
+      if (d.temp_c != null) meta.push(`${this._num(d.temp_c, 1)} \u00b0C`);
+      if (d.wind_ms != null) meta.push(`${this._t("hp_wind")} ${this._num(d.wind_ms, 0)} m/s ${this._compass(d.wind_dir)}`.trim());
+      if (d.sun_kwh != null) meta.push(`${this._t("hp_sun")} ${this._kwh(d.sun_kwh)}`);
+      const bar = v != null ? `<i style="width:${((v / max) * 100).toFixed(1)}%;background:${color}"></i>` : "";
+      const mark = used && d.average_kwh != null ? `<b style="left:${((d.average_kwh / max) * 100).toFixed(1)}%"></b>` : "";
+      html += `<div class="hp-day">
+        <div class="hp-line"><span>${esc(this._dayLabel(d.date, i))}</span><span>${v != null ? esc(this._kwh(v)) : "\u2014"}</span></div>
+        ${meta.length ? `<div class="hp-meta">${meta.map((m) => `<span>${esc(m)}</span>`).join("")}</div>` : ""}
+        <div class="hp-bar">${bar}${mark}</div>
+      </div>`;
+    });
+    html += "</div>";
+    html += `<div class="hp-legend"><span><i style="display:inline-block;width:14px;height:8px;border-radius:2px;background:${color}"></i>${esc(this._t(used ? "hp_model" : "hp_average_learning"))}</span>${used ? `<span><i style="display:inline-block;width:3px;height:12px;background:var(--primary-text-color,#e1e1e1)"></i>${esc(this._t("hp_average"))}</span>` : ""}</div>`;
+    if (hp.meter === "none") html += `<div class="hp-note">${esc(this._t("hp_none_note"))}</div>`;
+    return html;
+  }
+
+  _signature(hp, opt) {
+    const m = hp.model;
+    const pts = hp.points || [];
+    if (!m || !pts.length) return `<div class="hp-note">${esc(this._t("hp_no_model"))}</div>`;
+    const w = this._chartWidth();
+    const h = 240;
+    const left = 34;
+    const right = 8;
+    const top = 10;
+    const bottom = 26;
+    const temps = pts.map((p) => p[0]).concat((hp.days || []).filter((d) => d.temp_c != null).map((d) => d.temp_c));
+    const tMin = Math.floor(Math.min(...temps) - 1);
+    const tMax = Math.ceil(Math.max(...temps) + 1);
+    const line = (t) => {
+      let v = Math.max(m.base_kwh_day, 0) + m.kwh_per_degree_day * Math.max(0, m.balance_temp_c - t);
+      if (m.cooling_temp_c != null && m.cooling_kwh_per_degree_day != null) v += m.cooling_kwh_per_degree_day * Math.max(0, t - m.cooling_temp_c);
+      return v;
+    };
+    const yMax = Math.max(4, ...pts.map((p) => p[1]), line(tMin), line(tMax), ...(hp.days || []).map((d) => d.kwh || 0)) * 1.08;
+    const X = (t) => left + ((t - tMin) / (tMax - tMin)) * (w - left - right);
+    const Y = (v) => top + (1 - v / yMax) * (h - top - bottom);
+    let svg = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(this._t("hp_tab_signature"))}" style="display:block">`;
+    const step = yMax > 40 ? 20 : yMax > 16 ? 10 : 5;
+    for (let v = 0; v <= yMax; v += step) {
+      svg += `<line x1="${left}" y1="${Y(v).toFixed(1)}" x2="${w - right}" y2="${Y(v).toFixed(1)}" stroke="rgba(127,127,127,${v === 0 ? 0.45 : 0.18})"></line>`;
+      svg += `<text x="${left - 6}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`;
+    }
+    const tStep = tMax - tMin > 24 ? 10 : 5;
+    for (let t = Math.ceil(tMin / tStep) * tStep; t <= tMax; t += tStep) {
+      svg += `<text x="${X(t).toFixed(1)}" y="${h - 10}" text-anchor="middle">${t}</text>`;
+    }
+    svg += `<line x1="${X(m.balance_temp_c).toFixed(1)}" y1="${top}" x2="${X(m.balance_temp_c).toFixed(1)}" y2="${h - bottom}" stroke="rgba(127,127,127,.5)" stroke-dasharray="4 4"></line>`;
+    for (const [t, v, age] of pts) {
+      const o = Math.max(0.2, 1 - (Number(age) || 0) / 365);
+      svg += `<circle cx="${X(t).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="${opt.hp_color}" fill-opacity="${o.toFixed(2)}"></circle>`;
+    }
+    // the model at the usual wind and sun (from the integration), else at none
+    const lpts = (hp.line && hp.line.length ? hp.line : [[tMin, line(tMin)], [m.balance_temp_c, line(m.balance_temp_c)], [tMax, line(tMax)]])
+      .filter(([t]) => t >= tMin && t <= tMax);
+    svg += `<path d="${lpts.map(([t, v], i) => `${i ? "L" : "M"} ${X(t).toFixed(1)} ${Y(v).toFixed(1)}`).join(" ")}" fill="none" stroke="var(--primary-text-color,#f0f0f0)" stroke-width="2"></path>`;
+    (hp.days || []).forEach((d) => {
+      if (d.temp_c == null || d.kwh == null) return;
+      svg += `<circle cx="${X(d.temp_c).toFixed(1)}" cy="${Y(d.kwh).toFixed(1)}" r="5.5" fill="var(--ha-card-background,var(--card-background-color,#1c1c1c))" stroke="${HP_FC_COLOR}" stroke-width="2.5"></circle>`;
+    });
+    svg += `<text x="${w - right}" y="${h}" text-anchor="end">${esc(this._t("hp_axis"))}</text></svg>`;
+    const tiles = [
+      [this._t("hp_balance"), `${this._num(m.balance_temp_c, 1)} \u00b0C`, ""],
+      [this._t("hp_per_degree"), this._kwh(m.kwh_per_degree_day), this._t("hp_per_day")],
+      [this._t("hp_base"), this._kwh(m.base_kwh_day), this._t("hp_per_day")],
+    ];
+    if (m.wind_kwh_per_ms_degree != null) tiles.push([this._t("hp_wind_t"), `${m.wind_kwh_per_ms_degree >= 0 ? "+" : ""}${this._num(m.wind_kwh_per_ms_degree, 3)}`, this._t("hp_wind_unit")]);
+    if (m.solar_kwh_per_kwh != null) tiles.push([this._t("hp_sun_t"), this._num(m.solar_kwh_per_kwh, 2), this._t("hp_sun_unit")]);
+    if (m.cooling_temp_c != null) tiles.push([this._t("hp_cool_t"), `${this._t("hp_from")} ${this._num(m.cooling_temp_c, 0)} \u00b0C`, `+${this._kwh(m.cooling_kwh_per_degree_day)} ${this._t("hp_per_degree_short")}`]);
+    if (m.mae_14d_kwh != null) tiles.push([this._t("hp_error"), `\u00b1${this._kwh(m.mae_14d_kwh)}`, this._t("hp_per_day")]);
+    return `<div style="display:flex;flex-direction:column;gap:10px">
+      <div class="chart" style="height:${h}px">${svg}</div>
+      <div class="hp-legend"><span><i style="display:inline-block;width:8px;height:8px;border-radius:4px;background:${opt.hp_color}"></i>${esc(this._t("hp_measured_day"))}</span><span><i style="display:inline-block;width:14px;height:2px;background:var(--primary-text-color,#f0f0f0)"></i>${esc(this._t("hp_model"))}</span><span><i style="display:inline-block;width:8px;height:8px;border-radius:6px;border:2px solid ${HP_FC_COLOR}"></i>${esc(this._t("hp_expected"))}</span></div>
+      <div class="hp-tiles">${tiles.map(([a, b, c]) => `<div class="hp-tile"><span>${esc(a)}</span><span>${esc(b)}</span>${c ? `<span>${esc(c)}</span>` : ""}</div>`).join("")}</div>
+    </div>`;
+  }
+
+  _memory(hp) {
+    const rows = hp.classes || [];
+    if (!rows.length) return `<div class="hp-note">${esc(this._t("hp_no_model"))}</div>`;
+    let dayMonth;
+    try {
+      dayMonth = new Intl.DateTimeFormat(hassLang(this._hass), { day: "numeric", month: "short" });
+    } catch (err) {
+      dayMonth = new Intl.DateTimeFormat("en", { day: "numeric", month: "short" });
+    }
+    const fmtDate = (iso) => dayMonth.format(new Date(`${iso}T12:00:00`));
+    let html = `<div class="hp-table"><div class="hp-row head"><span>${esc(this._t("hp_outdoor"))}</span><span>${esc(this._t("hp_days"))}</span><span>${esc(this._t("hp_measured"))}</span><span>${esc(this._t("hp_model"))}</span><span>${esc(this._t("hp_last"))}</span></div>`;
+    for (const r of rows) {
+      const year = r.last.slice(0, 4);
+      const last = `${fmtDate(r.last)}${year !== String(new Date().getFullYear()) ? ` ${year}` : ""}`;
+      html += `<div class="hp-row"><span>${this._num(r.from, 1)} ${esc(this._t("hp_to"))} ${this._num(r.to, 1)} \u00b0C</span><span>${r.days}</span><span style="font-weight:600">${this._num(r.measured, 1)}</span><span>${this._num(r.model, 1)}</span><span>${esc(last)}</span></div>`;
+    }
+    html += "</div>";
+    html += `<div class="hp-note">${esc(this._t("hp_memory_note")(hp.journal_days || 0, hp.heating_days || 0))}</div>`;
+    return html;
+  }
+}
+
 // -- Registration -------------------------------------------------------------------
 if (!customElements.get("ess-manager-card-editor")) {
   customElements.define("ess-manager-card-editor", EssManagerCardEditor);
@@ -2493,6 +2832,7 @@ for (const [type, cls] of [
   ["ess-manager-battery-card", EssManagerBatteryCard],
   ["ess-manager-price-card", EssManagerPriceCard],
   ["ess-manager-ev-card", EssManagerEvCard],
+  ["ess-manager-heatpump-card", EssManagerHeatPumpCard],
 ]) {
   if (customElements.get(type)) continue;
   customElements.define(type, cls);

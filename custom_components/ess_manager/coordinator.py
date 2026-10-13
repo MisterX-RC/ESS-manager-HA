@@ -7,7 +7,7 @@ across Home Assistant restarts.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from homeassistant.config_entries import ConfigEntry
@@ -20,6 +20,8 @@ from homeassistant.util import dt as dt_util
 
 from . import control, display, forecasting, plans, transport
 from .ev_runtime import EvRuntime
+from . import heatpump
+from .heatpump_runtime import HeatPumpRuntime
 from .const import (
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_VOLTAGE_ENTITY,
@@ -28,6 +30,21 @@ from .const import (
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
     CONF_EV_CARS,
+    CONF_HP_COOL_ENTITIES,
+    CONF_HP_ENABLED,
+    CONF_HP_HEAT_ENTITIES,
+    CONF_HP_INDOOR_ENTITY,
+    CONF_HP_METER,
+    CONF_HP_OUTDOOR_ENTITY,
+    CONF_HP_SETPOINT_ENTITY,
+    CONF_HP_TOTAL_ENTITY,
+    CONF_HP_WEATHER_ENTITY,
+    CONF_HP_WIND_DIR_ENTITY,
+    CONF_HP_WIND_ENTITY,
+    DEFAULT_HP_METER,
+    HP_METER_NONE,
+    HP_METER_SEPARATE,
+    HP_METER_TOTAL,
     CONF_EV_ENABLED,
     CONF_EV_ENERGY_ENTITY,
     CONF_EV_MAX_CURRENT,
@@ -93,8 +110,9 @@ from .const import (
 )
 from .controller import ControlSettings, EssController
 from .energy_source import async_get_energy_prefs
-from .statistics_source import async_fetch_hourly_sums, async_last_recorded_state
+from .statistics_source import async_fetch_hourly_means, async_fetch_hourly_sums, async_last_recorded_state
 from .usage_forecast import (
+    _week_sample,
     HISTORY_NONE,
     HISTORY_STATUS_NONE,
     compute_usage_forecast_detailed,
@@ -132,6 +150,28 @@ def ev_energy_entity(conf: dict[str, Any]) -> Optional[str]:
     if not conf.get(CONF_EV_ENABLED):
         return None
     return conf.get(CONF_EV_ENERGY_ENTITY) or None
+
+
+def hp_meter(conf: dict[str, Any]) -> Optional[str]:
+    """The heat pump's metering when the heat pump model is on (as of
+    2026.10.16), else None."""
+    if not conf.get(CONF_HP_ENABLED):
+        return None
+    return conf.get(CONF_HP_METER) or DEFAULT_HP_METER
+
+
+def hp_energy_entities(conf: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """(heating entities, cooling entities) - the total sensor counts as
+    heating; none for 'no own metering'."""
+    meter = hp_meter(conf)
+    if meter == HP_METER_SEPARATE:
+        return [e for e in conf.get(CONF_HP_HEAT_ENTITIES) or [] if e], [e for e in conf.get(CONF_HP_COOL_ENTITIES) or [] if e]
+    if meter == HP_METER_TOTAL and conf.get(CONF_HP_TOTAL_ENTITY):
+        return [conf[CONF_HP_TOTAL_ENTITY]], []
+    return [], []
+
+
+WIND_FACTORS = {"m/s": 1.0, "km/h": 1 / 3.6, "mph": 0.44704, "kn": 0.514444, "ft/s": 0.3048}
 
 
 def _state_in_unit(hass: HomeAssistant, entity_id: Optional[str], kilo_units: tuple[str, ...], factor: float) -> Optional[float]:
@@ -246,6 +286,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._usage_missing = False
         # The electric car (as of 2026.10.11) - see ev_runtime.py.
         self.ev = EvRuntime()
+        # The heat pump model (as of 2026.10.16) - see heatpump_runtime.py.
+        self.hp = HeatPumpRuntime()
+        # whether the cached usage forecast left the heat pump out
+        self._usage_hp_subtracted = False
+        self._hp_weather: dict[str, Any] = {}
+        self._hp_weather_at: Optional[datetime] = None
+        self._hp_backfill_tried_at: Optional[datetime] = None
 
     def control_settings(self) -> ControlSettings:
         return ControlSettings({**self.entry.data, **self.entry.options})
@@ -301,6 +348,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # and 100% keeps it after a restart or an update (2026.10.8)
             self._last_solar_mode = data.get("solar_mode")
             self.ev.restore(data.get("ev"))
+            self.hp.restore(data.get("hp"))
             if "solar_mode" not in data:
                 # stored by a version from before 2026.10.8: take it from
                 # the Solar mode sensor's history, once
@@ -358,8 +406,174 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "last_full_reached": self._last_full_reached.isoformat() if self._last_full_reached else None,
                 "solar_mode": self._last_solar_mode,
                 "ev": self.ev.as_store(),
+                "hp": self.hp.as_store(),
             }
         )
+
+    # -- heat pump (as of 2026.10.16) ------------------------------------------
+    def _hp_subtract_ids(self, conf: dict[str, Any]) -> list[str]:
+        """The heat pump entities the usage history leaves out right now: only
+        with its own metering and while the model is used."""
+        heat, cool = hp_energy_entities(conf)
+        return [*heat, *cool] if self.hp.subtract else []
+
+    def _hp_key(self, conf: dict[str, Any]) -> str:
+        heat, cool = hp_energy_entities(conf)
+        return "|".join([hp_meter(conf) or "", ",".join(heat), ",".join(cool), conf.get(CONF_HP_OUTDOOR_ENTITY) or ""])
+
+    def _hp_energy_ids(self, conf: dict[str, Any]) -> list[str]:
+        """Statistics behind the journal's energy: the heat pump's own, or for
+        'no own metering' the household usage."""
+        heat, cool = hp_energy_entities(conf)
+        if heat or cool:
+            return [*heat, *cool]
+        if conf.get(CONF_USAGE_SOURCE) == USAGE_SOURCE_CONSUMPTION_SENSOR:
+            return [e for e in conf.get(CONF_USAGE_CONSUMPTION_ENTITIES, []) or [] if e]
+        src = self._energy_dashboard_sources or {}
+        return [*src.get("import", []), *src.get("export", []), *src.get("solar", []), *src.get("battery_charge", []), *src.get("battery_discharge", [])]
+
+    async def _async_hp_rows(self, conf: dict[str, Any], first: date, last: date, tz) -> list[dict[str, Any]]:
+        """Journal rows for first..last from the long-term statistics."""
+        start = datetime.combine(first - timedelta(days=1), datetime.min.time(), tzinfo=tz)
+        end = datetime.combine(last + timedelta(days=1), datetime.min.time(), tzinfo=tz) + timedelta(hours=1)
+        heat, cool = hp_energy_entities(conf)
+        solar_ids = list((self._energy_dashboard_sources or {}).get("solar", []))
+        ev_entity = ev_energy_entity(conf)
+        ids = [*self._hp_energy_ids(conf), *solar_ids, *([ev_entity] if ev_entity else [])]
+        sums = await async_fetch_hourly_sums(self.hass, ids, start, end)
+        mean_ids = [conf.get(CONF_HP_OUTDOOR_ENTITY), conf.get(CONF_HP_WIND_ENTITY)]
+        means = await async_fetch_hourly_means(self.hass, [m for m in mean_ids if m], start, end)
+        deltas = {k: heatpump.hourly_deltas(v) for k, v in sums.items()}
+        parts: dict[str, dict[int, float]] = {}
+        if heat or cool:
+            heat_d = heatpump.add_series(*[deltas.get(e, {}) for e in heat]) if heat else {}
+            cool_d = heatpump.add_series(*[deltas.get(e, {}) for e in cool]) if cool else {}
+            energy = heatpump.add_series(*[x for x in (heat_d if heat else None, cool_d if cool else None) if x is not None])
+            if heat and cool:
+                parts = {"heat": heat_d, "cool": cool_d}
+        else:
+            if conf.get(CONF_USAGE_SOURCE) == USAGE_SOURCE_CONSUMPTION_SENSOR:
+                energy = heatpump.add_series(*[deltas.get(e, {}) for e in self._hp_energy_ids(conf)])
+            else:
+                src = self._energy_dashboard_sources or {}
+                energy = {}
+                for epoch in range(int(start.timestamp()), int(end.timestamp()), 3600):
+                    value = _week_sample(sums, src.get("import", []), src.get("export", []), src.get("solar", []),
+                                         src.get("battery_charge") or None, src.get("battery_discharge") or None, epoch)
+                    if value is not None:
+                        energy[epoch] = max(value, 0.0)
+            if ev_entity and ev_entity in deltas:
+                ev_d = deltas[ev_entity]
+                energy = {k: max(v - ev_d.get(k, 0.0), 0.0) for k, v in energy.items()}
+        sun = heatpump.add_series(*[deltas.get(e, {}) for e in solar_ids]) if solar_ids else None
+        return heatpump.build_rows(
+            first, last, tz, energy, means.get(conf.get(CONF_HP_OUTDOOR_ENTITY)) or {}, parts,
+            means.get(conf.get(CONF_HP_WIND_ENTITY)) if conf.get(CONF_HP_WIND_ENTITY) else None, sun,
+        )
+
+    async def _async_hp_weather(self, conf: dict[str, Any], now: datetime, tz) -> dict[str, Any]:
+        """The weather entity's forecast per day, read every 30 minutes."""
+        entity_id = conf.get(CONF_HP_WEATHER_ENTITY)
+        if not entity_id:
+            return {}
+        if self._hp_weather_at is not None and now - self._hp_weather_at < timedelta(minutes=30):
+            return self._hp_weather
+        self._hp_weather_at = now
+        lists: dict[str, list] = {}
+        for kind in ("hourly", "daily"):
+            try:
+                resp = await self.hass.services.async_call(
+                    "weather", "get_forecasts", {"entity_id": entity_id, "type": kind}, blocking=True, return_response=True
+                )
+                lists[kind] = list(((resp or {}).get(entity_id) or {}).get("forecast") or [])
+            except Exception as err:  # noqa: BLE001 - a weather entity without this forecast type
+                _LOGGER.debug("ESS Manager: no %s forecast from %s: %s", kind, entity_id, err)
+                lists[kind] = []
+        state = self.hass.states.get(entity_id)
+        unit = (state.attributes.get("wind_speed_unit") if state else None) or "km/h"
+        self._hp_weather = heatpump.weather_days(lists["hourly"], lists["daily"], tz, WIND_FACTORS.get(unit, 1.0))
+        return self._hp_weather
+
+    def _hp_setpoint(self, conf: dict[str, Any]) -> Optional[float]:
+        entity_id = conf.get(CONF_HP_SETPOINT_ENTITY)
+        if not entity_id:
+            return None
+        if entity_id.startswith("climate."):
+            state = self.hass.states.get(entity_id)
+            value = state.attributes.get("temperature") if state else None
+            try:
+                return float(value) if value is not None else None
+            except (TypeError, ValueError):
+                return None
+        return _get_float_state(self.hass, entity_id, default=None)
+
+    async def _async_heat_pump(self, conf: dict[str, Any], now: datetime, merged_solar_points: list) -> tuple[list[float], dict[str, Any]]:
+        tz = dt_util.get_default_time_zone()
+        today = now.astimezone(tz).date()
+        meter = hp_meter(conf)
+        key = self._hp_key(conf)
+        if self.hp.key != key:
+            self.hp.reset(key)
+            self._hp_backfill_tried_at = None
+        # the journal: two years of statistics once, then yesterday every day
+        try:
+            if not self.hp.journal or not any(r.get("e") is not None for r in self.hp.journal):
+                if self._hp_backfill_tried_at is None or now - self._hp_backfill_tried_at > timedelta(hours=1):
+                    self._hp_backfill_tried_at = now
+                    rows = await self._async_hp_rows(conf, today - timedelta(days=heatpump.JOURNAL_DAYS), today - timedelta(days=1), tz)
+                    self.hp.merge(rows, today)
+                    self.hp.stats_day = today.isoformat()
+                    _LOGGER.info("ESS Manager (%s): heat pump journal filled with %d days of statistics", self.entry.title, len(rows))
+            elif self.hp.stats_day != today.isoformat() and (now.timestamp() - self.hp.stats_tried_at) > 900:
+                self.hp.stats_tried_at = now.timestamp()
+                rows = await self._async_hp_rows(conf, today - timedelta(days=3), today - timedelta(days=1), tz)
+                self.hp.merge(rows, today)
+                if any(r["d"] == (today - timedelta(days=1)).isoformat() for r in rows):
+                    self.hp.stats_day = today.isoformat()
+        except Exception as err:  # noqa: BLE001 - the recorder is needed for this, planning goes on without
+            _LOGGER.debug("ESS Manager: heat pump statistics not read: %s", err)
+        # today's live readings
+        day_start = dt_util.start_of_local_day(now)
+        sun_today = sum(v or 0.0 for v in forecasting.build_solar_forecast(merged_solar_points, day_start, 24))
+        outdoor = conf.get(CONF_HP_OUTDOOR_ENTITY)
+        t_out = _get_float_state(self.hass, outdoor, default=None) if outdoor else None
+        if t_out is not None and outdoor:
+            st = self.hass.states.get(outdoor)
+            if st and st.attributes.get("unit_of_measurement") == "\u00b0F":
+                t_out = (t_out - 32) / 1.8
+        wind = None
+        if conf.get(CONF_HP_WIND_ENTITY):
+            st = self.hass.states.get(conf[CONF_HP_WIND_ENTITY])
+            wind = _get_float_state(self.hass, conf[CONF_HP_WIND_ENTITY], default=None)
+            if wind is not None and st:
+                wind *= WIND_FACTORS.get(st.attributes.get("unit_of_measurement") or "m/s", 1.0)
+        wind_dir = _get_float_state(self.hass, conf.get(CONF_HP_WIND_DIR_ENTITY), default=None) if conf.get(CONF_HP_WIND_DIR_ENTITY) else None
+        setpoint = self._hp_setpoint(conf)
+        indoor = _get_float_state(self.hass, conf.get(CONF_HP_INDOOR_ENTITY), default=None) if conf.get(CONF_HP_INDOOR_ENTITY) else None
+        self.hp.sample(now, tz, t_out, wind, wind_dir, setpoint, indoor, sun_today)
+        # forecast
+        weather = await self._async_hp_weather(conf, now, tz)
+        sun_by_day: dict[str, float] = {}
+        hourly_sun = forecasting.build_solar_forecast(merged_solar_points, day_start, 24 * 7)
+        for i, v in enumerate(hourly_sun):
+            d = (day_start + timedelta(hours=i)).astimezone(tz).date().isoformat()
+            sun_by_day[d] = round(sun_by_day.get(d, 0.0) + (v or 0.0), 2)
+        hour0 = int(now.replace(minute=0, second=0, microsecond=0).timestamp())
+        heat, cool = hp_energy_entities(conf)
+        total, attribute, used = self.hp.compute(
+            meter, now, tz, hour0, FORECAST_HOURS, weather, sun_by_day,
+            int(conf.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS)), setpoint, with_cooling=True,
+        )
+        subtract = used and meter != HP_METER_NONE
+        if subtract != self.hp.subtract:
+            # the usage history has to leave the heat pump out (or take it
+            # back): recomputed next cycle, until then nothing is doubled
+            self.hp.subtract = subtract
+            self.invalidate_usage_forecast()
+        if meter != HP_METER_NONE and not self._usage_hp_subtracted:
+            total = None
+        attribute["weather_days"] = len(weather)
+        return total, attribute
 
     # -- usage forecast sources ---------------------------------------------------
     async def _async_get_measured_usage_forecast(self, conf: dict[str, Any], now: datetime) -> list[float]:
@@ -402,10 +616,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if ev_entity:
             # the car's sessions are looked up per whole local day
             range_start -= timedelta(days=1)
+        hp_ids = self._hp_subtract_ids(conf)
 
         try:
             hourly_sums = await async_fetch_hourly_sums(
-                self.hass, [*consumption_entities, *([ev_entity] if ev_entity else [])], range_start, range_end
+                self.hass, [*consumption_entities, *([ev_entity] if ev_entity else []), *hp_ids], range_start, range_end
             )
         except Exception as err:  # noqa: BLE001 - a statistics/DB hiccup shouldn't fail the whole update
             _LOGGER.warning("ESS Manager: could not fetch usage-forecast statistics: %s", err)
@@ -421,8 +636,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             now,
             FORECAST_HOURS,
             lookback_weeks,
-            subtract_entities=[ev_entity] if ev_entity else None,
+            subtract_entities=[*([ev_entity] if ev_entity else []), *hp_ids] or None,
         )
+        self._usage_hp_subtracted = bool(hp_ids)
         if ev_entity:
             self.ev.history = ev_hourly_history(
                 hourly_sums, [ev_entity], None, [], int(range_start.timestamp()), int(base_hour.timestamp())
@@ -539,6 +755,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if ev_entity:
             all_ids.append(ev_entity)
             range_start -= timedelta(days=1)  # whole local days for the car's sessions
+        hp_ids = self._hp_subtract_ids(conf)
+        all_ids.extend(hp_ids)
 
         try:
             hourly_sums = await async_fetch_hourly_sums(self.hass, all_ids, range_start, range_end)
@@ -560,8 +778,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             now,
             FORECAST_HOURS,
             lookback_weeks,
-            subtract_entities=[ev_entity] if ev_entity else None,
+            subtract_entities=[*([ev_entity] if ev_entity else []), *hp_ids] or None,
         )
+        self._usage_hp_subtracted = bool(hp_ids)
         if ev_entity:
             self.ev.history = ev_hourly_history(
                 hourly_sums,
@@ -849,6 +1068,16 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         merged_solar_points = forecasting.merge_hourly_points(solar_points)
         solar_forecast = forecasting.build_solar_forecast(merged_solar_points, now, FORECAST_HOURS)
         net_energy = forecasting.build_net_energy(solar_forecast, usage_forecast)
+        # The heat pump (as of 2026.10.16): with its own metering its energy
+        # is left out of the usage history and added here from the model;
+        # without, the model's weather difference is added to the usual
+        # forecast.
+        hp_attribute = None
+        if hp_meter(conf):
+            hp_total, hp_attribute = await self._async_heat_pump(conf, now, merged_solar_points)
+            if hp_total and any(hp_total):
+                usage_forecast = [round(max(u + h, 0.0), 3) for u, h in zip(usage_forecast, hp_total)]
+                net_energy = forecasting.build_net_energy(solar_forecast, usage_forecast)
         # The electric car (as of 2026.10.11): its sessions are added to the
         # household usage (whose history leaves the car out); a solar
         # session charges on what the solar forecast has left after the house.
@@ -1330,6 +1559,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # The electric car's sessions and forecast (as of 2026.10.11) -
             # ev_runtime.EvRuntime.update; None while the EV is switched off.
             "ev": ev_attribute,
+            # The heat pump model (as of 2026.10.16) - heatpump_runtime.
+            "heat_pump": hp_attribute,
             "battery_forecast": battery_forecast,
             "battery_forecast_with_negative_price": forecast_with_negative_price,
             "battery_forecast_with_spike": forecast_with_spike,

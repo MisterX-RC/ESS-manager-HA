@@ -3509,6 +3509,118 @@ check("full charge: a stored session of another day (its end time passed) isn't 
 check("full charge: a stored charging session without the new fields (older version) still runs on",
       _fcp({k: v for k, v in _fcc.items() if k not in ("high_threshold_kwh", "end_at")}, 16.5)["phase"] == "charging")
 
+# ---------------------------------------------------------------------------
+# 2026.10.16: heat pump model (heatpump.py, heatpump_runtime.py)
+# ---------------------------------------------------------------------------
+heatpump = _load("heatpump")
+heatpump_runtime = _load("heatpump_runtime")
+import math as _m
+import random as _rnd
+from datetime import date as _date
+_rnd.seed(1)
+_hp_today = _date(2026, 10, 13)
+def _hp_journal(days=400, base=3.1, tb=15.5, b=0.92, wind=0.03, sun=-0.35, noise=0.5, start_offset=0):
+    rows, prev = [], None
+    for i in range(days + start_offset, start_offset, -1):
+        d = _hp_today - timedelta(days=i)
+        doy = d.timetuple().tm_yday
+        t = 10 - 8 * _m.cos((doy - 15) / 365 * 2 * _m.pi) + _rnd.gauss(0, 3)
+        w = abs(_rnd.gauss(4, 2))
+        so = max(0.0, _rnd.gauss(8 + 6 * _m.sin((doy - 80) / 365 * 2 * _m.pi), 3))
+        teff = 0.7 * t + 0.3 * (prev if prev is not None else t)
+        prev = t
+        hdd = max(0.0, tb - teff)
+        e = base + b * hdd + wind * w * hdd + sun * so * (1 if hdd > 0 else 0) + _rnd.gauss(0, noise)
+        hours = [0.03] * 24
+        for hh in (6, 7, 12):
+            hours[hh] = 0.1
+        rows.append({"d": d.isoformat(), "e": round(max(e, 0.2), 3), "t": round(t, 2), "w": round(w, 2), "s": round(so, 2), "hours": hours})
+    return rows
+_hpj = _hp_journal()
+_hpm = heatpump.fit(_hpj, _hp_today)
+_hps = heatpump.summary(_hpm)
+check("heat pump: the energy signature is found back (balance 15.5 C, 0.92 kWh/degree, base 3.1, sun -0.35, wind 0.03)",
+      abs(_hps["balance_temp_c"] - 15.5) <= 0.5 and abs(_hps["kwh_per_degree_day"] - 0.92) < 0.08
+      and abs(_hps["base_kwh_day"] - 3.1) < 0.4 and abs(_hps["solar_kwh_per_kwh"] + 0.35) < 0.1
+      and abs(_hps["wind_kwh_per_ms_degree"] - 0.03) < 0.012 and _hps["r2"] > 0.9)
+check("heat pump: too few days -> no model", heatpump.fit(_hpj[-10:], _hp_today) is None)
+# frost days from long ago keep weight until newer days of their class come
+_teffs = heatpump.effective_temps(_hpj)
+_w = heatpump._weights(_hpj, _teffs, _hp_today)
+_oldest_cold = min((r for r in _hpj), key=lambda r: _teffs[r["d"]])
+_idx = _hpj.index(_oldest_cold)
+check("heat pump: the coldest days keep weight (newest of their temperature class), ordinary old days fade",
+      _w[_idx] >= 0.5 and min(_w) < 0.1)
+# the fast part
+_bump = [dict(r) for r in _hpj]
+for r in _bump[-4:]:
+    r["e"] = round(heatpump.predict_row(_hpm, r, heatpump.effective_temps(_bump)[r["d"]]) * 1.2, 3)
+check("heat pump: 4 days 20 % above the model -> correction 1.2", abs(heatpump.correction(_hpm, _bump, _hp_today) - 1.2) < 0.02)
+check("heat pump: no difference -> no correction", heatpump.correction(_hpm, _hpj, _hp_today) in (1.0,) or abs(heatpump.correction(_hpm, _hpj, _hp_today) - 1) < 0.15)
+# weather forecast per day
+from zoneinfo import ZoneInfo as _ZI2
+_tzA = _ZI2("Europe/Amsterdam")
+_hourly = [{"datetime": datetime(2026, 10, 14, h, tzinfo=_tzA).isoformat(), "temperature": 8.0 + (h % 4), "wind_speed": 18.0, "wind_bearing": 270} for h in range(24)]
+_daily = [{"datetime": datetime(2026, 10, 14 + k, 12, tzinfo=_tzA).isoformat(), "temperature": 12.0, "templow": 4.0, "wind_speed": 36.0, "wind_bearing": 90} for k in range(5)]
+_wd = heatpump.weather_days(_hourly, _daily, _tzA, 1 / 3.6)
+check("heat pump: weather per day - hourly mean where the day is complete, else (max + min) / 2; km/h -> m/s",
+      _wd["2026-10-14"]["t"] == 9.5 and _wd["2026-10-14"]["w"] == 5.0 and _wd["2026-10-14"]["wd"] == 270.0
+      and _wd["2026-10-15"]["t"] == 8.0 and _wd["2026-10-15"]["w"] == 10.0)
+check("heat pump: wind direction is averaged as a vector (350 and 10 -> 0)", heatpump.mean_direction([350, 10]) in (0.0, 360.0))
+# forecast days and spreading over the hours
+_fd = heatpump.forecast_days(_hpm, _hpj, {"2026-10-13": {"t": 5.0, "w": 4.0}, "2026-10-14": {"t": 5.0, "w": 4.0}}, [_hp_today, _hp_today + timedelta(days=1), _hp_today + timedelta(days=2)])
+check("heat pump: a cold day is forecast by the model, a day without weather gets none",
+      _fd[1]["kwh"] > 10 and _fd[2]["kwh"] is None)
+_shape = heatpump.hourly_shape(_hpj, _hp_today)
+check("heat pump: the hourly pattern comes from the recent days (7:00 more than 3:00), shares add up to 1",
+      _shape[7] > _shape[3] * 2 and abs(sum(_shape) - 1) < 1e-9)
+_h0 = int(datetime(2026, 10, 13, 20, tzinfo=_tzA).timestamp())
+_sp = heatpump.spread({"2026-10-13": 24.0, "2026-10-14": 12.0}, [1 / 24] * 24, _h0, 30, _tzA)
+check("heat pump: day totals spread over the forecast hours", _sp[0] == 1.0 and _sp[4] == 0.5 and len(_sp) == 30)
+# rows from hourly statistics
+_e_hourly = {int(datetime(2026, 10, 12, h, tzinfo=_tzA).timestamp()): 0.5 for h in range(24)}
+_t_hourly = {int(datetime(2026, 10, 12, h, tzinfo=_tzA).timestamp()): 10.0 for h in range(24)}
+_rows = heatpump.build_rows(_date(2026, 10, 12), _date(2026, 10, 12), _tzA, _e_hourly, _t_hourly)
+check("heat pump: a journal row from hourly statistics (12 kWh, 10 C, the hours kept)",
+      _rows[0]["e"] == 12.0 and _rows[0]["t"] == 10.0 and len(_rows[0]["hours"]) == 24)
+check("heat pump: states - active in the cold, summer when warm, learning without enough heating days",
+      heatpump.state_of(_hpm, _fd[:2], 100) == "active"
+      and heatpump.state_of(_hpm, [{"kwh": 3.0, "teff": 19.0}], 100) == "summer"
+      and heatpump.state_of(_hpm, _fd[:2], 5) == "learning" and heatpump.state_of(None, [], 0) == "learning")
+# cooling branch
+_cool = _hp_journal(days=300)
+for r in _cool:
+    if r["t"] > 22:
+        r["e"] = round(r["e"] + 0.5 * (r["t"] - 22), 3)
+_hpc = heatpump.fit(_cool, _hp_today, with_cooling=True)
+check("heat pump: with cooling data a cooling branch is found above its own temperature",
+      _hpc["tc"] is not None and heatpump.summary(_hpc)["cooling_kwh_per_degree_day"] > 0.2)
+# runtime
+_rt_hp = heatpump_runtime.HeatPumpRuntime()
+_rt_hp.merge(_hpj, _hp_today)
+_now_hp = datetime(2026, 10, 13, 20, 10, tzinfo=_tzA)
+_rt_hp.sample(_now_hp, _tzA, t_out=7.0, wind=5.0, wind_dir=250, setpoint=20.5, sun_today=3.0)
+_weather = {(_hp_today + timedelta(days=k)).isoformat(): {"t": 6.0 + k, "w": 4.0, "wd": 240.0} for k in range(5)}
+_tot_hp, _att_hp, _used_hp = _rt_hp.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6)
+check("heat pump runtime: active, 5 days on the card, the forecast filled for 121 hours (past the weather: the average)",
+      _used_hp and _att_hp["state"] == "active" and len(_att_hp["days"]) == 5 and all(v > 0 for v in _tot_hp)
+      and _att_hp["model"]["balance_temp_c"] == _hps["balance_temp_c"] and _att_hp["classes"] and _att_hp["points"])
+_tot_none, _att_none, _ = _rt_hp.compute("none", _now_hp, _tzA, _h0, 121, _weather, {}, 6)
+check("heat pump runtime: no own metering -> only the weather difference is added (can be negative), nothing past the weather",
+      any(v != 0 for v in _tot_none[:48]) and all(v == 0 for v in _tot_none[-20:]))
+_rt_hp.sample(datetime(2026, 10, 14, 0, 5, tzinfo=_tzA), _tzA, t_out=5.0, wind=3.0)
+_row13 = next(r for r in _rt_hp.journal if r["d"] == "2026-10-13")
+check("heat pump runtime: at midnight the live day goes into the journal (wind direction, setpoint, sun forecast)",
+      _row13.get("wd") == 250.0 and _row13.get("sp") == 20.5 and _rt_hp.live["d"] == "2026-10-14")
+_rt2_hp = heatpump_runtime.HeatPumpRuntime()
+_rt2_hp.merge(_hpj[-12:], _hp_today)
+_t2, _a2, _u2 = _rt2_hp.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6)
+check("heat pump runtime: too little history -> learning, not used, nothing added",
+      not _u2 and _a2["state"] == "learning" and sum(_t2) == 0)
+_rt3_hp = heatpump_runtime.HeatPumpRuntime()
+_rt3_hp.restore(_rt_hp.as_store())
+check("heat pump runtime: the store round-trips", _rt3_hp.as_store() == _rt_hp.as_store())
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

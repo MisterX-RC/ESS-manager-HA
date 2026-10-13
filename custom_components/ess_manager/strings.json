@@ -60,11 +60,12 @@
       },
       "plans": {
         "title": "Price plans",
-        "description": "Two optional plans that act on the electricity price. Both can be switched on or off later in Configure.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.\n\n**Electric car** - for a car that charges from the home battery: its charging sessions are planned with the rest (see the next pages).",
+        "description": "Two optional plans that act on the electricity price. Both can be switched on or off later in Configure.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.\n\n**Electric car** - for a car that charges from the home battery: its charging sessions are planned with the rest (see the next pages).\n\n**Heat pump** - forecasts a heat pump's usage from the weather forecast instead of the 6-week average (see the next pages).",
         "data": {
           "enable_negative_price_plan": "Enable the negative price plan",
           "enable_spike_plan": "Enable the spike arbitrage plan",
-          "ev_enabled": "Electric car that charges from the home battery - its pages follow"
+          "ev_enabled": "Electric car that charges from the home battery - its pages follow",
+          "hp_enabled": "Heat pump: forecast its usage from the weather - its pages follow"
         }
       },
       "ev": {
@@ -88,6 +89,28 @@
           "ev_car_capacity_kwh": "Its battery size (kWh, optional)",
           "ev_car_target_soc": "Its usual target (%)",
           "ev_car_add_another": "Add another car after this one"
+        }
+      },
+      "hp_meter": {
+        "title": "Heat pump - metering",
+        "description": "For a heat pump whose electricity follows the weather. The 6-week average of the household usage forecast underestimates it in autumn and overestimates it in spring; with this, the heat pump is forecast from the weather forecast instead, with a model ESS Manager keeps itself (the energy per day against the outdoor temperature, wind and sun, adjusted every night).\n\nWhich energy metering does the heat pump have?\n\n**Separate sensors** - heating and cooling go into the model; hot water stays in the household usage, whose weekday/hour average already forecasts its fixed rhythm well.\n\n**One total sensor** - the model splits it itself: what is used every day regardless of the weather (hot water, standby), what grows with the cold (heating) and what grows with the warmth (cooling).\n\n**No own metering** - the model works on the total household usage and only adds the weather difference to the usual forecast (least accurate).",
+        "data": {
+          "hp_meter": "Metering"
+        }
+      },
+      "hp": {
+        "title": "Heat pump - sensors",
+        "description": "The outdoor temperature needs long-term statistics (a sensor with a state class) - one from the internet is fine. The weather forecast is read per day (5 days), per hour where the weather entity has it. Wind, wind direction, indoor and wanted temperature are optional: without statistics they're recorded from now on, the wind direction only counts once there's about a season of days in each direction. On saving, the model's journal is filled with up to two years of the statistics that already exist.",
+        "data": {
+          "hp_heat_entities": "Heating energy sensor(s) (kWh)",
+          "hp_cool_entities": "Cooling energy sensor(s) (kWh, optional)",
+          "hp_total_entity": "Total energy sensor of the heat pump (kWh)",
+          "hp_outdoor_entity": "Outdoor temperature",
+          "hp_weather_entity": "Weather forecast (weather entity)",
+          "hp_wind_entity": "Wind speed (optional)",
+          "hp_wind_dir_entity": "Wind direction in degrees (optional)",
+          "hp_indoor_entity": "Indoor temperature (optional)",
+          "hp_setpoint_entity": "Wanted temperature - a thermostat (climate) or a sensor/number (optional)"
         }
       },
       "control": {
@@ -117,7 +140,11 @@
       "control_target_wrong_type": "Pick a number or input_number entity.",
       "ev_entities_required": "Select the charger's energy sensor and power sensor.",
       "ev_current_range": "The minimum charging current can't be higher than the maximum.",
-      "ev_car_exists": "A car with this name already exists."
+      "ev_car_exists": "A car with this name already exists.",
+      "hp_heat_required": "Select at least one heating energy sensor.",
+      "hp_total_required": "Select the heat pump's total energy sensor.",
+      "hp_outdoor_required": "Select an outdoor temperature sensor.",
+      "hp_weather_required": "Select a weather entity for the forecast."
     },
     "abort": {
       "already_configured": "An ESS Manager instance with this name already exists."
@@ -177,11 +204,12 @@
       },
       "plans": {
         "title": "Price plans",
-        "description": "Two optional plans that act on the electricity price.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.\n\n**Electric car** - for a car that charges from the home battery: its charging sessions are planned with the rest (see the next pages).",
+        "description": "Two optional plans that act on the electricity price.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.\n\n**Electric car** - for a car that charges from the home battery: its charging sessions are planned with the rest (see the next pages).\n\n**Heat pump** - forecasts a heat pump's usage from the weather forecast instead of the 6-week average (see the next pages).",
         "data": {
           "enable_negative_price_plan": "Enable the negative price plan",
           "enable_spike_plan": "Enable the spike arbitrage plan",
-          "ev_enabled": "Electric car that charges from the home battery - its pages follow"
+          "ev_enabled": "Electric car that charges from the home battery - its pages follow",
+          "hp_enabled": "Heat pump: forecast its usage from the weather - its pages follow"
         }
       },
       "ev": {
@@ -205,6 +233,28 @@
           "ev_car_capacity_kwh": "Its battery size (kWh, optional)",
           "ev_car_target_soc": "Its usual target (%)",
           "ev_car_add_another": "Add another car after this one"
+        }
+      },
+      "hp_meter": {
+        "title": "Heat pump - metering",
+        "description": "For a heat pump whose electricity follows the weather. The 6-week average of the household usage forecast underestimates it in autumn and overestimates it in spring; with this, the heat pump is forecast from the weather forecast instead, with a model ESS Manager keeps itself (the energy per day against the outdoor temperature, wind and sun, adjusted every night).\n\nWhich energy metering does the heat pump have?\n\n**Separate sensors** - heating and cooling go into the model; hot water stays in the household usage, whose weekday/hour average already forecasts its fixed rhythm well.\n\n**One total sensor** - the model splits it itself: what is used every day regardless of the weather (hot water, standby), what grows with the cold (heating) and what grows with the warmth (cooling).\n\n**No own metering** - the model works on the total household usage and only adds the weather difference to the usual forecast (least accurate).",
+        "data": {
+          "hp_meter": "Metering"
+        }
+      },
+      "hp": {
+        "title": "Heat pump - sensors",
+        "description": "The outdoor temperature needs long-term statistics (a sensor with a state class) - one from the internet is fine. The weather forecast is read per day (5 days), per hour where the weather entity has it. Wind, wind direction, indoor and wanted temperature are optional: without statistics they're recorded from now on, the wind direction only counts once there's about a season of days in each direction. On saving, the model's journal is filled with up to two years of the statistics that already exist.",
+        "data": {
+          "hp_heat_entities": "Heating energy sensor(s) (kWh)",
+          "hp_cool_entities": "Cooling energy sensor(s) (kWh, optional)",
+          "hp_total_entity": "Total energy sensor of the heat pump (kWh)",
+          "hp_outdoor_entity": "Outdoor temperature",
+          "hp_weather_entity": "Weather forecast (weather entity)",
+          "hp_wind_entity": "Wind speed (optional)",
+          "hp_wind_dir_entity": "Wind direction in degrees (optional)",
+          "hp_indoor_entity": "Indoor temperature (optional)",
+          "hp_setpoint_entity": "Wanted temperature - a thermostat (climate) or a sensor/number (optional)"
         }
       },
       "control": {
@@ -233,7 +283,11 @@
       "control_target_wrong_type": "Pick a number or input_number entity.",
       "ev_entities_required": "Select the charger's energy sensor and power sensor.",
       "ev_current_range": "The minimum charging current can't be higher than the maximum.",
-      "ev_car_exists": "A car with this name already exists."
+      "ev_car_exists": "A car with this name already exists.",
+      "hp_heat_required": "Select at least one heating energy sensor.",
+      "hp_total_required": "Select the heat pump's total energy sensor.",
+      "hp_outdoor_required": "Select an outdoor temperature sensor.",
+      "hp_weather_required": "Select a weather entity for the forecast."
     }
   },
   "issues": {

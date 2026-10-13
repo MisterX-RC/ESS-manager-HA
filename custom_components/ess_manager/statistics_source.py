@@ -74,6 +74,42 @@ async def async_fetch_hourly_sums(
     return result
 
 
+async def async_fetch_hourly_means(
+    hass: HomeAssistant,
+    entity_ids: Iterable[str],
+    start: datetime,
+    end: datetime,
+) -> dict[str, dict[int, float]]:
+    """Like async_fetch_hourly_sums, but each hour's MEAN (temperature, wind
+    speed) - converted to degC and m/s (as of 2026.10.16, the heat pump
+    model)."""
+    ids = {entity_id for entity_id in entity_ids if entity_id}
+    if not ids:
+        return {}
+    raw = await get_instance(hass).async_add_executor_job(
+        statistics_during_period,
+        hass,
+        start,
+        end,
+        ids,
+        "hour",
+        {"temperature": "\u00b0C", "speed": "m/s"},
+        {"mean"},
+    )
+    result: dict[str, dict[int, float]] = {}
+    for entity_id, rows in raw.items():
+        series: dict[int, float] = {}
+        for row in rows:
+            value = row.get("mean")
+            if value is None:
+                continue
+            row_start = row.get("start")
+            epoch = int(row_start) if isinstance(row_start, (int, float)) else int(dt_util.as_utc(row_start).timestamp())
+            series[epoch] = float(value)
+        result[entity_id] = series
+    return result
+
+
 async def async_last_recorded_state(hass: HomeAssistant, entity_id: str, wanted: Iterable[str]) -> str | None:
     """The most recent recorded state of `entity_id` that is one of
     `wanted` (compared lower-case) - skipping unavailable/unknown, which an

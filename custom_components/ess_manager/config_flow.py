@@ -40,6 +40,22 @@ from .const import (
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
     CONF_EV_CARS,
+    CONF_HP_COOL_ENTITIES,
+    CONF_HP_ENABLED,
+    CONF_HP_HEAT_ENTITIES,
+    CONF_HP_INDOOR_ENTITY,
+    CONF_HP_METER,
+    CONF_HP_OUTDOOR_ENTITY,
+    CONF_HP_SETPOINT_ENTITY,
+    CONF_HP_TOTAL_ENTITY,
+    CONF_HP_WEATHER_ENTITY,
+    CONF_HP_WIND_DIR_ENTITY,
+    CONF_HP_WIND_ENTITY,
+    DEFAULT_HP_ENABLED,
+    DEFAULT_HP_METER,
+    HP_METER_NONE,
+    HP_METER_SEPARATE,
+    HP_METER_TOTAL,
     CONF_EV_ENABLED,
     CONF_EV_ENERGY_ENTITY,
     CONF_EV_MAX_CURRENT,
@@ -340,8 +356,53 @@ def _plans_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): selector.BooleanSelector(),
             # the electric car (as of 2026.10.11) - its own pages follow
             vol.Required(CONF_EV_ENABLED, default=defaults.get(CONF_EV_ENABLED, DEFAULT_EV_ENABLED)): selector.BooleanSelector(),
+            # the heat pump model (as of 2026.10.16) - its own pages follow
+            vol.Required(CONF_HP_ENABLED, default=defaults.get(CONF_HP_ENABLED, DEFAULT_HP_ENABLED)): selector.BooleanSelector(),
         }
     )
+
+
+HP_METER_OPTIONS = [
+    selector.SelectOptionDict(value=HP_METER_SEPARATE, label="Separate sensors per mode (heating, cooling, hot water)"),
+    selector.SelectOptionDict(value=HP_METER_TOTAL, label="One total sensor for the whole heat pump"),
+    selector.SelectOptionDict(value=HP_METER_NONE, label="No own metering (only the total household usage)"),
+]
+
+
+def _hp_meter_schema(defaults: dict[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(CONF_HP_METER, default=defaults.get(CONF_HP_METER, DEFAULT_HP_METER)): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=HP_METER_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+            ),
+        }
+    )
+
+
+def _hp_schema(defaults: dict[str, Any], meter: str) -> vol.Schema:
+    """The heat pump's sensors (as of 2026.10.16): its energy (per the
+    metering), the outdoor temperature, the weather forecast, and optional
+    wind, wind direction, indoor and wanted temperature."""
+    fields: dict[Any, Any] = {}
+    multi = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True))
+    if meter == HP_METER_SEPARATE:
+        fields[vol.Required(CONF_HP_HEAT_ENTITIES, default=defaults.get(CONF_HP_HEAT_ENTITIES, []))] = multi
+        fields[vol.Optional(CONF_HP_COOL_ENTITIES, default=defaults.get(CONF_HP_COOL_ENTITIES, []))] = multi
+    elif meter == HP_METER_TOTAL:
+        fields[vol.Optional(CONF_HP_TOTAL_ENTITY, default=defaults.get(CONF_HP_TOTAL_ENTITY))] = _optional_entity_selector()
+    fields.update(
+        {
+            vol.Optional(CONF_HP_OUTDOOR_ENTITY, default=defaults.get(CONF_HP_OUTDOOR_ENTITY)): _optional_entity_selector(),
+            vol.Optional(CONF_HP_WEATHER_ENTITY, default=defaults.get(CONF_HP_WEATHER_ENTITY)): _optional_entity_selector("weather"),
+            vol.Optional(CONF_HP_WIND_ENTITY, default=defaults.get(CONF_HP_WIND_ENTITY)): _optional_entity_selector(),
+            vol.Optional(CONF_HP_WIND_DIR_ENTITY, default=defaults.get(CONF_HP_WIND_DIR_ENTITY)): _optional_entity_selector(),
+            vol.Optional(CONF_HP_INDOOR_ENTITY, default=defaults.get(CONF_HP_INDOOR_ENTITY)): _optional_entity_selector(),
+            vol.Optional(CONF_HP_SETPOINT_ENTITY, default=defaults.get(CONF_HP_SETPOINT_ENTITY)): _optional_entity_selector(
+                ["climate", "sensor", "number", "input_number"]
+            ),
+        }
+    )
+    return vol.Schema(fields)
 
 
 EV_PHASE_OPTIONS = [
@@ -517,6 +578,13 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
         CONF_DAYS_SINCE_FULL_CHARGE_ENTITY,
         CONF_EV_ENERGY_ENTITY,
         CONF_EV_POWER_ENTITY,
+        CONF_HP_TOTAL_ENTITY,
+        CONF_HP_OUTDOOR_ENTITY,
+        CONF_HP_WEATHER_ENTITY,
+        CONF_HP_WIND_ENTITY,
+        CONF_HP_WIND_DIR_ENTITY,
+        CONF_HP_INDOOR_ENTITY,
+        CONF_HP_SETPOINT_ENTITY,
     ):
         if key in data and not data.get(key):
             data[key] = None
@@ -536,6 +604,8 @@ class _EssManagerSteps:
          and the electric car switch
       5a. `ev` and `ev_cars` - only with the electric car: the charger, and
          the cars (as of 2026.10.11)
+      5b. `hp_meter` and `hp` - only with the heat pump model: its metering,
+         and its sensors and weather forecast (as of 2026.10.16)
       6. `control` - whether ESS Manager sends the setpoint itself
       7. `control_target` - only when it does: where to, unit, sign, idle
 
@@ -635,7 +705,7 @@ class _EssManagerSteps:
             self._data.update(user_input)
             if user_input.get(CONF_EV_ENABLED):
                 return await self.async_step_ev()
-            return await self.async_step_control()
+            return await self._async_after_ev()
         return self.async_show_form(step_id="plans", data_schema=_plans_schema(self._defaults()))
 
     async def async_step_ev(self, user_input: dict[str, Any] | None = None):
@@ -684,12 +754,45 @@ class _EssManagerSteps:
                         data_schema=_ev_cars_schema(cars),
                         description_placeholders={"cars": _cars_text(cars)},
                     )
-                return await self.async_step_control()
+                return await self._async_after_ev()
         return self.async_show_form(
             step_id="ev_cars",
             data_schema=_ev_cars_schema(cars),
             errors=errors,
             description_placeholders={"cars": _cars_text(cars)},
+        )
+
+    async def _async_after_ev(self):
+        if self._data.get(CONF_HP_ENABLED):
+            return await self.async_step_hp_meter()
+        return await self.async_step_control()
+
+    async def async_step_hp_meter(self, user_input: dict[str, Any] | None = None):
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self.async_step_hp()
+        return self.async_show_form(
+            step_id="hp_meter", data_schema=_hp_meter_schema({**self._defaults(), **self._data})
+        )
+
+    async def async_step_hp(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
+        meter = self._data.get(CONF_HP_METER, DEFAULT_HP_METER)
+        if user_input is not None:
+            cleaned = _clean(user_input)
+            if meter == HP_METER_SEPARATE and not cleaned.get(CONF_HP_HEAT_ENTITIES):
+                errors["base"] = "hp_heat_required"
+            elif meter == HP_METER_TOTAL and not cleaned.get(CONF_HP_TOTAL_ENTITY):
+                errors["base"] = "hp_total_required"
+            elif not cleaned.get(CONF_HP_OUTDOOR_ENTITY):
+                errors["base"] = "hp_outdoor_required"
+            elif not cleaned.get(CONF_HP_WEATHER_ENTITY):
+                errors["base"] = "hp_weather_required"
+            else:
+                self._data.update(cleaned)
+                return await self.async_step_control()
+        return self.async_show_form(
+            step_id="hp", data_schema=_hp_schema({**self._defaults(), **self._data}, meter), errors=errors
         )
 
     async def async_step_control(self, user_input: dict[str, Any] | None = None):

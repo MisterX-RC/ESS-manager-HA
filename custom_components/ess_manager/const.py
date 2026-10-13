@@ -167,6 +167,26 @@ DEFAULT_EV_PREDICT = True
 DEFAULT_EV_TARGET_SOC = 80
 # how many local days of sessions the card shows (today + 4)
 EV_DAYS = 5
+# Heat pump model (as of 2026.10.16) - see heatpump.py. The heat pump's
+# energy is taken out of the household usage history and forecast from the
+# weather with a model the integration keeps itself.
+CONF_HP_ENABLED = "hp_enabled"
+CONF_HP_METER = "hp_meter"
+CONF_HP_HEAT_ENTITIES = "hp_heat_entities"
+CONF_HP_COOL_ENTITIES = "hp_cool_entities"
+CONF_HP_TOTAL_ENTITY = "hp_total_entity"
+CONF_HP_OUTDOOR_ENTITY = "hp_outdoor_entity"
+CONF_HP_WEATHER_ENTITY = "hp_weather_entity"
+CONF_HP_WIND_ENTITY = "hp_wind_entity"
+CONF_HP_WIND_DIR_ENTITY = "hp_wind_dir_entity"
+CONF_HP_INDOOR_ENTITY = "hp_indoor_entity"
+CONF_HP_SETPOINT_ENTITY = "hp_setpoint_entity"
+DEFAULT_HP_ENABLED = False
+HP_METER_SEPARATE = "separate"
+HP_METER_TOTAL = "total"
+HP_METER_NONE = "none"
+DEFAULT_HP_METER = HP_METER_SEPARATE
+
 SERVICE_EV_SESSION_SAVE = "ev_session_save"
 SERVICE_EV_SESSION_REMOVE = "ev_session_remove"
 
@@ -495,6 +515,8 @@ PLAN_ENTITY_KEYS = {
         NUM_SPIKE_DISCHARGE_SPEED_KW,
         "spike_status",
     ),
+    # the heat pump model's diagnostic sensor (as of 2026.10.16)
+    CONF_HP_ENABLED: ("heat_pump_model",),
     CONF_ENABLE_FULL_CHARGE_PLAN: (
         NUM_FULL_CHARGE_INTERVAL_DAYS,
         NUM_FULL_CHARGE_MAX_HOLD_MINUTES,
@@ -506,6 +528,7 @@ PLAN_ENABLED_DEFAULTS = {
     CONF_ENABLE_NEGATIVE_PRICE_PLAN: DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN: DEFAULT_ENABLE_SPIKE_PLAN,
     CONF_ENABLE_FULL_CHARGE_PLAN: DEFAULT_ENABLE_FULL_CHARGE_PLAN,
+    CONF_HP_ENABLED: DEFAULT_HP_ENABLED,
 }
 
 

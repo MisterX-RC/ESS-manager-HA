@@ -74,6 +74,8 @@ STATUS_ATTRIBUTES = [
     "card_plans",
     # The electric car's sessions (as of 2026.10.11) - the EV card.
     "ev",
+    # The heat pump model (as of 2026.10.16) - the heat pump card.
+    "heat_pump",
 ]
 
 # The value sensors the status dashboard card shows (as of v0.4.4) - their
@@ -166,6 +168,7 @@ async def async_setup_entry(
         EssManagerUsageHistorySensor(coordinator, entry, device_info),
         EssManagerSolarModeSensor(coordinator, entry, device_info),
         EssManagerBatteryActionSensor(coordinator, entry, device_info),
+        EssManagerHeatPumpSensor(coordinator, entry, device_info),
     ]
     async_add_entities(entities)
 
@@ -410,3 +413,68 @@ class EssManagerBatteryActionSensor(CoordinatorEntity[EssManagerCoordinator], Se
             return None
         action = self.coordinator.data.get("battery_action", self.coordinator.data.get("control_action"))
         return action if action in self._attr_options else "idle"
+
+
+class EssManagerHeatPumpSensor(CoordinatorEntity[EssManagerCoordinator], SensorEntity):
+    """The heat pump model (as of 2026.10.16) - see heatpump.py. State:
+    active (the model forecasts the heat pump), learning (too few heating
+    days: the 6-week average as before), summer (no heating in the coming
+    days: only the daily base) or fallback (a poor fit or no weather
+    forecast). Attributes: the model's figures, the correction, the journal.
+    Hidden while the heat pump is switched off in Configure."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Heat pump model"
+    _attr_icon = "mdi:heat-pump-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["active", "learning", "summer", "fallback"]
+
+    def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_heat_pump_model"
+        self._attr_device_info = device_info
+        self._plan = plan_for_entity_key("heat_pump_model")
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._async_sync_visibility()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._async_sync_visibility()
+        super()._handle_coordinator_update()
+
+    @callback
+    def _async_sync_visibility(self) -> None:
+        if self._plan is not None:
+            async_sync_visibility(self, self.coordinator.plan_enabled(self._plan))
+
+    def _hp(self) -> dict[str, Any] | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.get("heat_pump")
+
+    @property
+    def native_value(self) -> str | None:
+        hp = self._hp()
+        return hp.get("state") if hp else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        hp = self._hp()
+        if not hp:
+            return {}
+        return {
+            **(hp.get("model") or {}),
+            "meter": hp.get("meter"),
+            "used": hp.get("used"),
+            "correction": hp.get("correction"),
+            "setpoint_change_c": hp.get("setpoint_change_c"),
+            "heating_days": hp.get("heating_days"),
+            "journal_days": hp.get("journal_days"),
+            "oldest_day": hp.get("oldest_day"),
+            "fitted_day": hp.get("fitted_day"),
+            "forecast_days_kwh": [d.get("kwh") for d in hp.get("days") or []],
+            "weather_days": hp.get("weather_days"),
+        }

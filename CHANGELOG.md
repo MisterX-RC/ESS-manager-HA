@@ -12,6 +12,31 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.16] - 2026-10-14
+
+### Added
+- **Heat pump: its usage forecast from the weather.** The household usage
+  forecast (the same hour and weekday over the last weeks) lags behind for a
+  heat pump - too low in autumn, too high in spring. Switch it on in
+  Configure (price plans page); two new pages ask for the metering (separate
+  sensors per mode, one total sensor, or none) and the sensors: energy,
+  outdoor temperature, a weather entity for the forecast, and optionally
+  wind, wind direction, indoor and wanted temperature. ESS Manager keeps a
+  journal of days (filled from up to two years of long-term statistics, then
+  daily), fits an energy signature every night (base, kWh per degree below a
+  balance temperature it finds itself, wind, sun, cooling; recent days weigh
+  more, rare frost days keep counting), corrects for the last days, and puts
+  the expected energy per day into the forecast hour by hour. With its own
+  metering the heat pump is taken out of the usage history (like the electric
+  car). Falls back to the 6-week average with too few heating days, a poor
+  fit or no weather forecast. See "Heat pump" in the README.
+- **Heat pump card** (`custom:ess-manager-heatpump-card`): state and the next
+  five days at the top, a notice when learning, in summer, not used or
+  correcting, and three tabs - Forecast, Signature (measured days against the
+  outdoor temperature with the model's line), Memory (per temperature class).
+- **Heat pump model** diagnostic sensor, and the Status sensor's `heat_pump`
+  attribute.
+
 ## [2026.10.15] - 2026-10-13
 
 ### Fixed

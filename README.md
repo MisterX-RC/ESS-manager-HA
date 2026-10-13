@@ -432,6 +432,69 @@ attribute; the card uses the services `ess_manager.ev_session_save` and
 `ess_manager.ev_session_remove` (also usable in automations - see
 Developer tools > Actions).
 
+## Heat pump
+
+For a heat pump whose electricity follows the weather (as of 2026.10.16).
+The household usage forecast is the same hour and weekday averaged over the
+last weeks - for a heat pump that lags behind: too low in autumn, too high
+in spring. With this switched on, the heat pump is forecast from the weather
+forecast instead, with a model ESS Manager keeps itself.
+
+Switch it on in Configure, on the price plans page (**Heat pump: forecast
+its usage from the weather**); two pages follow:
+
+- **Metering**: **separate sensors** per mode (heating, and optionally
+  cooling - hot water stays in the household usage, whose weekday/hour
+  average forecasts its fixed rhythm well), **one total sensor** (the model
+  splits it: what is used every day regardless of the weather - hot water,
+  standby - becomes its daily base, what grows with the cold is heating,
+  what grows with the warmth cooling), or **no own metering** (the model
+  works on the total household usage and only adds the weather difference
+  to the usual forecast - least accurate).
+- **Sensors**: the energy sensor(s), the **outdoor temperature** (it needs
+  long-term statistics; one from the internet, like the heat pump's own, is
+  fine), the **weather forecast** (a weather entity: Met.no, Buienradar,
+  Open-Meteo, ...; read per day, per hour where it has it) and optionally
+  wind speed, wind direction, indoor temperature and the wanted temperature
+  (a thermostat or a sensor/number).
+
+**How it works.**
+
+- **The journal**: one row per day in the integration's own storage - the
+  heat pump's energy, the mean outdoor temperature, wind, wind direction,
+  sun (the measured solar production with the Energy dashboard, else the
+  day's solar forecast) and the wanted temperature - up to two years. On
+  the first start it's filled from the long-term statistics that already
+  exist; after that yesterday is added every day. What has no statistics
+  (a wind direction, a thermostat) is recorded live from then on.
+- **The slow part, an energy signature**: per day, kWh = base + kWh per
+  degree below the balance temperature (+ wind x degrees, + wind direction
+  once there are enough days in most directions) - sun (+ kWh per degree
+  above the cooling temperature, with cooling data). The balance and
+  cooling temperatures are found by the model. It uses a smoothed outdoor
+  temperature (70% today, 30% yesterday - floor heating reacts slowly). It's
+  worked out again every night; recent days weigh more (half-life about a
+  season), but the three newest days of each temperature class keep
+  weighing, so last winter's frost days count until newer ones come.
+- **The fast part, a correction**: measured against the model over the last
+  four days; a difference of 5% or more is taken along (between 0.6 and 1.6
+  times) and fades when the difference goes - say a thermostat set a degree
+  higher, or a holiday.
+- **Into the forecast**: the expected energy per day, spread over the hours
+  with the hourly pattern of the last two weeks; past the weather forecast
+  the usual average. With its own metering the heat pump's energy is then
+  taken out of the household usage history (like the electric car) and the
+  model's forecast added; without, the model's difference to the usual
+  average is added.
+- **Falling back**: with fewer than 21 heating days, a poor fit or no
+  weather forecast, the heat pump stays in the household usage as before
+  (6-week average). In summer (no heating day in the coming days) only the
+  daily base counts.
+
+The model is on the Status sensor's `heat_pump` attribute and on its own
+diagnostic sensor **Heat pump model** (state active / learning / summer /
+fallback, attributes the figures), hidden while the heat pump is off.
+
 ## Grid transport tariff
 
 In the Netherlands grid transport is going to be charged per kWh, with a
@@ -774,6 +837,7 @@ browser refresh), edit a dashboard, choose **Add card** and search for
 | ESS Manager - Prices (`custom:ess-manager-price-card`) | today's and tomorrow's prices coloured by price level, with the planned buy / sell moments |
 | ESS Manager - Status (`custom:ess-manager-status-card`) | the planned sale and charge with their progress, the price plans, the control toggle and a timeline |
 | ESS Manager - Electric car (`custom:ess-manager-ev-card`) | the electric car's charging sessions in the planning: check, edit or add them (only with the electric car switched on, see [Electric car](#electric-car)) |
+| ESS Manager - Heat pump (`custom:ess-manager-heatpump-card`) | the heat pump forecast from the weather: the coming days, the energy signature and what the model has learned (only with the heat pump switched on, see [Heat pump](#heat-pump)) |
 
 All of them are drawn by the integration itself - nothing else to install
 (since v0.5.1 also not apexcharts-card). The integration loads the card
@@ -951,6 +1015,30 @@ session** opens an empty block (the next whole hour, your maximum current).
 |---|---|---|
 | `title` | the car's name with one car, otherwise `Electric cars` | the card's title |
 | `ev_color` / `solar_color` | green / yellow | the car colour (fixed current) and the solar colour |
+
+**Heat pump card.** At the top the model's state (active, still learning,
+summer, not used) and the heat pump's total for the next five days - while
+the model doesn't forecast, the 6-week average it falls back to. A notice
+below it when there's something to tell: the learning progress in heating
+days, "no heating in the coming days" in summer, why the model isn't used,
+or a correction (the last days used more or less than the model said, with
+the thermostat change when a wanted temperature is set). Three tabs:
+
+- **Forecast** (open by default): each day with its temperature, wind,
+  direction and sun, a bar with the model's energy and a marker for what
+  the 6-week average would say.
+- **Signature**: every measured day against the (smoothed) outdoor
+  temperature - fainter is older - with the model's line at the usual wind
+  and sun and the coming days as rings; below it the model's figures:
+  balance temperature, kWh per degree colder, the daily base, wind, sun,
+  cooling (with cooling data) and its error over the last 14 days.
+- **Memory**: per temperature class of 2.5 °C the number of days, the
+  measured and the model's mean, and the newest day in it.
+
+| Option | Default | What it does |
+|---|---|---|
+| `title` | `Heat pump` | the card's title |
+| `hp_color` | orange | the heat pump colour |
 
 `dashboard/` still has the old chart cards as plain apexcharts-card YAML
 and the old status card (`entities_card.yaml`), for when you'd rather
