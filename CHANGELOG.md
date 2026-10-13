@@ -28,6 +28,15 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   or values that weren't there yet), the session is worked out afresh
   instead of started with the old amount - also right at its start, where a
   changed setting used to be ignored.
+- **After a restart everything is planned afresh.** Timo's update to
+  2026.10.13 came back from the reboot charging a full charge sized for a
+  30 kWh battery with 7 kW charge speed (the setup values) instead of the
+  15 kWh set on the number entity; only saving Configure made it plan again.
+  Now the first cycle after a (re)start checks running windows again (the
+  balancing wait at 100% carries on), a number entity whose stored value
+  comes in after a cycle already ran asks for another replan, and the first
+  plan logs the capacity, min/max SOC and speeds it used (INFO), so a wrong
+  start shows in the log.
 - **A stored full charge session from another day isn't picked up again.**
   Plans use quarter-hour numbers of the day; after a restart a stored
   session could be taken for a running one at the same time of day. Each

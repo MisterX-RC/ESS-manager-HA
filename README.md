@@ -165,7 +165,10 @@ afresh, running windows included - so a charge started because of a
 threshold you've since changed back stops if it's no longer needed (or
 continues, resized, if it still is). A switch between solar surplus and
 deficit does the same, since it changes the minimum SOC every plan works
-with. The full-charge balancing wait at 100% is never interrupted by it.
+with. A (re)start of Home Assistant or the integration does it too (as of
+2026.10.14), so a window stored before the restart is checked against the
+current settings and forecast. The full-charge balancing wait at 100% is
+never interrupted by it.
 
 All five compose on top of a 121-hour (5-day) forecast pipeline: solar
 forecast minus usage forecast, cumulatively summed into a projected battery
@@ -972,11 +975,12 @@ you're the one who ran the original on a live system:
   cards read it live from the sensor rather than a hardcoded constant.
 - **Idle setpoint tolerance** is generalized to 0W (the original's -30W was
   a quirk of one specific Victron install's idle reading).
-- **Plan lock-in state survives Home Assistant restarts** (persisted via
-  Home Assistant's storage helper) - the original template sensor's
+- **Plan state survives Home Assistant restarts** (persisted via
+  Home Assistant's storage helper; since 2026.10.14 the first cycle after a
+  restart checks running windows again against the current settings, and
+  the balancing wait carries on) - the original template sensor's
   self-referencing `this.attributes` lookups would silently reset on
-  restart and could re-plan an in-progress session differently. This is an
-  intentional improvement, not a bug-for-bug port.
+  restart. This is an intentional improvement, not a bug-for-bug port.
 - **"Days since last full charge" can be tracked internally**, rather than
   requiring an external "time since last full charge" sensor that not
   everyone will have - though if you do have one (e.g. from your BMS), you

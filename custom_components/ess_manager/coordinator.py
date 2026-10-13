@@ -202,7 +202,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # A setting changed (a number entity, or Configure saved; as of
         # v0.5.12): the next cycle checks running windows again instead of
         # keeping them locked - see request_replan.
-        self._replan_requested = 0
+        # A (re)start plans everything afresh, running windows included
+        # (as of 2026.10.14): a stored window may stem from other settings
+        # or another day.
+        self._replan_requested = 1
+        self._started_logged = False
         self._last_solar_mode: Optional[str] = None
 
         # Statistics-based usage-forecast cache - recomputed once per hour,
@@ -944,8 +948,15 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # done, so a cycle that fails before this point doesn't lose it.
         replan_seen = self._replan_requested
         replan = replan_seen > 0
+        if not self._started_logged:
+            self._started_logged = True
+            _LOGGER.info(
+                "ESS Manager (%s): first plan with capacity %s kWh, min SOC %s%%, max SOC %s%%, charge speed %s kW, "
+                "discharge speed %s kW", self.entry.title, capacity_kwh, min_soc_deficit_percent, max_soc_percent,
+                charge_speed_kw, discharge_speed_kw,
+            )
         if replan:
-            _LOGGER.info("ESS Manager (%s): a setting changed - re-planning, running windows included", self.entry.title)
+            _LOGGER.info("ESS Manager (%s): started or a setting changed - re-planning, running windows included", self.entry.title)
         # A switch between solar surplus and deficit changes the minimum SOC
         # every plan works with, so it re-plans running windows too (v0.5.13).
         if self._last_solar_mode is not None and solar_mode["mode"] != self._last_solar_mode:

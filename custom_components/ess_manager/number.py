@@ -87,7 +87,13 @@ class EssManagerNumber(RestoreNumber, NumberEntity):
         await super().async_added_to_hass()
         last_data = await self.async_get_last_number_data()
         if last_data is not None and last_data.native_value is not None:
-            self._attr_native_value = last_data.native_value
+            restored = last_data.native_value
+            if restored != self._attr_native_value and self._coordinator.data is not None:
+                # restored after the plans were already worked out with the
+                # setup value (as of 2026.10.14): work them out again
+                self._coordinator.request_replan()
+                self.hass.async_create_task(self._coordinator.async_request_refresh())
+            self._attr_native_value = restored
         # A plan-specific tunable is hidden while its plan is switched off
         # in Configure (see visibility.py); Configure only triggers a
         # coordinator refresh, so follow the coordinator's updates.
