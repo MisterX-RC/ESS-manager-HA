@@ -3478,6 +3478,37 @@ check("follow-up: in solar deficit mode too (the band up to deficit minimum + bu
       _fu5["active"] and _fu5["target_kwh"] == 1.0 and _fu5["follow_up_until"] == _fu2["follow_up_until"]
       and not _fu(datetime(2026, 10, 13, 21, 30), 12.75, _fu_net2[1:], {**_fu2, "follow_up_until": None}, 86, floor=7.0)["active"])
 
+# ---------------------------------------------------------------------------
+# 2026.10.14: a full charge session worked out with another capacity / max SOC is planned again;
+# the charging phase keeps its blocks; a stored session from another day isn't revived
+# ---------------------------------------------------------------------------
+_fc_now = datetime(2026, 10, 13, 21, 0)
+_fc_price = [0.30] * 84 + [0.10] * 4 + [0.30] * 8 + [0.12] * 80 + [0.30] * 16
+_fc_rates = [0.3932] * 192
+def _fcp(prev, high, unit=84, now=_fc_now, batt=6.06, soc=40.4):
+    return plans.compute_full_charge_plan(prev, unit, now, 14, 17.2, soc, 120, 30.0, batt, high, [0.2] * 121, 7.0,
+                                          _fc_price, [batt] * 72, 52.5, 55.2, charge_efficiency=1.0,
+                                          charge_rates=_fc_rates, min_charge_units=2)
+_fc30 = _fcp(None, 33.0)
+check("full charge: worked out with 33 kWh max (capacity 30): 27 kWh, the first block now",
+      _fc30["phase"] == "scheduled" and _fc30["start_unit"] == 84 and _fc30["high_threshold_kwh"] == 33.0
+      and _fc30["end_unit"] == 88 and len(_fc30["blocks"]) == 2
+      and _fc30["end_at"] == int(datetime(2026, 10, 13, 22, 0).timestamp()))
+_fc15 = _fcp(_fc30, 16.5)
+check("full charge: the capacity is now 15 (max 16.5): planned again, not started with 27 kWh",
+      _fc15["phase"] == "scheduled" and _fc15["deficit_kwh"] == round(16.5 - 6.06, 3) and _fc15["high_threshold_kwh"] == 16.5)
+_fcc = _fcp(_fc15, 16.5)
+check("full charge: the charging phase keeps the block - the cards show the first block, not the whole charge",
+      _fcc["phase"] == "charging" and _fcc["block_kwh"] == _fc15["block_kwh"] and _fcc["blocks"] == _fc15["blocks"]
+      and display.card_plans(_fcc, {"active": False}, {"active": False}, {"active": False}, {"active": False}, 84,
+                             _fc_now, 6.06, 15.0)["buy"]["energy_kwh"] == round(_fc15["block_kwh"], 2)
+      and display.charge_display(_fcc, {"active": False}, {"active": False}, {"active": False}, 84, _fc_now)[0]
+      == round(_fc15["block_kwh"], 2))
+check("full charge: a stored session of another day (its end time passed) isn't picked up again at the same time of day",
+      _fcp({**_fcc, "end_at": int(datetime(2026, 10, 12, 22, 0).timestamp())}, 16.5)["phase"] == "scheduled")
+check("full charge: a stored charging session without the new fields (older version) still runs on",
+      _fcp({k: v for k, v in _fcc.items() if k not in ("high_threshold_kwh", "end_at")}, 16.5)["phase"] == "charging")
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

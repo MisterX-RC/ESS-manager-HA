@@ -2177,8 +2177,22 @@ def compute_full_charge_plan(
     running charge session is not kept but checked again - is it still
     due, which window is cheapest now. A window found to start right away
     goes straight back to charging (no "scheduled" cycle in between). The
-    holding phase (the balancing wait) is never interrupted by it."""
+    holding phase (the balancing wait) is never interrupted by it.
+
+    As of 2026.10.14 a scheduled or charging session also counts as a
+    replan when it was worked out with another max-SOC level
+    (`high_threshold_kwh` - a changed capacity or max SOC), and it ends at
+    its own time (`end_at`, epoch) even when a stored plan's day-relative
+    units would say otherwise (a plan from another day after a restart).
+    The charging phase keeps the block fields, so the first block is what
+    the cards and sensors show."""
     prev = prev or {"active": False, "phase": None}
+    if prev.get("phase") in ("scheduled", "charging"):
+        planned_for = prev.get("high_threshold_kwh")
+        if planned_for is not None and abs(float(planned_for) - high_threshold_kwh) > 0.01:
+            replan = True
+        if prev.get("end_at") is not None and now.timestamp() >= prev["end_at"]:
+            prev = {"active": False, "phase": None, "retry_after_timeout": prev.get("retry_after_timeout", False)}
     if buy_price is not None:
         all_price = buy_price  # only ever used to pick the (buy) window
     is_full = soc_now_percent >= 99.5
@@ -2290,7 +2304,7 @@ def compute_full_charge_plan(
     if prev.get("active") and prev.get("phase") == "charging":
         if should_enter_holding:
             return _start_holding()
-        if cur_unit < prev.get("end_unit", -1):
+        if prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
             return prev
         # This session's window ran out without reaching full - a real
         # possibility now that a single session's energy is capped (see
@@ -2307,9 +2321,17 @@ def compute_full_charge_plan(
     if (
         prev.get("active")
         and prev.get("phase") == "scheduled"
+        and not replan
         and prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1)
     ):
+        carried = {
+            key: prev[key]
+            for key in ("block_kwh", "planned_kwh", "blocks", "relying_on_peak_unit", "retry_after_timeout",
+                        "high_threshold_kwh", "end_at")
+            if key in prev
+        }
         return {
+            **carried,
             "active": True,
             "phase": "charging",
             "target_kwh": prev["target_kwh"],
@@ -2527,6 +2549,9 @@ def compute_full_charge_plan(
         # this path doesn't itself decide whether the retry restriction
         # is still needed.
         "retry_after_timeout": retry_after_timeout,
+        # what it was worked out with, and when it ends (as of 2026.10.14)
+        "high_threshold_kwh": round(high_threshold_kwh, 3),
+        "end_at": _unit_epoch(now, cur_unit, end_unit),
         **blocks_fields,
     }
 

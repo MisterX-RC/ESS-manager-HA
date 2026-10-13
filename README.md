@@ -746,6 +746,13 @@ battery back into overshoot, the plan quietly waits for that; if not, the
 charging logic schedules a fresh grid-charge session at the cheapest
 available window to complete the balance.
 
+A grid-charge session for a full charge can be split over the cheapest
+quarters before it's needed, in blocks; the cards and the Charge amount
+sensor show the block that's planned or running, and the rest is planned
+again after it. A session is worked out afresh when the capacity or max
+SOC it was sized against changes, and a stored session ends at its own end
+time (as of 2026.10.14).
+
 ## Dashboard
 
 The integration brings its own dashboard cards. After installing (and a

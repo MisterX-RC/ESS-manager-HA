@@ -12,6 +12,27 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.14] - 2026-10-13
+
+### Fixed
+- **A running full charge showed the whole charge instead of its first
+  block.** Since 2026.10.6 a full charge can be split over blocks, but when
+  a session started (scheduled -> charging) the block details were dropped:
+  the status card and the Charge amount sensor then showed the full amount
+  (e.g. 17.2 kWh in a one-hour window that only does 1.6 kWh) and a "done"
+  figure that was simply that amount minus what's still missing to 100%.
+  They now show the block that runs.
+- **A full charge session worked out with another capacity or max SOC is
+  planned again.** Each session remembers the max-SOC level (capacity x max
+  SOC) it was sized against; when that changes (a changed capacity number,
+  or values that weren't there yet), the session is worked out afresh
+  instead of started with the old amount - also right at its start, where a
+  changed setting used to be ignored.
+- **A stored full charge session from another day isn't picked up again.**
+  Plans use quarter-hour numbers of the day; after a restart a stored
+  session could be taken for a running one at the same time of day. Each
+  session now has its own end time.
+
 ## [2026.10.13] - 2026-10-13
 
 ### Fixed
