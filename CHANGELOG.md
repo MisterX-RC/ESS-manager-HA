@@ -39,6 +39,13 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   sized for a 30 kWh battery came from. Setup no longer fails on a failed
   first cycle: the entities stay unavailable for a moment and the next cycle
   (30 s later) simply tries again.
+- **No plans on half the data right after a start.** For the first 10
+  minutes after a (re)start nothing is planned while a solar forecast sensor
+  is unavailable or the household usage statistics can't be read yet -
+  planning with "no sun" or "no usage" could start a wrong charge or sale
+  right away. The entities stay unavailable meanwhile (as when the battery
+  SOC or price sensor is missing, which always stops planning). After the 10
+  minutes it plans with what there is, as before.
 - **After a restart everything is planned afresh.** Timo's update to
   2026.10.13 came back from the reboot charging a full charge sized for a
   30 kWh battery with 7 kW charge speed (the setup values) instead of the

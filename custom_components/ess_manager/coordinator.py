@@ -119,6 +119,12 @@ USAGE_HISTORY_ISSUE = "usage_forecast_no_history"
 IDLE_SETPOINT_W = 0.0
 IDLE_TOLERANCE_W = 50.0
 
+# The first minutes after a (re)start (as of 2026.10.14): no plans while a
+# solar forecast sensor or the usage statistics aren't there yet - planning
+# with "no sun" or "no household usage" could start a wrong charge or sale
+# right away. After this it plans with what there is, as before.
+STARTUP_GRACE = timedelta(minutes=10)
+
 
 def ev_energy_entity(conf: dict[str, Any]) -> Optional[str]:
     """The car charger's energy statistic when the EV feature is on (as of
@@ -234,6 +240,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._transport_factors: Optional[dict[int, list[float]]] = None
         # Direct control (as of v0.2.14) - see controller.py.
         self.controller = EssController(hass, entry.title)
+        # See STARTUP_GRACE: when this run started, and whether the usage
+        # forecast is a stand-in (statistics couldn't be read, nothing cached).
+        self._started_at = dt_util.now()
+        self._usage_missing = False
         # The electric car (as of 2026.10.11) - see ev_runtime.py.
         self.ev = EvRuntime()
 
@@ -402,6 +412,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._usage_forecast_cache is not None:
                 return self._usage_forecast_cache
             self._set_usage_history([HISTORY_NONE] * FORECAST_HOURS, lookback_weeks)
+            self._usage_missing = True
             return [0.0] * FORECAST_HOURS
 
         self._usage_forecast_cache, hour_sources = compute_usage_forecast_from_consumption_detailed(
@@ -417,6 +428,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 hourly_sums, [ev_entity], None, [], int(range_start.timestamp()), int(base_hour.timestamp())
             )
         self._usage_forecast_computed_at = now
+        self._usage_missing = False
         self._set_usage_history(hour_sources, lookback_weeks)
         return self._usage_forecast_cache
 
@@ -510,6 +522,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._usage_forecast_cache is not None:
                 return self._usage_forecast_cache
             self._set_usage_history([HISTORY_NONE] * FORECAST_HOURS, lookback_weeks)
+            self._usage_missing = True
             return [0.0] * FORECAST_HOURS
 
         all_ids = [
@@ -534,6 +547,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._usage_forecast_cache is not None:
                 return self._usage_forecast_cache
             self._set_usage_history([HISTORY_NONE] * FORECAST_HOURS, lookback_weeks)
+            self._usage_missing = True
             return [0.0] * FORECAST_HOURS
 
         self._usage_forecast_cache, hour_sources = compute_usage_forecast_detailed(
@@ -558,6 +572,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 int(base_hour.timestamp()),
             )
         self._usage_forecast_computed_at = now
+        self._usage_missing = False
         self._set_usage_history(hour_sources, lookback_weeks)
         return self._usage_forecast_cache
 
@@ -740,10 +755,18 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_refresh_measured_today(conf, usage_source, now)
 
         solar_points: list[list[dict]] = []
+        waiting_for: list[str] = []
         for entity_id in conf.get(CONF_SOLAR_FORECAST_ENTITIES, []):
             state = self.hass.states.get(entity_id)
+            if state is None or state.state in ("unavailable", "unknown"):
+                waiting_for.append(entity_id)
             if state is not None:
                 solar_points.append(list(state.attributes.get("detailedHourly") or []))
+        if self._usage_missing:
+            waiting_for.append("the household usage statistics")
+        if waiting_for and now - self._started_at < STARTUP_GRACE:
+            # see STARTUP_GRACE: no plans on half the data right after a start
+            raise UpdateFailed(f"Just started - waiting for {', '.join(waiting_for)}")
 
         control_settings = ControlSettings(conf)
         if conf.get(CONF_GRID_SETPOINT_ENTITY):
