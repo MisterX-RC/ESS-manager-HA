@@ -259,11 +259,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Before the first refresh: with no supported usage source that refresh
-    # fails (setup is then retried), and the Repairs error must already be
+    # fails (the entities stay unavailable until a source is chosen), and the Repairs error must already be
     # there to say why.
     _async_update_usage_source_issue(hass, entry)
 
-    await coordinator.async_config_entry_first_refresh()
+    # Not async_config_entry_first_refresh (as of 2026.10.14): when the
+    # first cycle failed - typically right after a restart, with the battery
+    # or price sensor not there yet - that turned setup into a retry, but
+    # the number/switch/sensor platforms above were already set up. Home
+    # Assistant's retry then failed on "already been setup", left the
+    # entities without a working coordinator (unavailable) and the plans
+    # without the number entities (so on their default values) until the
+    # integration was reloaded by hand. Now a failed first cycle just leaves
+    # the entities unavailable and the next cycle (30 s) tries again.
+    await coordinator.async_refresh()
     # the EV card's services (as of 2026.10.11)
     async_setup_services(hass)
 

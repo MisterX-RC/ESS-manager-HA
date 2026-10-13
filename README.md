@@ -167,7 +167,9 @@ continues, resized, if it still is). A switch between solar surplus and
 deficit does the same, since it changes the minimum SOC every plan works
 with. A (re)start of Home Assistant or the integration does it too (as of
 2026.10.14), so a window stored before the restart is checked against the
-current settings and forecast. The full-charge balancing wait at 100% is
+current settings and forecast. When a sensor it needs (battery SOC, price)
+isn't there yet right after a restart, the entities are unavailable until
+the next cycle (every 30 s) finds it - no reload needed. The full-charge balancing wait at 100% is
 never interrupted by it.
 
 All five compose on top of a 121-hour (5-day) forecast pipeline: solar

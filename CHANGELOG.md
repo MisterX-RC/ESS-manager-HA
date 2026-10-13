@@ -28,6 +28,17 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   or values that weren't there yet), the session is worked out afresh
   instead of started with the old amount - also right at its start, where a
   changed setting used to be ignored.
+- **Entities unavailable after an update / restart until a manual reload.**
+  When the first cycle failed at startup (the battery SOC or price sensor
+  not there yet), setup was turned into a retry while the number, switch
+  and sensor platforms were already set up. Home Assistant's retry then
+  failed with "Config entry ... for ess_manager.number has already been
+  setup!", the entities were left without a working coordinator
+  (unavailable) and the plans without the number entities - so on their
+  defaults (30 kWh, 7 kW, max SOC 110%), which is where the full charge
+  sized for a 30 kWh battery came from. Setup no longer fails on a failed
+  first cycle: the entities stay unavailable for a moment and the next cycle
+  (30 s later) simply tries again.
 - **After a restart everything is planned afresh.** Timo's update to
   2026.10.13 came back from the reboot charging a full charge sized for a
   30 kWh battery with 7 kW charge speed (the setup values) instead of the
