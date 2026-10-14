@@ -49,6 +49,7 @@ class HeatPumpRuntime:
         # thermostat's heat demand hours per day (both as of 2026.10.17)
         self.indoor_hist: dict[str, float] = {}
         self.demand: dict[str, float] = {}
+        self.setpoints: dict[str, float] = {}
         self._hour: Optional[list[float]] = None
 
     # -- store ---------------------------------------------------------------
@@ -65,6 +66,7 @@ class HeatPumpRuntime:
         self.rows_src = data.get("rows_src")
         self.indoor_hist = dict(data.get("indoor_hist") or {})
         self.demand = dict(data.get("demand") or {})
+        self.setpoints = dict(data.get("setpoints") or {})
         self.dirty = True
 
     def as_store(self) -> dict[str, Any]:
@@ -80,6 +82,7 @@ class HeatPumpRuntime:
             "rows_src": self.rows_src,
             "indoor_hist": self.indoor_hist,
             "demand": self.demand,
+            "setpoints": self.setpoints,
         }
 
     def reset(self, key: str) -> None:
@@ -97,6 +100,7 @@ class HeatPumpRuntime:
         self.rows_src = None
         self.indoor_hist = {}
         self.demand = {}
+        self.setpoints = {}
         self.dirty = True
 
     # -- data in ---------------------------------------------------------------
@@ -105,6 +109,20 @@ class HeatPumpRuntime:
         for r in self.journal:
             if r.get("dem") is None and r["d"] in self.demand:
                 r["dem"] = self.demand[r["d"]]
+            if r.get("sp") is None and r["d"] in self.setpoints:
+                r["sp"] = self.setpoints[r["d"]]
+        self.dirty = True
+
+    def set_setpoints(self, days: dict[str, float], today: Optional[date] = None) -> None:
+        """The wanted temperature per day from the thermostat's history (as
+        of 2026.10.17) - kept for rows that come later, like the demand."""
+        self.setpoints.update(days)
+        if today is not None:
+            cutoff = (today - timedelta(days=hp.JOURNAL_DAYS)).isoformat()
+            self.setpoints = {d: v for d, v in self.setpoints.items() if d >= cutoff}
+        for r in self.journal:
+            if r["d"] in days:
+                r["sp"] = days[r["d"]]
         self.dirty = True
 
     def set_demand(self, hours: dict[str, float], today: Optional[date] = None) -> None:
@@ -267,8 +285,10 @@ class HeatPumpRuntime:
         factor = hp.correction(model, self.journal, today) if model else 1.0
         # the coming days with a whole day's wanted temperature, not this hour's
         day_setpoint = hp.typical_setpoint(self.journal, today, self._mean("sp"), setpoint)
+        # with the indoor temperature in the model: the one the coming days keep
+        day_indoor = hp.expected_indoor(model, self.journal, today, day_setpoint)
         days_out = (
-            hp.forecast_days(model, self.journal, weather, days, self.today_measured(now, tz), sun_by_day, day_setpoint, factor)
+            hp.forecast_days(model, self.journal, weather, days, self.today_measured(now, tz), sun_by_day, day_setpoint, factor, day_indoor)
             if model else []
         )
         state = hp.state_of(model, days_out[:CARD_DAYS], heating_days)
@@ -350,6 +370,7 @@ class HeatPumpRuntime:
             "heating_classes_needed": hp.MIN_HEATING_CLASSES,
             "fitted_day": self.fitted_day,
             "day_setpoint_c": day_setpoint,
+            "day_indoor_c": day_indoor,
             "forecast_120h": total,
         }
         if self.thermal and model:

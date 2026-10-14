@@ -199,8 +199,14 @@ def _solve(a: list[list[float]], b: list[float]) -> Optional[list[float]]:
 
 
 def _features(row: dict[str, Any], teff: float, tb: float, tc: Optional[float], use: dict[str, Any]) -> list[float]:
-    sp_off = (row.get("sp") - use["sp_ref"]) if use.get("sp") and row.get("sp") is not None else 0.0
-    hdd = max(0.0, tb + sp_off - teff)
+    # the heat loss follows indoor - outdoor: with the indoor temperature the
+    # balance temperature moves with it (as of 2026.10.17), else with the
+    # wanted temperature once that varies
+    if use.get("ti"):
+        off = (row.get("ti") - use["ti_ref"]) if row.get("ti") is not None else 0.0
+    else:
+        off = (row.get("sp") - use["sp_ref"]) if use.get("sp") and row.get("sp") is not None else 0.0
+    hdd = max(0.0, tb + off - teff)
     x = [1.0, hdd]
     if use.get("wind"):
         w = row.get("w") or 0.0
@@ -386,12 +392,18 @@ def _fit_rows(rows, teffs, today: date, with_cooling: bool) -> Optional[dict[str
     cold = [r for r in rows if teffs[r["d"]] < 15.0]
     share = lambda key: (sum(1 for r in cold if r.get(key) is not None) / len(cold)) if cold else 0.0
     sps = [r["sp"] for r in rows if r.get("sp") is not None]
+    tis = sorted(r["ti"] for r in rows if r.get("ti") is not None)
     use: dict[str, Any] = {
         "wind": share("w") >= 0.6,
         "sun": share("s") >= 0.6,
         "sp": share("sp") >= 0.6 and len(sps) >= MIN_ROWS and (max(sps) - min(sps)) >= 0.3,
         "sp_ref": sorted(sps)[len(sps) // 2] if sps else 20.0,
+        # the indoor temperature on most cool days: heat loss by indoor - outdoor
+        "ti": share("ti") >= 0.6 and len(tis) >= MIN_ROWS,
+        "ti_ref": tis[len(tis) // 2] if tis else None,
     }
+    if use["ti"]:
+        use["sp"] = False
     dir_days = [r for r in cold if r.get("wd") is not None and r.get("w") is not None]
     sectors = {int(((r["wd"] + 45) % 360) // 90) for r in dir_days}
     use["dir"] = use["wind"] and len(dir_days) >= MIN_DIRECTION_DAYS and len(sectors) >= 3
@@ -473,6 +485,9 @@ def summary(model: dict[str, Any]) -> dict[str, Any]:
         "cooling_temp_c": model["tc"],
         "cooling_kwh_per_degree_day": round(cool, 3) if cool is not None else None,
         "setpoint_ref_c": use["sp_ref"] if use.get("sp") else None,
+        # with the indoor temperature: the balance temperature is at this
+        # indoor temperature, a degree warmer inside costs kwh_per_degree_day
+        "indoor_ref_c": use.get("ti_ref") if use.get("ti") else None,
         "r2": model.get("r2"),
         "mae_14d_kwh": model.get("mae14"),
         "heating_days": model.get("heating_days"),
@@ -528,6 +543,38 @@ def typical_setpoint(
     if vals:
         return round(sum(vals) / len(vals), 2)
     return live_mean if live_mean is not None else current
+
+
+def expected_indoor(
+    model: Optional[dict[str, Any]], journal: list[dict[str, Any]], today: date, setpoint: Optional[float] = None
+) -> Optional[float]:
+    """The indoor temperature the coming days are forecast with (when the
+    model uses it): the median of the newest 14 fitted heating days, moved by
+    how much the wanted temperature now differs from theirs (a holiday at
+    16 degC, or a degree warmer) - at most 6 degC."""
+    if not model or not model["use"].get("ti"):
+        return None
+    teffs = effective_temps(journal)
+    left_out = model.get("left_out") or {}
+    days = [r for r in sorted(journal, key=lambda r: r["d"], reverse=True)
+            if r.get("ti") is not None and r["d"] < today.isoformat() and r["d"] not in left_out
+            and r["d"] in teffs and teffs[r["d"]] <= model["tb"] - 1.0][:14]
+    if not days:
+        return model["use"].get("ti_ref")
+    tis = sorted(r["ti"] for r in days)
+    base = tis[len(tis) // 2]
+    sps = sorted(r["sp"] for r in days if r.get("sp") is not None)
+    if setpoint is not None and len(sps) >= 3:
+        base += max(min(setpoint - sps[len(sps) // 2], 6.0), -6.0)
+    return round(base, 2)
+
+
+def daily_means(hourly: dict[int, float], tz: tzinfo, min_hours: int = 20) -> dict[str, float]:
+    """Day means per local day from hourly values (days with min_hours)."""
+    acc: dict[str, list[float]] = {}
+    for h, v in hourly.items():
+        acc.setdefault(datetime.fromtimestamp(h, tz).date().isoformat(), []).append(v)
+    return {d: round(sum(v) / len(v), 2) for d, v in acc.items() if len(v) >= min_hours}
 
 
 def hourly_shape(journal: list[dict[str, Any]], today: date) -> list[float]:
@@ -631,6 +678,7 @@ def forecast_days(
     sun: Optional[dict[str, float]] = None,
     setpoint: Optional[float] = None,
     factor: float = 1.0,
+    indoor: Optional[float] = None,
 ) -> list[dict[str, Any]]:
     """Each day's expected energy: [{d, t, teff, w, wd, s, kwh}] - kwh None
     when the weather forecast has no entry for that day. Today's temperature
@@ -655,7 +703,7 @@ def forecast_days(
             share = min(max(share, 0.0), 1.0)
             t = round(mean * share + t * (1 - share), 2)
         teff = round(SMOOTH * t + (1 - SMOOTH) * prev_t, 2) if prev_t is not None else t
-        row = {"d": key, "w": w.get("w"), "wd": w.get("wd"), "s": (sun or {}).get(key), "sp": setpoint}
+        row = {"d": key, "w": w.get("w"), "wd": w.get("wd"), "s": (sun or {}).get(key), "sp": setpoint, "ti": indoor}
         kwh = predict_row(model, row, teff) * factor
         out.append({"d": key, "t": t, "teff": teff, "w": w.get("w"), "wd": w.get("wd"), "s": row["s"], "kwh": round(kwh, 2)})
         prev_t = t
@@ -754,7 +802,7 @@ def model_line(model: dict[str, Any], journal: list[dict[str, Any]], today: date
     def median(key):
         vals = sorted(r[key] for r in journal if r.get(key) is not None)
         return vals[len(vals) // 2] if vals else None
-    row = {"w": median("w"), "s": median("s")}
+    row = {"w": median("w"), "s": median("s"), "ti": model["use"].get("ti_ref")}
     lo = int(math.floor(min(p[0] for p in pts))) - 1
     hi = int(math.ceil(max(p[0] for p in pts))) + 1
     return [[float(t), round(predict_row(model, row, float(t)), 2)] for t in range(lo, hi + 1)]

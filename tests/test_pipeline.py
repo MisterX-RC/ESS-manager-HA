@@ -3850,6 +3850,49 @@ _rt7.set_demand({"2026-10-10": 2.5})
 _rt7.merge([{"d": "2026-10-10", "e": 3.0, "t": 9.0}], _hp_today)
 check("heat pump runtime: demand hours read before the day's row arrives are applied when it does",
       _rt7.journal[0].get("dem") == 2.5)
+# 2026.10.17 (also): heat loss by indoor - outdoor, the wanted temperature from the thermostat's history
+_rti = _rnd.Random(11)
+_tij = []
+for r in _hp_journal(days=300, noise=0.3):
+    r = dict(r)
+    ti = round(21.0 + _rti.uniform(-1.5, 1.5), 2)
+    r["ti"] = ti
+    _tij.append(r)
+_teff_ti = heatpump.effective_temps(_tij)
+for r in _tij:
+    hdd = max(0.0, 15.5 + (r["ti"] - 21.0) - _teff_ti[r["d"]])
+    r["e"] = round(max(3.1 + 0.92 * hdd + 0.03 * r["w"] * hdd - 0.35 * r["s"] * (1 if hdd > 0 else 0) + _rti.gauss(0, 0.3), 0.2), 3)
+_m_ti = heatpump.fit(_tij, _hp_today)
+_s_ti = heatpump.summary(_m_ti)
+check("heat pump: with the indoor temperature the loss follows indoor - outdoor (kWh per degree, balance at the usual indoor temperature)",
+      _m_ti["use"]["ti"] and abs(_s_ti["kwh_per_degree_day"] - 0.92) < 0.06 and abs(_s_ti["indoor_ref_c"] - 21.0) < 0.3
+      and abs((_s_ti["balance_temp_c"] - (_s_ti["indoor_ref_c"] - 21.0)) - 15.5) <= 0.5)
+_cold_row = {"w": 4.0, "s": 2.0, "ti": 21.0}
+_warm_row = dict(_cold_row, ti=22.0)
+_d_cost = heatpump.predict_row(_m_ti, _warm_row, 5.0) - heatpump.predict_row(_m_ti, _cold_row, 5.0)
+check("heat pump: a degree warmer inside costs about the kWh per degree (+ wind) on a cold day",
+      abs(_d_cost - (_s_ti["kwh_per_degree_day"] + (_s_ti["wind_kwh_per_ms_degree"] or 0) * 4.0)) < 0.05)
+check("heat pump: without indoor temperatures on most days the old balance temperature stays", not _hpm["use"].get("ti"))
+_ei = [dict(r) for r in _tij]
+for r in _ei[-20:]:
+    r["sp"] = 21.0
+_exp = heatpump.expected_indoor(_m_ti, _ei, _hp_today, 21.0)
+_exp_hol = heatpump.expected_indoor(_m_ti, _ei, _hp_today, 16.0)
+check("heat pump: the coming days keep the usual indoor temperature, moved with the thermostat (a holiday at 16 degC)",
+      _exp is not None and 19.5 < _exp < 22.5 and abs((_exp - _exp_hol) - 5.0) < 0.01
+      and heatpump.expected_indoor(_hpm, _hpj, _hp_today, 21.0) is None)
+_fd_hol = heatpump.forecast_days(_m_ti, _ei, {"2026-10-13": {"t": 5.0, "w": 4.0}}, [_hp_today], None, None, 16.0, 1.0, _exp_hol)
+_fd_home = heatpump.forecast_days(_m_ti, _ei, {"2026-10-13": {"t": 5.0, "w": 4.0}}, [_hp_today], None, None, 21.0, 1.0, _exp)
+check("heat pump: on holiday at 16 degC the forecast is about 5 degree-days lower",
+      abs((_fd_home[0]["kwh"] - _fd_hol[0]["kwh"]) - 5 * (_s_ti["kwh_per_degree_day"] + (_s_ti["wind_kwh_per_ms_degree"] or 0) * 4.0)) < 0.3)
+_hh = {int(datetime(2026, 10, 12, h, tzinfo=_tzA).timestamp()): 20.0 + (1.0 if h >= 18 else 0.0) for h in range(24)}
+check("heat pump: day means from hourly values (whole days only)",
+      heatpump.daily_means(_hh, _tzA) == {"2026-10-12": 20.25} and heatpump.daily_means({k: v for k, v in list(_hh.items())[:10]}, _tzA) == {})
+_rt8 = heatpump_runtime.HeatPumpRuntime()
+_rt8.set_setpoints({"2026-10-10": 20.6})
+_rt8.merge([{"d": "2026-10-10", "e": 3.0, "t": 9.0}], _hp_today)
+check("heat pump runtime: the thermostat's wanted temperature per day from its history goes into the rows",
+      _rt8.journal[0].get("sp") == 20.6)
 _rt3_hp = heatpump_runtime.HeatPumpRuntime()
 _rt3_hp.restore(_rt_hp.as_store())
 check("heat pump runtime: the store round-trips", _rt3_hp.as_store() == _rt_hp.as_store())

@@ -42,6 +42,17 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   so its last ~10 days come from the recorder and from then on it's kept per
   hour by ESS Manager itself (60 days). A separate sensor with statistics
   still works from the first day with all its history.
+- **Heat pump: heat loss by indoor - outdoor.** With the indoor temperature on
+  most cool days, the energy signature's balance temperature moves with the
+  indoor temperature of each day: a degree warmer inside costs the kWh per
+  degree colder, without first having to set the thermostat differently for
+  a while. The coming days are forecast with the usual indoor temperature of
+  the last heating days, moved by how much the thermostat now differs (a
+  holiday at 16 °C: about 5 degree-days a day less). Signature: the balance
+  temperature "at X °C indoor" and a tile "A degree warmer inside". Without
+  indoor temperatures it works as before (with the wanted temperature).
+- **Heat pump: the thermostat's wanted temperature per day from its
+  history** (the recorder's last ~10 days), not only recorded live.
 - **Heat pump: a meter jump** (a day far off the model - six times the usual
   spread, at least 3 kWh and more than the model itself) is left out and the
   model fitted again without it.

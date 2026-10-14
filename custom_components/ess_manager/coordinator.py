@@ -541,6 +541,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.hp.set_demand(hours, now.astimezone(tz).date())
         # its current temperature too, per hour (the indoor temperature
         # without a separate sensor)
+        # and its wanted temperature per day
+        wanted = [(int(st.last_updated.timestamp()), self._climate_temp(st.attributes.get("temperature"))) for st in states]
+        sp_days = heatpump.daily_means(
+            heatpump.step_hourly_means(wanted, int(start.timestamp()), int(midnight.timestamp())), tz
+        )
+        if sp_days:
+            self.hp.set_setpoints(sp_days, now.astimezone(tz).date())
         temps = [(int(st.last_updated.timestamp()), self._climate_temp(st.attributes.get("current_temperature"))) for st in states]
         self.hp.add_indoor_hours(
             heatpump.step_hourly_means(temps, int(start.timestamp()), int(now.timestamp()) // 3600 * 3600), now.timestamp()

@@ -114,6 +114,7 @@ const I18N = {
     hp_house_warm: (d, ref, when, kwh) => `House ${d} warmer than ${ref}: expected to heat again from ${when} (${kwh} less).`,
     hp_house_warm_long: (d, ref, kwh) => `House ${d} warmer than ${ref}: it keeps that heat for the coming days (${kwh} less).`,
     hp_house_cold: (d, ref, kwh) => `House ${d} colder than ${ref}: ${kwh} extra to warm it up, in the coming hours.`,
+    hp_at_indoor: (t) => `at ${t} °C indoor`, hp_warmer_t: "A degree warmer inside",
     hp_left_out: "left out", hp_heating_classes: "Temperature ranges with 3+ heating days",
     hp_left_out_note: (c, o, n) => [n ? `${n} cool day${n === 1 ? "" : "s"} without heat demand from the thermostat` : "", c ? `${c} cool day${c === 1 ? "" : "s"} on which the house lived on its stored heat (it cooled while the heat pump hardly heated)` : "", o ? `${o} day${o === 1 ? "" : "s"} far off the model (a meter jump)` : ""].filter(Boolean).join(", ") + " left out of the model.",
     hp_ref_usual: "usual at this time", hp_ref_wanted: "wanted", hp_floor: (h) => `floor keeps heating ${h} h`,
@@ -200,6 +201,7 @@ const I18N = {
     hp_house_warm: (d, ref, when, kwh) => `Huis ${d} warmer dan ${ref}: stookt naar verwachting pas weer vanaf ${when} (${kwh} minder).`,
     hp_house_warm_long: (d, ref, kwh) => `Huis ${d} warmer dan ${ref}: houdt die warmte de komende dagen vast (${kwh} minder).`,
     hp_house_cold: (d, ref, kwh) => `Huis ${d} kouder dan ${ref}: ${kwh} extra om op te warmen, de komende uren.`,
+    hp_at_indoor: (t) => `bij ${t} °C binnen`, hp_warmer_t: "Graad warmer binnen",
     hp_left_out: "weggelaten", hp_heating_classes: "Temperatuurklassen met 3+ stookdagen",
     hp_left_out_note: (c, o, n) => [n ? `${n} koele dag${n === 1 ? "" : "en"} zonder warmtevraag van de thermostaat` : "", c ? `${c} koele dag${c === 1 ? "" : "en"} waarop het huis op zijn opgeslagen warmte teerde (het koelde af terwijl de warmtepomp nauwelijks stookte)` : "", o ? `${o} dag${o === 1 ? "" : "en"} ver naast het model (een meetsprong)` : ""].filter(Boolean).join(", ") + " niet meegenomen in het model.",
     hp_ref_usual: "gebruikelijk om deze tijd", hp_ref_wanted: "gewenst", hp_floor: (h) => `vloer warmt ${h} uur na`,
@@ -2831,10 +2833,11 @@ class EssManagerHeatPumpCard extends EssChartCard {
     });
     svg += `<text x="${w - right}" y="${h}" text-anchor="end">${esc(this._t("hp_axis"))}</text></svg>`;
     const tiles = [
-      [this._t("hp_balance"), `${this._num(m.balance_temp_c, 1)} °C`, ""],
+      [this._t("hp_balance"), `${this._num(m.balance_temp_c, 1)} °C`, m.indoor_ref_c != null ? this._t("hp_at_indoor")(this._num(m.indoor_ref_c, 1)) : ""],
       [this._t("hp_per_degree"), this._kwh(m.kwh_per_degree_day), this._t("hp_per_day")],
       [this._t("hp_base"), this._kwh(m.base_kwh_day), this._t("hp_per_day")],
     ];
+    if (m.indoor_ref_c != null) tiles.push([this._t("hp_warmer_t"), `+${this._kwh(m.kwh_per_degree_day)}`, this._t("hp_per_day")]);
     if (m.wind_kwh_per_ms_degree != null) tiles.push([this._t("hp_wind_t"), `${m.wind_kwh_per_ms_degree >= 0 ? "+" : ""}${this._num(m.wind_kwh_per_ms_degree, 3)}`, this._t("hp_wind_unit")]);
     if (m.solar_kwh_per_kwh != null) tiles.push([this._t("hp_sun_t"), this._num(m.solar_kwh_per_kwh, 2), this._t("hp_sun_unit")]);
     if (m.cooling_temp_c != null) tiles.push([this._t("hp_cool_t"), `${this._t("hp_from")} ${this._num(m.cooling_temp_c, 0)} °C`, `+${this._kwh(m.cooling_kwh_per_degree_day)} ${this._t("hp_per_degree_short")}`]);

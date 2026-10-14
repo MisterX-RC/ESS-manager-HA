@@ -473,7 +473,13 @@ its usage from the weather**); two pages follow:
   degree below the balance temperature (+ wind x degrees, + wind direction
   once there are enough days in most directions) - sun (+ kWh per degree
   above the cooling temperature, with cooling data - from 16 °C at the
-  lowest). The balance and
+  lowest). With the indoor temperature on most cool days the heat loss
+  follows indoor - outdoor: the balance temperature belongs to the usual
+  indoor temperature and moves with each day's own, so a degree warmer
+  inside costs the kWh per degree colder; the coming days are forecast with
+  the usual indoor temperature of the last heating days, moved by how much
+  the thermostat now differs (a holiday at 16 °C). Without it, the wanted
+  temperature moves the balance temperature once it has varied. The balance and
   cooling temperatures are found by the model. It uses a smoothed outdoor
   temperature (70% today, 30% yesterday - floor heating reacts slowly). It's
   worked out again every night; recent days weigh more (half-life about a
@@ -1083,7 +1089,9 @@ or the kWh extra to warm it up. Three tabs:
 - **Signature**: every measured day against the (smoothed) outdoor
   temperature - fainter is older - with the model's line at the usual wind
   and sun and the coming days as rings; below it the model's figures:
-  balance temperature, kWh per degree colder, the daily base, wind, sun,
+  balance temperature (at which indoor temperature, with indoor data), kWh
+  per degree colder, a degree warmer inside (with indoor data), the daily
+  base, wind, sun,
   cooling (with cooling data) and its error over the last 14 days; with the
   house's cooling learned also the heat it holds (kWh per °C indoor) and how
   fast it cools (°C per hour at 10 °C difference, its time constant, and how
