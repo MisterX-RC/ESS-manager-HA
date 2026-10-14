@@ -181,6 +181,18 @@ CONF_HP_WIND_ENTITY = "hp_wind_entity"
 CONF_HP_WIND_DIR_ENTITY = "hp_wind_dir_entity"
 CONF_HP_INDOOR_ENTITY = "hp_indoor_entity"
 CONF_HP_SETPOINT_ENTITY = "hp_setpoint_entity"
+# as of 2026.10.17: the heat pump's COP sensor (optional), and whether ESS
+# Manager may preheat the house by raising the thermostat (off unless switched on)
+CONF_HP_COP_ENTITY = "hp_cop_entity"
+# the two steps (as of 2026.10.17): 1. the house hour by hour (forecast; the
+# planning uses it once it passed its self-check), 2. steering the thermostat
+# (day/night temperature, the house as a buffer) - switched on and off on the
+# card once both are on here
+CONF_HP_HOURLY_ENABLED = "hp_hourly_enabled"
+DEFAULT_HP_HOURLY_ENABLED = False
+CONF_HP_BUFFER_ENABLED = "hp_buffer_enabled"
+DEFAULT_HP_BUFFER_ENABLED = False
+HP_STEERING_PLAN = "hp_steering"  # pseudo plan key: heat pump + both steps on
 DEFAULT_HP_ENABLED = False
 HP_METER_SEPARATE = "separate"
 HP_METER_TOTAL = "total"
@@ -291,6 +303,12 @@ NUM_PLANNING_HORIZON_HOURS = "planning_horizon_hours"
 NUM_FULL_CHARGE_INTERVAL_DAYS = "full_charge_interval_days"
 NUM_FULL_CHARGE_MAX_HOLD_MINUTES = "full_charge_max_hold_minutes"
 NUM_FULL_CHARGE_TARGET_VOLTAGE = "full_charge_target_voltage"
+# heat pump steering (as of 2026.10.17)
+NUM_HP_DAY_TEMP = "hp_day_temperature"
+NUM_HP_NIGHT_TEMP = "hp_night_temperature"
+NUM_HP_BUFFER_DELTA = "hp_buffer_delta"
+NUM_HP_DAY_FROM = "hp_day_from"
+NUM_HP_NIGHT_FROM = "hp_night_from"
 
 # (key, name, icon, min, max, step, unit, default_fn(config_entry.data))
 # default_fn takes the config entry's `data` dict and returns the seed value
@@ -489,6 +507,12 @@ NUMBER_DEFINITIONS = [
         "V",
         lambda data: data.get(CONF_FULL_CHARGE_TARGET_VOLTAGE, DEFAULT_FULL_CHARGE_TARGET_VOLTAGE),
     ),
+    # heat pump steering (as of 2026.10.17) - on the heat pump card
+    (NUM_HP_DAY_TEMP, "Heat pump day temperature", "mdi:white-balance-sunny", 10, 28, 0.5, "\u00b0C", lambda data: 20.5),
+    (NUM_HP_NIGHT_TEMP, "Heat pump night temperature", "mdi:weather-night", 10, 28, 0.5, "\u00b0C", lambda data: 19.0),
+    (NUM_HP_BUFFER_DELTA, "Heat pump buffer range", "mdi:thermometer-plus", 0, 3, 0.5, "\u00b0C", lambda data: 1.0),
+    (NUM_HP_DAY_FROM, "Heat pump day from", "mdi:clock-start", 0, 23, 1, "h", lambda data: 7),
+    (NUM_HP_NIGHT_FROM, "Heat pump night from", "mdi:clock-end", 0, 23, 1, "h", lambda data: 22),
 ]
 
 # ---------------------------------------------------------------------------
@@ -517,6 +541,8 @@ PLAN_ENTITY_KEYS = {
     ),
     # the heat pump model's diagnostic sensor (as of 2026.10.16)
     CONF_HP_ENABLED: ("heat_pump_model",),
+    # steering's settings and switch (as of 2026.10.17)
+    HP_STEERING_PLAN: (NUM_HP_DAY_TEMP, NUM_HP_NIGHT_TEMP, NUM_HP_BUFFER_DELTA, NUM_HP_DAY_FROM, NUM_HP_NIGHT_FROM, "heat_pump_steering"),
     CONF_ENABLE_FULL_CHARGE_PLAN: (
         NUM_FULL_CHARGE_INTERVAL_DAYS,
         NUM_FULL_CHARGE_MAX_HOLD_MINUTES,
@@ -529,6 +555,7 @@ PLAN_ENABLED_DEFAULTS = {
     CONF_ENABLE_SPIKE_PLAN: DEFAULT_ENABLE_SPIKE_PLAN,
     CONF_ENABLE_FULL_CHARGE_PLAN: DEFAULT_ENABLE_FULL_CHARGE_PLAN,
     CONF_HP_ENABLED: DEFAULT_HP_ENABLED,
+    HP_STEERING_PLAN: False,
 }
 
 

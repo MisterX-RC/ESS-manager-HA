@@ -22,6 +22,7 @@ from . import control, display, forecasting, plans, transport
 from .ev_runtime import EvRuntime
 from . import heatpump
 from .heatpump_runtime import HeatPumpRuntime
+from . import heatpump_house
 from .const import (
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_VOLTAGE_ENTITY,
@@ -34,6 +35,15 @@ from .const import (
     CONF_HP_ENABLED,
     CONF_HP_HEAT_ENTITIES,
     CONF_HP_INDOOR_ENTITY,
+    CONF_HP_COP_ENTITY,
+    CONF_HP_BUFFER_ENABLED,
+    CONF_HP_HOURLY_ENABLED,
+    HP_STEERING_PLAN,
+    NUM_HP_DAY_TEMP,
+    NUM_HP_NIGHT_TEMP,
+    NUM_HP_BUFFER_DELTA,
+    NUM_HP_DAY_FROM,
+    NUM_HP_NIGHT_FROM,
     CONF_HP_METER,
     CONF_HP_OUTDOOR_ENTITY,
     CONF_HP_SETPOINT_ENTITY,
@@ -297,6 +307,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._hp_wind_factor = 1.0
         self._hp_thermal_tried_at = 0.0
         self._hp_demand_day: Optional[str] = None
+        # step 2's switch on the card (restored by switch.py)
+        self.hp_steering_on = False
+        self.hp_steering_entity: Any = None
 
     def control_settings(self) -> ControlSettings:
         return ControlSettings({**self.entry.data, **self.entry.options})
@@ -304,7 +317,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def plan_enabled(self, plan: str) -> bool:
         """Whether a plan's Configure switch (CONF_ENABLE_*) is on - same
         defaults as the update cycle uses."""
-        return bool({**self.entry.data, **self.entry.options}.get(plan, PLAN_ENABLED_DEFAULTS[plan]))
+        conf = {**self.entry.data, **self.entry.options}
+        if plan == HP_STEERING_PLAN:
+            return bool(conf.get(CONF_HP_ENABLED) and conf.get(CONF_HP_HOURLY_ENABLED) and conf.get(CONF_HP_BUFFER_ENABLED))
+        return bool(conf.get(plan, PLAN_ENABLED_DEFAULTS[plan]))
 
     def invalidate_usage_forecast(self) -> None:
         """Drop the cached usage forecast so the next cycle recomputes it.
@@ -568,7 +584,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         end = datetime.combine(today, datetime.min.time(), tzinfo=tz)
         solar_ids = list((self._energy_dashboard_sources or {}).get("solar", []))
         sums = await async_fetch_hourly_sums(self.hass, [*heat, *cool, *solar_ids], start, end)
-        mean_ids = [indoor_id if from_stats else None, conf.get(CONF_HP_OUTDOOR_ENTITY), conf.get(CONF_HP_WIND_ENTITY)]
+        cop_id = conf.get(CONF_HP_COP_ENTITY)
+        mean_ids = [indoor_id if from_stats else None, conf.get(CONF_HP_OUTDOOR_ENTITY), conf.get(CONF_HP_WIND_ENTITY), cop_id]
         means = await async_fetch_hourly_means(self.hass, [m for m in mean_ids if m], start, end)
         if not from_stats:
             means[indoor_id] = {h: v for h, v in self.hp.indoor_series().items() if start.timestamp() <= h < end.timestamp()}
@@ -588,6 +605,28 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "ESS Manager (%s): house cooling learned from %d hours: %.3f per hour (time constant %.0f h, floor heat %d h)",
                 self.entry.title, self.hp.thermal["n"], self.hp.thermal["k"], 1 / self.hp.thermal["k"], self.hp.thermal["off_hours"],
             )
+        # the house hour by hour (2026.10.17, step 1): COP, fit, self-check
+        if not conf.get(CONF_HP_HOURLY_ENABLED):
+            self.hp.house = None
+            return
+        heat_only = heatpump.add_series(*[deltas.get(e, {}) for e in heat]) if heat else {}
+        cool_only = heatpump.add_series(*[deltas.get(e, {}) for e in cool]) if cool else None
+        model = self.hp.model
+        profile = (heatpump.indoor_profile(self.hp.indoor_days, heatpump.heating_dates(model, self.hp.journal))
+                   if model and self.hp.indoor_days else None)
+        learned = await self.hass.async_add_executor_job(
+            heatpump_house.learn,
+            means.get(indoor_id) or {}, means.get(conf.get(CONF_HP_OUTDOOR_ENTITY)) or {}, heat_only, wind, sun,
+            cool_only, means.get(cop_id) if cop_id else None, tz, today, profile, heatpump.hourly_shape(self.hp.journal, today),
+        )
+        self.hp.house = {**learned, "day": today.isoformat()}
+        rev = learned.get("review") or {}
+        _LOGGER.info(
+            "ESS Manager (%s): house model %s - self-check over %s days: hour error %s kWh (pattern %s), indoor %s degC%s",
+            self.entry.title, "fitted" if learned.get("model") else "not fitted yet", rev.get("days"),
+            rev.get("hour_error_kwh"), rev.get("pattern_error_kwh"), rev.get("temp_error_c"),
+            " - used for the planning" if rev.get("passed") else "",
+        )
 
     def _hp_setpoint(self, conf: dict[str, Any]) -> Optional[float]:
         entity_id = conf.get(CONF_HP_SETPOINT_ENTITY)
@@ -602,7 +641,94 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return None
         return _get_float_state(self.hass, entity_id, default=None)
 
-    async def _async_heat_pump(self, conf: dict[str, Any], now: datetime, merged_solar_points: list) -> tuple[list[float], dict[str, Any]]:
+    def _hp_controls(self) -> Optional[dict[str, Any]]:
+        """The card's steering controls (entity ids) while both steps are on."""
+        if not self.plan_enabled(HP_STEERING_PLAN):
+            return None
+        ids = {}
+        for name, key in (("day", NUM_HP_DAY_TEMP), ("night", NUM_HP_NIGHT_TEMP), ("delta", NUM_HP_BUFFER_DELTA),
+                          ("day_from", NUM_HP_DAY_FROM), ("night_from", NUM_HP_NIGHT_FROM)):
+            entity = self._numbers.get(key)
+            ids[name] = getattr(entity, "entity_id", None)
+        ids["switch"] = getattr(self.hp_steering_entity, "entity_id", None)
+        ids["on"] = self.hp_steering_on
+        return ids
+
+    def hp_schedule(self, hour0: int, hours: int, tz) -> list[float]:
+        """The day/night temperature per hour from the card's settings."""
+        return heatpump_house.day_night(
+            self.get_number(NUM_HP_DAY_TEMP, 20.5), self.get_number(NUM_HP_NIGHT_TEMP, 19.0),
+            int(self.get_number(NUM_HP_DAY_FROM, 7)), int(self.get_number(NUM_HP_NIGHT_FROM, 22)), hour0, hours, tz,
+        )
+
+    def hp_steering_active(self, conf: dict[str, Any]) -> bool:
+        return (
+            self.plan_enabled(HP_STEERING_PLAN) and self.hp_steering_on
+            and (conf.get(CONF_HP_SETPOINT_ENTITY) or "").startswith("climate.")
+        )
+
+    async def _async_hp_steer(self, conf: dict[str, Any], now: datetime, tz, attribute: dict[str, Any]) -> None:
+        """Step 2, steering (as of 2026.10.17; on in Configure and on the
+        card): the thermostat follows the day/night temperatures - plus the
+        buffer plan (warmer in cheap/sunny hours, cooler in expensive ones,
+        within the range) once the hour-by-hour model passed its self-check.
+        A change by hand wins until the next day/night switch. Switched off:
+        back to the plain day/night temperature once, then left alone."""
+        entity_id = conf.get(CONF_HP_SETPOINT_ENTITY) or ""
+        if not entity_id.startswith("climate."):
+            return
+        steer = self.hp.steer
+        state = self.hass.states.get(entity_id)
+        try:
+            current = float(state.attributes.get("temperature")) if state else None
+        except (TypeError, ValueError):
+            current = None
+        hour0 = int(now.replace(minute=0, second=0, microsecond=0).timestamp())
+        schedule = self.hp_schedule(hour0, 48, tz)
+        if not self.hp_steering_active(conf):
+            if steer.get("last_set") is not None and current is not None and abs(current - steer["last_set"]) <= 0.05 \
+                    and abs(current - schedule[0]) > 0.05:
+                await self._async_set_climate(entity_id, schedule[0])
+                _LOGGER.info("ESS Manager (%s): steering off - thermostat back to %.1f", self.entry.title, schedule[0])
+            self.hp.steer = {}
+            return
+        if state is None or state.state in ("off", "unavailable", "unknown") or current is None:
+            return
+        if steer.get("override_until"):
+            if now.timestamp() < steer["override_until"]:
+                return
+            steer.pop("override_until", None)
+            steer.pop("last_set", None)
+        last = steer.get("last_set")
+        if last is not None and abs(current - last) > 0.05:
+            switch = next((hour0 + i * 3600 for i in range(1, len(schedule)) if schedule[i] != schedule[i - 1]), hour0 + 12 * 3600)
+            steer["override_until"] = switch
+            steer.pop("last_set", None)
+            _LOGGER.info("ESS Manager (%s): thermostat changed by hand - steering waits until the next day/night switch", self.entry.title)
+            return
+        house = attribute.get("house_model") or {}
+        desired = house.get("setpoint_now")
+        if desired is None:
+            desired = schedule[0]
+        step = state.attributes.get("target_temp_step") or 0.5
+        try:
+            step = float(step)
+        except (TypeError, ValueError):
+            step = 0.5
+        desired = round(round(desired / step) * step, 2)
+        if abs(current - desired) > 0.05:
+            await self._async_set_climate(entity_id, desired)
+            _LOGGER.info("ESS Manager (%s): steering - thermostat %.1f -> %.1f", self.entry.title, current, desired)
+        steer["last_set"] = desired
+
+    async def _async_set_climate(self, entity_id: str, temperature: float) -> None:
+        await self.hass.services.async_call(
+            "climate", "set_temperature", {"entity_id": entity_id, "temperature": temperature}, blocking=True
+        )
+
+    async def _async_heat_pump(
+        self, conf: dict[str, Any], now: datetime, merged_solar_points: list, prices: Optional[dict[str, list[float]]] = None
+    ) -> tuple[list[float], dict[str, Any]]:
         tz = dt_util.get_default_time_zone()
         today = now.astimezone(tz).date()
         meter = hp_meter(conf)
@@ -683,7 +809,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if sp_entity.startswith("climate."):
             st = self.hass.states.get(sp_entity)
             demand = heatpump.climate_demand(st.state, dict(st.attributes)) if st else None
-        self.hp.sample(now, tz, t_out, wind, wind_dir, setpoint, indoor, sun_today, demand)
+        heat_ids, _ = hp_energy_entities(conf)
+        heat_vals = [_state_in_unit(self.hass, e, ("Wh",), 0.001) for e in heat_ids]
+        heat_kwh = sum(heat_vals) if heat_vals and all(v is not None for v in heat_vals) else None
+        self.hp.sample(now, tz, t_out, wind, wind_dir, setpoint, indoor, sun_today, demand, heat_kwh)
         # forecast
         weather = await self._async_hp_weather(conf, now, tz)
         sun_by_day: dict[str, float] = {}
@@ -699,7 +828,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         total, attribute, used = self.hp.compute(
             meter, now, tz, hour0, FORECAST_HOURS, weather, sun_by_day,
             int(conf.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS)), setpoint, with_cooling=True,
-            indoor=indoor, hourly_weather=hourly,
+            indoor=indoor, hourly_weather=hourly, prices=prices,
+            steering=self.hp_steering_active(conf),
+            schedule=self.hp_schedule(hour0, 48, tz) if self.hp_steering_active(conf) else None,
+            buffer_delta=self.get_number(NUM_HP_BUFFER_DELTA, 1.0),
+            hourly_model=bool(conf.get(CONF_HP_HOURLY_ENABLED)),
         )
         subtract = used and meter != HP_METER_NONE
         if subtract != self.hp.subtract:
@@ -710,6 +843,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if meter != HP_METER_NONE and not self._usage_hp_subtracted:
             total = None
         attribute["weather_days"] = len(weather)
+        try:
+            await self._async_hp_steer(conf, now, tz, attribute)
+        except Exception as err:  # noqa: BLE001 - a thermostat that refuses: the planning goes on
+            _LOGGER.warning("ESS Manager (%s): thermostat not set: %s", self.entry.title, err)
+        if "house_model" in attribute:
+            attribute["house_model"]["steer"] = dict(self.hp.steer)
+            attribute["house_model"]["controls"] = self._hp_controls()
         return total, attribute
 
     # -- usage forecast sources ---------------------------------------------------
@@ -1211,7 +1351,15 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # forecast.
         hp_attribute = None
         if hp_meter(conf):
-            hp_total, hp_attribute = await self._async_heat_pump(conf, now, merged_solar_points)
+            day_start = int(dt_util.start_of_local_day(now).timestamp())
+            hour0 = int(now.replace(minute=0, second=0, microsecond=0).timestamp())
+            per_day = len(today_price) or 24
+            hp_prices = {
+                "buy": heatpump_house.hourly_prices(buy_price, per_day, day_start, hour0, 48),
+                "sell": heatpump_house.hourly_prices(all_price, per_day, day_start, hour0, 48),
+                "surplus": [max(v, 0.0) for v in net_energy[:48]],
+            }
+            hp_total, hp_attribute = await self._async_heat_pump(conf, now, merged_solar_points, hp_prices)
             if hp_total and any(hp_total):
                 usage_forecast = [round(max(u + h, 0.0), 3) for u, h in zip(usage_forecast, hp_total)]
                 net_energy = forecasting.build_net_energy(solar_forecast, usage_forecast)

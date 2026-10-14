@@ -3893,6 +3893,145 @@ _rt8.set_setpoints({"2026-10-10": 20.6})
 _rt8.merge([{"d": "2026-10-10", "e": 3.0, "t": 9.0}], _hp_today)
 check("heat pump runtime: the thermostat's wanted temperature per day from its history goes into the rows",
       _rt8.journal[0].get("sp") == 20.6)
+# 2026.10.17 (also): the house hour by hour (heatpump_house)
+heatpump_house = _load("heatpump_house")
+_hh = heatpump_house
+
+
+def _hh_house(days=60, seed=3, sun_scale=1.0):
+    rnd = _rnd.Random(seed)
+    true = {"a": 0.03, "k": 0.02, "g": 0.12, "kw": 0.001, "ks": 0.08 * sun_scale, "tau": 3.0}
+    prof = [20.5] * 24
+    for hh_ in range(18, 23):
+        prof[hh_] = 21.5
+    start = int(datetime(2026, 10, 16, tzinfo=_tzA).timestamp())
+    ind, out, heat, wnd, sn, cop = {}, {}, {}, {}, {}, {}
+    t, hist, w = 20.5, [0.0] * 11, _hh.kernel(3.0)
+    for i in range(days * 24):
+        h = start + i * 3600
+        lt = datetime.fromtimestamp(h, _tzA)
+        day = i // 24
+        tout = 4 + 4 * _m.sin(day * 0.5) + 3 * _m.sin((lt.hour - 9) / 24 * 2 * _m.pi) + rnd.gauss(0, 0.5)
+        wd = abs(rnd.gauss(3, 2))
+        s = max(0.0, 2.5 * _m.sin((lt.hour - 7) / 10 * _m.pi)) * (0.3 + 0.7 * rnd.random()) if 7 <= lt.hour <= 17 else 0.0
+        tgt = prof[lt.hour]
+        prev = sum(w[j] * hist[-j] for j in range(1, 12))
+        loss = true["k"] * (tgt - tout) + true["kw"] * wd * (tgt - tout) - true["ks"] * s - true["a"]
+        q = max(0.0, min((loss + 0.3 * (tgt - t) - true["g"] * prev) / (true["g"] * w[0]), 4.0))
+        q = max(0.0, q * (1 + rnd.gauss(0, 0.1)))
+        c = 3.5 + 0.08 * tout
+        ind[h], out[h], wnd[h], sn[h] = round(t + rnd.gauss(0, 0.03), 2), round(tout, 2), round(wd, 2), round(s, 3)
+        heat[h], cop[h] = round(q / c, 3), round(c + rnd.gauss(0, 0.1), 2)
+        lag = w[0] * q + prev
+        d = t - tout
+        t = t + true["a"] - true["k"] * d - true["kw"] * wd * d + true["ks"] * s + true["g"] * lag + rnd.gauss(0, 0.02)
+        hist = (hist + [q])[-11:]
+    return ind, out, heat, wnd, sn, cop, prof
+
+
+_hi, _ho, _hq, _hw, _hs, _hc, _hprof = _hh_house()
+_hcop = _hh.fit_cop(_hc, _ho, _hq)
+check("house hourly: the COP by the outdoor temperature from the COP sensor",
+      _hcop is not None and abs(_hcop["c0"] - 3.5) < 0.1 and abs(_hcop["c1"] - 0.08) < 0.01
+      and _hh.cop_at(_hcop, 100) == _hh.COP_MAX and _hh.cop_at(None, 5) == 1.0)
+_hfit = _hh.fit_house(_hi, _ho, _hq, _hw, _hs, None, _hcop)
+check("house hourly: cooling, heating per kWh of heat (with the floor's delay), wind and sun learned",
+      _hfit is not None and abs(_hfit["k"] - 0.02) < 0.003 and abs(_hfit["g"] - 0.12) < 0.015
+      and _hfit["tau"] == 3.0 and abs(_hfit["ks"] - 0.08) < 0.015 and _hfit["thermal"])
+_hday = _date(2026, 12, 15)
+_hlearn = _hh.learn(_hi, _ho, _hq, _hw, _hs, None, _hc, _tzA, _hday, _hprof, [1 / 24] * 24)
+_hrev = _hlearn["review"]
+check("house hourly: the self-check on the newest 14 heating days (fitted on the days before) passes against a flat pattern",
+      _hrev["days"] == 14 and _hrev["passed"] and _hrev["hour_error_kwh"] < 0.9 * _hrev["pattern_error_kwh"]
+      and _hrev["temp_error_c"] < 0.3)
+_hfew = _hh.learn({h: v for h, v in _hi.items() if h > max(_hi) - 9 * 86400}, _ho, _hq, _hw, _hs, None, _hc, _tzA, _hday, _hprof, [1 / 24] * 24)
+check("house hourly: with too few test days the self-check doesn't pass - shadow, not used",
+      _hfew["review"]["days"] < _hh.MIN_TEST_DAYS and not _hfew["review"]["passed"]
+      and _hh.stage_of(None, None, True) == "learning" and _hh.stage_of(_hfit, {"passed": False}, True) == "shadow"
+      and _hh.stage_of(_hfit, {"passed": True}, False) == "used" and _hh.stage_of(_hfit, {"passed": True}, True) == "steering")
+_h0h = int(datetime(2026, 12, 15, 8, tzinfo=_tzA).timestamp())
+_hin = [(2 + 3 * _m.sin((datetime.fromtimestamp(_h0h + i * 3600, _tzA).hour - 9) / 24 * 2 * _m.pi), 3.0, 0.0) for i in range(48)]
+_htg = _hh.targets(_hprof, None, _h0h, 48, _tzA)
+_ht, _hqq = _hh.simulate(_hfit, 20.5, _hin, _htg, [0.5] * 11, _hcop)
+check("house hourly: the emulated heat pump keeps the house near its usual temperature (and heats more for the evening)",
+      len(_ht) == 49 and len(_hqq) == 48 and max(abs(a - b) for a, b in zip(_ht[24:48], _htg[24:48])) < 1.1 and max(_hqq[8:16]) >= max(_hqq[16:24])
+      and all(0 <= q <= _hfit["qmax"] for q in _hqq))
+_hcold, _ = _hh.simulate(_hfit, 21.0, [(0.0, 0.0, 0.0)] * 24, None, [0.0] * 11, _hcop, fixed_q=[0.0] * 24)
+check("house hourly: without heating the house cools", _hcold[-1] < 21.0 - 2.0)
+check("house hourly: the targets follow the usual profile, moved to the expected level (a holiday)",
+      _hh.targets(_hprof, 16.0, _h0h, 24, _tzA)[10] == round(21.5 - (sum(_hprof) / 24 - 16.0), 2)
+      and _hh.targets(None, None, _h0h, 3, _tzA, 20.0) == [20.0] * 3 and _hh.targets(None, None, _h0h, 3, _tzA) is None)
+_htot = [0.5] * 60
+_hre = _hh.reshape(_htot, _hqq, 0.1, _h0h, _tzA, [])
+check("house hourly: the planning's hours placed by the simulation, each day's kWh kept (a day past it untouched)",
+      abs(sum(_hre[:16]) - sum(_htot[:16])) < 0.01 and abs(sum(_hre[16:40]) - sum(_htot[16:40])) < 0.01
+      and _hre[40:] == _htot[40:] and _hre[:16] != _htot[:16])
+_hbuy = [0.40 if 17 <= datetime.fromtimestamp(_h0h + i * 3600, _tzA).hour <= 22 else
+         (0.10 if 11 <= datetime.fromtimestamp(_h0h + i * 3600, _tzA).hour <= 15 else 0.25) for i in range(36)]
+_hadv = _hh.preheat_advice(_hfit, _hcop, 20.5, _hin, _htg, [0.5] * 11, _hbuy, [b * 0.8 for b in _hbuy], [0.0] * 36)
+check("house hourly: preheating advised in the cheap afternoon before the expensive evening",
+      _hadv is not None and 11 <= datetime.fromtimestamp(_h0h + _hadv["start"] * 3600, _tzA).hour <= 15
+      and _hadv["saving"] >= _hh.MIN_SAVING and _hadv["extra_kwh"] > 0)
+check("house hourly: flat prices -> no advice; too few prices -> none",
+      _hh.preheat_advice(_hfit, _hcop, 20.5, _hin, _htg, [0.5] * 11, [0.25] * 36, [0.2] * 36, [0.0] * 36) is None
+      and _hh.preheat_advice(_hfit, _hcop, 20.5, _hin, _htg, [0.5] * 11, _hbuy[:6], _hbuy[:6], []) is None)
+_hds = int(datetime(2026, 12, 15, tzinfo=_tzA).timestamp())
+check("house hourly: hourly prices from quarter-hour prices",
+      _hh.hourly_prices([0.1, 0.2, 0.3, 0.4] * 48, 96, _hds, _hds + 3600, 3) == [0.25, 0.25, 0.25]
+      and len(_hh.hourly_prices([0.1] * 96, 96, _hds, _hds + 20 * 3600, 10)) == 4)
+# runtime
+_rt9 = heatpump_runtime.HeatPumpRuntime()
+_rt9.merge(_hpj, _hp_today)
+_rt9.house = {"model": _hfit, "cop": _hcop, "review": dict(_hrev), "day": "2026-10-13"}
+_hw9 = [(_hin[i % 48][0], 3.0, 0.0) for i in range(121)]
+_buy9 = [0.40 if 17 <= datetime.fromtimestamp(_h0 + i * 3600, _tzA).hour <= 22 else
+         (0.10 if 11 <= datetime.fromtimestamp(_h0 + i * 3600, _tzA).hour <= 15 else 0.25) for i in range(36)]
+_t9p, _a9p, _ = _rt9.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6, setpoint=20.5, indoor=20.6, hourly_weather=_hw9)
+_rt9.house["review"]["passed"] = False
+_t9s, _a9s, _ = _rt9.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6, setpoint=20.5, indoor=20.6, hourly_weather=_hw9)
+check("house runtime: passed -> 'used', the planning's hours placed by the simulation (same total); not passed -> 'shadow', the pattern",
+      _a9p["house_model"]["stage"] == "used" and _a9s["house_model"]["stage"] == "shadow"
+      and abs(sum(_t9p) - sum(_t9s)) < 0.05 and _t9p != _t9s
+      and len(_a9s["house_model"]["forecast"]["temps"]) == 49)
+_rt9.house["review"]["passed"] = True
+_sched9 = _hh.day_night(21.0, 19.0, 7, 22, _h0, 48, _tzA)
+_t9a, _a9a, _ = _rt9.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6, setpoint=20.5, indoor=20.6,
+                             hourly_weather=_hw9, prices={"buy": _buy9, "sell": _buy9, "surplus": []}, steering=True,
+                             schedule=_sched9, buffer_delta=1.0)
+_hm9 = _a9a["house_model"]
+check("house runtime: steering - the day/night temperatures with the buffer plan on top (warmer in the cheap afternoon)",
+      _hm9["stage"] == "steering" and (_hm9["plan"]["boost"] or _hm9["plan"]["dip"])
+      and _hm9["plan"]["saving"] >= _hh.MIN_SAVING
+      and _hm9["setpoint_now"] == _sched9[0] + _hm9["plan"]["offset_now"]
+      and max(_hm9["forecast"]["target"]) <= 22.0 and min(_hm9["forecast"]["target"]) >= 18.0)
+_rt9.house["review"]["passed"] = False
+_, _a9n, _ = _rt9.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6, setpoint=20.5, indoor=20.6,
+                          hourly_weather=_hw9, prices={"buy": _buy9, "sell": _buy9, "surplus": []}, steering=True,
+                          schedule=_sched9, buffer_delta=1.0)
+check("house runtime: steering before the self-check passed - only the plain day/night temperatures, no buffer",
+      _a9n["house_model"]["stage"] == "shadow" and "plan" not in _a9n["house_model"]
+      and _a9n["house_model"]["setpoint_now"] == _sched9[0])
+_rt9.house["review"]["passed"] = True
+_, _a9off, _ = _rt9.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6, setpoint=20.5, indoor=20.6,
+                            hourly_weather=_hw9, hourly_model=False)
+check("house runtime: step 1 off -> no hour-by-hour model at all", "house_model" not in _a9off)
+check("house hourly: day/night temperatures per hour (also with the night past midnight)",
+      _hh.day_night(21, 18, 7, 22, _hds, 24, _tzA)[6:8] == [18, 21] and _hh.day_night(21, 18, 7, 22, _hds, 24, _tzA)[22] == 18
+      and _hh.day_night(21, 18, 22, 6, _hds, 24, _tzA)[23] == 21 and _hh.day_night(21, 18, 22, 6, _hds, 24, _tzA)[12] == 18)
+_hbase = _hh.day_night(21.0, 19.0, 7, 22, _h0h, 48, _tzA)
+_hplan = _hh.plan_buffer(_hfit, _hcop, 20.5, _hin, _hbase, [0.5] * 11, _hbuy, _hbuy, [0.0] * 36, 1.0)
+check("house hourly: the buffer plan - warmer before the expensive evening, cooler in it, within the range",
+      _hplan["boost"] is not None and _hplan["dip"] is not None
+      and 17 <= datetime.fromtimestamp(_h0h + _hplan["dip"]["start"] * 3600, _tzA).hour <= 22
+      and set(_hplan["offsets"]) <= {-1.0, 0.0, 1.0} and _hplan["saving"] >= 2 * _hh.MIN_SAVING)
+check("house hourly: no range or flat prices -> no buffering",
+      _hh.plan_buffer(_hfit, _hcop, 20.5, _hin, _hbase, [0.5] * 11, _hbuy, _hbuy, [], 0.0) is None
+      and _hh.plan_buffer(_hfit, _hcop, 20.5, _hin, _hbase, [0.5] * 11, [0.25] * 36, [0.2] * 36, [], 1.0)["saving"] == 0.0)
+_rt10 = heatpump_runtime.HeatPumpRuntime()
+for _mi, _kwh in ((0, 100.0), (30, 100.4), (61, 100.9), (125, 101.5), (250, 102.0)):
+    _rt10.sample(datetime(2026, 10, 13, 10, 0, tzinfo=_tzA) + timedelta(minutes=_mi), _tzA, heat_kwh=_kwh)
+check("heat pump runtime: the heating meter's rise per hour recorded live (an hour skipped is left out)",
+      _rt10.heat_hist == {str(_h10): 0.9, str(_h10 + 3600): 0.6})
 _rt3_hp = heatpump_runtime.HeatPumpRuntime()
 _rt3_hp.restore(_rt_hp.as_store())
 check("heat pump runtime: the store round-trips", _rt3_hp.as_store() == _rt_hp.as_store())

@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta, tzinfo
 from typing import Any, Optional
 
 from . import heatpump as hp
+from . import heatpump_house as hh
 
 # days the card shows; the forecast itself covers every hour it can
 CARD_DAYS = 5
@@ -51,6 +52,15 @@ class HeatPumpRuntime:
         self.demand: dict[str, float] = {}
         self.setpoints: dict[str, float] = {}
         self._hour: Optional[list[float]] = None
+        # the house hour by hour (heatpump_house, as of 2026.10.17): the daily
+        # round's result {model, cop, review, day}; the heating electricity per
+        # hour recorded live {epoch: kWh}
+        self.house: Optional[dict[str, Any]] = None
+        self.heat_hist: dict[str, float] = {}
+        # steering (as of 2026.10.17): {last_set, override_until}
+        self.steer: dict[str, Any] = {}
+        self._heat_acc: Optional[list[float]] = None
+        self._plan_cache: Optional[tuple] = None
 
     # -- store ---------------------------------------------------------------
     def restore(self, data: Optional[dict[str, Any]]) -> None:
@@ -67,6 +77,9 @@ class HeatPumpRuntime:
         self.indoor_hist = dict(data.get("indoor_hist") or {})
         self.demand = dict(data.get("demand") or {})
         self.setpoints = dict(data.get("setpoints") or {})
+        self.house = data.get("house")
+        self.heat_hist = dict(data.get("heat_hist") or {})
+        self.steer = dict(data.get("steer") or {})
         self.dirty = True
 
     def as_store(self) -> dict[str, Any]:
@@ -83,6 +96,9 @@ class HeatPumpRuntime:
             "indoor_hist": self.indoor_hist,
             "demand": self.demand,
             "setpoints": self.setpoints,
+            "house": self.house,
+            "heat_hist": self.heat_hist,
+            "steer": self.steer,
         }
 
     def reset(self, key: str) -> None:
@@ -101,6 +117,8 @@ class HeatPumpRuntime:
         self.indoor_hist = {}
         self.demand = {}
         self.setpoints = {}
+        self.house = None
+        self.heat_hist = {}
         self.dirty = True
 
     # -- data in ---------------------------------------------------------------
@@ -165,6 +183,7 @@ class HeatPumpRuntime:
         indoor: Optional[float] = None,
         sun_today: Optional[float] = None,
         demand: Optional[bool] = None,
+        heat_kwh: Optional[float] = None,
     ) -> None:
         """One cycle's live readings, averaged per day. When the day changes,
         the finished day's averages go into its journal row (only what the
@@ -206,6 +225,19 @@ class HeatPumpRuntime:
             # the thermostat's heat demand (2026.10.17): share of the samples
             lv["dem_n"] = lv.get("dem_n", 0) + 1
             lv["dem_yes"] = lv.get("dem_yes", 0) + (1 if demand else 0)
+        if heat_kwh is not None:
+            # the heating meter's reading: its rise per hour into heat_hist
+            hour = int(now.timestamp()) // hp.HOUR * hp.HOUR
+            acc = self._heat_acc
+            if acc is not None and acc[0] != hour:
+                if hour - acc[0] == hp.HOUR:
+                    self.heat_hist[str(int(acc[0]))] = round(max(float(heat_kwh) - acc[1], 0.0), 3)
+                acc = None
+            if acc is None:
+                self._heat_acc = [hour, float(heat_kwh)]
+            cutoff = now.timestamp() - 3 * 86400
+            if len(self.heat_hist) > 80:
+                self.heat_hist = {k: v for k, v in self.heat_hist.items() if int(k) >= cutoff}
         lv["first"] = lv.get("first") or now.timestamp()
         lv["last"] = now.timestamp()
 
@@ -251,6 +283,80 @@ class HeatPumpRuntime:
                 row[k] = v
         self.dirty = True
 
+    # -- the house hour by hour (as of 2026.10.17) ---------------------------------
+    def q_hist(self, hour0_epoch: int, t_out: Optional[float]) -> list[float]:
+        """The heat of the 11 hours before hour0 (oldest first) - as the
+        house model counts it (heat with a COP model, else electricity)."""
+        house = self.house or {}
+        model, copm = house.get("model"), house.get("cop")
+        cop = hh.cop_at(copm, t_out) if model and model.get("thermal") else 1.0
+        return [self.heat_hist.get(str(hour0_epoch - j * hp.HOUR), 0.0) * cop for j in range(hh.LAG_HOURS - 1, 0, -1)]
+
+    @staticmethod
+    def _window(win, hour0_epoch, tz):
+        if not win:
+            return None
+        return {**win, "from": datetime.fromtimestamp(hour0_epoch + win["start"] * hp.HOUR, tz).isoformat(),
+                "until": datetime.fromtimestamp(hour0_epoch + (win["start"] + win["hours"]) * hp.HOUR, tz).isoformat()}
+
+    def _house_forecast(self, now, tz, hour0_epoch, hours, total, indoor, hourly, profile, level, model,
+                        prices, steering, meter, usable, schedule=None, delta=0.0) -> dict[str, Any]:
+        house = self.house or {}
+        hm, copm, rev = house.get("model"), house.get("cop"), house.get("review")
+        stage = hh.stage_of(hm, rev, steering)
+        out: dict[str, Any] = {
+            "stage": stage,
+            "review": rev,
+            "fitted_day": house.get("day"),
+            "model": hm,
+            "cop": ({"c0": copm["c0"], "c1": copm["c1"], "at_7": round(hh.cop_at(copm, 7.0), 2),
+                     "at_minus_2": round(hh.cop_at(copm, -2.0), 2), "hours": copm["n"]} if copm else None),
+            "steer": self.steer,
+        }
+        # measured: the last 24 hours
+        out["measured"] = [[int(k), v] for k, v in sorted(self.indoor_hist.items(), key=lambda kv: int(kv[0]))
+                           if int(k) >= hour0_epoch - 24 * hp.HOUR]
+        if not hm or indoor is None or not hourly:
+            return out
+        n = min(hh.FORECAST_HOURS, len(hourly), hours)
+        inputs = hourly[:n]
+        t_out = inputs[0][0] if inputs else None
+        if schedule:
+            # steering: the day/night temperatures, the buffer plan on top
+            # once the model passed its self-check (worked out once an hour)
+            target = list(schedule[:n])
+            plan = None
+            if stage == hh.STAGE_STEERING and prices and prices.get("buy"):
+                key = (hour0_epoch, house.get("day"), tuple(schedule[:n]), delta, round(indoor, 1))
+                if self._plan_cache and self._plan_cache[0][:3] == key[:3] and self._plan_cache[0][3] == delta:
+                    plan = self._plan_cache[1]
+                else:
+                    plan = hh.plan_buffer(hm, copm, indoor, inputs, target, self.q_hist(hour0_epoch, t_out),
+                                          prices["buy"], prices.get("sell") or prices["buy"], prices.get("surplus") or [], delta)
+                    self._plan_cache = (key, plan)
+            if plan:
+                for i, o in enumerate(plan["offsets"]):
+                    target[i] = round(target[i] + o, 2)
+                out["plan"] = {
+                    **{k: plan[k] for k in ("saving", "cost")},
+                    "boost": self._window(plan.get("boost"), hour0_epoch, tz),
+                    "dip": self._window(plan.get("dip"), hour0_epoch, tz),
+                    "offset_now": plan["offsets"][0] if plan["offsets"] else 0.0,
+                }
+            out["setpoint_now"] = target[0] if target else None
+        else:
+            target = hh.targets(profile, level, hour0_epoch, n, tz)
+        if not target:
+            return out
+        temps, q = hh.simulate(hm, indoor, inputs, target, self.q_hist(hour0_epoch, t_out), copm)
+        out["forecast"] = {"start": hour0_epoch, "temps": temps, "kwh": q, "target": target[:len(q)]}
+        if stage in (hh.STAGE_USED, hh.STAGE_STEERING) and usable and meter != hp.METER_NONE and len(q) >= 24:
+            base_hour = max(model["coef"][0], 0.0) / 24.0 if model else 0.0
+            placed = hh.reshape(total, q, base_hour, hour0_epoch, tz, [])
+            out["placed"] = placed
+        return out
+        return out
+
     # -- every cycle ---------------------------------------------------------------
     def refit(self, today: date, with_cooling: bool) -> None:
         if self.dirty or self.fitted_day != today.isoformat() or self.model is None:
@@ -272,6 +378,11 @@ class HeatPumpRuntime:
         with_cooling: bool = False,
         indoor: Optional[float] = None,
         hourly_weather: Optional[list[tuple[Optional[float], Optional[float], Optional[float]]]] = None,
+        prices: Optional[dict[str, list[float]]] = None,
+        steering: bool = False,
+        schedule: Optional[list[float]] = None,
+        buffer_delta: float = 0.0,
+        hourly_model: bool = True,
     ) -> tuple[list[float], dict[str, Any], bool]:
         """(the heat pump's energy per forecast hour - for the 'none' metering
         the difference to add to the usual forecast -, the Status sensor's
@@ -342,6 +453,19 @@ class HeatPumpRuntime:
                     if day.get("kwh") is not None and day["d"] in per_day:
                         day["kwh"] = round(max(day["kwh"] + per_day[day["d"]], 0.0), 2)
 
+        # the house hour by hour: forecast, self-check, placement, advice
+        house_attr = None
+        if hourly_model:
+            house_attr = self._house_forecast(
+                now, tz, hour0_epoch, hours, total, indoor, hourly_weather or [], profile,
+                day_indoor if day_indoor is not None else (setpoint if setpoint is not None else None),
+                model, prices, steering, meter, usable, schedule, buffer_delta,
+            )
+            if house_attr.get("placed"):
+                total = house_attr.pop("placed")
+            else:
+                house_attr.pop("placed", None)
+
         card_days = []
         for day in days_out[:CARD_DAYS] if days_out else [{"d": d.isoformat(), "kwh": None} for d in days[:CARD_DAYS]]:
             card_days.append({
@@ -404,6 +528,8 @@ class HeatPumpRuntime:
                 "until": until,
                 "kwh": changed if effect else None,
             }
+        if house_attr is not None:
+            attribute["house_model"] = house_attr
         if model:
             attribute["model"] = hp.summary(model)
             attribute["points"] = hp.points(self.journal, today, left_out=model.get("left_out"))

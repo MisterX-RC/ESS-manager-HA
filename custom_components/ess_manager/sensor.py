@@ -480,4 +480,9 @@ class EssManagerHeatPumpSensor(CoordinatorEntity[EssManagerCoordinator], SensorE
             # as of 2026.10.16 (also): the house's cooling and its own heat now
             "thermal": hp.get("thermal"),
             "house": hp.get("house"),
+            # the house hour by hour (2026.10.17)
+            "hourly_stage": (hp.get("house_model") or {}).get("stage"),
+            "hourly_review": (hp.get("house_model") or {}).get("review"),
+            "cop": (hp.get("house_model") or {}).get("cop"),
+            "steering_setpoint": (hp.get("house_model") or {}).get("setpoint_now"),
         }

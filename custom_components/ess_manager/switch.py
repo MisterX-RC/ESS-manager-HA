@@ -22,7 +22,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, HP_STEERING_PLAN
 from .coordinator import EssManagerCoordinator
 from .visibility import async_sync_visibility
 
@@ -32,7 +32,10 @@ async def async_setup_entry(
 ) -> None:
     coordinator: EssManagerCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     device_info = hass.data[DOMAIN][entry.entry_id]["device_info"]
-    async_add_entities([EssManagerAutomaticControlSwitch(coordinator, entry, device_info)])
+    async_add_entities([
+        EssManagerAutomaticControlSwitch(coordinator, entry, device_info),
+        EssManagerHeatPumpSteeringSwitch(coordinator, entry, device_info),
+    ])
 
 
 class EssManagerAutomaticControlSwitch(SwitchEntity, RestoreEntity):
@@ -91,4 +94,52 @@ class EssManagerAutomaticControlSwitch(SwitchEntity, RestoreEntity):
         await self._coordinator.controller.async_idle(
             self._coordinator.control_settings(), "automatic control switched off", force=True
         )
+        await self._coordinator.async_request_refresh()
+
+
+class EssManagerHeatPumpSteeringSwitch(SwitchEntity, RestoreEntity):
+    """Heat pump steering (as of 2026.10.17): on, ESS Manager sets the
+    thermostat (day/night temperature, the house as a buffer once the
+    hour-by-hour model passed its self-check). Only there while both heat
+    pump steps are on in Configure (hidden otherwise); off by default; on the
+    heat pump card."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Heat pump steering"
+    _attr_icon = "mdi:home-thermometer-outline"
+
+    def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
+        self._coordinator = coordinator
+        self._attr_unique_id = f"{entry.entry_id}_heat_pump_steering"
+        self._attr_device_info = device_info
+        self._attr_is_on = False
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in ("on", "off"):
+            self._attr_is_on = last_state.state == "on"
+        self._coordinator.hp_steering_on = bool(self._attr_is_on)
+        self._coordinator.hp_steering_entity = self
+        self.async_on_remove(self._coordinator.async_add_listener(self._handle_coordinator_update))
+        self._async_sync_visibility()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._async_sync_visibility()
+
+    @callback
+    def _async_sync_visibility(self) -> None:
+        async_sync_visibility(self, self._coordinator.plan_enabled(HP_STEERING_PLAN))
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        self._attr_is_on = True
+        self._coordinator.hp_steering_on = True
+        self.async_write_ha_state()
+        await self._coordinator.async_request_refresh()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        self._attr_is_on = False
+        self._coordinator.hp_steering_on = False
+        self.async_write_ha_state()
         await self._coordinator.async_request_refresh()

@@ -53,6 +53,39 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   indoor temperatures it works as before (with the wanted temperature).
 - **Heat pump: the thermostat's wanted temperature per day from its
   history** (the recorder's last ~10 days), not only recorded live.
+- **Heat pump: the house hour by hour - step 1 (forecast).** Switch on "Step
+  1" on the heat pump page in Configure. The model then also learns how the
+  indoor temperature follows the outdoor temperature, wind, sun and the heat
+  put in, with the floor's delay (its time constant found by itself), and -
+  with the new optional COP sensor - what the heat pump makes of a kWh at
+  which outdoor temperature. It forecasts the indoor temperature and the
+  heating per hour 48 hours ahead (the heat pump emulated keeping the house
+  on its usual temperature per hour). Every day it checks itself: the
+  newest 14 heating days played again with their measured weather, with a
+  model fitted on the days before. Only when it places the energy per hour
+  clearly better than the usual hourly pattern (at most 90 % of its error)
+  and follows the measured indoor temperature (within 0.6 °C) does the
+  battery planning use it - and it drops back to the pattern by itself when
+  that's no longer so. Each day's kWh stays the energy signature's; only
+  the hours change. New card tab **Indoor**: measured and expected indoor
+  temperature, the target, the heating per hour, the self-check's figures,
+  COP, floor delay.
+- **Heat pump: steering - step 2.** Switch on "Step 2" in Configure (needs
+  step 1 and a thermostat); then the card's Indoor tab has a steering
+  switch, a day and a night temperature with their times, and a buffer
+  range. Steering on: ESS Manager sets the thermostat to the day/night
+  temperature, and once step 1 has passed its self-check also uses the
+  house as a buffer within the range - warmer in cheap or sunny hours (an
+  evening boost before a cold night), cooler in the most expensive ones,
+  each only when it saves at least 0.10 (a cooler window only counts the
+  energy it moves to cheaper hours, being colder isn't a saving). Worked
+  out once an hour with the prices, the solar surplus, the COP at each
+  hour's temperature and how long the house holds its heat. A change by
+  hand on the thermostat wins until the next day/night switch; switched
+  off, the thermostat goes back to the plain day/night temperature once.
+  New entities (shown only with both steps on): switch **Heat pump
+  steering** (off by default) and numbers **Heat pump day temperature**,
+  **night temperature**, **buffer range**, **day from**, **night from**.
 - **Heat pump: a meter jump** (a day far off the model - six times the usual
   spread, at least 3 kWh and more than the model itself) is left out and the
   model fitted again without it.

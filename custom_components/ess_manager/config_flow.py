@@ -47,6 +47,11 @@ from .const import (
     CONF_HP_METER,
     CONF_HP_OUTDOOR_ENTITY,
     CONF_HP_SETPOINT_ENTITY,
+    CONF_HP_COP_ENTITY,
+    CONF_HP_BUFFER_ENABLED,
+    DEFAULT_HP_BUFFER_ENABLED,
+    CONF_HP_HOURLY_ENABLED,
+    DEFAULT_HP_HOURLY_ENABLED,
     CONF_HP_TOTAL_ENTITY,
     CONF_HP_WEATHER_ENTITY,
     CONF_HP_WIND_DIR_ENTITY,
@@ -400,6 +405,14 @@ def _hp_schema(defaults: dict[str, Any], meter: str) -> vol.Schema:
             vol.Optional(CONF_HP_SETPOINT_ENTITY, default=defaults.get(CONF_HP_SETPOINT_ENTITY)): _optional_entity_selector(
                 ["climate", "sensor", "number", "input_number"]
             ),
+            # as of 2026.10.17
+            vol.Optional(CONF_HP_COP_ENTITY, default=defaults.get(CONF_HP_COP_ENTITY)): _optional_entity_selector(),
+            vol.Optional(
+                CONF_HP_HOURLY_ENABLED, default=defaults.get(CONF_HP_HOURLY_ENABLED, DEFAULT_HP_HOURLY_ENABLED)
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_HP_BUFFER_ENABLED, default=defaults.get(CONF_HP_BUFFER_ENABLED, DEFAULT_HP_BUFFER_ENABLED)
+            ): selector.BooleanSelector(),
         }
     )
     return vol.Schema(fields)
@@ -585,6 +598,7 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
         CONF_HP_WIND_DIR_ENTITY,
         CONF_HP_INDOOR_ENTITY,
         CONF_HP_SETPOINT_ENTITY,
+        CONF_HP_COP_ENTITY,
     ):
         if key in data and not data.get(key):
             data[key] = None

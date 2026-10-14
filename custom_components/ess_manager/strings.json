@@ -110,7 +110,15 @@
           "hp_wind_entity": "Wind speed (optional)",
           "hp_wind_dir_entity": "Wind direction in degrees (optional)",
           "hp_indoor_entity": "Indoor temperature (optional - without it, a thermostat's own temperature)",
-          "hp_setpoint_entity": "Wanted temperature - a thermostat (climate) or a sensor/number (optional)"
+          "hp_setpoint_entity": "Wanted temperature - a thermostat (climate) or a sensor/number (optional)",
+          "hp_cop_entity": "COP of the heat pump (optional)",
+          "hp_buffer_enabled": "Step 2: steering - ESS Manager may set the thermostat (switched on and off on the heat pump card)",
+          "hp_hourly_enabled": "Step 1: the house hour by hour - its forecast feeds the planning once it has proven itself"
+        },
+        "data_description": {
+          "hp_cop_entity": "With it the model learns the COP by the outdoor temperature: what a kWh of heat costs at which hour.",
+          "hp_buffer_enabled": "Needs step 1 and a thermostat (climate entity). On the card: steering on/off, a day and a night temperature with their times, and the range the house may be warmer or cooler as a buffer (warmer in cheap or sunny hours, cooler in expensive ones) - the buffer only once step 1 has passed its self-check. A change by hand on the thermostat wins until the next day/night switch.",
+          "hp_hourly_enabled": "Learns how the indoor temperature follows the weather and the heat put in (with the floor's delay) and forecasts it 48 hours ahead. Every day it checks itself against the measurements; only when it places the energy per hour better than the usual pattern does the planning use it - and it falls back by itself when it gets worse."
         }
       },
       "control": {
@@ -254,7 +262,15 @@
           "hp_wind_entity": "Wind speed (optional)",
           "hp_wind_dir_entity": "Wind direction in degrees (optional)",
           "hp_indoor_entity": "Indoor temperature (optional - without it, a thermostat's own temperature)",
-          "hp_setpoint_entity": "Wanted temperature - a thermostat (climate) or a sensor/number (optional)"
+          "hp_setpoint_entity": "Wanted temperature - a thermostat (climate) or a sensor/number (optional)",
+          "hp_cop_entity": "COP of the heat pump (optional)",
+          "hp_buffer_enabled": "Step 2: steering - ESS Manager may set the thermostat (switched on and off on the heat pump card)",
+          "hp_hourly_enabled": "Step 1: the house hour by hour - its forecast feeds the planning once it has proven itself"
+        },
+        "data_description": {
+          "hp_cop_entity": "With it the model learns the COP by the outdoor temperature: what a kWh of heat costs at which hour.",
+          "hp_buffer_enabled": "Needs step 1 and a thermostat (climate entity). On the card: steering on/off, a day and a night temperature with their times, and the range the house may be warmer or cooler as a buffer (warmer in cheap or sunny hours, cooler in expensive ones) - the buffer only once step 1 has passed its self-check. A change by hand on the thermostat wins until the next day/night switch.",
+          "hp_hourly_enabled": "Learns how the indoor temperature follows the weather and the heat put in (with the floor's delay) and forecasts it 48 hours ahead. Every day it checks itself against the measurements; only when it places the energy per hour better than the usual pattern does the planning use it - and it falls back by itself when it gets worse."
         }
       },
       "control": {

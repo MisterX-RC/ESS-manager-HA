@@ -115,6 +115,19 @@ const I18N = {
     hp_house_warm_long: (d, ref, kwh) => `House ${d} warmer than ${ref}: it keeps that heat for the coming days (${kwh} less).`,
     hp_house_cold: (d, ref, kwh) => `House ${d} colder than ${ref}: ${kwh} extra to warm it up, in the coming hours.`,
     hp_at_indoor: (t) => `at ${t} °C indoor`, hp_warmer_t: "A degree warmer inside",
+    hp_tab_indoor: "Indoor",
+    hp_stage_learning: "Hour-by-hour model: still learning", hp_stage_shadow: "Hour-by-hour model: watching along (the planning uses the usual pattern)",
+    hp_stage_used: "Hour-by-hour model: used for the planning", hp_stage_steering: "Hour-by-hour model: used, steering the thermostat",
+    hp_review: (d, a, b, t) => `Self-check over ${d} heating days: energy per hour ±${a} kWh (usual pattern ±${b}), indoor ±${t} °C.`,
+    hp_review_wait: (d) => `Self-check waits for enough heating days (${d} of 10).`,
+    hp_measured_in: "measured", hp_expected_in: "expected", hp_target_in: "target", hp_heat_kwh: "heating kWh",
+    hp_plan_boost: (a, b) => `Warmer ${a}–${b}`, hp_plan_dip: (a, b) => `cooler ${a}–${b}`, hp_plan_saving: (v) => `saves about ${v}`,
+    hp_cop_t: "COP at 7 / −2 °C", hp_cop_unit: "learned from the COP sensor", hp_floor_t: "Floor delay", hp_floor_unit: "time constant",
+    hp_heatup_t: "Heat-up", hp_heatup_unit_th: "per 10 kWh of heat", hp_heatup_unit_el: "per 10 kWh",
+    hp_steering: "Steering", hp_on: "On", hp_off_short: "Off", hp_day_t: "Day temperature", hp_night_t: "Night temperature",
+    hp_day_from_t: "Day from", hp_night_from_t: "Night from", hp_hour: "h", hp_delta_t: "Buffer range (±)",
+    hp_steer_wait: "Steering follows the day/night temperatures; the buffer starts once the hour-by-hour model has passed its self-check.",
+    hp_override: (t) => `Thermostat changed by hand - steering waits until ${t}.`,
     hp_left_out: "left out", hp_heating_classes: "Temperature ranges with 3+ heating days",
     hp_left_out_note: (c, o, n) => [n ? `${n} cool day${n === 1 ? "" : "s"} without heat demand from the thermostat` : "", c ? `${c} cool day${c === 1 ? "" : "s"} on which the house lived on its stored heat (it cooled while the heat pump hardly heated)` : "", o ? `${o} day${o === 1 ? "" : "s"} far off the model (a meter jump)` : ""].filter(Boolean).join(", ") + " left out of the model.",
     hp_ref_usual: "usual at this time", hp_ref_wanted: "wanted", hp_floor: (h) => `floor keeps heating ${h} h`,
@@ -202,6 +215,19 @@ const I18N = {
     hp_house_warm_long: (d, ref, kwh) => `Huis ${d} warmer dan ${ref}: houdt die warmte de komende dagen vast (${kwh} minder).`,
     hp_house_cold: (d, ref, kwh) => `Huis ${d} kouder dan ${ref}: ${kwh} extra om op te warmen, de komende uren.`,
     hp_at_indoor: (t) => `bij ${t} °C binnen`, hp_warmer_t: "Graad warmer binnen",
+    hp_tab_indoor: "Binnen",
+    hp_stage_learning: "Uurmodel: leert nog", hp_stage_shadow: "Uurmodel: kijkt mee (de planning gebruikt het gebruikelijke patroon)",
+    hp_stage_used: "Uurmodel: gebruikt voor de planning", hp_stage_steering: "Uurmodel: gebruikt, stuurt de thermostaat",
+    hp_review: (d, a, b, t) => `Zelfcontrole over ${d} stookdagen: energie per uur ±${a} kWh (gebruikelijk patroon ±${b}), binnen ±${t} °C.`,
+    hp_review_wait: (d) => `Zelfcontrole wacht op genoeg stookdagen (${d} van 10).`,
+    hp_measured_in: "gemeten", hp_expected_in: "verwacht", hp_target_in: "doel", hp_heat_kwh: "verwarming kWh",
+    hp_plan_boost: (a, b) => `Warmer ${a}–${b}`, hp_plan_dip: (a, b) => `koeler ${a}–${b}`, hp_plan_saving: (v) => `bespaart ongeveer ${v}`,
+    hp_cop_t: "COP bij 7 / −2 °C", hp_cop_unit: "geleerd van de COP-sensor", hp_floor_t: "Vertraging vloer", hp_floor_unit: "tijdconstante",
+    hp_heatup_t: "Opwarmen", hp_heatup_unit_th: "per 10 kWh warmte", hp_heatup_unit_el: "per 10 kWh",
+    hp_steering: "Sturing", hp_on: "Aan", hp_off_short: "Uit", hp_day_t: "Temperatuur overdag", hp_night_t: "Temperatuur 's nachts",
+    hp_day_from_t: "Dag vanaf", hp_night_from_t: "Nacht vanaf", hp_hour: "uur", hp_delta_t: "Bufferbereik (±)",
+    hp_steer_wait: "De sturing volgt de dag- en nachttemperatuur; de buffer begint zodra het uurmodel zijn zelfcontrole heeft gehaald.",
+    hp_override: (t) => `Thermostaat met de hand aangepast - de sturing wacht tot ${t}.`,
     hp_left_out: "weggelaten", hp_heating_classes: "Temperatuurklassen met 3+ stookdagen",
     hp_left_out_note: (c, o, n) => [n ? `${n} koele dag${n === 1 ? "" : "en"} zonder warmtevraag van de thermostaat` : "", c ? `${c} koele dag${c === 1 ? "" : "en"} waarop het huis op zijn opgeslagen warmte teerde (het koelde af terwijl de warmtepomp nauwelijks stookte)` : "", o ? `${o} dag${o === 1 ? "" : "en"} ver naast het model (een meetsprong)` : ""].filter(Boolean).join(", ") + " niet meegenomen in het model.",
     hp_ref_usual: "gebruikelijk om deze tijd", hp_ref_wanted: "gewenst", hp_floor: (h) => `vloer warmt ${h} uur na`,
@@ -2579,7 +2605,7 @@ const HP_CSS = `
   .hp-chip { font-size: 12px; padding: 2px 8px; border-radius: 10px; font-weight: 600; flex-shrink: 0; }
   .hp-progress { position: relative; height: 8px; border-radius: 4px; background: rgba(127,127,127,.3); margin-top: 6px; }
   .hp-progress i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--hp); }
-  .hp-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 22px; background: rgba(127,127,127,.14); }
+  .hp-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; padding: 4px; border-radius: 22px; background: rgba(127,127,127,.14); }
   .hp-tabs button { min-height: 40px; border-radius: 18px; border: 0; background: transparent; color: inherit; font: inherit; font-size: 14px; cursor: pointer; }
   .hp-tabs button[aria-selected="true"] { background: var(--hp); color: #2a160a; font-weight: 600; }
   .hp-days { display: flex; flex-direction: column; gap: 6px; }
@@ -2601,6 +2627,11 @@ const HP_CSS = `
   .hp-row span:nth-child(5) { font-size: 12px; color: var(--secondary-text-color, #a0a0a0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .hp-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--secondary-text-color, #a0a0a0); }
   .hp-legend span { display: flex; align-items: center; gap: 6px; }
+  .hp-ctl { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; background: rgba(127,127,127,.12); font-size: 13px; }
+  .hp-ctl .val { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .hp-ctl button, .hp-toggle { min-width: 36px; min-height: 36px; border-radius: 18px; border: 0; background: rgba(127,127,127,.22); color: inherit; font: inherit; font-size: 18px; cursor: pointer; }
+  .hp-toggle { padding: 0 16px; font-size: 14px; font-weight: 600; }
+  .hp-toggle[aria-pressed="true"] { background: var(--hp); color: #2a160a; }
   .hp-note { font-size: 12px; line-height: 17px; color: var(--secondary-text-color, #8f8f8f); }
   @container (max-width: 400px) { .hp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 `;
@@ -2687,9 +2718,11 @@ class EssManagerHeatPumpCard extends EssChartCard {
         <button type="button" role="tab" data-tab="forecast" aria-selected="${tab === "forecast"}">${esc(this._t("hp_tab_forecast"))}</button>
         <button type="button" role="tab" data-tab="signature" aria-selected="${tab === "signature"}">${esc(this._t("hp_tab_signature"))}</button>
         <button type="button" role="tab" data-tab="memory" aria-selected="${tab === "memory"}">${esc(this._t("hp_tab_memory"))}</button>
+        ${hp.house_model ? `<button type="button" role="tab" data-tab="indoor" aria-selected="${tab === "indoor"}">${esc(this._t("hp_tab_indoor"))}</button>` : ""}
       </div>`;
     if (tab === "signature") html += this._signature(hp, opt);
     else if (tab === "memory") html += this._memory(hp);
+    else if (tab === "indoor" && hp.house_model) html += this._indoor(hp, opt);
     else html += this._forecast(hp, opt);
     if (setCardContent(this, css, html)) {
       this.shadowRoot.querySelectorAll("[data-tab]").forEach((el) =>
@@ -2697,6 +2730,23 @@ class EssManagerHeatPumpCard extends EssChartCard {
           this._tab = el.getAttribute("data-tab");
           this._essInner = null;
           this._render();
+        })
+      );
+      // steering controls (2026.10.17)
+      this.shadowRoot.querySelectorAll("[data-step]").forEach((el) =>
+        el.addEventListener("click", () => {
+          const id = el.getAttribute("data-entity");
+          const st = this._hass.states[id];
+          if (!st) return;
+          const step = Number(st.attributes.step) || 0.5;
+          let v = Number(st.state) + Number(el.getAttribute("data-step")) * step;
+          v = Math.min(Number(st.attributes.max ?? v), Math.max(Number(st.attributes.min ?? v), v));
+          this._hass.callService("number", "set_value", { entity_id: id, value: Math.round(v * 10) / 10 });
+        })
+      );
+      this.shadowRoot.querySelectorAll("[data-toggle]").forEach((el) =>
+        el.addEventListener("click", () => {
+          this._hass.callService("switch", "toggle", { entity_id: el.getAttribute("data-toggle") });
         })
       );
     }
@@ -2753,6 +2803,92 @@ class EssManagerHeatPumpCard extends EssChartCard {
     }
     const text = h.until && h.hours < 72 ? this._t("hp_house_warm")(d, ref, this._when(h.until), kwh) : this._t("hp_house_warm_long")(d, ref, kwh);
     return `<div class="hp-banner house">${icon("home", "var(--hp)", 18)}<div>${esc(text)}</div></div>`;
+  }
+
+  _indoor(hp, opt) {
+    // the house hour by hour (2026.10.17): measured, forecast, the target
+    const hm = hp.house_model;
+    const stageText = this._t("hp_stage_" + (hm.stage || "learning"));
+    const rev = hm.review || {};
+    let html = `<div class="hp-banner${hm.stage === "used" || hm.stage === "steering" ? " house" : ""}">${icon("home", "var(--hp)", 18)}<div><b>${esc(stageText)}</b>`;
+    if (rev.hour_error_kwh != null) {
+      html += `<br>${esc(this._t("hp_review")(rev.days, this._num(rev.hour_error_kwh, 2), this._num(rev.pattern_error_kwh, 2), this._num(rev.temp_error_c, 1)))}`;
+    } else if (hm.stage !== "learning") {
+      html += `<br>${esc(this._t("hp_review_wait")(rev.days || 0))}`;
+    }
+    html += "</div></div>";
+    const fc = hm.forecast;
+    if (fc && fc.temps && fc.temps.length > 1) {
+      const w = this._chartWidth();
+      const h = 220;
+      const left = 34, right = 30, top = 10, bottom = 24;
+      const t0 = fc.start * 1000;
+      const meas = (hm.measured || []).map(([e, v]) => [e * 1000, v]);
+      const fpts = fc.temps.map((v, i) => [t0 + i * 3600000, v]);
+      const tg = (fc.target || []).map((v, i) => [t0 + i * 3600000, v]);
+      const xs = meas.map((p) => p[0]).concat(fpts.map((p) => p[0]));
+      const xMin = Math.min(...xs), xMax = Math.max(...xs);
+      const vals = meas.map((p) => p[1]).concat(fpts.map((p) => p[1]), tg.map((p) => p[1]));
+      const yMin = Math.floor(Math.min(...vals) - 0.5), yMax = Math.ceil(Math.max(...vals) + 0.5);
+      const qMax = Math.max(1, ...(fc.kwh || []));
+      const X = (t) => left + ((t - xMin) / Math.max(xMax - xMin, 1)) * (w - left - right);
+      const Y = (v) => top + (1 - (v - yMin) / Math.max(yMax - yMin, 0.1)) * (h - top - bottom);
+      const QY = (q) => h - bottom - (q / qMax) * (h - top - bottom) * 0.35;
+      let svg = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(this._t("hp_tab_indoor"))}" style="display:block">`;
+      for (let v = yMin; v <= yMax; v += 1) {
+        svg += `<line x1="${left}" y1="${Y(v).toFixed(1)}" x2="${w - right}" y2="${Y(v).toFixed(1)}" stroke="rgba(127,127,127,.18)"></line>`;
+        svg += `<text x="${left - 6}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`;
+      }
+      const bw = Math.max(1, (w - left - right) / Math.max((xMax - xMin) / 3600000, 1) - 1);
+      (fc.kwh || []).forEach((q, i) => {
+        const x = X(t0 + i * 3600000);
+        svg += `<rect x="${x.toFixed(1)}" y="${QY(q).toFixed(1)}" width="${bw.toFixed(1)}" height="${(h - bottom - QY(q)).toFixed(1)}" fill="${opt.hp_color}" fill-opacity=".35"></rect>`;
+      });
+      svg += `<text x="${w - right + 4}" y="${(h - bottom).toFixed(1)}" text-anchor="start">0</text><text x="${w - right + 4}" y="${(QY(qMax) + 4).toFixed(1)}" text-anchor="start">${this._num(qMax, 1)}</text>`;
+      const path = (pts) => pts.map(([t, v], i) => `${i ? "L" : "M"} ${X(t).toFixed(1)} ${Y(v).toFixed(1)}`).join(" ");
+      if (tg.length) svg += `<path d="${path(tg)}" fill="none" stroke="rgba(160,160,160,.9)" stroke-width="1.5" stroke-dasharray="4 4"></path>`;
+      if (meas.length > 1) svg += `<path d="${path(meas)}" fill="none" stroke="${opt.hp_color}" stroke-width="2"></path>`;
+      svg += `<path d="${path(fpts)}" fill="none" stroke="var(--primary-text-color,#f0f0f0)" stroke-width="2"></path>`;
+      svg += `<line x1="${X(t0).toFixed(1)}" y1="${top}" x2="${X(t0).toFixed(1)}" y2="${h - bottom}" stroke="rgba(127,127,127,.6)"></line>`;
+      const f = formats(this._hass);
+      for (let t = Math.ceil(xMin / 21600000) * 21600000; t <= xMax; t += 21600000) {
+        svg += `<text x="${X(t).toFixed(1)}" y="${h - 6}" text-anchor="middle">${esc(f.time(t))}</text>`;
+      }
+      svg += "</svg>";
+      html += `<div class="chart" style="height:${h}px">${svg}</div>`;
+      html += `<div class="hp-legend"><span><i style="display:inline-block;width:14px;height:2px;background:${opt.hp_color}"></i>${esc(this._t("hp_measured_in"))}</span><span><i style="display:inline-block;width:14px;height:2px;background:var(--primary-text-color,#f0f0f0)"></i>${esc(this._t("hp_expected_in"))}</span><span><i style="display:inline-block;width:14px;height:0;border-top:2px dashed #a0a0a0"></i>${esc(this._t("hp_target_in"))}</span><span><i style="display:inline-block;width:10px;height:8px;background:${opt.hp_color};opacity:.4"></i>${esc(this._t("hp_heat_kwh"))}</span></div>`;
+    }
+    const plan = hm.plan;
+    if (plan && (plan.boost || plan.dip)) {
+      const f = formats(this._hass);
+      const parts = [];
+      if (plan.boost) parts.push(this._t("hp_plan_boost")(f.time(Date.parse(plan.boost.from)), f.time(Date.parse(plan.boost.until))));
+      if (plan.dip) parts.push(this._t("hp_plan_dip")(f.time(Date.parse(plan.dip.from)), f.time(Date.parse(plan.dip.until))));
+      html += `<div class="hp-banner house">${icon("bolt", "var(--hp)", 18)}<div>${esc(parts.join(" · "))} - ${esc(this._t("hp_plan_saving")(formats(this._hass).money ? formats(this._hass).money(plan.saving) : this._num(plan.saving, 2)))}</div></div>`;
+    }
+    const tiles = [];
+    if (hm.cop) tiles.push([this._t("hp_cop_t"), `${this._num(hm.cop.at_7, 1)} / ${this._num(hm.cop.at_minus_2, 1)}`, this._t("hp_cop_unit")]);
+    if (hm.model) {
+      tiles.push([this._t("hp_floor_t"), `${this._num(hm.model.tau, 0)} h`, this._t("hp_floor_unit")]);
+      tiles.push([this._t("hp_heatup_t"), `${this._num(hm.model.g * 10, 2)} °C`, this._t(hm.model.thermal ? "hp_heatup_unit_th" : "hp_heatup_unit_el")]);
+    }
+    if (tiles.length) html += `<div class="hp-tiles">${tiles.map(([a, b, c]) => `<div class="hp-tile"><span>${esc(a)}</span><span>${esc(b)}</span><span>${esc(c)}</span></div>`).join("")}</div>`;
+    const c = hm.controls;
+    if (c && c.switch) {
+      const on = this._hass.states[c.switch] && this._hass.states[c.switch].state === "on";
+      html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px"><b>${esc(this._t("hp_steering"))}</b><button type="button" class="hp-toggle" aria-pressed="${on}" data-toggle="${esc(c.switch)}">${esc(this._t(on ? "hp_on" : "hp_off_short"))}</button></div>`;
+      const row = (label, id, unit, digits) => {
+        const st = id && this._hass.states[id];
+        if (!st) return "";
+        return `<div class="hp-ctl"><span>${esc(label)}</span><span class="val"><button type="button" data-step="-1" data-entity="${esc(id)}" aria-label="-">−</button><span style="min-width:56px;text-align:center">${esc(this._num(Number(st.state), digits))} ${esc(unit)}</span><button type="button" data-step="1" data-entity="${esc(id)}" aria-label="+">+</button></span></div>`;
+      };
+      html += row(this._t("hp_day_t"), c.day, "°C", 1) + row(this._t("hp_night_t"), c.night, "°C", 1)
+        + row(this._t("hp_day_from_t"), c.day_from, this._t("hp_hour"), 0) + row(this._t("hp_night_from_t"), c.night_from, this._t("hp_hour"), 0)
+        + row(this._t("hp_delta_t"), c.delta, "°C", 1);
+      if (on && hm.stage !== "steering") html += `<div class="hp-note">${esc(this._t("hp_steer_wait"))}</div>`;
+      if (hm.steer && hm.steer.override_until) html += `<div class="hp-note">${esc(this._t("hp_override")(formats(this._hass).time(hm.steer.override_until * 1000)))}</div>`;
+    }
+    return html;
   }
 
   _forecast(hp, opt) {

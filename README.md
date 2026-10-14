@@ -547,6 +547,41 @@ its usage from the weather**); two pages follow:
   schedule), not the value of this moment - otherwise every day would look
   like the evening (or the night).
 
+**The house hour by hour (step 1) and steering (step 2)** - two switches on
+the heat pump page in Configure, as of 2026.10.17:
+
+- **Step 1, the forecast**: the model also learns how the indoor
+  temperature follows the outdoor temperature, wind, sun and the heat put
+  in - with the floor's delay (its time constant it finds itself) and,
+  with the optional **COP sensor**, the COP by the outdoor temperature (so
+  it counts the heat, not only the electricity). It forecasts the indoor
+  temperature and the heating per hour for 48 hours, the heat pump emulated
+  keeping the house on its usual temperature per hour. **Self-check**: every
+  day the newest 14 heating days are played again with their measured
+  weather, with a model fitted on the days before them: is the energy put
+  in the right hours (compared with the usual hourly pattern, both scaled
+  to the measured day total) and does the house follow the measured
+  temperature with the measured heating? When the energy per hour is
+  clearly better (at most 90 % of the pattern's error) and the indoor
+  temperature within 0.6 °C, the battery planning places the heat pump's
+  hours by the model (each day's kWh stays the energy signature's); when
+  that's no longer so it falls back to the pattern by itself. Nothing to
+  switch by hand.
+- **Step 2, steering** (needs step 1 and a thermostat - a climate entity):
+  on the card a steering switch, a day and a night temperature with the
+  hours they start, and a buffer range. Steering on: the thermostat follows
+  the day/night temperatures; once step 1 has passed its self-check the
+  house is also used as a buffer within the range - warmer in cheap or
+  sunny hours (an evening boost before a cold night), cooler in the most
+  expensive ones - when it saves at least 0.10 over the hours with prices.
+  It weighs the prices, the solar surplus, the COP at each hour's outdoor
+  temperature and how long the house holds its heat, once an hour. A change
+  by hand on the thermostat wins until the next day/night switch; switched
+  off, the thermostat goes back to the plain day/night temperature once and
+  is then left alone. Entities (only with both steps on): **Heat pump
+  steering** (switch, off by default), **Heat pump day temperature**,
+  **night temperature**, **buffer range**, **day from**, **night from**.
+
 The model is on the Status sensor's `heat_pump` attribute and on its own
 diagnostic sensor **Heat pump model** (state active / learning / summer /
 fallback, attributes the figures), hidden while the heat pump is off.
@@ -1098,6 +1133,13 @@ or the kWh extra to warm it up. Three tabs:
   long the floor keeps giving heat when that's longer than 3 hours).
 - **Memory**: per temperature class of 2.5 °C the number of days, the
   measured and the model's mean, and the newest day in it.
+- **Indoor** (with step 1): the measured indoor temperature of the last 24
+  hours, the expected one for the next 48 with the target (dashed) and the
+  heating per hour (bars); the model's stage (learning, watching along,
+  used, steering) with its self-check's figures; the buffer plan (warmer /
+  cooler when, what it saves); COP at 7 and −2 °C, the floor's delay, the
+  heat-up per 10 kWh. With step 2 the steering switch and the day/night
+  temperatures, their hours and the buffer range, with − and + buttons.
 
 | Option | Default | What it does |
 |---|---|---|
