@@ -111,9 +111,10 @@ const I18N = {
     hp_measured_day: "measured day (fainter = older)", hp_expected: "expected",
     hp_outdoor: "outdoor", hp_days: "days", hp_measured: "measured", hp_last: "last", hp_to: "to",
     hp_memory_note: (n, h) => `Frost days of last winter keep counting until a newer day of the same class comes. Journal: ${n} days, ${h} heating days.`,
-    hp_house_warm: (d, when, kwh) => `House ${d} warmer than wanted: expected to heat again from ${when} (${kwh} less).`,
-    hp_house_warm_long: (d, kwh) => `House ${d} warmer than wanted: it keeps that heat for the coming days (${kwh} less).`,
-    hp_house_cold: (d, kwh) => `House ${d} colder than wanted: ${kwh} extra to warm it up, in the coming hours.`,
+    hp_house_warm: (d, ref, when, kwh) => `House ${d} warmer than ${ref}: expected to heat again from ${when} (${kwh} less).`,
+    hp_house_warm_long: (d, ref, kwh) => `House ${d} warmer than ${ref}: it keeps that heat for the coming days (${kwh} less).`,
+    hp_house_cold: (d, ref, kwh) => `House ${d} colder than ${ref}: ${kwh} extra to warm it up, in the coming hours.`,
+    hp_ref_usual: "usual at this time", hp_ref_wanted: "wanted", hp_floor: (h) => `floor keeps heating ${h} h`,
     hp_hold_t: "Heat held", hp_hold_unit: "per \u00b0C indoor", hp_cooling_t: "Cooling", hp_cooling_unit: "at 10 \u00b0C difference, not heating",
     hp_tau: (h) => `time constant ${h} h`, hp_thermal_learning: "House cooling not learned yet: it needs hours in which the heat pump didn't heat (indoor temperature with statistics).",
     ed_hp_color: "Heat pump",
@@ -194,9 +195,10 @@ const I18N = {
     hp_measured_day: "gemeten dag (vager = ouder)", hp_expected: "verwachting",
     hp_outdoor: "buiten", hp_days: "dagen", hp_measured: "gemeten", hp_last: "laatst", hp_to: "tot",
     hp_memory_note: (n, h) => `Vorstdagen van vorige winter tellen mee tot er een nieuwere dag in dezelfde klasse is. Dagboek: ${n} dagen, ${h} stookdagen.`,
-    hp_house_warm: (d, when, kwh) => `Huis ${d} warmer dan gewenst: stookt naar verwachting pas weer vanaf ${when} (${kwh} minder).`,
-    hp_house_warm_long: (d, kwh) => `Huis ${d} warmer dan gewenst: houdt die warmte de komende dagen vast (${kwh} minder).`,
-    hp_house_cold: (d, kwh) => `Huis ${d} kouder dan gewenst: ${kwh} extra om op te warmen, de komende uren.`,
+    hp_house_warm: (d, ref, when, kwh) => `Huis ${d} warmer dan ${ref}: stookt naar verwachting pas weer vanaf ${when} (${kwh} minder).`,
+    hp_house_warm_long: (d, ref, kwh) => `Huis ${d} warmer dan ${ref}: houdt die warmte de komende dagen vast (${kwh} minder).`,
+    hp_house_cold: (d, ref, kwh) => `Huis ${d} kouder dan ${ref}: ${kwh} extra om op te warmen, de komende uren.`,
+    hp_ref_usual: "gebruikelijk om deze tijd", hp_ref_wanted: "gewenst", hp_floor: (h) => `vloer warmt ${h} uur na`,
     hp_hold_t: "Warmte vasthouden", hp_hold_unit: "per \u00b0C binnen", hp_cooling_t: "Afkoelen", hp_cooling_unit: "bij 10 \u00b0C verschil, zonder stoken",
     hp_tau: (h) => `tijdconstante ${h} uur`, hp_thermal_learning: "Afkoelsnelheid van het huis nog niet geleerd: daar zijn uren voor nodig waarin de warmtepomp niet stookte (binnentemperatuur met statistieken).",
     ed_hp_color: "Warmtepomp",
@@ -2737,10 +2739,11 @@ class EssManagerHeatPumpCard extends EssChartCard {
     if (!hp.used || !h || !h.kind || h.kwh == null) return "";
     const d = `${this._num(Math.abs(h.difference_c), 1)} \u00b0C`;
     const kwh = this._kwh(Math.abs(h.kwh));
+    const ref = this._t(h.reference === "usual" ? "hp_ref_usual" : "hp_ref_wanted");
     if (h.kind === "deficit") {
-      return `<div class="hp-banner">${icon("up", HP_WARN, 18)}<div>${esc(this._t("hp_house_cold")(d, kwh))}</div></div>`;
+      return `<div class="hp-banner">${icon("up", HP_WARN, 18)}<div>${esc(this._t("hp_house_cold")(d, ref, kwh))}</div></div>`;
     }
-    const text = h.until && h.hours < 72 ? this._t("hp_house_warm")(d, this._when(h.until), kwh) : this._t("hp_house_warm_long")(d, kwh);
+    const text = h.until && h.hours < 72 ? this._t("hp_house_warm")(d, ref, this._when(h.until), kwh) : this._t("hp_house_warm_long")(d, ref, kwh);
     return `<div class="hp-banner house">${icon("home", "var(--hp)", 18)}<div>${esc(text)}</div></div>`;
   }
 
@@ -2827,7 +2830,8 @@ class EssManagerHeatPumpCard extends EssChartCard {
     const th = hp.thermal;
     if (th) {
       if (th.kwh_per_degree != null) tiles.push([this._t("hp_hold_t"), this._kwh(th.kwh_per_degree), this._t("hp_hold_unit")]);
-      tiles.push([this._t("hp_cooling_t"), `${this._num(th.cooling_per_hour * 10, 2)} \u00b0C/h`, `${this._t("hp_cooling_unit")} \u00b7 ${this._t("hp_tau")(this._num(th.time_constant_h, 0))}`]);
+      const floor = th.floor_hours > 3 ? ` \u00b7 ${this._t("hp_floor")(th.floor_hours)}` : "";
+      tiles.push([this._t("hp_cooling_t"), `${this._num(th.cooling_per_hour * 10, 2)} \u00b0C/h`, `${this._t("hp_cooling_unit")} \u00b7 ${this._t("hp_tau")(this._num(th.time_constant_h, 0))}${floor}`]);
     }
     if (m.mae_14d_kwh != null) tiles.push([this._t("hp_error"), `\u00b1${this._kwh(m.mae_14d_kwh)}`, this._t("hp_per_day")]);
     return `<div style="display:flex;flex-direction:column;gap:10px">

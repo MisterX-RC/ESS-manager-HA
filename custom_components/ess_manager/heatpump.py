@@ -368,6 +368,21 @@ def setpoint_change(journal: list[dict[str, Any]], today: date) -> Optional[floa
 
 
 # -- forecast -----------------------------------------------------------------------
+def typical_setpoint(
+    journal: list[dict[str, Any]], today: date, live_mean: Optional[float] = None, current: Optional[float] = None
+) -> Optional[float]:
+    """The wanted temperature to forecast the coming days with: the mean of
+    the last 7 days' day averages - with a schedule (a little higher in the
+    evening, lower at night) that's what a whole day looks like; the value of
+    this moment would make every day look like this hour. Without days yet:
+    today's average so far, else the current value."""
+    vals = [r["sp"] for r in journal
+            if r.get("sp") is not None and 1 <= (today - date.fromisoformat(r["d"])).days <= 7]
+    if vals:
+        return round(sum(vals) / len(vals), 2)
+    return live_mean if live_mean is not None else current
+
+
 def hourly_shape(journal: list[dict[str, Any]], today: date) -> list[float]:
     """The share of each hour of the day in the day's energy, averaged over
     the last SHAPE_DAYS days (uniform without data)."""
@@ -613,12 +628,50 @@ def state_of(model: Optional[dict[str, Any]], days_out: list[dict[str, Any]], he
 # it's back at the wanted temperature; a colder one needs that heat extra.
 OFF_KWH = 0.05          # an hour with less heating energy than this: not heating
 OFF_HOURS_BEFORE = 3    # ... and the hours before it too (the floor still gives heat)
+OFF_HOURS_LONG = 6      # ... or this many, when the floor measurably gives heat longer
+AFTERGLOW_MIN = 0.01    # degC per hour the house warms more than the cooling says
+PROFILE_DAYS = 14       # the usual indoor temperature per hour over these days
 MIN_DIFF = 2.0          # degC indoor - outdoor, else the cooling drowns in noise
 MIN_THERMAL_ROWS = 48
 SURPLUS_MIN = 0.3       # degC above/below wanted that counts
 DEFICIT_HOURS = 6       # a colder house is heated up over this many hours
 THERMAL_DAYS = 60
 MAX_COAST_HOURS = 72    # the simulation stops here (sun can keep a house warm)
+
+
+def _thermal_rows(indoor, outdoor, heat, before: int) -> list[tuple[int, float, float]]:
+    rows = []
+    for h, tin in indoor.items():
+        nxt = indoor.get(h + HOUR)
+        tout = outdoor.get(h)
+        if nxt is None or tout is None:
+            continue
+        d = tin - tout
+        if d < MIN_DIFF:
+            continue
+        hours = [heat.get(h + HOUR * i) for i in range(-before, 2)]
+        if any(v is None or v >= OFF_KWH for v in hours):
+            continue
+        rows.append((h, nxt - tin, d))
+    return rows
+
+
+def _thermal_x(h: int, d: float, wind, sun, use_wind: bool, use_sun: bool) -> list[float]:
+    x = [1.0, -d]
+    if use_wind:
+        x.append(-(wind.get(h) or 0.0) * d)
+    if use_sun:
+        x.append(sun.get(h) or 0.0)
+    return x
+
+
+def _thermal_lsq(rows, wind, sun, use_wind, use_sun) -> Optional[list[float]]:
+    xs = [_thermal_x(h, d, wind, sun, use_wind, use_sun) for h, _, d in rows]
+    ys = [dy for _, dy, _ in rows]
+    k = len(xs[0])
+    ata = [[sum(x[i] * x[j] for x in xs) for j in range(k)] for i in range(k)]
+    atb = [sum(x[i] * y for x, y in zip(xs, ys)) for i in range(k)]
+    return _solve(ata, atb)
 
 
 def fit_thermal(
@@ -630,38 +683,30 @@ def fit_thermal(
 ) -> Optional[dict[str, Any]]:
     """The house's cooling rate from hours the heat pump didn't heat:
     dT(indoor, next hour) = a - k x d - kw x wind x d + ks x sun, d = indoor -
-    outdoor. None with fewer than MIN_THERMAL_ROWS such hours or an unlikely
-    k (outside 0.001 .. 0.2 per hour)."""
-    rows = []
-    for h, tin in indoor.items():
-        nxt = indoor.get(h + HOUR)
-        tout = outdoor.get(h)
-        if nxt is None or tout is None:
-            continue
-        d = tin - tout
-        if d < MIN_DIFF:
-            continue
-        hours = [heat.get(h + HOUR * i) for i in range(-OFF_HOURS_BEFORE, 2)]
-        if any(v is None or v >= OFF_KWH for v in hours):
-            continue
-        rows.append((h, nxt - tin, d))
+    outdoor. A floor keeps giving heat after the heat pump stops: the hours
+    before count as heating too - OFF_HOURS_BEFORE, or OFF_HOURS_LONG when the
+    house measurably still warms up in the hours between (it then looks like
+    it cools slower than it does). None with fewer than MIN_THERMAL_ROWS such
+    hours or an unlikely k (outside 0.001 .. 0.2 per hour)."""
+    rows = _thermal_rows(indoor, outdoor, heat, OFF_HOURS_BEFORE)
     if len(rows) < MIN_THERMAL_ROWS:
         return None
     use_wind = bool(wind) and sum(1 for h, _, _ in rows if wind.get(h) is not None) >= 0.7 * len(rows)
     use_sun = bool(sun) and sum(1 for h, _, _ in rows if sun.get(h) is not None) >= 0.7 * len(rows)
-    xs, ys = [], []
-    for h, dy, d in rows:
-        x = [1.0, -d]
-        if use_wind:
-            x.append(-(wind.get(h) or 0.0) * d)
-        if use_sun:
-            x.append(sun.get(h) or 0.0)
-        xs.append(x)
-        ys.append(dy)
-    k = len(xs[0])
-    ata = [[sum(x[i] * x[j] for x in xs) for j in range(k)] for i in range(k)]
-    atb = [sum(x[i] * y for x, y in zip(xs, ys)) for i in range(k)]
-    coef = _solve(ata, atb)
+    off_hours = OFF_HOURS_BEFORE
+    long_rows = _thermal_rows(indoor, outdoor, heat, OFF_HOURS_LONG)
+    if len(long_rows) >= MIN_THERMAL_ROWS:
+        coef_long = _thermal_lsq(long_rows, wind, sun, use_wind, use_sun)
+        long_set = {h for h, _, _ in long_rows}
+        between = [(h, dy, d) for h, dy, d in rows if h not in long_set]
+        if coef_long is not None and len(between) >= 12:
+            res = [dy - sum(c * v for c, v in zip(coef_long, _thermal_x(h, d, wind, sun, use_wind, use_sun)))
+                   for h, dy, d in between]
+            mean = sum(res) / len(res)
+            sd = math.sqrt(sum((r - mean) ** 2 for r in res) / max(len(res) - 1, 1))
+            if mean > AFTERGLOW_MIN and mean > 2 * sd / math.sqrt(len(res)):
+                rows, off_hours = long_rows, OFF_HOURS_LONG
+    coef = _thermal_lsq(rows, wind, sun, use_wind, use_sun)
     if coef is None or not 0.001 <= coef[1] <= 0.2:
         return None
     i = 2
@@ -671,9 +716,11 @@ def fit_thermal(
         i += 1
     if use_sun:
         ks = coef[i]
+    ys = [dy for _, dy, _ in rows]
     ymean = sum(ys) / len(ys)
     sst = sum((y - ymean) ** 2 for y in ys)
-    sse = sum((y - sum(c * v for c, v in zip(coef, x))) ** 2 for x, y in zip(xs, ys))
+    sse = sum((dy - sum(c * v for c, v in zip(coef, _thermal_x(h, d, wind, sun, use_wind, use_sun)))) ** 2
+              for h, dy, d in rows)
     return {
         "a": round(coef[0], 5),
         "k": round(coef[1], 5),
@@ -681,7 +728,49 @@ def fit_thermal(
         "ks": round(ks, 5) if ks is not None else None,
         "n": len(rows),
         "r2": round(1 - sse / sst, 3) if sst > 0 else None,
+        "off_hours": off_hours,
     }
+
+
+def indoor_hours(indoor: dict[int, float], tz: tzinfo) -> dict[str, list[Optional[float]]]:
+    """Hourly indoor temperatures per local day: {date: [24 values or None]}."""
+    out: dict[str, list[Optional[float]]] = {}
+    for h, v in indoor.items():
+        if v is None:
+            continue
+        dt = datetime.fromtimestamp(h, tz)
+        out.setdefault(dt.date().isoformat(), [None] * 24)[dt.hour] = round(float(v), 2)
+    return out
+
+
+def heating_dates(model: Optional[dict[str, Any]], journal: list[dict[str, Any]]) -> set[str]:
+    """Days the model counts as heating days (smoothed outdoor temperature at
+    least a degree below the balance temperature)."""
+    if not model:
+        return set()
+    teffs = effective_temps(journal)
+    return {d for d, t in teffs.items() if t <= model["tb"] - 1.0}
+
+
+def indoor_profile(
+    days: dict[str, list[Optional[float]]], heating: set[str], n: int = PROFILE_DAYS
+) -> Optional[list[float]]:
+    """The usual indoor temperature per hour of the day over the newest `n`
+    heating days - a heating schedule (warmer in the evening, cooler at night)
+    is in it. Heating days only: after a summer the house was warm for weeks,
+    that isn't 'usual' for the heating season. None with fewer than 5 such
+    days."""
+    picked = [d for d in sorted(days, reverse=True)
+              if d in heating and sum(1 for v in days[d] if v is not None) >= 20][:n]
+    if len(picked) < 5:
+        return None
+    out = []
+    for hour in range(24):
+        vals = [days[d][hour] for d in picked if days[d][hour] is not None]
+        if not vals:
+            return None
+        out.append(round(sum(vals) / len(vals), 2))
+    return out
 
 
 def stored_kwh_per_degree(thermal: dict[str, Any], model: dict[str, Any]) -> Optional[float]:
@@ -696,28 +785,37 @@ def house_effect(
     thermal: dict[str, Any],
     model: dict[str, Any],
     indoor: float,
-    wanted: float,
+    wanted: Optional[float],
     hourly: list[tuple[Optional[float], Optional[float], Optional[float]]],
+    usual: Optional[list[float]] = None,
 ) -> Optional[dict[str, Any]]:
     """What the house's own heat does to the coming hours. `hourly` = (outdoor,
-    wind, sun) per forecast hour from now. Warmer than wanted: the hours until
-    the indoor temperature is back at the wanted one (simulated with the
-    learned cooling rate), in which the heat pump doesn't heat. Colder: the
-    heat it misses, extra in the first DEFICIT_HOURS hours. None within
-    SURPLUS_MIN of wanted."""
-    diff = indoor - wanted
+    wind, sun) per forecast hour from now; `usual` = the usual indoor
+    temperature for those same hours (indoor_profile). The reference is the
+    usual temperature when known - the forecast's hourly pattern already
+    holds the usual way of heating (an evening boost, a night without), so
+    only what differs from it counts - else the wanted temperature. Warmer
+    than the reference: the hours until the house is back at it (simulated
+    with the learned cooling rate), in which the heat pump doesn't heat.
+    Colder: the heat it misses, extra in the first DEFICIT_HOURS hours. None
+    within SURPLUS_MIN."""
+    use_usual = bool(usual)
+    ref0 = usual[0] if use_usual else wanted
     per_degree = stored_kwh_per_degree(thermal, model)
-    if per_degree is None or abs(diff) < SURPLUS_MIN:
+    if per_degree is None or ref0 is None:
         return None
+    diff = indoor - ref0
+    if abs(diff) < SURPLUS_MIN:
+        return None
+    base = {"surplus_c": round(diff, 1), "reference": "usual" if use_usual else "wanted",
+            "reference_c": round(ref0, 1), "per_degree_kwh": per_degree}
     if diff < 0:
-        return {"kind": "deficit", "surplus_c": round(diff, 1), "hours": DEFICIT_HOURS,
-                "kwh": round(-diff * per_degree, 2), "per_degree_kwh": per_degree}
+        return {"kind": "deficit", "hours": DEFICIT_HOURS, "kwh": round(-diff * per_degree, 2), **base}
     t = indoor
     hours = 0
-    for tout, wind, sun in hourly[:MAX_COAST_HOURS]:
-        if t <= wanted:
-            break
-        if tout is None:
+    for i, (tout, wind, sun) in enumerate(hourly[:MAX_COAST_HOURS]):
+        ref = usual[i] if use_usual and i < len(usual) else ref0
+        if t <= ref or tout is None:
             break
         d = t - tout
         # the fit's own terms: cooling by the difference (more with wind),
@@ -726,8 +824,7 @@ def house_effect(
                 - (thermal.get("ks") or 0.0) * (sun or 0.0) - thermal.get("a", 0.0))
         t -= drop
         hours += 1
-    return {"kind": "surplus", "surplus_c": round(diff, 1), "hours": hours,
-            "kwh": round(diff * per_degree, 2), "per_degree_kwh": per_degree}
+    return {"kind": "surplus", "hours": hours, "kwh": round(diff * per_degree, 2), **base}
 
 
 def apply_house(total: list[float], effect: Optional[dict[str, Any]], base_hour: float) -> tuple[list[float], float]:

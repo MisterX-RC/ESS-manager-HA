@@ -3618,12 +3618,12 @@ _t2, _a2, _u2 = _rt2_hp.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {
 check("heat pump runtime: too little history -> learning, not used, nothing added",
       not _u2 and _a2["state"] == "learning" and sum(_t2) == 0)
 # 2026.10.16 (also): the house's cooling rate and its own heat
-def _house_series(days=60, k=0.025, kw=0.002, ks=0.15, a=0.02, seed=7):
+def _house_series(days=60, k=0.025, kw=0.002, ks=0.15, a=0.02, seed=7, glow=0.0):
     import random as _r
     rnd = _r.Random(seed)
     h0 = int(datetime(2026, 8, 14, 0, 0, tzinfo=_tzA).timestamp())
     indoor, outdoor, heat, wind, sun = {}, {}, {}, {}, {}
-    tin, on = 21.0, False
+    tin, on, since = 21.0, False, 99
     for i in range(days * 24):
         h = h0 + i * 3600
         hod = datetime.fromtimestamp(h, _tzA).hour
@@ -3637,7 +3637,10 @@ def _house_series(days=60, k=0.025, kw=0.002, ks=0.15, a=0.02, seed=7):
         indoor[h], outdoor[h], wind[h], sun[h] = round(tin, 3), round(tout, 2), round(w, 2), round(s, 3)
         heat[h] = 1.5 if on else 0.0
         d = tin - tout
-        tin += a - k * d - kw * w * d + ks * s + (0.6 if on else 0.0) + rnd.gauss(0, 0.01)
+        since = 0 if on else since + 1
+        # a floor still giving heat after the heat pump stopped
+        floor = glow * _m.exp(-since / 3.0) if not on else 0.0
+        tin += a - k * d - kw * w * d + ks * s + (0.6 if on else 0.0) + floor + rnd.gauss(0, 0.01)
     return indoor, outdoor, heat, wind, sun
 
 
@@ -3688,6 +3691,55 @@ check("house runtime: a warmer house takes its heat off the forecast and the car
       and _att_house["house"]["until"] and _att_house["thermal"]["time_constant_h"] == 40.0
       and _att_house["thermal"]["kwh_per_degree"] == _pd)
 _rt_hp.thermal = None
+# a schedule (evening boost, night without) and a floor that keeps giving heat
+check("house: without a floor giving heat long the usual 3 hours count as heating", _th["off_hours"] == 3)
+_gin, _gout, _gheat, _gwind, _gsun = _house_series(glow=0.6)
+_th_glow = heatpump.fit_thermal(_gin, _gout, _gheat, _gwind, _gsun)
+check("house: a floor that measurably keeps giving heat -> 6 hours count as heating, the cooling rate stays right",
+      _th_glow["off_hours"] == 6 and abs(_th_glow["k"] - 0.025) < 0.004)
+_sp_j = [{"d": (_hp_today - timedelta(days=k)).isoformat(), "sp": 20.8} for k in range(1, 9)]
+check("heat pump: the coming days are forecast with the last week's average wanted temperature, not this hour's",
+      heatpump.typical_setpoint(_sp_j, _hp_today, 21.4, 21.5) == 20.8
+      and heatpump.typical_setpoint([], _hp_today, 21.1, 21.5) == 21.1 and heatpump.typical_setpoint([], _hp_today, None, 21.5) == 21.5)
+_sched = [20.5] * 24
+for _hh in range(18, 23):
+    _sched[_hh] = 21.6
+_sched[18], _sched[19] = 20.8, 21.1  # the house follows the boost with a lag
+for _hh in (23, 0, 1, 2, 3, 4, 5):
+    _sched[_hh] = 21.2
+_idays = {}
+for _k in range(1, 21):
+    _dd = (_hp_today - timedelta(days=_k)).isoformat()
+    _idays[_dd] = [v + (0.05 if _k % 2 else -0.05) for v in _sched]
+for _k in range(21, 40):  # summer weeks: warm house, no heating days
+    _idays[(_hp_today - timedelta(days=_k)).isoformat()] = [24.0] * 24
+_heat_days = {(_hp_today - timedelta(days=_k)).isoformat() for _k in range(1, 21)}
+_prof = heatpump.indoor_profile(_idays, _heat_days)
+check("house: the usual indoor temperature per hour from the newest heating days (the schedule in it)",
+      _prof is not None and abs(_prof[20] - 21.6) < 0.06 and abs(_prof[2] - 21.2) < 0.06 and abs(_prof[12] - 20.5) < 0.06)
+_summer_days = {(_hp_today - timedelta(days=_k)).isoformat() for _k in range(21, 40)}
+check("house: warm summer days aren't 'usual' - without heating days no profile",
+      heatpump.indoor_profile(_idays, set()) is None and heatpump.indoor_profile(_idays, _summer_days | {"x"}) is not None)
+_usual20 = [_prof[(20 + i) % 24] for i in range(120)]
+_usual19 = [_prof[(19 + i) % 24] for i in range(120)]
+check("house: the evening boost itself is usual -> no 'colder than wanted' extra (against the wanted temperature it would be)",
+      heatpump.house_effect(_th_fixed, _hpm, 21.1, 21.6, _calm, _usual19) is None
+      and heatpump.house_effect(_th_fixed, _hpm, 21.1, 21.6, _calm)["kind"] == "deficit")
+check("house: the night after the boost is usual too -> no 'warmer than wanted' (against the wanted temperature it would be)",
+      heatpump.house_effect(_th_fixed, _hpm, 21.2, 20.5, _calm, [_prof[(1 + i) % 24] for i in range(120)]) is None
+      and heatpump.house_effect(_th_fixed, _hpm, 21.2, 20.5, _calm)["kind"] == "surplus")
+_eff_autumn = heatpump.house_effect(_th_fixed, _hpm, 23.4, 20.5, _calm, _usual20)
+check("house: out of the summer, 23.4 degC against a usual 21.6 at this hour -> warmer than usual, back on its track later",
+      _eff_autumn["kind"] == "surplus" and _eff_autumn["reference"] == "usual" and _eff_autumn["surplus_c"] == 1.8
+      and _eff_autumn["hours"] > 0 and abs(_eff_autumn["kwh"] - 1.8 * _pd) < 0.05)
+_rt4 = heatpump_runtime.HeatPumpRuntime()
+_rt4.merge(_hpj, _hp_today)
+_rt4.thermal = _th_fixed
+_rt4.indoor_days = {d: v for d, v in _idays.items()}
+_t4, _a4, _ = _rt4.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6, setpoint=21.6, indoor=23.4, hourly_weather=_calm)
+check("house runtime: the usual temperature per hour is the reference once there are heating days with indoor data",
+      _a4["house"]["reference"] == "usual" and _a4["house"]["usual_c"] == 21.6 and _a4["house"]["difference_c"] == 1.8
+      and _a4["house"]["kind"] == "surplus" and len(_a4["house"]["usual_profile"]) == 24)
 _rt3_hp = heatpump_runtime.HeatPumpRuntime()
 _rt3_hp.restore(_rt_hp.as_store())
 check("heat pump runtime: the store round-trips", _rt3_hp.as_store() == _rt_hp.as_store())

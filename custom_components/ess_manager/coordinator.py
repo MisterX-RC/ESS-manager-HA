@@ -507,6 +507,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         heat, cool = hp_energy_entities(conf)
         if not indoor_id or not (heat or cool):
             self.hp.thermal = None
+            self.hp.indoor_days = {}
             return
         start = datetime.combine(today - timedelta(days=heatpump.THERMAL_DAYS), datetime.min.time(), tzinfo=tz)
         end = datetime.combine(today, datetime.min.time(), tzinfo=tz)
@@ -518,6 +519,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         energy = heatpump.add_series(*[deltas.get(e, {}) for e in [*heat, *cool]])
         sun = heatpump.add_series(*[deltas.get(e, {}) for e in solar_ids]) if solar_ids else None
         wind = means.get(conf.get(CONF_HP_WIND_ENTITY)) if conf.get(CONF_HP_WIND_ENTITY) else None
+        # the usual indoor temperature per hour comes from these days
+        self.hp.indoor_days = heatpump.indoor_hours(means.get(indoor_id) or {}, tz)
         self.hp.thermal = heatpump.fit_thermal(
             means.get(indoor_id) or {}, means.get(conf.get(CONF_HP_OUTDOOR_ENTITY)) or {}, energy, wind, sun
         )
@@ -525,8 +528,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.hp.thermal:
             self.hp.thermal["src"] = indoor_id
             _LOGGER.info(
-                "ESS Manager (%s): house cooling learned from %d hours: %.3f per hour (time constant %.0f h)",
-                self.entry.title, self.hp.thermal["n"], self.hp.thermal["k"], 1 / self.hp.thermal["k"],
+                "ESS Manager (%s): house cooling learned from %d hours: %.3f per hour (time constant %.0f h, floor heat %d h)",
+                self.entry.title, self.hp.thermal["n"], self.hp.thermal["k"], 1 / self.hp.thermal["k"], self.hp.thermal["off_hours"],
             )
 
     def _hp_setpoint(self, conf: dict[str, Any]) -> Optional[float]:

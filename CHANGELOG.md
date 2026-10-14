@@ -45,6 +45,15 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   house needs that heat extra in the first hours. The card shows it as a
   notice and two tiles on Signature (heat held, cooling rate / time
   constant); the attributes `thermal` and `house`.
+- **Heat pump: a heating schedule is understood.** The house is compared with
+  its usual indoor temperature at this hour (the last 14 heating days), not
+  with the wanted temperature of the moment - an evening boost so the floor
+  bridges the night is usual and already in the forecast's hourly pattern, so
+  it no longer counts as "colder than wanted" in the evening or "warmer" at
+  night. The coming days are forecast with the last week's average wanted
+  temperature instead of this hour's. And when the floor measurably keeps
+  giving heat longer after the heat pump stops, six hours instead of three
+  count as heating while learning the cooling rate.
 - **Heat pump model** diagnostic sensor, and the Status sensor's `heat_pump`
   attribute.
 

@@ -38,6 +38,9 @@ class HeatPumpRuntime:
         # the house's cooling rate (heatpump.fit_thermal), fitted once a day
         self.thermal: Optional[dict[str, Any]] = None
         self.thermal_day: Optional[str] = None
+        # hourly indoor temperatures of the last THERMAL_DAYS days {date: [24]},
+        # for the usual indoor temperature per hour (heatpump.indoor_profile)
+        self.indoor_days: dict[str, list[Optional[float]]] = {}
 
     # -- store ---------------------------------------------------------------
     def restore(self, data: Optional[dict[str, Any]]) -> None:
@@ -49,6 +52,7 @@ class HeatPumpRuntime:
         self.stats_day = data.get("stats_day")
         self.thermal = data.get("thermal")
         self.thermal_day = data.get("thermal_day")
+        self.indoor_days = dict(data.get("indoor_days") or {})
         self.dirty = True
 
     def as_store(self) -> dict[str, Any]:
@@ -60,6 +64,7 @@ class HeatPumpRuntime:
             "stats_day": self.stats_day,
             "thermal": self.thermal,
             "thermal_day": self.thermal_day,
+            "indoor_days": self.indoor_days,
         }
 
     def reset(self, key: str) -> None:
@@ -73,6 +78,7 @@ class HeatPumpRuntime:
         self.fitted_day = None
         self.thermal = None
         self.thermal_day = None
+        self.indoor_days = {}
         self.dirty = True
 
     # -- data in ---------------------------------------------------------------
@@ -192,8 +198,10 @@ class HeatPumpRuntime:
         days = [today + timedelta(days=i) for i in range((last_day - today).days + 1)]
         heating_days = model["heating_days"] if model else 0
         factor = hp.correction(model, self.journal, today) if model else 1.0
+        # the coming days with a whole day's wanted temperature, not this hour's
+        day_setpoint = hp.typical_setpoint(self.journal, today, self._mean("sp"), setpoint)
         days_out = (
-            hp.forecast_days(model, self.journal, weather, days, self.today_measured(now, tz), sun_by_day, setpoint, factor)
+            hp.forecast_days(model, self.journal, weather, days, self.today_measured(now, tz), sun_by_day, day_setpoint, factor)
             if model else []
         )
         state = hp.state_of(model, days_out[:CARD_DAYS], heating_days)
@@ -227,8 +235,12 @@ class HeatPumpRuntime:
         changed = 0.0
         # (heating season only, and only with the heat pump's own metering -
         # without it there are no hours it didn't heat to learn the cooling from)
-        if state == hp.STATE_ACTIVE and model and self.thermal and indoor is not None and setpoint is not None:
-            effect = hp.house_effect(self.thermal, model, indoor, setpoint, hourly_weather or [])
+        usual = None
+        profile = hp.indoor_profile(self.indoor_days, hp.heating_dates(model, self.journal)) if model and self.indoor_days else None
+        if profile:
+            usual = [profile[datetime.fromtimestamp(hour0_epoch + i * hp.HOUR, tz).hour] for i in range(hours)]
+        if state == hp.STATE_ACTIVE and model and self.thermal and indoor is not None and (usual or setpoint is not None):
+            effect = hp.house_effect(self.thermal, model, indoor, setpoint, hourly_weather or [], usual)
             base_hour = max(model["coef"][0], 0.0) / 24.0
             before = total
             total, changed = hp.apply_house(total, effect, base_hour)
@@ -268,6 +280,7 @@ class HeatPumpRuntime:
             "heating_days": heating_days,
             "heating_days_needed": hp.MIN_HEATING_DAYS,
             "fitted_day": self.fitted_day,
+            "day_setpoint_c": day_setpoint,
             "forecast_120h": total,
         }
         if self.thermal and model:
@@ -275,6 +288,7 @@ class HeatPumpRuntime:
             attribute["thermal"] = {
                 "cooling_per_hour": self.thermal["k"],
                 "time_constant_h": round(1 / self.thermal["k"], 1),
+                "floor_hours": self.thermal.get("off_hours"),
                 "kwh_per_degree": per_degree,
                 "wind_term": self.thermal.get("kw"),
                 "sun_term": self.thermal.get("ks"),
@@ -285,10 +299,14 @@ class HeatPumpRuntime:
             until = None
             if effect and effect["kind"] == "surplus" and effect["hours"]:
                 until = datetime.fromtimestamp(hour0_epoch + effect["hours"] * hp.HOUR, tz).isoformat()
+            ref = usual[0] if usual else setpoint
             attribute["house"] = {
                 "indoor_c": round(indoor, 1) if indoor is not None else None,
                 "wanted_c": setpoint,
-                "difference_c": effect["surplus_c"] if effect else (round(indoor - setpoint, 1) if indoor is not None and setpoint is not None else None),
+                "usual_c": round(usual[0], 1) if usual else None,
+                "usual_profile": profile,
+                "reference": "usual" if usual else ("wanted" if setpoint is not None else None),
+                "difference_c": effect["surplus_c"] if effect else (round(indoor - ref, 1) if indoor is not None and ref is not None else None),
                 "kind": effect["kind"] if effect else None,
                 "hours": effect["hours"] if effect else None,
                 "until": until,
