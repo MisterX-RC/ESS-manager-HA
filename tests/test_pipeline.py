@@ -3617,6 +3617,77 @@ _rt2_hp.merge(_hpj[-12:], _hp_today)
 _t2, _a2, _u2 = _rt2_hp.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6)
 check("heat pump runtime: too little history -> learning, not used, nothing added",
       not _u2 and _a2["state"] == "learning" and sum(_t2) == 0)
+# 2026.10.16 (also): the house's cooling rate and its own heat
+def _house_series(days=60, k=0.025, kw=0.002, ks=0.15, a=0.02, seed=7):
+    import random as _r
+    rnd = _r.Random(seed)
+    h0 = int(datetime(2026, 8, 14, 0, 0, tzinfo=_tzA).timestamp())
+    indoor, outdoor, heat, wind, sun = {}, {}, {}, {}, {}
+    tin, on = 21.0, False
+    for i in range(days * 24):
+        h = h0 + i * 3600
+        hod = datetime.fromtimestamp(h, _tzA).hour
+        tout = 9 + 5 * _m.sin(i / 24 * 0.7) + 3 * _m.sin((hod - 9) / 24 * 2 * _m.pi)
+        w = rnd.uniform(0, 8)
+        s = max(0.0, 3.0 * _m.sin((hod - 6) / 14 * _m.pi)) if 6 <= hod <= 20 else 0.0
+        if tin < 19.5:
+            on = True
+        elif tin > 21.0:
+            on = False
+        indoor[h], outdoor[h], wind[h], sun[h] = round(tin, 3), round(tout, 2), round(w, 2), round(s, 3)
+        heat[h] = 1.5 if on else 0.0
+        d = tin - tout
+        tin += a - k * d - kw * w * d + ks * s + (0.6 if on else 0.0) + rnd.gauss(0, 0.01)
+    return indoor, outdoor, heat, wind, sun
+
+
+_hin, _hout, _hheat, _hwind, _hsun = _house_series()
+_th = heatpump.fit_thermal(_hin, _hout, _hheat, _hwind, _hsun)
+check("house: the cooling rate is learned from the hours the heat pump didn't heat (k, wind, sun)",
+      _th is not None and abs(_th["k"] - 0.025) < 0.004 and abs(_th["kw"] - 0.002) < 0.0008
+      and abs(_th["ks"] - 0.15) < 0.04 and _th["n"] >= 48)
+_pin, _pout, _pheat, _, _ = _house_series(ks=0.0)
+_th_plain = heatpump.fit_thermal(_pin, _pout, _pheat)
+# without the wind series its mean is folded in: 0.025 + 0.002 x 4 m/s
+check("house: without wind statistics the cooling rate is still found (the mean wind folded in)",
+      _th_plain is not None and abs(_th_plain["k"] - 0.033) < 0.004 and _th_plain["kw"] is None)
+check("house: always heating -> nothing to learn",
+      heatpump.fit_thermal(_hin, _hout, {h: 1.0 for h in _hheat}) is None)
+_th_fixed = {"a": 0.0, "k": 0.025, "kw": None, "ks": None, "n": 200}
+_pd = heatpump.stored_kwh_per_degree(_th_fixed, _hpm)
+check("house: heat held per degC = (b / 24) / k", abs(_pd - round(_hpm["coef"][1] / 24 / 0.025, 2)) < 0.01)
+_calm = [(8.0, 0.0, 0.0)] * 120
+_eff = heatpump.house_effect(_th_fixed, _hpm, 24.0, 21.0, _calm)
+# 24 -> 21 at 8 degC outdoor: t(n) = 8 + 16 x 0.975^n -> about 8 hours
+check("house: 3 degC warmer than wanted -> coasts until it's back (simulated), the heat it holds",
+      _eff["kind"] == "surplus" and 7 <= _eff["hours"] <= 9 and abs(_eff["kwh"] - 3 * _pd) < 0.05)
+_eff_cold = heatpump.house_effect(_th_fixed, _hpm, 24.0, 21.0, [(0.0, 0.0, 0.0)] * 120)
+check("house: colder outside -> back sooner", _eff_cold["hours"] < _eff["hours"])
+_eff_def = heatpump.house_effect(_th_fixed, _hpm, 19.0, 21.0, _calm)
+check("house: 2 degC colder -> that heat extra over the first hours",
+      _eff_def["kind"] == "deficit" and _eff_def["hours"] == heatpump.DEFICIT_HOURS and abs(_eff_def["kwh"] - 2 * _pd) < 0.05)
+check("house: within 0.3 degC of wanted -> no effect", heatpump.house_effect(_th_fixed, _hpm, 21.2, 21.0, _calm) is None)
+_ah, _ach = heatpump.apply_house([1.0] * 24, {"kind": "surplus", "hours": 10, "kwh": 3.0}, 0.13)
+check("house: coasting hours keep only the base, at most the heat the house holds",
+      _ach == -3.0 and _ah[0] == 0.13 and _ah[2] == 0.13 and 0.13 < _ah[3] < 1.0 and _ah[4] == 1.0 and _ah[12] == 1.0)
+_ah2, _ach2 = heatpump.apply_house([1.0] * 24, {"kind": "deficit", "hours": 6, "kwh": 3.0}, 0.13)
+check("house: a deficit is spread over its hours", _ach2 == 3.0 and _ah2[0] == 1.5 and _ah2[6] == 1.0)
+_hw = heatpump.hourly_weather(
+    [{"datetime": datetime.fromtimestamp(_h0, _tzA).isoformat(), "temperature": 4.0, "wind_speed": 36.0}],
+    {datetime.fromtimestamp(_h0 + 3600, _tzA).date().isoformat(): {"t": 7.0, "w": 2.0}}, _h0, 3, _tzA, 1 / 3.6, [0.0, 1.0])
+check("house: hourly weather from the hourly forecast, else the day's mean; the solar forecast per hour",
+      _hw[0] == (4.0, 10.0, 0.0) and _hw[1][0] == 7.0 and _hw[1][2] == 1.0 and _hw[2][2] is None)
+_rt_hp.thermal = _th_fixed
+_tot_house, _att_house, _ = _rt_hp.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6, setpoint=21.0,
+                                           indoor=24.0, hourly_weather=_calm)
+_tot_plain, _att_plain, _ = _rt_hp.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6, setpoint=21.0)
+check("house runtime: a warmer house takes its heat off the forecast and the card's days, the attribute says until when",
+      _att_house["house"]["kind"] == "surplus" and _att_house["house"]["kwh"] < 0
+      and abs(sum(_tot_house) - sum(_tot_plain) - _att_house["house"]["kwh"]) < 0.05
+      and abs(sum(d["kwh"] for d in _att_house["days"]) - sum(d["kwh"] for d in _att_plain["days"]) - _att_house["house"]["kwh"]) < 0.05
+      and _att_house["house"]["until"] and _att_house["thermal"]["time_constant_h"] == 40.0
+      and _att_house["thermal"]["kwh_per_degree"] == _pd)
+_rt_hp.thermal = None
 _rt3_hp = heatpump_runtime.HeatPumpRuntime()
 _rt3_hp.restore(_rt_hp.as_store())
 check("heat pump runtime: the store round-trips", _rt3_hp.as_store() == _rt_hp.as_store())

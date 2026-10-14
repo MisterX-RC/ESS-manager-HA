@@ -601,3 +601,190 @@ def state_of(model: Optional[dict[str, Any]], days_out: list[dict[str, Any]], he
     if model.get("r2") is not None and model["r2"] < POOR_R2:
         return STATE_FALLBACK
     return STATE_SUMMER if warm else STATE_ACTIVE
+
+
+# -- the house's heat (as of 2026.10.16) ------------------------------------------------
+# How fast the house cools while the heat pump doesn't heat, learned from the
+# indoor temperature's hourly statistics: per hour the indoor temperature
+# drops by k x (indoor - outdoor) (more with wind, less with sun). With the
+# energy signature's kWh per degree-day (b, electricity) that gives the heat
+# the house holds per degree, as electricity the heat pump doesn't have to
+# use: C = (b / 24) / k kWh per degC. A house warmer than wanted coasts until
+# it's back at the wanted temperature; a colder one needs that heat extra.
+OFF_KWH = 0.05          # an hour with less heating energy than this: not heating
+OFF_HOURS_BEFORE = 3    # ... and the hours before it too (the floor still gives heat)
+MIN_DIFF = 2.0          # degC indoor - outdoor, else the cooling drowns in noise
+MIN_THERMAL_ROWS = 48
+SURPLUS_MIN = 0.3       # degC above/below wanted that counts
+DEFICIT_HOURS = 6       # a colder house is heated up over this many hours
+THERMAL_DAYS = 60
+MAX_COAST_HOURS = 72    # the simulation stops here (sun can keep a house warm)
+
+
+def fit_thermal(
+    indoor: dict[int, float],
+    outdoor: dict[int, float],
+    heat: dict[int, float],
+    wind: Optional[dict[int, float]] = None,
+    sun: Optional[dict[int, float]] = None,
+) -> Optional[dict[str, Any]]:
+    """The house's cooling rate from hours the heat pump didn't heat:
+    dT(indoor, next hour) = a - k x d - kw x wind x d + ks x sun, d = indoor -
+    outdoor. None with fewer than MIN_THERMAL_ROWS such hours or an unlikely
+    k (outside 0.001 .. 0.2 per hour)."""
+    rows = []
+    for h, tin in indoor.items():
+        nxt = indoor.get(h + HOUR)
+        tout = outdoor.get(h)
+        if nxt is None or tout is None:
+            continue
+        d = tin - tout
+        if d < MIN_DIFF:
+            continue
+        hours = [heat.get(h + HOUR * i) for i in range(-OFF_HOURS_BEFORE, 2)]
+        if any(v is None or v >= OFF_KWH for v in hours):
+            continue
+        rows.append((h, nxt - tin, d))
+    if len(rows) < MIN_THERMAL_ROWS:
+        return None
+    use_wind = bool(wind) and sum(1 for h, _, _ in rows if wind.get(h) is not None) >= 0.7 * len(rows)
+    use_sun = bool(sun) and sum(1 for h, _, _ in rows if sun.get(h) is not None) >= 0.7 * len(rows)
+    xs, ys = [], []
+    for h, dy, d in rows:
+        x = [1.0, -d]
+        if use_wind:
+            x.append(-(wind.get(h) or 0.0) * d)
+        if use_sun:
+            x.append(sun.get(h) or 0.0)
+        xs.append(x)
+        ys.append(dy)
+    k = len(xs[0])
+    ata = [[sum(x[i] * x[j] for x in xs) for j in range(k)] for i in range(k)]
+    atb = [sum(x[i] * y for x, y in zip(xs, ys)) for i in range(k)]
+    coef = _solve(ata, atb)
+    if coef is None or not 0.001 <= coef[1] <= 0.2:
+        return None
+    i = 2
+    kw = ks = None
+    if use_wind:
+        kw = coef[i]
+        i += 1
+    if use_sun:
+        ks = coef[i]
+    ymean = sum(ys) / len(ys)
+    sst = sum((y - ymean) ** 2 for y in ys)
+    sse = sum((y - sum(c * v for c, v in zip(coef, x))) ** 2 for x, y in zip(xs, ys))
+    return {
+        "a": round(coef[0], 5),
+        "k": round(coef[1], 5),
+        "kw": round(kw, 6) if kw is not None else None,
+        "ks": round(ks, 5) if ks is not None else None,
+        "n": len(rows),
+        "r2": round(1 - sse / sst, 3) if sst > 0 else None,
+    }
+
+
+def stored_kwh_per_degree(thermal: dict[str, Any], model: dict[str, Any]) -> Optional[float]:
+    """Electricity the house's heat stands for, per degC indoor: (b/24) / k."""
+    b = model["coef"][1]
+    if not thermal or b <= 0:
+        return None
+    return round((b / 24.0) / thermal["k"], 2)
+
+
+def house_effect(
+    thermal: dict[str, Any],
+    model: dict[str, Any],
+    indoor: float,
+    wanted: float,
+    hourly: list[tuple[Optional[float], Optional[float], Optional[float]]],
+) -> Optional[dict[str, Any]]:
+    """What the house's own heat does to the coming hours. `hourly` = (outdoor,
+    wind, sun) per forecast hour from now. Warmer than wanted: the hours until
+    the indoor temperature is back at the wanted one (simulated with the
+    learned cooling rate), in which the heat pump doesn't heat. Colder: the
+    heat it misses, extra in the first DEFICIT_HOURS hours. None within
+    SURPLUS_MIN of wanted."""
+    diff = indoor - wanted
+    per_degree = stored_kwh_per_degree(thermal, model)
+    if per_degree is None or abs(diff) < SURPLUS_MIN:
+        return None
+    if diff < 0:
+        return {"kind": "deficit", "surplus_c": round(diff, 1), "hours": DEFICIT_HOURS,
+                "kwh": round(-diff * per_degree, 2), "per_degree_kwh": per_degree}
+    t = indoor
+    hours = 0
+    for tout, wind, sun in hourly[:MAX_COAST_HOURS]:
+        if t <= wanted:
+            break
+        if tout is None:
+            break
+        d = t - tout
+        # the fit's own terms: cooling by the difference (more with wind),
+        # warming by the sun and by what the house gives off itself (a)
+        drop = (thermal["k"] * d + (thermal.get("kw") or 0.0) * (wind or 0.0) * d
+                - (thermal.get("ks") or 0.0) * (sun or 0.0) - thermal.get("a", 0.0))
+        t -= drop
+        hours += 1
+    return {"kind": "surplus", "surplus_c": round(diff, 1), "hours": hours,
+            "kwh": round(diff * per_degree, 2), "per_degree_kwh": per_degree}
+
+
+def apply_house(total: list[float], effect: Optional[dict[str, Any]], base_hour: float) -> tuple[list[float], float]:
+    """The forecast with the house's own heat in it: coasting hours keep only
+    the base (hot water / standby), at most the heat the house holds; a
+    deficit spreads its kWh over its hours. Returns (forecast, kWh it changed -
+    negative is less)."""
+    if not effect:
+        return total, 0.0
+    out = list(total)
+    changed = 0.0
+    if effect["kind"] == "surplus":
+        budget = effect["kwh"]
+        for h in range(min(effect["hours"], len(out))):
+            cut = min(max(out[h] - base_hour, 0.0), budget)
+            out[h] = round(out[h] - cut, 4)
+            budget -= cut
+            changed -= cut
+            if budget <= 0:
+                break
+    else:
+        n = min(effect["hours"], len(out))
+        if n:
+            add = effect["kwh"] / n
+            for h in range(n):
+                out[h] = round(out[h] + add, 4)
+            changed = effect["kwh"]
+    return out, round(changed, 2)
+
+
+def hourly_weather(
+    hourly: list[dict[str, Any]],
+    weather: dict[str, dict[str, Optional[float]]],
+    hour0: int,
+    hours: int,
+    tz: tzinfo,
+    wind_factor: float = 1.0,
+    sun: Optional[list[Optional[float]]] = None,
+) -> list[tuple[Optional[float], Optional[float], Optional[float]]]:
+    """(outdoor degC, wind m/s, sun kWh) per forecast hour from hour0: the
+    weather entity's hourly forecast where it has the hour, else the day's
+    mean; `sun` = the solar forecast per hour from hour0."""
+    by_hour: dict[int, dict[str, Any]] = {}
+    for f in hourly or []:
+        dt = _parse(f.get("datetime"), tz)
+        if dt is not None and f.get("temperature") is not None:
+            by_hour[int(dt.timestamp()) // HOUR * HOUR] = f
+    out = []
+    for i in range(hours):
+        epoch = hour0 + i * HOUR
+        f = by_hour.get(epoch)
+        day = weather.get(datetime.fromtimestamp(epoch, tz).date().isoformat()) or {}
+        if f is not None:
+            t = float(f["temperature"])
+            w = float(f["wind_speed"]) * wind_factor if f.get("wind_speed") is not None else day.get("w")
+        else:
+            t, w = day.get("t"), day.get("w")
+        s = sun[i] if sun is not None and i < len(sun) else None
+        out.append((t, w, s))
+    return out

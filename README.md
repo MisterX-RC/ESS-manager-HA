@@ -455,8 +455,9 @@ its usage from the weather**); two pages follow:
   long-term statistics; one from the internet, like the heat pump's own, is
   fine), the **weather forecast** (a weather entity: Met.no, Buienradar,
   Open-Meteo, ...; read per day, per hour where it has it) and optionally
-  wind speed, wind direction, indoor temperature and the wanted temperature
-  (a thermostat or a sensor/number).
+  wind speed, wind direction, indoor temperature (with statistics it also
+  teaches the model how fast the house cools - see below) and the wanted
+  temperature (a thermostat or a sensor/number).
 
 **How it works.**
 
@@ -490,6 +491,21 @@ its usage from the weather**); two pages follow:
   weather forecast, the heat pump stays in the household usage as before
   (6-week average). In summer (no heating day in the coming days) only the
   daily base counts.
+- **The house's own heat** (with an indoor temperature that has long-term
+  statistics, and the heat pump's own metering): every day the model learns
+  how fast the house cools from the hours the heat pump didn't heat (the last
+  60 days; the three hours before count as heating too, a floor keeps giving
+  heat): per hour the indoor temperature drops by a share of the difference
+  with outside - more with wind, less with sun (the measured solar
+  production with the Energy dashboard) and what the house gives off itself.
+  With the energy signature that gives the heat the house holds, as heat pump
+  electricity per °C indoor. A house **warmer than wanted** (0.3 °C or more)
+  coasts: with the hourly weather forecast it's worked out when it's back at
+  the wanted temperature, and until then only the base (hot water, standby)
+  is forecast - at most the heat the house holds. Typical for autumn: out of
+  the summer, a warm house while it suddenly gets cold outside. A house
+  **colder than wanted** needs that heat extra, in the first 6 hours. Only in
+  the heating season (not in summer) and only with a wanted temperature.
 
 The model is on the Status sensor's `heat_pump` attribute and on its own
 diagnostic sensor **Heat pump model** (state active / learning / summer /
@@ -1022,7 +1038,10 @@ the model doesn't forecast, the 6-week average it falls back to. A notice
 below it when there's something to tell: the learning progress in heating
 days, "no heating in the coming days" in summer, why the model isn't used,
 or a correction (the last days used more or less than the model said, with
-the thermostat change when a wanted temperature is set). Three tabs:
+the thermostat change when a wanted temperature is set). With the house
+warmer or colder than wanted a second notice says so: "House 2.9 °C warmer
+than wanted: expected to heat again from 04:00 (1.4 kWh less)", or the kWh
+extra to warm it up. Three tabs:
 
 - **Forecast** (open by default): each day with its temperature, wind,
   direction and sun, a bar with the model's energy and a marker for what
@@ -1031,7 +1050,9 @@ the thermostat change when a wanted temperature is set). Three tabs:
   temperature - fainter is older - with the model's line at the usual wind
   and sun and the coming days as rings; below it the model's figures:
   balance temperature, kWh per degree colder, the daily base, wind, sun,
-  cooling (with cooling data) and its error over the last 14 days.
+  cooling (with cooling data) and its error over the last 14 days; with the
+  house's cooling learned also the heat it holds (kWh per °C indoor) and how
+  fast it cools (°C per hour at 10 °C difference, and its time constant).
 - **Memory**: per temperature class of 2.5 °C the number of days, the
   measured and the model's mean, and the newest day in it.
 

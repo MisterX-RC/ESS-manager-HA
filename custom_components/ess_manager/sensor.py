@@ -477,4 +477,7 @@ class EssManagerHeatPumpSensor(CoordinatorEntity[EssManagerCoordinator], SensorE
             "fitted_day": hp.get("fitted_day"),
             "forecast_days_kwh": [d.get("kwh") for d in hp.get("days") or []],
             "weather_days": hp.get("weather_days"),
+            # as of 2026.10.16 (also): the house's cooling and its own heat now
+            "thermal": hp.get("thermal"),
+            "house": hp.get("house"),
         }

@@ -293,6 +293,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._hp_weather: dict[str, Any] = {}
         self._hp_weather_at: Optional[datetime] = None
         self._hp_backfill_tried_at: Optional[datetime] = None
+        self._hp_hourly: list[dict[str, Any]] = []
+        self._hp_wind_factor = 1.0
+        self._hp_thermal_tried_at = 0.0
 
     def control_settings(self) -> ControlSettings:
         return ControlSettings({**self.entry.data, **self.entry.options})
@@ -491,8 +494,40 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 lists[kind] = []
         state = self.hass.states.get(entity_id)
         unit = (state.attributes.get("wind_speed_unit") if state else None) or "km/h"
-        self._hp_weather = heatpump.weather_days(lists["hourly"], lists["daily"], tz, WIND_FACTORS.get(unit, 1.0))
+        self._hp_wind_factor = WIND_FACTORS.get(unit, 1.0)
+        self._hp_hourly = lists["hourly"]
+        self._hp_weather = heatpump.weather_days(lists["hourly"], lists["daily"], tz, self._hp_wind_factor)
         return self._hp_weather
+
+    async def _async_hp_thermal(self, conf: dict[str, Any], today: date, tz) -> None:
+        """The house's cooling rate (heatpump.fit_thermal) from the last
+        THERMAL_DAYS of the indoor temperature's statistics, once a day. Needs
+        the heat pump's own metering (the hours it didn't heat)."""
+        indoor_id = conf.get(CONF_HP_INDOOR_ENTITY)
+        heat, cool = hp_energy_entities(conf)
+        if not indoor_id or not (heat or cool):
+            self.hp.thermal = None
+            return
+        start = datetime.combine(today - timedelta(days=heatpump.THERMAL_DAYS), datetime.min.time(), tzinfo=tz)
+        end = datetime.combine(today, datetime.min.time(), tzinfo=tz)
+        solar_ids = list((self._energy_dashboard_sources or {}).get("solar", []))
+        sums = await async_fetch_hourly_sums(self.hass, [*heat, *cool, *solar_ids], start, end)
+        mean_ids = [indoor_id, conf.get(CONF_HP_OUTDOOR_ENTITY), conf.get(CONF_HP_WIND_ENTITY)]
+        means = await async_fetch_hourly_means(self.hass, [m for m in mean_ids if m], start, end)
+        deltas = {k: heatpump.hourly_deltas(v) for k, v in sums.items()}
+        energy = heatpump.add_series(*[deltas.get(e, {}) for e in [*heat, *cool]])
+        sun = heatpump.add_series(*[deltas.get(e, {}) for e in solar_ids]) if solar_ids else None
+        wind = means.get(conf.get(CONF_HP_WIND_ENTITY)) if conf.get(CONF_HP_WIND_ENTITY) else None
+        self.hp.thermal = heatpump.fit_thermal(
+            means.get(indoor_id) or {}, means.get(conf.get(CONF_HP_OUTDOOR_ENTITY)) or {}, energy, wind, sun
+        )
+        self.hp.thermal_day = today.isoformat()
+        if self.hp.thermal:
+            self.hp.thermal["src"] = indoor_id
+            _LOGGER.info(
+                "ESS Manager (%s): house cooling learned from %d hours: %.3f per hour (time constant %.0f h)",
+                self.entry.title, self.hp.thermal["n"], self.hp.thermal["k"], 1 / self.hp.thermal["k"],
+            )
 
     def _hp_setpoint(self, conf: dict[str, Any]) -> Optional[float]:
         entity_id = conf.get(CONF_HP_SETPOINT_ENTITY)
@@ -532,6 +567,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.hp.stats_day = today.isoformat()
         except Exception as err:  # noqa: BLE001 - the recorder is needed for this, planning goes on without
             _LOGGER.debug("ESS Manager: heat pump statistics not read: %s", err)
+        # the house's cooling rate: once a day
+        other_sensor = bool(self.hp.thermal) and self.hp.thermal.get("src") != conf.get(CONF_HP_INDOOR_ENTITY)
+        if (self.hp.thermal_day != today.isoformat() or other_sensor) and (now.timestamp() - self._hp_thermal_tried_at) > 3600:
+            self._hp_thermal_tried_at = now.timestamp()
+            try:
+                await self._async_hp_thermal(conf, today, tz)
+            except Exception as err:  # noqa: BLE001 - as above
+                _LOGGER.debug("ESS Manager: house cooling not learned: %s", err)
         # today's live readings
         day_start = dt_util.start_of_local_day(now)
         sun_today = sum(v or 0.0 for v in forecasting.build_solar_forecast(merged_solar_points, day_start, 24))
@@ -550,6 +593,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         wind_dir = _get_float_state(self.hass, conf.get(CONF_HP_WIND_DIR_ENTITY), default=None) if conf.get(CONF_HP_WIND_DIR_ENTITY) else None
         setpoint = self._hp_setpoint(conf)
         indoor = _get_float_state(self.hass, conf.get(CONF_HP_INDOOR_ENTITY), default=None) if conf.get(CONF_HP_INDOOR_ENTITY) else None
+        if indoor is not None:
+            st = self.hass.states.get(conf[CONF_HP_INDOOR_ENTITY])
+            if st and st.attributes.get("unit_of_measurement") == "\u00b0F":
+                indoor = (indoor - 32) / 1.8
         self.hp.sample(now, tz, t_out, wind, wind_dir, setpoint, indoor, sun_today)
         # forecast
         weather = await self._async_hp_weather(conf, now, tz)
@@ -559,10 +606,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             d = (day_start + timedelta(hours=i)).astimezone(tz).date().isoformat()
             sun_by_day[d] = round(sun_by_day.get(d, 0.0) + (v or 0.0), 2)
         hour0 = int(now.replace(minute=0, second=0, microsecond=0).timestamp())
-        heat, cool = hp_energy_entities(conf)
+        offset = max(int((hour0 - day_start.timestamp()) // 3600), 0)
+        hourly = heatpump.hourly_weather(
+            self._hp_hourly, weather, hour0, FORECAST_HOURS, tz, self._hp_wind_factor, hourly_sun[offset:]
+        )
         total, attribute, used = self.hp.compute(
             meter, now, tz, hour0, FORECAST_HOURS, weather, sun_by_day,
             int(conf.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS)), setpoint, with_cooling=True,
+            indoor=indoor, hourly_weather=hourly,
         )
         subtract = used and meter != HP_METER_NONE
         if subtract != self.hp.subtract:

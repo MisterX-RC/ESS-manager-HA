@@ -111,6 +111,11 @@ const I18N = {
     hp_measured_day: "measured day (fainter = older)", hp_expected: "expected",
     hp_outdoor: "outdoor", hp_days: "days", hp_measured: "measured", hp_last: "last", hp_to: "to",
     hp_memory_note: (n, h) => `Frost days of last winter keep counting until a newer day of the same class comes. Journal: ${n} days, ${h} heating days.`,
+    hp_house_warm: (d, when, kwh) => `House ${d} warmer than wanted: expected to heat again from ${when} (${kwh} less).`,
+    hp_house_warm_long: (d, kwh) => `House ${d} warmer than wanted: it keeps that heat for the coming days (${kwh} less).`,
+    hp_house_cold: (d, kwh) => `House ${d} colder than wanted: ${kwh} extra to warm it up, in the coming hours.`,
+    hp_hold_t: "Heat held", hp_hold_unit: "per °C indoor", hp_cooling_t: "Cooling", hp_cooling_unit: "at 10 °C difference, not heating",
+    hp_tau: (h) => `time constant ${h} h`, hp_thermal_learning: "House cooling not learned yet: it needs hours in which the heat pump didn't heat (indoor temperature with statistics).",
     ed_hp_color: "Heat pump",
   },
   nl: {
@@ -189,6 +194,11 @@ const I18N = {
     hp_measured_day: "gemeten dag (vager = ouder)", hp_expected: "verwachting",
     hp_outdoor: "buiten", hp_days: "dagen", hp_measured: "gemeten", hp_last: "laatst", hp_to: "tot",
     hp_memory_note: (n, h) => `Vorstdagen van vorige winter tellen mee tot er een nieuwere dag in dezelfde klasse is. Dagboek: ${n} dagen, ${h} stookdagen.`,
+    hp_house_warm: (d, when, kwh) => `Huis ${d} warmer dan gewenst: stookt naar verwachting pas weer vanaf ${when} (${kwh} minder).`,
+    hp_house_warm_long: (d, kwh) => `Huis ${d} warmer dan gewenst: houdt die warmte de komende dagen vast (${kwh} minder).`,
+    hp_house_cold: (d, kwh) => `Huis ${d} kouder dan gewenst: ${kwh} extra om op te warmen, de komende uren.`,
+    hp_hold_t: "Warmte vasthouden", hp_hold_unit: "per °C binnen", hp_cooling_t: "Afkoelen", hp_cooling_unit: "bij 10 °C verschil, zonder stoken",
+    hp_tau: (h) => `tijdconstante ${h} uur`, hp_thermal_learning: "Afkoelsnelheid van het huis nog niet geleerd: daar zijn uren voor nodig waarin de warmtepomp niet stookte (binnentemperatuur met statistieken).",
     ed_hp_color: "Warmtepomp",
   },
 };
@@ -2557,6 +2567,7 @@ const HP_CSS = `
   .hp-banner { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 10px; background: rgba(127,127,127,.14); font-size: 13px; line-height: 18px; }
   .hp-banner.warn { background: color-mix(in srgb, ${HP_WARN} 16%, transparent); outline: 1px solid ${HP_WARN}; }
   .hp-banner.sun { background: color-mix(in srgb, #f2c94c 12%, transparent); }
+  .hp-banner.house { background: color-mix(in srgb, var(--hp) 14%, transparent); }
   .hp-chip { font-size: 12px; padding: 2px 8px; border-radius: 10px; font-weight: 600; flex-shrink: 0; }
   .hp-progress { position: relative; height: 8px; border-radius: 4px; background: rgba(127,127,127,.3); margin-top: 6px; }
   .hp-progress i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--hp); }
@@ -2662,6 +2673,7 @@ class EssManagerHeatPumpCard extends EssChartCard {
         </div>
       </div>`;
     html += this._banner(hp, correcting, corr);
+    html += this._houseBanner(hp);
     html += `
       <div class="hp-tabs" role="tablist" aria-label="${esc(this._t("hp_view"))}">
         <button type="button" role="tab" data-tab="forecast" aria-selected="${tab === "forecast"}">${esc(this._t("hp_tab_forecast"))}</button>
@@ -2710,6 +2722,26 @@ class EssManagerHeatPumpCard extends EssChartCard {
       return `<div class="hp-banner warn"><span class="hp-chip" style="background:${HP_WARN};color:#fff">${esc(this._pct(corr))}</span><div>${esc(this._t(corr > 1 ? "hp_corr_more" : "hp_corr_less"))}${esc(extra)}</div></div>`;
     }
     return "";
+  }
+
+  _when(iso) {
+    const ms = Date.parse(iso);
+    const f = formats(this._hass);
+    const sameDay = new Date(ms).toDateString() === new Date().toDateString();
+    return sameDay ? f.time(ms) : `${f.dayLabel(ms)} ${f.time(ms)}`;
+  }
+
+  _houseBanner(hp) {
+    // as of 2026.10.16 (also): the house's own heat
+    const h = hp.house;
+    if (!hp.used || !h || !h.kind || h.kwh == null) return "";
+    const d = `${this._num(Math.abs(h.difference_c), 1)} °C`;
+    const kwh = this._kwh(Math.abs(h.kwh));
+    if (h.kind === "deficit") {
+      return `<div class="hp-banner">${icon("up", HP_WARN, 18)}<div>${esc(this._t("hp_house_cold")(d, kwh))}</div></div>`;
+    }
+    const text = h.until && h.hours < 72 ? this._t("hp_house_warm")(d, this._when(h.until), kwh) : this._t("hp_house_warm_long")(d, kwh);
+    return `<div class="hp-banner house">${icon("home", "var(--hp)", 18)}<div>${esc(text)}</div></div>`;
   }
 
   _forecast(hp, opt) {
@@ -2792,11 +2824,17 @@ class EssManagerHeatPumpCard extends EssChartCard {
     if (m.wind_kwh_per_ms_degree != null) tiles.push([this._t("hp_wind_t"), `${m.wind_kwh_per_ms_degree >= 0 ? "+" : ""}${this._num(m.wind_kwh_per_ms_degree, 3)}`, this._t("hp_wind_unit")]);
     if (m.solar_kwh_per_kwh != null) tiles.push([this._t("hp_sun_t"), this._num(m.solar_kwh_per_kwh, 2), this._t("hp_sun_unit")]);
     if (m.cooling_temp_c != null) tiles.push([this._t("hp_cool_t"), `${this._t("hp_from")} ${this._num(m.cooling_temp_c, 0)} °C`, `+${this._kwh(m.cooling_kwh_per_degree_day)} ${this._t("hp_per_degree_short")}`]);
+    const th = hp.thermal;
+    if (th) {
+      if (th.kwh_per_degree != null) tiles.push([this._t("hp_hold_t"), this._kwh(th.kwh_per_degree), this._t("hp_hold_unit")]);
+      tiles.push([this._t("hp_cooling_t"), `${this._num(th.cooling_per_hour * 10, 2)} °C/h`, `${this._t("hp_cooling_unit")} · ${this._t("hp_tau")(this._num(th.time_constant_h, 0))}`]);
+    }
     if (m.mae_14d_kwh != null) tiles.push([this._t("hp_error"), `±${this._kwh(m.mae_14d_kwh)}`, this._t("hp_per_day")]);
     return `<div style="display:flex;flex-direction:column;gap:10px">
       <div class="chart" style="height:${h}px">${svg}</div>
       <div class="hp-legend"><span><i style="display:inline-block;width:8px;height:8px;border-radius:4px;background:${opt.hp_color}"></i>${esc(this._t("hp_measured_day"))}</span><span><i style="display:inline-block;width:14px;height:2px;background:var(--primary-text-color,#f0f0f0)"></i>${esc(this._t("hp_model"))}</span><span><i style="display:inline-block;width:8px;height:8px;border-radius:6px;border:2px solid ${HP_FC_COLOR}"></i>${esc(this._t("hp_expected"))}</span></div>
       <div class="hp-tiles">${tiles.map(([a, b, c]) => `<div class="hp-tile"><span>${esc(a)}</span><span>${esc(b)}</span>${c ? `<span>${esc(c)}</span>` : ""}</div>`).join("")}</div>
+      ${!th && hp.house && hp.meter !== "none" ? `<div class="hp-note">${esc(this._t("hp_thermal_learning"))}</div>` : ""}
     </div>`;
   }
 

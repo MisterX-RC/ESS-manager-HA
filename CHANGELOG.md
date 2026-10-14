@@ -34,6 +34,17 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   five days at the top, a notice when learning, in summer, not used or
   correcting, and three tabs - Forecast, Signature (measured days against the
   outdoor temperature with the model's line), Memory (per temperature class).
+- **Heat pump: the house's own heat.** With an indoor temperature (with
+  statistics) and the heat pump's own metering the model learns every day
+  how fast the house cools from the hours the heat pump didn't heat - with
+  wind and sun - and from that the heat the house holds (kWh per °C indoor).
+  A house warmer than wanted coasts: until it's back at the wanted
+  temperature (worked out with the hourly weather forecast) only the base is
+  forecast, at most the heat it holds - out of the summer into a sudden cold
+  autumn, the battery no longer expects heating that won't come. A colder
+  house needs that heat extra in the first hours. The card shows it as a
+  notice and two tiles on Signature (heat held, cooling rate / time
+  constant); the attributes `thermal` and `house`.
 - **Heat pump model** diagnostic sensor, and the Status sensor's `heat_pump`
   attribute.
 
