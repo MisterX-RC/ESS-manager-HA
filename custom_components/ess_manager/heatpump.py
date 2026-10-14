@@ -51,13 +51,19 @@ KEEP_WEIGHT = 0.5
 SMOOTH = 0.7  # today's share of the effective temperature, yesterday's is the rest
 MIN_ROWS = 14
 MIN_HEATING_DAYS = 21
+MIN_HEATING_CLASSES = 3  # ... spread over at least this many temperature classes (3+ days each)
 MIN_DIRECTION_DAYS = 30
 POOR_R2 = 0.3
 SHAPE_DAYS = 14
 CORRECTION_DAYS = 4
 CORRECTION_MIN = 0.05
 TB_RANGE = [x / 2 for x in range(20, 41)]  # 10 .. 20 degC
-TC_RANGE = [float(x) for x in range(20, 29)]  # 20 .. 28 degC
+TC_RANGE = [float(x) for x in range(16, 29)]  # 16 .. 28 degC (at least a degree above the balance temperature)
+# days left out of the fit (as of 2026.10.17)
+COAST_DROP = 0.3        # degC the house cooled over a day (midnight to midnight) ...
+COAST_MAX_HOURS = 4     # ... with at most this many hours of heating: it lived on its stored heat
+OUTLIER_SIGMAS = 6.0    # a day this far off the model (robust spread), ...
+OUTLIER_MIN_KWH = 3.0   # ... at least this many kWh and more than the model itself: a meter jump
 
 
 # -- journal --------------------------------------------------------------------
@@ -97,11 +103,14 @@ def build_rows(
     parts: Optional[dict[str, dict[int, float]]] = None,
     wind: Optional[dict[int, float]] = None,
     sun: Optional[dict[int, float]] = None,
+    indoor: Optional[dict[int, float]] = None,
 ) -> list[dict[str, Any]]:
     """Journal rows for the local days first..last from hourly data (energy
     per hour, mean temperature per hour, ...). A day needs 20 of its hours of
     energy and 16 of temperature; `parts` (heat/cool) are kept per day too;
-    `hours` is the day's hourly energy (for the hourly pattern)."""
+    `hours` is the day's hourly energy (for the hourly pattern); with the
+    indoor temperature its day mean `ti` and how much it changed from
+    midnight to midnight `tid`."""
     rows: list[dict[str, Any]] = []
     d = first
     while d <= last:
@@ -128,6 +137,11 @@ def build_rows(
             if sun:
                 s = [sun.get(h) for h in hours if sun.get(h) is not None]
                 row["s"] = round(sum(s), 2) if len(s) >= 20 else None
+            if indoor:
+                ti = [indoor.get(h) for h in hours if indoor.get(h) is not None]
+                row["ti"] = round(sum(ti) / len(ti), 2) if len(ti) >= 16 else None
+                if indoor.get(start) is not None and indoor.get(end) is not None:
+                    row["tid"] = round(indoor[end] - indoor[start], 2)
             rows.append(row)
         d += timedelta(days=1)
     return rows
@@ -246,15 +260,48 @@ def _wls(rows, teffs, weights, tb, tc, use):
     return coef, sse
 
 
+def coasting(row: dict[str, Any], teff: float) -> bool:
+    """A cool day on which the house lived on its stored heat: it cooled
+    COAST_DROP or more from midnight to midnight while the heat pump heated
+    at most COAST_MAX_HOURS hours - its energy says nothing about what such a
+    day needs (typical for autumn, coming out of the summer)."""
+    if teff >= 15.0 or row.get("tid") is None or row["tid"] > -COAST_DROP:
+        return False
+    hours = row.get("hours") or []
+    return sum(1 for v in hours if v is not None and v >= OFF_KWH) <= COAST_MAX_HOURS
+
+
 def fit(journal: list[dict[str, Any]], today: date, with_cooling: bool = False) -> Optional[dict[str, Any]]:
     """The energy signature fitted on the journal, or None with fewer than
     MIN_ROWS usable days. Grid search over the balance temperature (and the
     cooling temperature), weighted least squares for the rest; a candidate
-    with heating getting cheaper in the cold, or a negative base, is skipped."""
-    rows = [r for r in journal if r.get("e") is not None and r.get("t") is not None and r["d"] < today.isoformat()]
+    with heating getting cheaper in the cold, or a negative base, is skipped.
+    Left out (`left_out`, as of 2026.10.17): days the house lived on its
+    stored heat (coasting), and after a first fit days far off the model (a
+    meter jump) - then fitted again without them."""
+    all_rows = [r for r in journal if r.get("e") is not None and r.get("t") is not None and r["d"] < today.isoformat()]
+    if len(all_rows) < MIN_ROWS:
+        return None
+    teffs = effective_temps(all_rows)
+    left_out = {r["d"]: "coasting" for r in all_rows if coasting(r, teffs[r["d"]])}
+    model = _fit_rows([r for r in all_rows if r["d"] not in left_out], teffs, today, with_cooling)
+    if model is None:
+        return None
+    rows = [r for r in all_rows if r["d"] not in left_out]
+    res = [(r["d"], r["e"] - (pred := predict_row(model, r, teffs[r["d"]])), pred) for r in rows]
+    med = sorted(abs(x) for _, x, _ in res)[len(res) // 2]
+    sigma = 1.4826 * med
+    outliers = {d for d, x, pred in res if abs(x) > max(OUTLIER_SIGMAS * sigma, OUTLIER_MIN_KWH, pred)}
+    if outliers:
+        left_out.update({d: "outlier" for d in outliers})
+        model = _fit_rows([r for r in all_rows if r["d"] not in left_out], teffs, today, with_cooling) or model
+    model["left_out"] = left_out
+    return model
+
+
+def _fit_rows(rows, teffs, today: date, with_cooling: bool) -> Optional[dict[str, Any]]:
     if len(rows) < MIN_ROWS:
         return None
-    teffs = effective_temps(rows)
     weights = _weights(rows, teffs, today)
     cold = [r for r in rows if teffs[r["d"]] < 15.0]
     share = lambda key: (sum(1 for r in cold if r.get(key) is not None) / len(cold)) if cold else 0.0
@@ -279,8 +326,10 @@ def fit(journal: list[dict[str, Any]], today: date, with_cooling: bool = False) 
             best = (tb, None, res[1], res[0])
     if best is None:
         return None
-    if with_cooling and sum(1 for r in rows if teffs[r["d"]] >= 20.0) >= 10:
+    if with_cooling:
         for tc in TC_RANGE:
+            if tc < best[0] + 1.0 or sum(1 for r in rows if teffs[r["d"]] >= tc) < 10:
+                continue
             res = _wls(rows, teffs, weights, best[0], tc, use)
             if res and valid(res[0]) and res[0][-1] > 0 and res[1] < best[2]:
                 best = (best[0], tc, res[1], res[0])
@@ -296,9 +345,21 @@ def fit(journal: list[dict[str, Any]], today: date, with_cooling: bool = False) 
         "mae14": round(sum(errs) / len(errs), 2) if errs else None,
         "rows": len(rows),
         "heating_days": sum(1 for r in rows if teffs[r["d"]] <= tb - 1.0),
+        # the kWh per degree colder needs heating days at different
+        # temperatures, not 21 mild ones (as of 2026.10.17)
+        "heating_classes": _heating_classes(rows, teffs, tb),
         "oldest": rows[0]["d"],
     })
     return model
+
+
+def _heating_classes(rows, teffs, tb: float) -> int:
+    counts: dict[int, int] = {}
+    for r in rows:
+        if teffs[r["d"]] <= tb - 1.0:
+            cls = temp_class(teffs[r["d"]])
+            counts[cls] = counts.get(cls, 0) + 1
+    return sum(1 for n in counts.values() if n >= 3)
 
 
 def predict_row(model: dict[str, Any], row: dict[str, Any], teff: float) -> float:
@@ -335,6 +396,9 @@ def summary(model: dict[str, Any]) -> dict[str, Any]:
         "r2": model.get("r2"),
         "mae_14d_kwh": model.get("mae14"),
         "heating_days": model.get("heating_days"),
+        "heating_classes": model.get("heating_classes"),
+        "coasting_days": sum(1 for v in (model.get("left_out") or {}).values() if v == "coasting"),
+        "outlier_days": sorted(d for d, v in (model.get("left_out") or {}).items() if v == "outlier"),
     }
 
 
@@ -345,7 +409,9 @@ def correction(model: dict[str, Any], journal: list[dict[str, Any]], today: date
     two such days or less than CORRECTION_MIN difference."""
     rows = [r for r in journal if r.get("e") is not None and r.get("t") is not None and r["d"] < today.isoformat()]
     teffs = effective_temps(rows)
-    recent = [r for r in rows if (today - date.fromisoformat(r["d"])).days <= CORRECTION_DAYS]
+    left_out = model.get("left_out") or {}
+    # (coasting days are the house's effect, not a model that's off)
+    recent = [r for r in rows if (today - date.fromisoformat(r["d"])).days <= CORRECTION_DAYS and r["d"] not in left_out]
     pairs = [(r["e"], predict_row(model, r, teffs[r["d"]])) for r in recent]
     pairs = [(a, p) for a, p in pairs if p >= 1.0]
     if len(pairs) < 2:
@@ -562,6 +628,8 @@ def classes(model: dict[str, Any], journal: list[dict[str, Any]], today: date) -
     the newest day - the card's memory table."""
     rows = [r for r in journal if r.get("e") is not None and r.get("t") is not None and r["d"] < today.isoformat()]
     teffs = effective_temps(rows)
+    left_out = model.get("left_out") or {}
+    rows = [r for r in rows if r["d"] not in left_out]
     groups: dict[int, list[dict[str, Any]]] = {}
     for r in rows:
         groups.setdefault(temp_class(teffs[r["d"]]), []).append(r)
@@ -579,12 +647,20 @@ def classes(model: dict[str, Any], journal: list[dict[str, Any]], today: date) -
     return out
 
 
-def points(journal: list[dict[str, Any]], today: date, limit: int = 240) -> list[list[float]]:
-    """[teff, kWh, age in days] of the newest days - the signature chart."""
+def points(journal: list[dict[str, Any]], today: date, limit: int = 240, left_out: Optional[dict[str, str]] = None) -> list[list[Any]]:
+    """[teff, kWh, age in days] of the newest days - the signature chart; a
+    day the fit left out gets a 4th value: "coasting" or "outlier"."""
     rows = [r for r in journal if r.get("e") is not None and r.get("t") is not None and r["d"] < today.isoformat()]
     teffs = effective_temps(rows)
     rows = rows[-limit:]
-    return [[teffs[r["d"]], round(r["e"], 2), (today - date.fromisoformat(r["d"])).days] for r in rows]
+    left_out = left_out or {}
+    out = []
+    for r in rows:
+        p: list[Any] = [teffs[r["d"]], round(r["e"], 2), (today - date.fromisoformat(r["d"])).days]
+        if r["d"] in left_out:
+            p.append(left_out[r["d"]])
+        out.append(p)
+    return out
 
 
 def model_line(model: dict[str, Any], journal: list[dict[str, Any]], today: date) -> list[list[float]]:
@@ -611,7 +687,7 @@ def state_of(model: Optional[dict[str, Any]], days_out: list[dict[str, Any]], he
     if not have:
         return STATE_FALLBACK
     warm = all(d["teff"] is not None and d["teff"] > model["tb"] and (model["tc"] is None or d["teff"] < model["tc"]) for d in have)
-    if heating_days < MIN_HEATING_DAYS:
+    if heating_days < MIN_HEATING_DAYS or model.get("heating_classes", MIN_HEATING_CLASSES) < MIN_HEATING_CLASSES:
         return STATE_SUMMER if warm and model["rows"] >= MIN_ROWS else STATE_LEARNING
     if model.get("r2") is not None and model["r2"] < POOR_R2:
         return STATE_FALLBACK
@@ -631,7 +707,8 @@ OFF_HOURS_BEFORE = 3    # ... and the hours before it too (the floor still gives
 OFF_HOURS_LONG = 6      # ... or this many, when the floor measurably gives heat longer
 AFTERGLOW_MIN = 0.01    # degC per hour the house warms more than the cooling says
 PROFILE_DAYS = 14       # the usual indoor temperature per hour over these days
-MIN_DIFF = 2.0          # degC indoor - outdoor, else the cooling drowns in noise
+MIN_DIFF = 4.0          # degC indoor - outdoor, else the cooling drowns in noise
+THERMAL_MAX_OUT = 15.0  # degC outdoor at most: summer hours (windows open, sun) say little
 MIN_THERMAL_ROWS = 48
 SURPLUS_MIN = 0.3       # degC above/below wanted that counts
 DEFICIT_HOURS = 6       # a colder house is heated up over this many hours
@@ -647,7 +724,7 @@ def _thermal_rows(indoor, outdoor, heat, before: int) -> list[tuple[int, float, 
         if nxt is None or tout is None:
             continue
         d = tin - tout
-        if d < MIN_DIFF:
+        if d < MIN_DIFF or tout > THERMAL_MAX_OUT:
             continue
         hours = [heat.get(h + HOUR * i) for i in range(-before, 2)]
         if any(v is None or v >= OFF_KWH for v in hours):

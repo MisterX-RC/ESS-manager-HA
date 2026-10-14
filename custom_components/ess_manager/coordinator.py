@@ -444,7 +444,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ev_entity = ev_energy_entity(conf)
         ids = [*self._hp_energy_ids(conf), *solar_ids, *([ev_entity] if ev_entity else [])]
         sums = await async_fetch_hourly_sums(self.hass, ids, start, end)
-        mean_ids = [conf.get(CONF_HP_OUTDOOR_ENTITY), conf.get(CONF_HP_WIND_ENTITY)]
+        indoor_id = conf.get(CONF_HP_INDOOR_ENTITY)
+        mean_ids = [conf.get(CONF_HP_OUTDOOR_ENTITY), conf.get(CONF_HP_WIND_ENTITY), indoor_id]
         means = await async_fetch_hourly_means(self.hass, [m for m in mean_ids if m], start, end)
         deltas = {k: heatpump.hourly_deltas(v) for k, v in sums.items()}
         parts: dict[str, dict[int, float]] = {}
@@ -472,6 +473,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return heatpump.build_rows(
             first, last, tz, energy, means.get(conf.get(CONF_HP_OUTDOOR_ENTITY)) or {}, parts,
             means.get(conf.get(CONF_HP_WIND_ENTITY)) if conf.get(CONF_HP_WIND_ENTITY) else None, sun,
+            means.get(indoor_id) if indoor_id else None,
         )
 
     async def _async_hp_weather(self, conf: dict[str, Any], now: datetime, tz) -> dict[str, Any]:
@@ -555,12 +557,20 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._hp_backfill_tried_at = None
         # the journal: two years of statistics once, then yesterday every day
         try:
-            if not self.hp.journal or not any(r.get("e") is not None for r in self.hp.journal):
+            indoor_src = conf.get(CONF_HP_INDOOR_ENTITY) or ""
+            empty = not self.hp.journal or not any(r.get("e") is not None for r in self.hp.journal)
+            if empty or self.hp.rows_src != indoor_src:
+                # (also once with another indoor sensor - or as of 2026.10.17
+                # the indoor temperature per day in the rows: refilled, the
+                # live records stay)
                 if self._hp_backfill_tried_at is None or now - self._hp_backfill_tried_at > timedelta(hours=1):
                     self._hp_backfill_tried_at = now
                     rows = await self._async_hp_rows(conf, today - timedelta(days=heatpump.JOURNAL_DAYS), today - timedelta(days=1), tz)
+                    if not empty:
+                        self.hp.forget_indoor()
                     self.hp.merge(rows, today)
                     self.hp.stats_day = today.isoformat()
+                    self.hp.rows_src = indoor_src
                     _LOGGER.info("ESS Manager (%s): heat pump journal filled with %d days of statistics", self.entry.title, len(rows))
             elif self.hp.stats_day != today.isoformat() and (now.timestamp() - self.hp.stats_tried_at) > 900:
                 self.hp.stats_tried_at = now.timestamp()

@@ -471,7 +471,8 @@ its usage from the weather**); two pages follow:
 - **The slow part, an energy signature**: per day, kWh = base + kWh per
   degree below the balance temperature (+ wind x degrees, + wind direction
   once there are enough days in most directions) - sun (+ kWh per degree
-  above the cooling temperature, with cooling data). The balance and
+  above the cooling temperature, with cooling data - from 16 °C at the
+  lowest). The balance and
   cooling temperatures are found by the model. It uses a smoothed outdoor
   temperature (70% today, 30% yesterday - floor heating reacts slowly). It's
   worked out again every night; recent days weigh more (half-life about a
@@ -487,15 +488,23 @@ its usage from the weather**); two pages follow:
   taken out of the household usage history (like the electric car) and the
   model's forecast added; without, the model's difference to the usual
   average is added.
-- **Falling back**: with fewer than 21 heating days, a poor fit or no
+- **Days left out**: a cool day on which the house lived on its stored heat
+  (with an indoor temperature: it cooled 0.3 °C or more from midnight to
+  midnight while the heat pump heated at most 4 hours - typical for autumn,
+  out of the summer) says nothing about what such a day needs, and a day far
+  off the model is a meter jump: both are left out of the fit. On the
+  Signature tab they're grey rings.
+- **Falling back**: with fewer than 21 heating days, or heating days in fewer
+  than 3 temperature classes of 2.5 °C (3+ days each), a poor fit or no
   weather forecast, the heat pump stays in the household usage as before
   (6-week average). In summer (no heating day in the coming days) only the
   daily base counts.
 - **The house's own heat** (with an indoor temperature that has long-term
   statistics, and the heat pump's own metering): every day the model learns
   how fast the house cools from the hours the heat pump didn't heat (the last
-  60 days): per hour the indoor temperature drops by a share of the
-  difference with outside - more with wind, less with sun (the measured solar
+  60 days, hours with 15 °C or less outside and at least 4 °C difference -
+  summer hours with windows open say little): per hour the indoor
+  temperature drops by a share of the difference with outside - more with wind, less with sun (the measured solar
   production with the Energy dashboard) and what the house gives off itself.
   A floor keeps giving heat after the heat pump stops, so the three hours
   before count as heating too - six when the measurements show the house

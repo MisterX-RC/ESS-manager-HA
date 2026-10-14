@@ -3590,11 +3590,12 @@ check("heat pump: states - active in the cold, summer when warm, learning withou
 # cooling branch
 _cool = _hp_journal(days=300)
 for r in _cool:
-    if r["t"] > 22:
-        r["e"] = round(r["e"] + 0.5 * (r["t"] - 22), 3)
+    if r["t"] > 18:
+        r["e"] = round(r["e"] + 0.5 * (r["t"] - 18), 3)
 _hpc = heatpump.fit(_cool, _hp_today, with_cooling=True)
-check("heat pump: with cooling data a cooling branch is found above its own temperature",
-      _hpc["tc"] is not None and heatpump.summary(_hpc)["cooling_kwh_per_degree_day"] > 0.2)
+# (as of 2026.10.17 the cooling temperature can be found from 16 degC)
+check("heat pump: with cooling data a cooling branch is found above its own temperature (also below 20 degC)",
+      _hpc["tc"] is not None and 17.0 <= _hpc["tc"] <= 19.0 and heatpump.summary(_hpc)["cooling_kwh_per_degree_day"] > 0.3)
 # runtime
 _rt_hp = heatpump_runtime.HeatPumpRuntime()
 _rt_hp.merge(_hpj, _hp_today)
@@ -3653,7 +3654,7 @@ _pin, _pout, _pheat, _, _ = _house_series(ks=0.0)
 _th_plain = heatpump.fit_thermal(_pin, _pout, _pheat)
 # without the wind series its mean is folded in: 0.025 + 0.002 x 4 m/s
 check("house: without wind statistics the cooling rate is still found (the mean wind folded in)",
-      _th_plain is not None and abs(_th_plain["k"] - 0.033) < 0.004 and _th_plain["kw"] is None)
+      _th_plain is not None and abs(_th_plain["k"] - 0.033) < 0.006 and _th_plain["kw"] is None)
 check("house: always heating -> nothing to learn",
       heatpump.fit_thermal(_hin, _hout, {h: 1.0 for h in _hheat}) is None)
 _th_fixed = {"a": 0.0, "k": 0.025, "kw": None, "ks": None, "n": 200}
@@ -3740,6 +3741,51 @@ _t4, _a4, _ = _rt4.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6,
 check("house runtime: the usual temperature per hour is the reference once there are heating days with indoor data",
       _a4["house"]["reference"] == "usual" and _a4["house"]["usual_c"] == 21.6 and _a4["house"]["difference_c"] == 1.8
       and _a4["house"]["kind"] == "surplus" and len(_a4["house"]["usual_profile"]) == 24)
+# 2026.10.17: days left out of the fit, cooling from 16 degC, thermal from cool hours only
+_coast = [dict(r) for r in _hpj]
+for r in _coast[-12:]:
+    r.update({"t": 10.0, "e": 0.3, "tid": -0.4})
+_m_coast = heatpump.fit(_coast, _hp_today)
+_no_tid = [{k: v for k, v in r.items() if k != "tid"} for r in _coast]
+_m_no = heatpump.fit(_no_tid, _hp_today)
+check("heat pump: cool days on which the house cooled down without heating are left out (coasting), the signature stays",
+      sum(1 for v in _m_coast["left_out"].values() if v == "coasting") == 12
+      and abs(_m_coast["coef"][1] - _hpm["coef"][1]) < 0.03 and abs(_m_no["coef"][1] - _hpm["coef"][1]) > 0.1
+      and heatpump.summary(_m_coast)["coasting_days"] == 12)
+_steady = [dict(r) for r in _coast]
+for r in _steady[-12:]:
+    r["tid"] = -0.1
+check("heat pump: a house that stayed at its temperature isn't coasting",
+      not any(v == "coasting" for v in heatpump.fit(_steady, _hp_today)["left_out"].values()))
+_busy = [dict(r) for r in _coast]
+for r in _busy[-12:]:
+    r["hours"] = [0.5] * 24
+check("heat pump: a cooling house while the heat pump heated all day (a cold snap) isn't coasting",
+      not any(v == "coasting" for v in heatpump.fit(_busy, _hp_today)["left_out"].values()))
+_jump = [dict(r) for r in _hpj]
+_jump[-30]["e"] = 40.0
+_m_jump = heatpump.fit(_jump, _hp_today)
+check("heat pump: a day far off the model (a meter jump) is left out and the model fitted again without it",
+      _m_jump["left_out"].get(_jump[-30]["d"]) == "outlier" and abs(_m_jump["coef"][1] - _hpm["coef"][1]) < 0.02
+      and heatpump.summary(_m_jump)["outlier_days"] == [_jump[-30]["d"]])
+_pts_jump = heatpump.points(_jump, _hp_today, left_out=_m_jump["left_out"])
+check("heat pump: the chart marks the left-out day, the memory table leaves it out",
+      any(len(p) == 4 and p[3] == "outlier" and p[1] == 40.0 for p in _pts_jump)
+      and sum(c["days"] for c in heatpump.classes(_m_jump, _jump, _hp_today)) == sum(c["days"] for c in heatpump.classes(_hpm, _hpj, _hp_today)) - 1)
+_ind = {int(datetime(2026, 10, 12, h, tzinfo=_tzA).timestamp()): 22.0 - h * 0.02 for h in range(24)}
+_ind[int(datetime(2026, 10, 13, 0, tzinfo=_tzA).timestamp())] = 21.5
+_rows_i = heatpump.build_rows(_date(2026, 10, 12), _date(2026, 10, 12), _tzA, _e_hourly, _t_hourly, indoor=_ind)
+check("heat pump: the rows get the indoor day mean and its change from midnight to midnight",
+      abs(_rows_i[0]["ti"] - 21.77) < 0.01 and _rows_i[0]["tid"] == -0.5)
+_warm_out = {h: v + 12.0 for h, v in _hout.items()}
+check("house: summer hours (outdoor above 15 degC) don't teach the cooling rate",
+      heatpump.fit_thermal({h: v + 12.0 for h, v in _hin.items()}, _warm_out, _hheat) is None)
+_rt5 = heatpump_runtime.HeatPumpRuntime()
+_rt5.merge(_hpj[-12:], _hp_today)
+_rt5.thermal = _th_fixed
+_, _a5, _ = _rt5.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6, setpoint=21.0, indoor=21.0, hourly_weather=_calm)
+check("house runtime: while learning no 'heat held' (it leans on the kWh per degree colder)",
+      _a5["state"] == "learning" and (_a5.get("thermal") is None or _a5["thermal"]["kwh_per_degree"] is None))
 _rt3_hp = heatpump_runtime.HeatPumpRuntime()
 _rt3_hp.restore(_rt_hp.as_store())
 check("heat pump runtime: the store round-trips", _rt3_hp.as_store() == _rt_hp.as_store())

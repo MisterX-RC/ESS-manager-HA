@@ -114,6 +114,8 @@ const I18N = {
     hp_house_warm: (d, ref, when, kwh) => `House ${d} warmer than ${ref}: expected to heat again from ${when} (${kwh} less).`,
     hp_house_warm_long: (d, ref, kwh) => `House ${d} warmer than ${ref}: it keeps that heat for the coming days (${kwh} less).`,
     hp_house_cold: (d, ref, kwh) => `House ${d} colder than ${ref}: ${kwh} extra to warm it up, in the coming hours.`,
+    hp_left_out: "left out", hp_heating_classes: "Temperature ranges with 3+ heating days",
+    hp_left_out_note: (c, o) => [c ? `${c} cool day${c === 1 ? "" : "s"} on which the house lived on its stored heat (it cooled while the heat pump hardly heated)` : "", o ? `${o} day${o === 1 ? "" : "s"} far off the model (a meter jump)` : ""].filter(Boolean).join(" and ") + " left out of the model.",
     hp_ref_usual: "usual at this time", hp_ref_wanted: "wanted", hp_floor: (h) => `floor keeps heating ${h} h`,
     hp_hold_t: "Heat held", hp_hold_unit: "per \u00b0C indoor", hp_cooling_t: "Cooling", hp_cooling_unit: "at 10 \u00b0C difference, not heating",
     hp_tau: (h) => `time constant ${h} h`, hp_thermal_learning: "House cooling not learned yet: it needs hours in which the heat pump didn't heat (indoor temperature with statistics).",
@@ -198,6 +200,8 @@ const I18N = {
     hp_house_warm: (d, ref, when, kwh) => `Huis ${d} warmer dan ${ref}: stookt naar verwachting pas weer vanaf ${when} (${kwh} minder).`,
     hp_house_warm_long: (d, ref, kwh) => `Huis ${d} warmer dan ${ref}: houdt die warmte de komende dagen vast (${kwh} minder).`,
     hp_house_cold: (d, ref, kwh) => `Huis ${d} kouder dan ${ref}: ${kwh} extra om op te warmen, de komende uren.`,
+    hp_left_out: "weggelaten", hp_heating_classes: "Temperatuurklassen met 3+ stookdagen",
+    hp_left_out_note: (c, o) => [c ? `${c} koele dag${c === 1 ? "" : "en"} waarop het huis op zijn opgeslagen warmte teerde (het koelde af terwijl de warmtepomp nauwelijks stookte)` : "", o ? `${o} dag${o === 1 ? "" : "en"} ver naast het model (een meetsprong)` : ""].filter(Boolean).join(" en ") + " niet meegenomen in het model.",
     hp_ref_usual: "gebruikelijk om deze tijd", hp_ref_wanted: "gewenst", hp_floor: (h) => `vloer warmt ${h} uur na`,
     hp_hold_t: "Warmte vasthouden", hp_hold_unit: "per \u00b0C binnen", hp_cooling_t: "Afkoelen", hp_cooling_unit: "bij 10 \u00b0C verschil, zonder stoken",
     hp_tau: (h) => `tijdconstante ${h} uur`, hp_thermal_learning: "Afkoelsnelheid van het huis nog niet geleerd: daar zijn uren voor nodig waarin de warmtepomp niet stookte (binnentemperatuur met statistieken).",
@@ -2708,6 +2712,8 @@ class EssManagerHeatPumpCard extends EssChartCard {
       return `<div class="hp-banner" style="flex-direction:column;align-items:stretch;gap:2px">
         <div style="display:flex;justify-content:space-between"><span class="dim">${esc(this._t("hp_heating_days"))}</span><b>${have} ${esc(this._t("of"))} ${need}</b></div>
         <div class="hp-progress"><i style="width:${Math.round((have / need) * 100)}%"></i></div>
+        ${hp.heating_classes_needed ? `<div style="display:flex;justify-content:space-between;margin-top:6px"><span class="dim">${esc(this._t("hp_heating_classes"))}</span><b>${Math.min(hp.heating_classes || 0, hp.heating_classes_needed)} ${esc(this._t("of"))} ${hp.heating_classes_needed}</b></div>
+        <div class="hp-progress"><i style="width:${Math.round((Math.min(hp.heating_classes || 0, hp.heating_classes_needed) / hp.heating_classes_needed) * 100)}%"></i></div>` : ""}
         <div style="margin-top:4px">${esc(this._t("hp_learning_text"))}</div>
       </div>`;
     }
@@ -2806,7 +2812,12 @@ class EssManagerHeatPumpCard extends EssChartCard {
       svg += `<text x="${X(t).toFixed(1)}" y="${h - 10}" text-anchor="middle">${t}</text>`;
     }
     svg += `<line x1="${X(m.balance_temp_c).toFixed(1)}" y1="${top}" x2="${X(m.balance_temp_c).toFixed(1)}" y2="${h - bottom}" stroke="rgba(127,127,127,.5)" stroke-dasharray="4 4"></line>`;
-    for (const [t, v, age] of pts) {
+    for (const [t, v, age, out] of pts) {
+      if (out) {
+        // left out of the fit (2026.10.17): the house coasting, or a meter jump
+        svg += `<circle cx="${X(t).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="none" stroke="#8a8a8a" stroke-width="1.5"></circle>`;
+        continue;
+      }
       const o = Math.max(0.2, 1 - (Number(age) || 0) / 365);
       svg += `<circle cx="${X(t).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="${opt.hp_color}" fill-opacity="${o.toFixed(2)}"></circle>`;
     }
@@ -2836,8 +2847,9 @@ class EssManagerHeatPumpCard extends EssChartCard {
     if (m.mae_14d_kwh != null) tiles.push([this._t("hp_error"), `\u00b1${this._kwh(m.mae_14d_kwh)}`, this._t("hp_per_day")]);
     return `<div style="display:flex;flex-direction:column;gap:10px">
       <div class="chart" style="height:${h}px">${svg}</div>
-      <div class="hp-legend"><span><i style="display:inline-block;width:8px;height:8px;border-radius:4px;background:${opt.hp_color}"></i>${esc(this._t("hp_measured_day"))}</span><span><i style="display:inline-block;width:14px;height:2px;background:var(--primary-text-color,#f0f0f0)"></i>${esc(this._t("hp_model"))}</span><span><i style="display:inline-block;width:8px;height:8px;border-radius:6px;border:2px solid ${HP_FC_COLOR}"></i>${esc(this._t("hp_expected"))}</span></div>
+      <div class="hp-legend"><span><i style="display:inline-block;width:8px;height:8px;border-radius:4px;background:${opt.hp_color}"></i>${esc(this._t("hp_measured_day"))}</span><span><i style="display:inline-block;width:14px;height:2px;background:var(--primary-text-color,#f0f0f0)"></i>${esc(this._t("hp_model"))}</span><span><i style="display:inline-block;width:8px;height:8px;border-radius:6px;border:2px solid ${HP_FC_COLOR}"></i>${esc(this._t("hp_expected"))}</span>${pts.some((p) => p[3]) ? `<span><i style="display:inline-block;width:6px;height:6px;border-radius:5px;border:1.5px solid #8a8a8a"></i>${esc(this._t("hp_left_out"))}</span>` : ""}</div>
       <div class="hp-tiles">${tiles.map(([a, b, c]) => `<div class="hp-tile"><span>${esc(a)}</span><span>${esc(b)}</span>${c ? `<span>${esc(c)}</span>` : ""}</div>`).join("")}</div>
+      ${(m.coasting_days || (m.outlier_days || []).length) ? `<div class="hp-note">${esc(this._t("hp_left_out_note")(m.coasting_days || 0, (m.outlier_days || []).length))}</div>` : ""}
       ${!th && hp.house && hp.meter !== "none" ? `<div class="hp-note">${esc(this._t("hp_thermal_learning"))}</div>` : ""}
     </div>`;
   }

@@ -41,6 +41,9 @@ class HeatPumpRuntime:
         # hourly indoor temperatures of the last THERMAL_DAYS days {date: [24]},
         # for the usual indoor temperature per hour (heatpump.indoor_profile)
         self.indoor_days: dict[str, list[Optional[float]]] = {}
+        # the indoor sensor the journal's rows were read with (ti / tid);
+        # another one (or none yet, as before 2026.10.17) refills them once
+        self.rows_src: Optional[str] = None
 
     # -- store ---------------------------------------------------------------
     def restore(self, data: Optional[dict[str, Any]]) -> None:
@@ -53,6 +56,7 @@ class HeatPumpRuntime:
         self.thermal = data.get("thermal")
         self.thermal_day = data.get("thermal_day")
         self.indoor_days = dict(data.get("indoor_days") or {})
+        self.rows_src = data.get("rows_src")
         self.dirty = True
 
     def as_store(self) -> dict[str, Any]:
@@ -65,6 +69,7 @@ class HeatPumpRuntime:
             "thermal": self.thermal,
             "thermal_day": self.thermal_day,
             "indoor_days": self.indoor_days,
+            "rows_src": self.rows_src,
         }
 
     def reset(self, key: str) -> None:
@@ -79,11 +84,18 @@ class HeatPumpRuntime:
         self.thermal = None
         self.thermal_day = None
         self.indoor_days = {}
+        self.rows_src = None
         self.dirty = True
 
     # -- data in ---------------------------------------------------------------
     def merge(self, rows: list[dict[str, Any]], today: date) -> None:
         self.journal = hp.merge_rows(self.journal, rows, today)
+        self.dirty = True
+
+    def forget_indoor(self) -> None:
+        """Before the rows are read again with another indoor sensor."""
+        for r in self.journal:
+            r.pop("tid", None)
         self.dirty = True
 
     def sample(
@@ -279,12 +291,16 @@ class HeatPumpRuntime:
             "oldest_day": next((r["d"] for r in self.journal if r.get("e") is not None), None),
             "heating_days": heating_days,
             "heating_days_needed": hp.MIN_HEATING_DAYS,
+            "heating_classes": model.get("heating_classes") if model else 0,
+            "heating_classes_needed": hp.MIN_HEATING_CLASSES,
             "fitted_day": self.fitted_day,
             "day_setpoint_c": day_setpoint,
             "forecast_120h": total,
         }
         if self.thermal and model:
-            per_degree = hp.stored_kwh_per_degree(self.thermal, model)
+            # the heat held leans on the kWh per degree colder: only once the
+            # model is used (while learning that figure isn't there yet)
+            per_degree = hp.stored_kwh_per_degree(self.thermal, model) if state == hp.STATE_ACTIVE else None
             attribute["thermal"] = {
                 "cooling_per_hour": self.thermal["k"],
                 "time_constant_h": round(1 / self.thermal["k"], 1),
@@ -314,7 +330,7 @@ class HeatPumpRuntime:
             }
         if model:
             attribute["model"] = hp.summary(model)
-            attribute["points"] = hp.points(self.journal, today)
+            attribute["points"] = hp.points(self.journal, today, left_out=model.get("left_out"))
             attribute["classes"] = hp.classes(model, self.journal, today)
             attribute["line"] = hp.model_line(model, self.journal, today)
         return total, attribute, usable

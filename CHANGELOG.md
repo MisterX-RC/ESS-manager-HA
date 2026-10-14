@@ -12,6 +12,39 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.17] - 2026-10-14
+
+### Fixed
+- **Heat pump: autumn days on which the house lived on its stored heat no
+  longer teach the model that cold costs nothing.** Coming out of the
+  summer the house can stay warm for weeks while it gets cool outside: the
+  heat pump hardly heats, and those days made the kWh per degree colder
+  about 0. A cool day on which the house cooled 0.3 °C or more from midnight
+  to midnight while the heat pump heated at most 4 hours is now left out of
+  the fit (and out of the correction) - the house effect already counts
+  that stored heat for the coming hours. For this the journal's rows get the
+  indoor temperature per day from the statistics (filled in once on the
+  update).
+- **Heat pump: a meter jump** (a day far off the model - six times the usual
+  spread, at least 3 kWh and more than the model itself) is left out and the
+  model fitted again without it.
+- **Heat pump: not "active" on mild days only.** Besides 21 heating days it
+  now needs heating days in at least 3 temperature classes of 2.5 °C (3+
+  days each) - otherwise winter would be forecast from a few days around
+  13 °C. The learning notice shows both.
+- **Heat pump: cooling can start below 20 °C** (16 °C at the lowest, a
+  degree above the balance temperature) - with passive cooling it often
+  does.
+- **House cooling rate from cool hours only** (outdoor 15 °C or less, 4 °C
+  difference or more): summer hours (windows open, sun) made the house look
+  far slower to cool than it is. The heat held per °C is only shown once the
+  model is used - it leans on the kWh per degree colder.
+
+### Changed
+- Signature: days left out are grey rings, with a line saying how many and
+  why; the memory table leaves them out. Model attributes `coasting_days`,
+  `outlier_days`, `heating_classes`.
+
 ## [2026.10.16] - 2026-10-14
 
 ### Added
