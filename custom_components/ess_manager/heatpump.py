@@ -62,6 +62,7 @@ TC_RANGE = [float(x) for x in range(16, 29)]  # 16 .. 28 degC (at least a degree
 # days left out of the fit (as of 2026.10.17)
 COAST_DROP = 0.3        # degC the house cooled over a day (midnight to midnight) ...
 COAST_MAX_HOURS = 4     # ... with at most this many hours of heating: it lived on its stored heat
+MIN_DEMAND_HOURS = 0.5  # a cool day the thermostat asked for heat less than this: no heat demand
 OUTLIER_SIGMAS = 6.0    # a day this far off the model (robust spread), ...
 OUTLIER_MIN_KWH = 3.0   # ... at least this many kWh and more than the model itself: a meter jump
 
@@ -260,6 +261,62 @@ def _wls(rows, teffs, weights, tb, tc, use):
     return coef, sse
 
 
+def no_demand(row: dict[str, Any], teff: float) -> bool:
+    """A cool day on which the thermostat didn't ask for heat (`dem` = hours
+    with heat demand, from the climate entity): the house was warm enough,
+    or the thermostat was set low (a holiday) - its energy says nothing
+    about what such a day needs."""
+    return teff < 15.0 and row.get("dem") is not None and row["dem"] < MIN_DEMAND_HOURS
+
+
+def climate_demand(state: Optional[str], attrs: dict[str, Any]) -> Optional[bool]:
+    """Whether a climate entity asks for heat right now: its hvac_action
+    (heating / preheating), else indoor below the wanted temperature; None
+    when it can't tell."""
+    if state in (None, "unavailable", "unknown"):
+        return None
+    action = attrs.get("hvac_action")
+    if isinstance(action, str) and action:
+        return action.lower() in ("heating", "preheating", "defrosting")
+    if state == "off":
+        return False
+    try:
+        return float(attrs["current_temperature"]) < float(attrs["temperature"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def demand_hours(changes: list[tuple[int, Optional[bool]]], first: int, end: int, tz: tzinfo) -> dict[str, float]:
+    """Hours with heat demand per local day from the climate entity's state
+    changes [(epoch, demand)] between `first` and `end` - only days fully
+    covered (from the first change on) and without unknown stretches."""
+    changes = sorted(c for c in changes if c[0] < end)
+    if not changes:
+        return {}
+    covered_from = max(changes[0][0], first)
+    acc: dict[str, list[float]] = {}  # date -> [demand s, unknown s]
+    for i, (t0, dem) in enumerate(changes):
+        t1 = changes[i + 1][0] if i + 1 < len(changes) else end
+        t0 = max(t0, covered_from)
+        while t0 < t1:
+            day_start = datetime.fromtimestamp(t0, tz).replace(hour=0, minute=0, second=0, microsecond=0)
+            nxt = int(datetime.combine(day_start.date() + timedelta(days=1), time.min, tzinfo=tz).timestamp())
+            seg = min(t1, nxt) - t0
+            a = acc.setdefault(day_start.date().isoformat(), [0.0, 0.0])
+            if dem is None:
+                a[1] += seg
+            elif dem:
+                a[0] += seg
+            t0 += seg
+    out = {}
+    for d, (dem_s, unknown_s) in acc.items():
+        start = local_day_start(date.fromisoformat(d), tz)
+        stop = local_day_start(date.fromisoformat(d) + timedelta(days=1), tz)
+        if start >= covered_from and stop <= end and unknown_s < 3600:
+            out[d] = round(dem_s / 3600.0, 1)
+    return out
+
+
 def coasting(row: dict[str, Any], teff: float) -> bool:
     """A cool day on which the house lived on its stored heat: it cooled
     COAST_DROP or more from midnight to midnight while the heat pump heated
@@ -284,6 +341,7 @@ def fit(journal: list[dict[str, Any]], today: date, with_cooling: bool = False) 
         return None
     teffs = effective_temps(all_rows)
     left_out = {r["d"]: "coasting" for r in all_rows if coasting(r, teffs[r["d"]])}
+    left_out.update({r["d"]: "no_demand" for r in all_rows if no_demand(r, teffs[r["d"]])})
     model = _fit_rows([r for r in all_rows if r["d"] not in left_out], teffs, today, with_cooling)
     if model is None:
         return None
@@ -398,6 +456,7 @@ def summary(model: dict[str, Any]) -> dict[str, Any]:
         "heating_days": model.get("heating_days"),
         "heating_classes": model.get("heating_classes"),
         "coasting_days": sum(1 for v in (model.get("left_out") or {}).values() if v == "coasting"),
+        "no_demand_days": sum(1 for v in (model.get("left_out") or {}).values() if v == "no_demand"),
         "outlier_days": sorted(d for d, v in (model.get("left_out") or {}).items() if v == "outlier"),
     }
 
@@ -822,11 +881,17 @@ def indoor_hours(indoor: dict[int, float], tz: tzinfo) -> dict[str, list[Optiona
 
 def heating_dates(model: Optional[dict[str, Any]], journal: list[dict[str, Any]]) -> set[str]:
     """Days the model counts as heating days (smoothed outdoor temperature at
-    least a degree below the balance temperature)."""
+    least a degree below the balance temperature) - without the days it left
+    out and days the thermostat was set clearly lower than usual (a
+    holiday): what the usual indoor temperature is learned from."""
     if not model:
         return set()
     teffs = effective_temps(journal)
-    return {d for d, t in teffs.items() if t <= model["tb"] - 1.0}
+    left_out = model.get("left_out") or {}
+    sps = sorted(r["sp"] for r in journal if r.get("sp") is not None)
+    low = sps[len(sps) // 2] - 1.0 if sps else None
+    setback = {r["d"] for r in journal if low is not None and r.get("sp") is not None and r["sp"] < low}
+    return {d for d, t in teffs.items() if t <= model["tb"] - 1.0 and d not in left_out and d not in setback}
 
 
 def indoor_profile(
@@ -877,6 +942,10 @@ def house_effect(
     Colder: the heat it misses, extra in the first DEFICIT_HOURS hours. None
     within SURPLUS_MIN."""
     use_usual = bool(usual)
+    if use_usual and wanted is not None and not (min(usual) - 0.5 <= wanted <= max(usual) + 0.5):
+        # the thermostat set outside its usual range (a holiday at 16 degC,
+        # or clearly higher): then that's what the house heads for
+        use_usual = False
     ref0 = usual[0] if use_usual else wanted
     per_degree = stored_kwh_per_degree(thermal, model)
     if per_degree is None or ref0 is None:

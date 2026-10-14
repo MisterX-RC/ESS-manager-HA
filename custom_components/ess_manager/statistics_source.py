@@ -124,3 +124,17 @@ async def async_last_recorded_state(hass: HomeAssistant, entity_id: str, wanted:
         if state.state.lower() in wanted_lower:
             return state.state.lower()
     return None
+
+
+async def async_fetch_state_changes(hass: HomeAssistant, entity_id: str, start, end) -> list:
+    """The recorded states of `entity_id` (with attributes) between start and
+    end, the state at `start` first - the recorder keeps these about 10 days.
+    Used for a thermostat's heat demand (2026.10.17)."""
+    from homeassistant.components.recorder.history import state_changes_during_period
+
+    changes = await get_instance(hass).async_add_executor_job(
+        lambda: state_changes_during_period(
+            hass, start, end, entity_id, no_attributes=False, include_start_time_state=True
+        )
+    )
+    return list(changes.get(entity_id.lower(), []))

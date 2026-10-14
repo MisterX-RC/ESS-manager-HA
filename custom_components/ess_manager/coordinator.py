@@ -110,7 +110,7 @@ from .const import (
 )
 from .controller import ControlSettings, EssController
 from .energy_source import async_get_energy_prefs
-from .statistics_source import async_fetch_hourly_means, async_fetch_hourly_sums, async_last_recorded_state
+from .statistics_source import async_fetch_hourly_means, async_fetch_state_changes, async_fetch_hourly_sums, async_last_recorded_state
 from .usage_forecast import (
     _week_sample,
     HISTORY_NONE,
@@ -296,6 +296,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._hp_hourly: list[dict[str, Any]] = []
         self._hp_wind_factor = 1.0
         self._hp_thermal_tried_at = 0.0
+        self._hp_demand_day: Optional[str] = None
 
     def control_settings(self) -> ControlSettings:
         return ControlSettings({**self.entry.data, **self.entry.options})
@@ -501,6 +502,22 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._hp_weather = heatpump.weather_days(lists["hourly"], lists["daily"], tz, self._hp_wind_factor)
         return self._hp_weather
 
+    async def _async_hp_demand(self, conf: dict[str, Any], now: datetime, tz) -> None:
+        """The thermostat's heat demand per day of the last days (the
+        recorder keeps about 10) into the journal: a cool day without demand
+        isn't fitted (2026.10.17). Needs a climate entity as the wanted
+        temperature; from then on it's also recorded live."""
+        entity_id = conf.get(CONF_HP_SETPOINT_ENTITY) or ""
+        if not entity_id.startswith("climate."):
+            return
+        start = now - timedelta(days=11)
+        midnight = dt_util.start_of_local_day(now)
+        states = await async_fetch_state_changes(self.hass, entity_id, start, midnight)
+        changes = [(int(st.last_changed.timestamp()), heatpump.climate_demand(st.state, dict(st.attributes))) for st in states]
+        hours = heatpump.demand_hours(changes, int(start.timestamp()), int(midnight.timestamp()), tz)
+        if hours:
+            self.hp.set_demand(hours)
+
     async def _async_hp_thermal(self, conf: dict[str, Any], today: date, tz) -> None:
         """The house's cooling rate (heatpump.fit_thermal) from the last
         THERMAL_DAYS of the indoor temperature's statistics, once a day. Needs
@@ -580,6 +597,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.hp.stats_day = today.isoformat()
         except Exception as err:  # noqa: BLE001 - the recorder is needed for this, planning goes on without
             _LOGGER.debug("ESS Manager: heat pump statistics not read: %s", err)
+        # the thermostat's heat demand of the last days: after a start and daily
+        if self._hp_demand_day != today.isoformat():
+            self._hp_demand_day = today.isoformat()
+            try:
+                await self._async_hp_demand(conf, now, tz)
+            except Exception as err:  # noqa: BLE001 - the recorder's history is optional here
+                _LOGGER.debug("ESS Manager: thermostat heat demand not read: %s", err)
         # the house's cooling rate: once a day
         other_sensor = bool(self.hp.thermal) and self.hp.thermal.get("src") != conf.get(CONF_HP_INDOOR_ENTITY)
         if (self.hp.thermal_day != today.isoformat() or other_sensor) and (now.timestamp() - self._hp_thermal_tried_at) > 3600:
@@ -610,7 +634,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             st = self.hass.states.get(conf[CONF_HP_INDOOR_ENTITY])
             if st and st.attributes.get("unit_of_measurement") == "\u00b0F":
                 indoor = (indoor - 32) / 1.8
-        self.hp.sample(now, tz, t_out, wind, wind_dir, setpoint, indoor, sun_today)
+        demand = None
+        sp_entity = conf.get(CONF_HP_SETPOINT_ENTITY) or ""
+        if sp_entity.startswith("climate."):
+            st = self.hass.states.get(sp_entity)
+            demand = heatpump.climate_demand(st.state, dict(st.attributes)) if st else None
+        self.hp.sample(now, tz, t_out, wind, wind_dir, setpoint, indoor, sun_today, demand)
         # forecast
         weather = await self._async_hp_weather(conf, now, tz)
         sun_by_day: dict[str, float] = {}

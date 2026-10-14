@@ -92,6 +92,13 @@ class HeatPumpRuntime:
         self.journal = hp.merge_rows(self.journal, rows, today)
         self.dirty = True
 
+    def set_demand(self, hours: dict[str, float]) -> None:
+        """Heat demand hours per day from the climate entity's history."""
+        for r in self.journal:
+            if r["d"] in hours:
+                r["dem"] = hours[r["d"]]
+        self.dirty = True
+
     def forget_indoor(self) -> None:
         """Before the rows are read again with another indoor sensor."""
         for r in self.journal:
@@ -108,6 +115,7 @@ class HeatPumpRuntime:
         setpoint: Optional[float] = None,
         indoor: Optional[float] = None,
         sun_today: Optional[float] = None,
+        demand: Optional[bool] = None,
     ) -> None:
         """One cycle's live readings, averaged per day. When the day changes,
         the finished day's averages go into its journal row (only what the
@@ -135,6 +143,10 @@ class HeatPumpRuntime:
             lv["wd_y"] = lv.get("wd_y", 0.0) + weight * math.sin(math.radians(wind_dir))
         if sun_today is not None:
             lv["s"] = round(float(sun_today), 2)
+        if demand is not None:
+            # the thermostat's heat demand (2026.10.17): share of the samples
+            lv["dem_n"] = lv.get("dem_n", 0) + 1
+            lv["dem_yes"] = lv.get("dem_yes", 0) + (1 if demand else 0)
         lv["first"] = lv.get("first") or now.timestamp()
         lv["last"] = now.timestamp()
 
@@ -167,6 +179,8 @@ class HeatPumpRuntime:
                 extra["wd"] = round(math.degrees(math.atan2(lv.get("wd_y", 0.0), lv["wd_x"])) % 360, 1)
         if lv.get("s") is not None:
             extra["s"] = lv["s"]
+        if lv.get("dem_n"):
+            extra["dem"] = round(24.0 * lv["dem_yes"] / lv["dem_n"], 1)
         row = next((r for r in self.journal if r["d"] == lv["d"]), None)
         if row is None:
             # no statistics row (yet): keep the live values for when it comes

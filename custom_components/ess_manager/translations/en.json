@@ -100,7 +100,7 @@
       },
       "hp": {
         "title": "Heat pump - sensors",
-        "description": "The outdoor temperature needs long-term statistics (a sensor with a state class) - one from the internet is fine. The weather forecast is read per day (5 days), per hour where the weather entity has it. Wind, wind direction, indoor and wanted temperature are optional: without statistics they're recorded from now on. An indoor temperature with statistics also teaches the model how fast the house cools (with the heat pump's own metering), so a house warmer than wanted coasts, the wind direction only counts once there's about a season of days in each direction. On saving, the model's journal is filled with up to two years of the statistics that already exist.",
+        "description": "The outdoor temperature needs long-term statistics (a sensor with a state class) - one from the internet is fine. The weather forecast is read per day (5 days), per hour where the weather entity has it. Wind, wind direction, indoor and wanted temperature are optional: without statistics they're recorded from now on. An indoor temperature with statistics also teaches the model how fast the house cools (with the heat pump's own metering), so a house warmer than wanted coasts. A thermostat (climate entity) as the wanted temperature also tells the model on which days there was heat demand - only those cool days teach it what the cold costs, the wind direction only counts once there's about a season of days in each direction. On saving, the model's journal is filled with up to two years of the statistics that already exist.",
         "data": {
           "hp_heat_entities": "Heating energy sensor(s) (kWh)",
           "hp_cool_entities": "Cooling energy sensor(s) (kWh, optional)",
@@ -244,7 +244,7 @@
       },
       "hp": {
         "title": "Heat pump - sensors",
-        "description": "The outdoor temperature needs long-term statistics (a sensor with a state class) - one from the internet is fine. The weather forecast is read per day (5 days), per hour where the weather entity has it. Wind, wind direction, indoor and wanted temperature are optional: without statistics they're recorded from now on. An indoor temperature with statistics also teaches the model how fast the house cools (with the heat pump's own metering), so a house warmer than wanted coasts, the wind direction only counts once there's about a season of days in each direction. On saving, the model's journal is filled with up to two years of the statistics that already exist.",
+        "description": "The outdoor temperature needs long-term statistics (a sensor with a state class) - one from the internet is fine. The weather forecast is read per day (5 days), per hour where the weather entity has it. Wind, wind direction, indoor and wanted temperature are optional: without statistics they're recorded from now on. An indoor temperature with statistics also teaches the model how fast the house cools (with the heat pump's own metering), so a house warmer than wanted coasts. A thermostat (climate entity) as the wanted temperature also tells the model on which days there was heat demand - only those cool days teach it what the cold costs, the wind direction only counts once there's about a season of days in each direction. On saving, the model's journal is filled with up to two years of the statistics that already exist.",
         "data": {
           "hp_heat_entities": "Heating energy sensor(s) (kWh)",
           "hp_cool_entities": "Cooling energy sensor(s) (kWh, optional)",

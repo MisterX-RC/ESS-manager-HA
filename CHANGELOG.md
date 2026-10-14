@@ -25,6 +25,16 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   that stored heat for the coming hours. For this the journal's rows get the
   indoor temperature per day from the statistics (filled in once on the
   update).
+- **Heat pump: only cool days with heat demand teach the model.** With a
+  thermostat (climate entity) as the wanted temperature, its heat demand
+  (hvac_action heating, else indoor below wanted) is recorded per day - from
+  the recorder's history of the last ~10 days on the update, live from then
+  on. A cool day on which the thermostat asked for heat less than half an
+  hour (a warm house, or a holiday at 16 °C) is left out of the fit. Holiday
+  days (thermostat clearly lower than usual) don't make the usual indoor
+  temperature either, and a thermostat set outside its usual range is the
+  house effect's reference: on holiday at 16 °C a 21 °C house coasts for a
+  long time instead of looking 0.8 °C too cold.
 - **Heat pump: a meter jump** (a day far off the model - six times the usual
   spread, at least 3 kWh and more than the model itself) is left out and the
   model fitted again without it.

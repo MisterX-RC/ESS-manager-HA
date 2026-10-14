@@ -115,7 +115,7 @@ const I18N = {
     hp_house_warm_long: (d, ref, kwh) => `House ${d} warmer than ${ref}: it keeps that heat for the coming days (${kwh} less).`,
     hp_house_cold: (d, ref, kwh) => `House ${d} colder than ${ref}: ${kwh} extra to warm it up, in the coming hours.`,
     hp_left_out: "left out", hp_heating_classes: "Temperature ranges with 3+ heating days",
-    hp_left_out_note: (c, o) => [c ? `${c} cool day${c === 1 ? "" : "s"} on which the house lived on its stored heat (it cooled while the heat pump hardly heated)` : "", o ? `${o} day${o === 1 ? "" : "s"} far off the model (a meter jump)` : ""].filter(Boolean).join(" and ") + " left out of the model.",
+    hp_left_out_note: (c, o, n) => [n ? `${n} cool day${n === 1 ? "" : "s"} without heat demand from the thermostat` : "", c ? `${c} cool day${c === 1 ? "" : "s"} on which the house lived on its stored heat (it cooled while the heat pump hardly heated)` : "", o ? `${o} day${o === 1 ? "" : "s"} far off the model (a meter jump)` : ""].filter(Boolean).join(", ") + " left out of the model.",
     hp_ref_usual: "usual at this time", hp_ref_wanted: "wanted", hp_floor: (h) => `floor keeps heating ${h} h`,
     hp_hold_t: "Heat held", hp_hold_unit: "per °C indoor", hp_cooling_t: "Cooling", hp_cooling_unit: "at 10 °C difference, not heating",
     hp_tau: (h) => `time constant ${h} h`, hp_thermal_learning: "House cooling not learned yet: it needs hours in which the heat pump didn't heat (indoor temperature with statistics).",
@@ -201,7 +201,7 @@ const I18N = {
     hp_house_warm_long: (d, ref, kwh) => `Huis ${d} warmer dan ${ref}: houdt die warmte de komende dagen vast (${kwh} minder).`,
     hp_house_cold: (d, ref, kwh) => `Huis ${d} kouder dan ${ref}: ${kwh} extra om op te warmen, de komende uren.`,
     hp_left_out: "weggelaten", hp_heating_classes: "Temperatuurklassen met 3+ stookdagen",
-    hp_left_out_note: (c, o) => [c ? `${c} koele dag${c === 1 ? "" : "en"} waarop het huis op zijn opgeslagen warmte teerde (het koelde af terwijl de warmtepomp nauwelijks stookte)` : "", o ? `${o} dag${o === 1 ? "" : "en"} ver naast het model (een meetsprong)` : ""].filter(Boolean).join(" en ") + " niet meegenomen in het model.",
+    hp_left_out_note: (c, o, n) => [n ? `${n} koele dag${n === 1 ? "" : "en"} zonder warmtevraag van de thermostaat` : "", c ? `${c} koele dag${c === 1 ? "" : "en"} waarop het huis op zijn opgeslagen warmte teerde (het koelde af terwijl de warmtepomp nauwelijks stookte)` : "", o ? `${o} dag${o === 1 ? "" : "en"} ver naast het model (een meetsprong)` : ""].filter(Boolean).join(", ") + " niet meegenomen in het model.",
     hp_ref_usual: "gebruikelijk om deze tijd", hp_ref_wanted: "gewenst", hp_floor: (h) => `vloer warmt ${h} uur na`,
     hp_hold_t: "Warmte vasthouden", hp_hold_unit: "per °C binnen", hp_cooling_t: "Afkoelen", hp_cooling_unit: "bij 10 °C verschil, zonder stoken",
     hp_tau: (h) => `tijdconstante ${h} uur`, hp_thermal_learning: "Afkoelsnelheid van het huis nog niet geleerd: daar zijn uren voor nodig waarin de warmtepomp niet stookte (binnentemperatuur met statistieken).",
@@ -2849,7 +2849,7 @@ class EssManagerHeatPumpCard extends EssChartCard {
       <div class="chart" style="height:${h}px">${svg}</div>
       <div class="hp-legend"><span><i style="display:inline-block;width:8px;height:8px;border-radius:4px;background:${opt.hp_color}"></i>${esc(this._t("hp_measured_day"))}</span><span><i style="display:inline-block;width:14px;height:2px;background:var(--primary-text-color,#f0f0f0)"></i>${esc(this._t("hp_model"))}</span><span><i style="display:inline-block;width:8px;height:8px;border-radius:6px;border:2px solid ${HP_FC_COLOR}"></i>${esc(this._t("hp_expected"))}</span>${pts.some((p) => p[3]) ? `<span><i style="display:inline-block;width:6px;height:6px;border-radius:5px;border:1.5px solid #8a8a8a"></i>${esc(this._t("hp_left_out"))}</span>` : ""}</div>
       <div class="hp-tiles">${tiles.map(([a, b, c]) => `<div class="hp-tile"><span>${esc(a)}</span><span>${esc(b)}</span>${c ? `<span>${esc(c)}</span>` : ""}</div>`).join("")}</div>
-      ${(m.coasting_days || (m.outlier_days || []).length) ? `<div class="hp-note">${esc(this._t("hp_left_out_note")(m.coasting_days || 0, (m.outlier_days || []).length))}</div>` : ""}
+      ${(m.coasting_days || m.no_demand_days || (m.outlier_days || []).length) ? `<div class="hp-note">${esc(this._t("hp_left_out_note")(m.coasting_days || 0, (m.outlier_days || []).length, m.no_demand_days || 0))}</div>` : ""}
       ${!th && hp.house && hp.meter !== "none" ? `<div class="hp-note">${esc(this._t("hp_thermal_learning"))}</div>` : ""}
     </div>`;
   }

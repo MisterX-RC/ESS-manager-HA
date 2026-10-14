@@ -3786,6 +3786,52 @@ _rt5.thermal = _th_fixed
 _, _a5, _ = _rt5.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6, setpoint=21.0, indoor=21.0, hourly_weather=_calm)
 check("house runtime: while learning no 'heat held' (it leans on the kWh per degree colder)",
       _a5["state"] == "learning" and (_a5.get("thermal") is None or _a5["thermal"]["kwh_per_degree"] is None))
+# 2026.10.17 (also): the thermostat's heat demand
+check("heat pump: heat demand from a climate entity (hvac_action, else indoor below wanted)",
+      heatpump.climate_demand("heat", {"hvac_action": "heating"}) is True
+      and heatpump.climate_demand("heat", {"hvac_action": "idle"}) is False
+      and heatpump.climate_demand("heat", {"current_temperature": 20.4, "temperature": 21}) is True
+      and heatpump.climate_demand("heat", {"current_temperature": 21.1, "temperature": 16}) is False
+      and heatpump.climate_demand("off", {}) is False and heatpump.climate_demand("unavailable", {}) is None
+      and heatpump.climate_demand("heat", {}) is None)
+_d0 = int(datetime(2026, 10, 11, 0, 0, tzinfo=_tzA).timestamp())
+_chg = [(_d0 - 5 * 3600, False), (_d0 + 6 * 3600, True), (_d0 + 9 * 3600, False), (_d0 + 30 * 3600, True), (_d0 + 31 * 3600, False)]
+_dh = heatpump.demand_hours(_chg, _d0 - 5 * 3600, _d0 + 48 * 3600, _tzA)
+check("heat pump: heat demand hours per day from the thermostat's history (only whole days)",
+      _dh == {"2026-10-11": 3.0, "2026-10-12": 1.0})
+_nod = [dict(r) for r in _hpj]
+for r in _nod[-12:]:
+    r.update({"t": 10.0, "e": 0.3, "dem": 0.0})
+_m_nod = heatpump.fit(_nod, _hp_today)
+check("heat pump: cool days without heat demand (warm house, a holiday at 16 degC) are left out",
+      heatpump.summary(_m_nod)["no_demand_days"] == 12 and abs(_m_nod["coef"][1] - _hpm["coef"][1]) < 0.03)
+_dem_ok = [dict(r) for r in _nod]
+for r in _dem_ok[-12:]:
+    r["dem"] = 9.0
+check("heat pump: a day with heat demand counts", heatpump.summary(heatpump.fit(_dem_ok, _hp_today))["no_demand_days"] == 0)
+check("house: thermostat at 16 degC on holiday (outside its usual 20.5..21.6) -> the wanted temperature is the reference",
+      heatpump.house_effect(_th_fixed, _hpm, 21.1, 16.0, _calm, _usual20)["reference"] == "wanted"
+      and heatpump.house_effect(_th_fixed, _hpm, 21.1, 16.0, _calm, _usual20)["kind"] == "surplus"
+      and heatpump.house_effect(_th_fixed, _hpm, 21.1, 21.0, _calm, _usual20)["reference"] == "usual")
+_hol = [dict(r) for r in _hpj]
+for r in _hol[-30:]:
+    r["sp"] = 21.0
+for r in _hol[-5:]:
+    r["sp"] = 16.0
+_hd_hol = heatpump.heating_dates(_hpm, _hol)
+check("house: holiday days (thermostat clearly lower) don't make the usual indoor temperature",
+      not any(r["d"] in _hd_hol for r in _hol[-5:]) and any(r["d"] in _hd_hol for r in _hol[-30:-5]))
+_rt6 = heatpump_runtime.HeatPumpRuntime()
+_rt6.merge(_hpj, _hp_today)
+_rt6.sample(datetime(2026, 10, 13, 10, 0, tzinfo=_tzA), _tzA, t_out=8.0, demand=True)
+_rt6.sample(datetime(2026, 10, 13, 16, 0, tzinfo=_tzA), _tzA, t_out=8.0, demand=False)
+_rt6.sample(datetime(2026, 10, 13, 22, 0, tzinfo=_tzA), _tzA, t_out=8.0, demand=False)
+_rt6.sample(datetime(2026, 10, 14, 0, 5, tzinfo=_tzA), _tzA, t_out=8.0)
+check("heat pump runtime: the live heat demand goes into the day's journal row at midnight",
+      next(r for r in _rt6.journal if r["d"] == "2026-10-13").get("dem") == 8.0)
+_rt6.set_demand({"2026-10-13": 5.5})
+check("heat pump runtime: the thermostat's history sets the demand hours",
+      next(r for r in _rt6.journal if r["d"] == "2026-10-13")["dem"] == 5.5)
 _rt3_hp = heatpump_runtime.HeatPumpRuntime()
 _rt3_hp.restore(_rt_hp.as_store())
 check("heat pump runtime: the store round-trips", _rt3_hp.as_store() == _rt_hp.as_store())

@@ -488,7 +488,11 @@ its usage from the weather**); two pages follow:
   taken out of the household usage history (like the electric car) and the
   model's forecast added; without, the model's difference to the usual
   average is added.
-- **Days left out**: a cool day on which the house lived on its stored heat
+- **Days left out**: a cool day without heat demand (with a thermostat -
+  a climate entity - as the wanted temperature: it asked for heat less than
+  half an hour that day; its hvac_action, else indoor below wanted; the
+  recorder's last ~10 days on the first start, live after that), a cool day
+  on which the house lived on its stored heat
   (with an indoor temperature: it cooled 0.3 °C or more from midnight to
   midnight while the heat pump heated at most 4 hours - typical for autumn,
   out of the summer) says nothing about what such a day needs, and a day far
@@ -524,8 +528,10 @@ its usage from the weather**); two pages follow:
   Typical for autumn: out of the summer, a warm house while it suddenly gets
   cold outside. A house **colder than usual** (after a holiday, say) needs
   that heat extra, in the first 6 hours. Without 5 heating days with indoor
-  data yet, the wanted temperature is the reference. Only in the heating
-  season.
+  data yet, the wanted temperature is the reference - and also when the thermostat is
+  set outside its usual range (a holiday at 16 °C: the house then coasts
+  until it's down there). Holiday days don't count for the usual
+  temperature. Only in the heating season.
 - **A changing wanted temperature**: the coming days are forecast with the
   average wanted temperature of the last week (a whole day with its
   schedule), not the value of this moment - otherwise every day would look
