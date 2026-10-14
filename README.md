@@ -455,8 +455,9 @@ its usage from the weather**); two pages follow:
   long-term statistics; one from the internet, like the heat pump's own, is
   fine), the **weather forecast** (a weather entity: Met.no, Buienradar,
   Open-Meteo, ...; read per day, per hour where it has it) and optionally
-  wind speed, wind direction, indoor temperature (with statistics it also
-  teaches the model how fast the house cools - see below) and the wanted
+  wind speed, wind direction, indoor temperature (it also teaches the model
+  how fast the house cools - see below; without it a thermostat's own
+  temperature is used) and the wanted
   temperature (a thermostat or a sensor/number).
 
 **How it works.**
@@ -503,8 +504,11 @@ its usage from the weather**); two pages follow:
   weather forecast, the heat pump stays in the household usage as before
   (6-week average). In summer (no heating day in the coming days) only the
   daily base counts.
-- **The house's own heat** (with an indoor temperature that has long-term
-  statistics, and the heat pump's own metering): every day the model learns
+- **The house's own heat** (with an indoor temperature and the heat pump's
+  own metering - the indoor temperature is a separate sensor with long-term
+  statistics, or else a thermostat's own current temperature: that one has
+  no statistics, so its last ~10 days come from the recorder and from then
+  on ESS Manager keeps it per hour itself; it gets better as the weeks go): every day the model learns
   how fast the house cools from the hours the heat pump didn't heat (the last
   60 days, hours with 15 °C or less outside and at least 4 °C difference -
   summer hours with windows open say little): per hour the indoor

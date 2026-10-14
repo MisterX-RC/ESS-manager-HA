@@ -118,7 +118,7 @@ const I18N = {
     hp_left_out_note: (c, o, n) => [n ? `${n} cool day${n === 1 ? "" : "s"} without heat demand from the thermostat` : "", c ? `${c} cool day${c === 1 ? "" : "s"} on which the house lived on its stored heat (it cooled while the heat pump hardly heated)` : "", o ? `${o} day${o === 1 ? "" : "s"} far off the model (a meter jump)` : ""].filter(Boolean).join(", ") + " left out of the model.",
     hp_ref_usual: "usual at this time", hp_ref_wanted: "wanted", hp_floor: (h) => `floor keeps heating ${h} h`,
     hp_hold_t: "Heat held", hp_hold_unit: "per \u00b0C indoor", hp_cooling_t: "Cooling", hp_cooling_unit: "at 10 \u00b0C difference, not heating",
-    hp_tau: (h) => `time constant ${h} h`, hp_thermal_learning: "House cooling not learned yet: it needs hours in which the heat pump didn't heat (indoor temperature with statistics).",
+    hp_tau: (h) => `time constant ${h} h`, hp_thermal_learning: "House cooling not learned yet: it needs hours in which the heat pump didn't heat (from the indoor sensor's statistics, or what has been recorded of the thermostat's temperature).",
     ed_hp_color: "Heat pump",
   },
   nl: {
@@ -204,7 +204,7 @@ const I18N = {
     hp_left_out_note: (c, o, n) => [n ? `${n} koele dag${n === 1 ? "" : "en"} zonder warmtevraag van de thermostaat` : "", c ? `${c} koele dag${c === 1 ? "" : "en"} waarop het huis op zijn opgeslagen warmte teerde (het koelde af terwijl de warmtepomp nauwelijks stookte)` : "", o ? `${o} dag${o === 1 ? "" : "en"} ver naast het model (een meetsprong)` : ""].filter(Boolean).join(", ") + " niet meegenomen in het model.",
     hp_ref_usual: "gebruikelijk om deze tijd", hp_ref_wanted: "gewenst", hp_floor: (h) => `vloer warmt ${h} uur na`,
     hp_hold_t: "Warmte vasthouden", hp_hold_unit: "per \u00b0C binnen", hp_cooling_t: "Afkoelen", hp_cooling_unit: "bij 10 \u00b0C verschil, zonder stoken",
-    hp_tau: (h) => `tijdconstante ${h} uur`, hp_thermal_learning: "Afkoelsnelheid van het huis nog niet geleerd: daar zijn uren voor nodig waarin de warmtepomp niet stookte (binnentemperatuur met statistieken).",
+    hp_tau: (h) => `tijdconstante ${h} uur`, hp_thermal_learning: "Afkoelsnelheid van het huis nog niet geleerd: daar zijn uren voor nodig waarin de warmtepomp niet stookte (uit de statistieken van de binnensensor, of wat er van de temperatuur van de thermostaat is bijgehouden).",
     ed_hp_color: "Warmtepomp",
   },
 };

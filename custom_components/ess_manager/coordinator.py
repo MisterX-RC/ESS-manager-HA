@@ -445,9 +445,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ev_entity = ev_energy_entity(conf)
         ids = [*self._hp_energy_ids(conf), *solar_ids, *([ev_entity] if ev_entity else [])]
         sums = await async_fetch_hourly_sums(self.hass, ids, start, end)
-        indoor_id = conf.get(CONF_HP_INDOOR_ENTITY)
-        mean_ids = [conf.get(CONF_HP_OUTDOOR_ENTITY), conf.get(CONF_HP_WIND_ENTITY), indoor_id]
+        indoor_id, from_stats = self._hp_indoor_source(conf)
+        mean_ids = [conf.get(CONF_HP_OUTDOOR_ENTITY), conf.get(CONF_HP_WIND_ENTITY), indoor_id if from_stats else None]
         means = await async_fetch_hourly_means(self.hass, [m for m in mean_ids if m], start, end)
+        if indoor_id and not from_stats:
+            means[indoor_id] = self.hp.indoor_series()
         deltas = {k: heatpump.hourly_deltas(v) for k, v in sums.items()}
         parts: dict[str, dict[int, float]] = {}
         if heat or cool:
@@ -502,6 +504,26 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._hp_weather = heatpump.weather_days(lists["hourly"], lists["daily"], tz, self._hp_wind_factor)
         return self._hp_weather
 
+    def _hp_indoor_source(self, conf: dict[str, Any]) -> tuple[Optional[str], bool]:
+        """(entity, from statistics): the indoor temperature sensor when set,
+        else a thermostat's current temperature (as of 2026.10.17 - no
+        statistics: the recorder's last ~10 days, then recorded live)."""
+        if conf.get(CONF_HP_INDOOR_ENTITY):
+            return conf[CONF_HP_INDOOR_ENTITY], True
+        sp = conf.get(CONF_HP_SETPOINT_ENTITY) or ""
+        if sp.startswith("climate."):
+            return sp, False
+        return None, False
+
+    def _climate_temp(self, value: Any) -> Optional[float]:
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return None
+        if self.hass.config.units.temperature_unit == "\u00b0F":
+            v = (v - 32) / 1.8
+        return v
+
     async def _async_hp_demand(self, conf: dict[str, Any], now: datetime, tz) -> None:
         """The thermostat's heat demand per day of the last days (the
         recorder keeps about 10) into the journal: a cool day without demand
@@ -512,17 +534,24 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         start = now - timedelta(days=11)
         midnight = dt_util.start_of_local_day(now)
-        states = await async_fetch_state_changes(self.hass, entity_id, start, midnight)
-        changes = [(int(st.last_changed.timestamp()), heatpump.climate_demand(st.state, dict(st.attributes))) for st in states]
+        states = await async_fetch_state_changes(self.hass, entity_id, start, now)
+        changes = [(int(st.last_updated.timestamp()), heatpump.climate_demand(st.state, dict(st.attributes))) for st in states]
         hours = heatpump.demand_hours(changes, int(start.timestamp()), int(midnight.timestamp()), tz)
         if hours:
-            self.hp.set_demand(hours)
+            self.hp.set_demand(hours, now.astimezone(tz).date())
+        # its current temperature too, per hour (the indoor temperature
+        # without a separate sensor)
+        temps = [(int(st.last_updated.timestamp()), self._climate_temp(st.attributes.get("current_temperature"))) for st in states]
+        self.hp.add_indoor_hours(
+            heatpump.step_hourly_means(temps, int(start.timestamp()), int(now.timestamp()) // 3600 * 3600), now.timestamp()
+        )
 
     async def _async_hp_thermal(self, conf: dict[str, Any], today: date, tz) -> None:
         """The house's cooling rate (heatpump.fit_thermal) from the last
-        THERMAL_DAYS of the indoor temperature's statistics, once a day. Needs
-        the heat pump's own metering (the hours it didn't heat)."""
-        indoor_id = conf.get(CONF_HP_INDOOR_ENTITY)
+        THERMAL_DAYS of the indoor temperature (its statistics, or what was
+        recorded of the thermostat's), once a day. Needs the heat pump's own
+        metering (the hours it didn't heat)."""
+        indoor_id, from_stats = self._hp_indoor_source(conf)
         heat, cool = hp_energy_entities(conf)
         if not indoor_id or not (heat or cool):
             self.hp.thermal = None
@@ -532,8 +561,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         end = datetime.combine(today, datetime.min.time(), tzinfo=tz)
         solar_ids = list((self._energy_dashboard_sources or {}).get("solar", []))
         sums = await async_fetch_hourly_sums(self.hass, [*heat, *cool, *solar_ids], start, end)
-        mean_ids = [indoor_id, conf.get(CONF_HP_OUTDOOR_ENTITY), conf.get(CONF_HP_WIND_ENTITY)]
+        mean_ids = [indoor_id if from_stats else None, conf.get(CONF_HP_OUTDOOR_ENTITY), conf.get(CONF_HP_WIND_ENTITY)]
         means = await async_fetch_hourly_means(self.hass, [m for m in mean_ids if m], start, end)
+        if not from_stats:
+            means[indoor_id] = {h: v for h, v in self.hp.indoor_series().items() if start.timestamp() <= h < end.timestamp()}
         deltas = {k: heatpump.hourly_deltas(v) for k, v in sums.items()}
         energy = heatpump.add_series(*[deltas.get(e, {}) for e in [*heat, *cool]])
         sun = heatpump.add_series(*[deltas.get(e, {}) for e in solar_ids]) if solar_ids else None
@@ -572,9 +603,17 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.hp.key != key:
             self.hp.reset(key)
             self._hp_backfill_tried_at = None
+        # the thermostat's heat demand and current temperature of the last days:
+        # after a start and daily - before the journal, whose rows use them
+        if self._hp_demand_day != today.isoformat():
+            self._hp_demand_day = today.isoformat()
+            try:
+                await self._async_hp_demand(conf, now, tz)
+            except Exception as err:  # noqa: BLE001 - the recorder's history is optional here
+                _LOGGER.debug("ESS Manager: thermostat heat demand not read: %s", err)
         # the journal: two years of statistics once, then yesterday every day
         try:
-            indoor_src = conf.get(CONF_HP_INDOOR_ENTITY) or ""
+            indoor_src = self._hp_indoor_source(conf)[0] or ""
             empty = not self.hp.journal or not any(r.get("e") is not None for r in self.hp.journal)
             if empty or self.hp.rows_src != indoor_src:
                 # (also once with another indoor sensor - or as of 2026.10.17
@@ -597,15 +636,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.hp.stats_day = today.isoformat()
         except Exception as err:  # noqa: BLE001 - the recorder is needed for this, planning goes on without
             _LOGGER.debug("ESS Manager: heat pump statistics not read: %s", err)
-        # the thermostat's heat demand of the last days: after a start and daily
-        if self._hp_demand_day != today.isoformat():
-            self._hp_demand_day = today.isoformat()
-            try:
-                await self._async_hp_demand(conf, now, tz)
-            except Exception as err:  # noqa: BLE001 - the recorder's history is optional here
-                _LOGGER.debug("ESS Manager: thermostat heat demand not read: %s", err)
         # the house's cooling rate: once a day
-        other_sensor = bool(self.hp.thermal) and self.hp.thermal.get("src") != conf.get(CONF_HP_INDOOR_ENTITY)
+        other_sensor = bool(self.hp.thermal) and self.hp.thermal.get("src") != self._hp_indoor_source(conf)[0]
         if (self.hp.thermal_day != today.isoformat() or other_sensor) and (now.timestamp() - self._hp_thermal_tried_at) > 3600:
             self._hp_thermal_tried_at = now.timestamp()
             try:
@@ -629,11 +661,16 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 wind *= WIND_FACTORS.get(st.attributes.get("unit_of_measurement") or "m/s", 1.0)
         wind_dir = _get_float_state(self.hass, conf.get(CONF_HP_WIND_DIR_ENTITY), default=None) if conf.get(CONF_HP_WIND_DIR_ENTITY) else None
         setpoint = self._hp_setpoint(conf)
-        indoor = _get_float_state(self.hass, conf.get(CONF_HP_INDOOR_ENTITY), default=None) if conf.get(CONF_HP_INDOOR_ENTITY) else None
-        if indoor is not None:
-            st = self.hass.states.get(conf[CONF_HP_INDOOR_ENTITY])
-            if st and st.attributes.get("unit_of_measurement") == "\u00b0F":
+        indoor_id, from_stats = self._hp_indoor_source(conf)
+        indoor = None
+        if indoor_id and from_stats:
+            indoor = _get_float_state(self.hass, indoor_id, default=None)
+            st = self.hass.states.get(indoor_id)
+            if indoor is not None and st and st.attributes.get("unit_of_measurement") == "\u00b0F":
                 indoor = (indoor - 32) / 1.8
+        elif indoor_id:
+            st = self.hass.states.get(indoor_id)
+            indoor = self._climate_temp(st.attributes.get("current_temperature")) if st else None
         demand = None
         sp_entity = conf.get(CONF_HP_SETPOINT_ENTITY) or ""
         if sp_entity.startswith("climate."):

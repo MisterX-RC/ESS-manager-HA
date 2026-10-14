@@ -3832,6 +3832,24 @@ check("heat pump runtime: the live heat demand goes into the day's journal row a
 _rt6.set_demand({"2026-10-13": 5.5})
 check("heat pump runtime: the thermostat's history sets the demand hours",
       next(r for r in _rt6.journal if r["d"] == "2026-10-13")["dem"] == 5.5)
+# 2026.10.17 (also): the thermostat's current temperature as the indoor temperature
+_s0 = int(datetime(2026, 10, 12, 10, 0, tzinfo=_tzA).timestamp())
+_hm = heatpump.step_hourly_means([(_s0 - 600, 21.0), (_s0 + 1800, 22.0), (_s0 + 3600 + 1200, None)], _s0 - 3600, _s0 + 3 * 3600)
+check("house: hourly means from a thermostat's temperature changes (time-weighted, gaps left out)",
+      _hm.get(_s0) == 21.5 and _s0 + 3600 not in _hm and _s0 - 3600 not in _hm)
+_rt7 = heatpump_runtime.HeatPumpRuntime()
+for _mi, _v in ((0, 21.0), (20, 21.2), (40, 21.4), (61, 21.6)):
+    _rt7.sample(datetime(2026, 10, 13, 10, 0, tzinfo=_tzA) + timedelta(minutes=_mi), _tzA, indoor=_v)
+_h10 = int(datetime(2026, 10, 13, 10, 0, tzinfo=_tzA).timestamp())
+check("heat pump runtime: the indoor temperature is recorded per hour live",
+      _rt7.indoor_series() == {_h10: 21.2})
+_rt7.add_indoor_hours({_h10: 19.0, _h10 - 3600: 20.5, _h10 - 90 * 86400: 18.0}, _h10 + 7200)
+check("heat pump runtime: the thermostat's history fills hours, what was recorded live stays, old hours go",
+      _rt7.indoor_series() == {_h10: 21.2, _h10 - 3600: 20.5})
+_rt7.set_demand({"2026-10-10": 2.5})
+_rt7.merge([{"d": "2026-10-10", "e": 3.0, "t": 9.0}], _hp_today)
+check("heat pump runtime: demand hours read before the day's row arrives are applied when it does",
+      _rt7.journal[0].get("dem") == 2.5)
 _rt3_hp = heatpump_runtime.HeatPumpRuntime()
 _rt3_hp.restore(_rt_hp.as_store())
 check("heat pump runtime: the store round-trips", _rt3_hp.as_store() == _rt_hp.as_store())

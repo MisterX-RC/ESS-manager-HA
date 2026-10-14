@@ -44,6 +44,12 @@ class HeatPumpRuntime:
         # the indoor sensor the journal's rows were read with (ti / tid);
         # another one (or none yet, as before 2026.10.17) refills them once
         self.rows_src: Optional[str] = None
+        # hourly indoor temperatures recorded here {epoch: degC} - for a
+        # thermostat's current temperature, which has no statistics; and the
+        # thermostat's heat demand hours per day (both as of 2026.10.17)
+        self.indoor_hist: dict[str, float] = {}
+        self.demand: dict[str, float] = {}
+        self._hour: Optional[list[float]] = None
 
     # -- store ---------------------------------------------------------------
     def restore(self, data: Optional[dict[str, Any]]) -> None:
@@ -57,6 +63,8 @@ class HeatPumpRuntime:
         self.thermal_day = data.get("thermal_day")
         self.indoor_days = dict(data.get("indoor_days") or {})
         self.rows_src = data.get("rows_src")
+        self.indoor_hist = dict(data.get("indoor_hist") or {})
+        self.demand = dict(data.get("demand") or {})
         self.dirty = True
 
     def as_store(self) -> dict[str, Any]:
@@ -70,6 +78,8 @@ class HeatPumpRuntime:
             "thermal_day": self.thermal_day,
             "indoor_days": self.indoor_days,
             "rows_src": self.rows_src,
+            "indoor_hist": self.indoor_hist,
+            "demand": self.demand,
         }
 
     def reset(self, key: str) -> None:
@@ -85,19 +95,40 @@ class HeatPumpRuntime:
         self.thermal_day = None
         self.indoor_days = {}
         self.rows_src = None
+        self.indoor_hist = {}
+        self.demand = {}
         self.dirty = True
 
     # -- data in ---------------------------------------------------------------
     def merge(self, rows: list[dict[str, Any]], today: date) -> None:
         self.journal = hp.merge_rows(self.journal, rows, today)
+        for r in self.journal:
+            if r.get("dem") is None and r["d"] in self.demand:
+                r["dem"] = self.demand[r["d"]]
         self.dirty = True
 
-    def set_demand(self, hours: dict[str, float]) -> None:
-        """Heat demand hours per day from the climate entity's history."""
+    def set_demand(self, hours: dict[str, float], today: Optional[date] = None) -> None:
+        """Heat demand hours per day from the climate entity's history (kept,
+        so rows that come later get them too)."""
+        self.demand.update(hours)
+        if today is not None:
+            cutoff = (today - timedelta(days=hp.JOURNAL_DAYS)).isoformat()
+            self.demand = {d: v for d, v in self.demand.items() if d >= cutoff}
         for r in self.journal:
             if r["d"] in hours:
                 r["dem"] = hours[r["d"]]
         self.dirty = True
+
+    def add_indoor_hours(self, hours: dict[int, float], now_epoch: float) -> None:
+        """Hourly indoor temperatures (a thermostat's history) - what was
+        recorded live stays; older than THERMAL_DAYS + 2 days goes."""
+        for h, v in hours.items():
+            self.indoor_hist.setdefault(str(int(h)), v)
+        cutoff = now_epoch - (hp.THERMAL_DAYS + 2) * 86400
+        self.indoor_hist = {k: v for k, v in self.indoor_hist.items() if int(k) >= cutoff}
+
+    def indoor_series(self) -> dict[int, float]:
+        return {int(k): v for k, v in self.indoor_hist.items()}
 
     def forget_indoor(self) -> None:
         """Before the rows are read again with another indoor sensor."""
@@ -136,6 +167,16 @@ class HeatPumpRuntime:
         add("w", wind)
         add("sp", setpoint)
         add("ti", indoor)
+        if indoor is not None:
+            # the hour's mean into indoor_hist when the hour is over
+            hour = int(now.timestamp()) // hp.HOUR * hp.HOUR
+            if self._hour is not None and self._hour[0] != hour and self._hour[2]:
+                self.indoor_hist[str(int(self._hour[0]))] = round(self._hour[1] / self._hour[2], 2)
+                self._hour = None
+            if self._hour is None:
+                self._hour = [hour, 0.0, 0]
+            self._hour[1] += float(indoor)
+            self._hour[2] += 1
         if wind_dir is not None:
             import math
             weight = wind if wind is not None and wind > 0 else 1.0

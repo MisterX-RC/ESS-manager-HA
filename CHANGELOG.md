@@ -35,6 +35,13 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   temperature either, and a thermostat set outside its usual range is the
   house effect's reference: on holiday at 16 °C a 21 °C house coasts for a
   long time instead of looking 0.8 °C too cold.
+- **Heat pump: no separate indoor sensor needed with a thermostat.** Without
+  one, the thermostat's (climate entity's) own current temperature is the
+  indoor temperature: for the cooling rate, the usual temperature per hour,
+  the coasting days and the house effect. It has no long-term statistics,
+  so its last ~10 days come from the recorder and from then on it's kept per
+  hour by ESS Manager itself (60 days). A separate sensor with statistics
+  still works from the first day with all its history.
 - **Heat pump: a meter jump** (a day far off the model - six times the usual
   spread, at least 3 kWh and more than the model itself) is left out and the
   model fitted again without it.

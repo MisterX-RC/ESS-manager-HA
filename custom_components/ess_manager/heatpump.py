@@ -317,6 +317,28 @@ def demand_hours(changes: list[tuple[int, Optional[bool]]], first: int, end: int
     return out
 
 
+def step_hourly_means(changes: list[tuple[int, Optional[float]]], start: int, end: int) -> dict[int, float]:
+    """Time-weighted mean per hour from a state's changes [(epoch, value)]
+    (the value holds until the next change) - for a thermostat's current
+    temperature, which has no statistics. Hours with less than 45 minutes of
+    known values are left out."""
+    changes = sorted(c for c in changes if c[0] < end)
+    acc: dict[int, list[float]] = {}
+    for i, (t0, v) in enumerate(changes):
+        t1 = changes[i + 1][0] if i + 1 < len(changes) else end
+        t0 = max(t0, start)
+        if v is None:
+            continue
+        while t0 < t1:
+            h = t0 // HOUR * HOUR
+            seg = min(t1, h + HOUR) - t0
+            a = acc.setdefault(h, [0.0, 0.0])
+            a[0] += v * seg
+            a[1] += seg
+            t0 += seg
+    return {h: round(a[0] / a[1], 2) for h, a in acc.items() if a[1] >= 2700}
+
+
 def coasting(row: dict[str, Any], teff: float) -> bool:
     """A cool day on which the house lived on its stored heat: it cooled
     COAST_DROP or more from midnight to midnight while the heat pump heated
