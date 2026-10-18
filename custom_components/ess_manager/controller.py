@@ -164,9 +164,16 @@ class EssController:
         assert target is not None
         now = dt_util.utcnow()
         state = self.hass.states.get(target)
-        if state is None or state.state in ("unknown", "unavailable"):
+        if state is None:
+            self._set_error(f"{target} doesn't exist - check the setpoint entity in Configure (was it renamed?)")
+            return
+        if state.state == "unavailable":
             self._set_error(f"{target} is unavailable")
             return
+        # 'unknown' (as of 2026.10.18): the entity is there but has no value
+        # read back yet - common for Modbus/MQTT numbers (a Victron grid
+        # setpoint over MQTT without keepalive shows 'unknown' while writing
+        # it works). Sent anyway, only without the readback check.
         desired = control.clamp_to_range(
             desired, _float_or_none(state.attributes.get("min")), _float_or_none(state.attributes.get("max"))
         )

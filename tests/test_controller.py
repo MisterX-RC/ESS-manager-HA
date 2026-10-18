@@ -162,6 +162,18 @@ async def main():
     await c.async_apply(settings, control.ACTION_CHARGE, 7.0, "Start charge")
     check("an unavailable target isn't written", len(hass.services.calls) == n)
     check("an unavailable target is reported", "unavailable" in (c.as_attribute(settings, "charge", 7.0)["last_error"] or ""))
+    # 2026.10.18: a target with no value read back yet ('unknown') is still written
+    hass.states.data["number.grid_setpoint"] = State("unknown", {"min": -15000, "max": 15000, "step": 1})
+    n = len(hass.services.calls)
+    await c.async_apply(settings, control.ACTION_CHARGE, 7.0, "Start charge")
+    check("an 'unknown' target (no readback yet) is still written", len(hass.services.calls) == n + 1)
+    n = len(hass.services.calls)
+    await c.async_apply(settings, control.ACTION_CHARGE, 7.0, "Start charge")
+    check("... and not again every cycle without a readback", len(hass.services.calls) == n)
+    # a target that doesn't exist says so
+    del hass.states.data["number.grid_setpoint"]
+    await c.async_apply(settings, control.ACTION_IDLE, 0.0, "idle")
+    check("a missing target is reported as missing", "doesn't exist" in (c.as_attribute(settings, "idle", 0.0)["last_error"] or ""))
     hass.states.data["number.grid_setpoint"] = State("0", {"min": -15000, "max": 15000, "step": 1})
 
     # A failing service call never raises.

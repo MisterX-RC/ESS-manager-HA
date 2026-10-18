@@ -833,6 +833,10 @@ Safety:
 - A failed send never stops the planning; it's logged once and shown in
   the Status sensor's `control` attribute (`last_error`), and retried next
   cycle.
+- A target that shows "unknown" (no value read back yet - some Modbus/MQTT
+  numbers, like a Victron grid setpoint over MQTT without keepalive) is
+  still written, only without the readback check; "unavailable" or a target
+  that doesn't exist is not, and says so in `last_error` (as of 2026.10.18).
 
 **Planned setpoint** (a sensor, kW, positive = charge) and the Status
 sensor's `control_action` / `control` attributes show what would be sent -

@@ -12,6 +12,17 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.18] - 2026-10-18
+
+### Fixed
+- **Direct control: a setpoint entity showing "unknown" is now written.**
+  Some Modbus/MQTT number entities (a Victron grid setpoint over MQTT
+  without keepalive, for one) have no value read back while writing them
+  works fine; ESS Manager treated "unknown" like "unavailable" and never
+  sent anything (`last_error: ... is unavailable`). Now it sends, only
+  without the readback check (it isn't rewritten every cycle). An entity
+  that doesn't exist at all (renamed?) gets its own message.
+
 ## [2026.10.17] - 2026-10-14
 
 ### Fixed
