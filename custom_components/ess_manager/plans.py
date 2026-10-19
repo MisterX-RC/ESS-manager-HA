@@ -156,6 +156,38 @@ def _place_rate_charge(
     }
 
 
+def _later_dips(
+    forecast: list[float],
+    start_h: int,
+    level: float,
+    floor_kwh: Optional[float],
+    first_kwh: float,
+    first_hard_kwh: float,
+    hour0_unit: int,
+) -> tuple[float, list[tuple[int, float, bool]]]:
+    """The dips after the first one up to the end of the horizon (as of
+    2026.10.19): a charge's goal is the LOWEST point of the planning
+    horizon at the low threshold + Safety buffer, not just the first dip -
+    so the battery is kept higher all along (more left in a power cut),
+    and a later dip can be bought in a cheaper valley because the level is
+    already higher. Cumulative requirements (deadline unit, kWh in by then,
+    hard) for _schedule_charge: the band part soft (only what fits under
+    100% before it - the cap the scheduler applies), a part below
+    `floor_kwh` hard. Returns (the total, the requirements)."""
+    soft_env = first_kwh
+    hard_env = first_hard_kwh
+    out: list[tuple[int, float, bool]] = []
+    for h in range(start_h, len(forecast)):
+        deadline = hour0_unit + 4 * (h + 1)
+        if floor_kwh is not None and floor_kwh - forecast[h] > hard_env + 1e-6:
+            hard_env = floor_kwh - forecast[h]
+            out.append((deadline, round(hard_env, 4), True))
+        if level - forecast[h] > soft_env + 1e-6:
+            soft_env = level - forecast[h]
+            out.append((deadline, round(soft_env, 4), False))
+    return round(max(soft_env, first_kwh), 3), out
+
+
 def _schedule_charge(
     requirements: list[tuple[int, float, bool]],
     rates: list[float],
@@ -245,8 +277,9 @@ def _schedule_charge(
         # what was reached by each deadline is kept when trimming (also a
         # hard need that was only partly in time - all of that counts)
         met.append((deadline, min(need, got)))
-        if got < need - 1e-6 and not hard:
-            break
+        # (as of 2026.10.19 a soft part that doesn't fit no longer stops the
+        # later requirements: they're cumulative, so a later dip still gets
+        # what fits before it - and a later hard floor breach is still met)
 
     def runs(units: set[int]) -> list[list[int]]:
         out: list[list[int]] = []
@@ -1126,16 +1159,23 @@ def compute_low_charge_plan(
                 requirements.append((hour0_unit + 4 * (h + 1), round(envelope, 4), True))
         if target_kwh > envelope + 1e-6:
             requirements.append((hour0_unit + 4 * dip_end, target_kwh, False))
+        # the lowest point of the whole horizon (as of 2026.10.19): every
+        # later dip as a soft part, each before its own hours - what fits
+        # under 100% goes in now, in the cheapest quarters
+        total_kwh, later = _later_dips(forecast, dip_end, level, None, max(target_kwh, envelope), 0.0, hour0_unit)
+        requirements += later
         units = _schedule_charge(
             requirements, charge_rates, buy, all_price, cur_unit, len(buy), charge_speed_kw / 4,
             charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
         )
-        blocks = _charge_blocks(units, charge_rates, target_kwh, forecast, battery_now_kwh, cur_unit, hour0_unit,
+        blocks = _charge_blocks(units, charge_rates, total_kwh, forecast, battery_now_kwh, cur_unit, hour0_unit,
                                 upper_limit_kwh)
         if not blocks:
             # everything needed after the known prices: planned when they come
             return _carry({"active": False, "breach_unit": breach_unit, "deferred_kwh": round(target_kwh, 3)})
         placed = _blocks_plan(blocks, target_kwh)
+        placed["lowest_kwh"] = round(min(forecast[hour_index:]), 3)
+        placed["horizon_target_kwh"] = total_kwh
 
     plan = {
         "active": True,
@@ -1231,6 +1271,7 @@ def _soft_low_charge(
     FOLLOW_UP_MIN_KWH)."""
     n = len(forecast)
     band_top = low_threshold_kwh + max(charge_buffer_kwh, 0.0) if follow_up else low_threshold_kwh
+    band_top_level = low_threshold_kwh + max(charge_buffer_kwh, 0.0)  # what a charge lifts to
     units_to_next_hour = 4 - (now.minute // 15)
     future_peak = peak_kwh if peak_kwh is not None else (max(forecast) if forecast else upper_limit_kwh)
     headroom = max(upper_limit_kwh - future_peak, 0.0)
@@ -1358,11 +1399,18 @@ def _soft_low_charge(
                     if envelope > 0:
                         requirements.append((hour0_unit + 4 * (h + 1), round(envelope, 4), True))
             requirements.append((hour0_unit + 4 * (bottom + 1), target_kwh, False))
+            # the lowest point of the whole horizon (as of 2026.10.19): the
+            # later dips too - below the floor as hard parts, the band as
+            # soft parts (only what fits under 100%), each before its hours
+            total_kwh, later = _later_dips(
+                forecast, dip_end, band_top_level, floor_kwh, target_kwh, need_hard, hour0_unit,
+            )
+            requirements += later
             units = _schedule_charge(
                 requirements, charge_rates, buy, all_price, cur_unit, len(buy), charge_speed_kw / 4,
                 charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
             )
-            blocks = _charge_blocks(units, charge_rates, target_kwh, forecast, battery_now_kwh, cur_unit, hour0_unit,
+            blocks = _charge_blocks(units, charge_rates, total_kwh, forecast, battery_now_kwh, cur_unit, hour0_unit,
                                     upper_limit_kwh)
             if not blocks:
                 if need_hard > 0:
@@ -1371,6 +1419,8 @@ def _soft_low_charge(
                     skipped = {"deficit_kwh": round(need_soft, 3), "fits_kwh": 0.0, "dip_min_kwh": round(dip_min, 3)}
                 continue
             plan.update(_blocks_plan(blocks, target_kwh))
+            plan["lowest_kwh"] = round(min(forecast), 3)
+            plan["horizon_target_kwh"] = total_kwh
         return plan
     if skipped is not None:
         return {"active": False, "breach_unit": 999999, "soft_skipped": skipped}

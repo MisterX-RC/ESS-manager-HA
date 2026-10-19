@@ -3182,7 +3182,10 @@ _eb = plans.compute_low_charge_plan(None, 74, _eb_fc, datetime(2026, 10, 9, 18, 
                                     peak_kwh=max(_eb_fc[:73]), charge_rates=_eb_rates, charge_buffer_kwh=3.0)
 check("band dip: all of it bought before the lowest point (08:00-09:00), none after",
       _eb["active"] and _eb["dip_min_kwh"] == 7.21 and _eb["breach_unit"] == 132
-      and all(b["end_unit"] <= 132 for b in _eb["blocks"]) and round(sum(b["kwh"] for b in _eb["blocks"]), 2) == 4.79)
+      and all(b["end_unit"] <= 132 for b in _eb["blocks"]) and round(sum(b["kwh"] for b in _eb["blocks"]), 2) == 5.01
+      # (as of 2026.10.19 for the lowest point of the horizon: 9 + 3 - 6.99 two nights later, bought in the
+      # cheap night before this dip because it's cheapest and fits)
+      and _eb["lowest_kwh"] == 6.99 and _eb["horizon_target_kwh"] == 5.01)
 check("band dip: in the cheap night (0.01-0.02), not at 10:45",
       all(max(_eb_price[b["start_unit"]:b["end_unit"]]) <= 0.02 for b in _eb["blocks"]))
 
@@ -4083,6 +4086,39 @@ check("night limit: when the window moves with the speed it's repeated until it 
 _nl_blocks = forecasting.night_discharge_plan(
     lambda kw: {"active": True, "blocks": [{"start_unit": 100, "end_unit": 104}], "kw": kw}, 8.0, 2.0)
 check("night limit: a sale in blocks counts its blocks' quarters", _nl_blocks["kw"] == 2.0)
+# 2026.10.19: a charge aims at the LOWEST point of the planning horizon (live dump 19-10 12:15: band dip 8.75 at
+# 14:00, then 0.26 tomorrow 08:00, 1.53 the day after - it planned only the first, 3.25 kWh)
+_lw_fc = [11.59, 11.89, 8.75, 9.94, 10.42, 9.46, 8.56, 7.42, 6.79, 6.22, 5.7, 5.12, 4.62, 4.13, 3.64, 3.14, 2.65, 2.11,
+          1.52, 0.65, 0.26, 0.87, 1.82, 3.68, 6.15, 8.63, 10.63, 13.03, 14.79, 14.22, 13.25, 11.96, 11.16, 10.59, 10.05,
+          9.51, 9.01, 8.51, 8.01, 7.51, 7.01, 6.45, 5.86, 4.93, 4.48, 4.51, 5.16, 6.58, 8.56, 10.53, 11.73, 12.83,
+          12.59, 11.16, 10.2, 9.23, 8.66, 7.94, 7.4, 6.83, 6.33, 5.84, 5.35, 4.86, 4.37, 3.83, 3.26, 2.4, 1.9, 1.53,
+          1.75, 2.51, 2.99]
+_lw_price = ([0.19] * 52 + [0.18] * 8 + [0.25] * 24 + [0.21] * 12) + ([0.15] * 24 + [0.19] * 72)
+_lw_rates = [0.0] * 48 + [1.75] * 144
+_lw = plans.compute_low_charge_plan(None, 49, _lw_fc, datetime(2026, 10, 19, 12, 15), 7.0, 9.0, 1.0, 30.0, [0.6] * 73,
+                                    _lw_price, 72, 10.62, high_threshold_kwh=31.5, floor_kwh=1.5, peak_kwh=max(_lw_fc),
+                                    charge_rates=_lw_rates, charge_buffer_kwh=1.5, min_charge_units=2)
+_lw_by = lambda deadline: sum(b["kwh"] for b in _lw["blocks"] if b["end_unit"] <= deadline)
+check("lowest dip: the charge lifts the lowest point of the horizon (0.26 tomorrow 08:00) to 9 + 1.5, not just the first dip",
+      _lw["active"] and _lw["lowest_kwh"] == 0.26 and _lw["horizon_target_kwh"] == 10.24
+      and round(sum(b["kwh"] for b in _lw["blocks"]), 2) == 10.24)
+check("lowest dip: the first dip's part before it (14:00), the rest in the cheapest quarters before the lowest point",
+      _lw_by(60) >= 1.75 - 1e-6 and all(b["end_unit"] <= 48 + 4 * 21 for b in _lw["blocks"])
+      and any(b["start_unit"] >= 96 for b in _lw["blocks"]))
+_lw_after = [v + 10.24 if h > 20 else v for h, v in enumerate(_lw_fc)]
+check("lowest dip: lifting it solves the later dips too (day after: 1.53 -> above 10.5)", min(_lw_after[21:]) >= 10.5)
+# a sunny day that fills the battery between: what doesn't fit under 100% before it isn't bought before it
+_sun_fc = [12.0, 9.5, 8.5, 10.0] + [20.0, 26.0, 29.5, 29.0, 22.0] + [15.0, 10.0, 6.0, 5.0, 6.0, 9.0, 12.0] + [12.0] * 8
+_sun_rates = [1.75] * 96
+_sun_price = [0.20] * 40 + [0.10] * 56
+_sun = plans.compute_low_charge_plan(None, 0, _sun_fc, datetime(2026, 10, 19, 0, 0), 7.0, 9.0, 1.0, 30.0, [0.6] * 24,
+                                     _sun_price, 72, 12.0, charge_buffer_kwh=1.5, charge_rates=_sun_rates,
+                                     min_charge_units=2, peak_kwh=max(_sun_fc))
+check("lowest dip: across a day that fills to 100 %, the later dip's part is bought after it (where it fits)",
+      _sun["active"] and _sun["lowest_kwh"] == 5.0
+      # before the full day only the first dip's own (minimum) block; the later dip's 2 kWh after it
+      and sum(b["kwh"] for b in _sun["blocks"] if b["start_unit"] < 4 * 7) == 3.5
+      and sum(b["kwh"] for b in _sun["blocks"] if b["start_unit"] >= 4 * 7) == 2.0)
 _rt3_hp = heatpump_runtime.HeatPumpRuntime()
 _rt3_hp.restore(_rt_hp.as_store())
 check("heat pump runtime: the store round-trips", _rt3_hp.as_store() == _rt_hp.as_store())

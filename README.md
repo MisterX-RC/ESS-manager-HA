@@ -68,7 +68,16 @@ Five planning engines, all documented in detail in the code
    first block has run, the rest still counts up to minimum SOC + buffer
    (not just minimum SOC) until the last planned block, so it isn't dropped
    just because the first block already lifted the dip above the minimum
-   (as of 2026.10.13).
+   (as of 2026.10.13). As of 2026.10.19 a charge aims at the **lowest point
+   of the planning horizon**, not just the first dip: every later dip gets
+   its part before its own hours, in the cheapest quarters (what the first
+   dip needs before the first dip, the rest before the lowest point), and
+   only as much as fits under 100% before it - a sunny day that fills the
+   battery in between moves that part to after it. The battery is kept
+   higher all along (more left in a power cut), and a later dip can wait
+   for a cheaper valley because the level is already higher. A dip below
+   the surplus minimum is always met; the plan shows `lowest_kwh` and
+   `horizon_target_kwh`.
 2. **High discharge plan** - discharges before the battery would otherwise
    overshoot your maximum SOC, during the priciest available price window,
    selling the forecast peak back down to 100% (so with a max SOC of 110%

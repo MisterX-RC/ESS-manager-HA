@@ -12,6 +12,22 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.19] - 2026-10-19
+
+### Changed
+- **Low charge: aims at the lowest point of the planning horizon.** Up to
+  now a charge only solved the first dip; a later, deeper one (tomorrow
+  morning, the day after) got its own plan once the first was done, which
+  kept the battery around the minimum. Now the goal is the lowest point in
+  the horizon at minimum SOC + Safety buffer: each later dip adds its part,
+  due before its own hours, and the scheduler picks the cheapest quarters
+  for all of it - what the first dip needs before the first dip, the rest
+  before the lowest point. Only what fits under 100% before a dip is
+  bought (a sunny day that fills the battery in between moves the later
+  part to after it); a dip below the surplus minimum is always met. The
+  battery stays higher (more left in a power cut) and a later dip can wait
+  for a cheaper valley. Plan fields `lowest_kwh`, `horizon_target_kwh`.
+
 ## [2026.10.18] - 2026-10-18
 
 ### Added
