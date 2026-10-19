@@ -304,25 +304,46 @@ def night_share(units: list[int]) -> float:
     return sum(1 for u in units if unit_is_night(u)) / len(units) if units else 0.0
 
 
-def night_discharge_plan(compute, day_kw: float, night_kw: Optional[float]) -> dict:
-    """A discharge plan with the night limit (as of 2026.10.18): worked
-    out at the day speed; when its window lies mostly between 22:00 and
-    07:00, worked out again at the night speed (so its length and energy
-    match what can really be sent then)."""
+def _window_units(plan: dict) -> list[int]:
+    if plan.get("discharge_start_unit") is not None:
+        return list(range(plan["discharge_start_unit"], plan.get("discharge_end_unit", plan["discharge_start_unit"])))
+    if plan.get("blocks"):
+        return [u for b in plan["blocks"] for u in range(b["start_unit"], b["end_unit"])]
+    if plan.get("start_unit") is not None:
+        return list(range(plan["start_unit"], plan.get("end_unit", plan["start_unit"])))
+    return []
+
+
+def night_discharge_plan(compute, day_kw: float, night_kw: Optional[float], rounds: int = 4) -> dict:
+    """A discharge plan with the night limit (as of 2026.10.18), per quarter:
+    the setpoint sent is the night speed in the quarters between 22:00 and
+    07:00 and the plan's own speed in the others, so the plan is worked out
+    at the average of those over its window - its energy is then exactly
+    what the quarters really move, also for a block across 07:00 or 22:00.
+    The window can move with the speed, so this is repeated (a few rounds)
+    until it settles. `plan["night_share"]` = its share of night quarters,
+    `plan["speed_kw"]` = the average it was worked out at."""
     plan = compute(day_kw)
     if night_kw is None or night_kw <= 0 or not plan.get("active"):
         return plan
-    if plan.get("discharge_start_unit") is not None:
-        units = list(range(plan["discharge_start_unit"], plan.get("discharge_end_unit", plan["discharge_start_unit"])))
-    elif plan.get("blocks"):
-        units = [u for b in plan["blocks"] for u in range(b["start_unit"], b["end_unit"])]
-    elif plan.get("start_unit") is not None:
-        units = list(range(plan["start_unit"], plan.get("end_unit", plan["start_unit"])))
-    else:
-        return plan
-    if night_share(units) >= 0.5 and abs(night_kw - day_kw) > 1e-6:
-        plan = compute(night_kw)
+    kw = day_kw
+    share = 0.0
+    for _ in range(rounds):
+        units = _window_units(plan)
+        if not units:
+            return plan
+        share = night_share(units)
+        avg = share * night_kw + (1 - share) * day_kw
+        if abs(avg - kw) < 1e-6:
+            break
+        kw = avg
+        plan = compute(kw)
+        if not plan.get("active"):
+            return plan
+    if share > 0:
         plan["night_limited"] = True
+        plan["night_share"] = round(share, 3)
+        plan["speed_kw"] = round(kw, 3)
     return plan
 
 

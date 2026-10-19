@@ -4057,13 +4057,29 @@ def _nl_compute(start, end):
 
 
 _nl_p = forecasting.night_discharge_plan(_nl_compute(90, 98), 8.0, 3.0)
-check("night limit: a sale mostly at night is worked out again at the night speed",
+check("night limit: a sale at night is worked out again at the night speed",
       _nl_p["kw"] == 3.0 and _nl_p.get("night_limited") and _nl_calls == [8.0, 3.0])
 _nl_calls.clear()
 _nl_p2 = forecasting.night_discharge_plan(_nl_compute(70, 78), 8.0, 3.0)
 check("night limit: a sale in the evening keeps the day speed; no limit -> nothing changes",
       _nl_p2["kw"] == 8.0 and _nl_calls == [8.0]
       and forecasting.night_discharge_plan(_nl_compute(90, 98), 8.0, None)["kw"] == 8.0)
+_nl_calls.clear()
+_nl_mix = forecasting.night_discharge_plan(_nl_compute(24, 32), 8.0, 3.0)
+check("night limit: a sale across 07:00 is worked out at the average of its night and day quarters (what is really sent)",
+      _nl_mix["kw"] == 5.5 and _nl_mix["night_share"] == 0.5 and _nl_mix["speed_kw"] == 5.5 and _nl_calls == [8.0, 5.5])
+
+
+def _nl_moving(kw):
+    # a slower speed needs a longer window that starts earlier (into the night)
+    n = int(round(24 / kw))
+    return {"active": True, "discharge_start_unit": 30 - n, "discharge_end_unit": 30, "kw": kw}
+
+
+_nl_mv = forecasting.night_discharge_plan(_nl_moving, 8.0, 2.0)
+_nl_units = list(range(_nl_mv["discharge_start_unit"], _nl_mv["discharge_end_unit"]))
+check("night limit: when the window moves with the speed it's repeated until it settles (energy = what's sent)",
+      abs(_nl_mv["kw"] - (forecasting.night_share(_nl_units) * 2.0 + (1 - forecasting.night_share(_nl_units)) * 8.0)) < 1.0)
 _nl_blocks = forecasting.night_discharge_plan(
     lambda kw: {"active": True, "blocks": [{"start_unit": 100, "end_unit": 104}], "kw": kw}, 8.0, 2.0)
 check("night limit: a sale in blocks counts its blocks' quarters", _nl_blocks["kw"] == 2.0)

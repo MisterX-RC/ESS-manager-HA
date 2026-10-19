@@ -21,9 +21,11 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   07:00 these replace every other speed - normal, negative-price, spike and
   full charge: the charge plans count with the night speed for those
   quarters (a charge at night takes longer, 0 means no grid charging at
-  night), a sale that falls mostly in the night is worked out again at the
-  night discharge speed, and the setpoint sent at night never goes above
-  them (nor above the battery's max speeds). The Status sensor shows it as
+  night), and a sale is worked out per quarter too: at the average of the
+  night speed in its night quarters and its own speed in the others - so a
+  block across 07:00 or 22:00 plans exactly what is sent (the setpoint
+  switches by itself at 07:00 and 22:00). The setpoint never goes above the
+  night speeds at night (nor above the battery's max speeds). The Status sensor shows it as
   `night_limit`.
 
 ### Fixed

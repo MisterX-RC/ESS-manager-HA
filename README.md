@@ -819,9 +819,12 @@ changed it (then at most once a minute).
 charge and a night discharge speed. Between 22:00 and 07:00 those replace
 every other speed - normal, negative-price, spike and full charge: the charge
 plans count with the night speed for those quarters (so a charge at night
-gets a longer window; 0 means no grid charging at night), a sale lying mostly
-in the night is worked out again at the night discharge speed, and the
-setpoint sent at night uses them - never above the battery's max speeds.
+gets a longer window; 0 means no grid charging at night), and a sale is
+worked out per quarter too - at the average of the night speed in its night
+quarters and its own speed in the others, so a block across 07:00 or 22:00
+plans exactly what is sent. The setpoint switches by itself at 07:00 and
+22:00 (also in the middle of a running block) and never goes above the
+battery's max speeds.
 Outside those hours nothing changes. Shown on the Status sensor as
 `night_limit` (enabled, active now, the speeds).
 
