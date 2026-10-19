@@ -4032,6 +4032,41 @@ for _mi, _kwh in ((0, 100.0), (30, 100.4), (61, 100.9), (125, 101.5), (250, 102.
     _rt10.sample(datetime(2026, 10, 13, 10, 0, tzinfo=_tzA) + timedelta(minutes=_mi), _tzA, heat_kwh=_kwh)
 check("heat pump runtime: the heating meter's rise per hour recorded live (an hour skipped is left out)",
       _rt10.heat_hist == {str(_h10): 0.9, str(_h10 + 3600): 0.6})
+# 2026.10.18: the night limit (22:00-07:00)
+check("night limit: 22:00-07:00 is night, by the quarter from today's midnight (tomorrow too)",
+      forecasting.unit_is_night(88) and forecasting.unit_is_night(27) and not forecasting.unit_is_night(28)
+      and not forecasting.unit_is_night(87) and forecasting.unit_is_night(96 + 10) and not forecasting.unit_is_night(96 + 40)
+      and forecasting.night_share([86, 87, 88, 89]) == 0.5)
+_nl_now = datetime(2026, 10, 18, 12, 0)
+_nl_net = [0.0] * 48
+_nl_day = forecasting.grid_charge_rates(_nl_net, _nl_now, 6.0, 10.0, 192)
+_nl = forecasting.grid_charge_rates(_nl_net, _nl_now, 6.0, 10.0, 192, night_kw=2.0)
+check("night limit: charge rates use the night speed at night only",
+      _nl[56] == _nl_day[56] == 1.5 and _nl[90] == 0.5 and _nl[96 + 20] == 0.5 and _nl[96 + 30] == 1.5)
+check("night limit: a night speed above the battery's max is capped; 0 means no charging at night",
+      forecasting.grid_charge_rates(_nl_net, _nl_now, 6.0, 4.0, 192, night_kw=9.0)[90] == 1.0
+      and forecasting.grid_charge_rates(_nl_net, _nl_now, 6.0, 10.0, 192, night_kw=0.0)[90] == 0.0)
+_nl_calls = []
+
+
+def _nl_compute(start, end):
+    def compute(kw):
+        _nl_calls.append(kw)
+        return {"active": True, "discharge_start_unit": start, "discharge_end_unit": end, "kw": kw}
+    return compute
+
+
+_nl_p = forecasting.night_discharge_plan(_nl_compute(90, 98), 8.0, 3.0)
+check("night limit: a sale mostly at night is worked out again at the night speed",
+      _nl_p["kw"] == 3.0 and _nl_p.get("night_limited") and _nl_calls == [8.0, 3.0])
+_nl_calls.clear()
+_nl_p2 = forecasting.night_discharge_plan(_nl_compute(70, 78), 8.0, 3.0)
+check("night limit: a sale in the evening keeps the day speed; no limit -> nothing changes",
+      _nl_p2["kw"] == 8.0 and _nl_calls == [8.0]
+      and forecasting.night_discharge_plan(_nl_compute(90, 98), 8.0, None)["kw"] == 8.0)
+_nl_blocks = forecasting.night_discharge_plan(
+    lambda kw: {"active": True, "blocks": [{"start_unit": 100, "end_unit": 104}], "kw": kw}, 8.0, 2.0)
+check("night limit: a sale in blocks counts its blocks' quarters", _nl_blocks["kw"] == 2.0)
 _rt3_hp = heatpump_runtime.HeatPumpRuntime()
 _rt3_hp.restore(_rt_hp.as_store())
 check("heat pump runtime: the store round-trips", _rt3_hp.as_store() == _rt_hp.as_store())

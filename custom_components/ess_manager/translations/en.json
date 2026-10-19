@@ -55,7 +55,11 @@
           "charge_efficiency_percent": "Charge efficiency (%) - what reaches the battery per kWh charged (inverter and battery losses). At 90%, 2.0 kWh of solar or grid power puts 1.8 kWh into the battery. 100 = no losses",
           "discharge_efficiency_percent": "Discharge efficiency (%) - what comes out of the inverter per kWh taken from the battery. At 90%, 0.5 kWh of usage takes 0.56 kWh out of the battery. 100 = no losses",
           "min_soc_percent": "Minimum SOC - solar deficit (%) - the reserve kept when the grid is needed to refill the battery; a separate, lower minimum for solar surplus is set on its number entity after setup",
-          "max_soc_percent": "Maximum SOC (%) - can exceed 100% to allow deliberate solar overshoot before discharging"
+          "max_soc_percent": "Maximum SOC (%) - can exceed 100% to allow deliberate solar overshoot before discharging",
+          "night_limit_enabled": "Limit the charge/discharge speed at night (22:00-07:00)"
+        },
+        "data_description": {
+          "night_limit_enabled": "On: the next page asks for a night charge and discharge speed. Between 22:00 and 07:00 those replace every other speed - normal, negative-price, spike and full charge - in the plans and in the setpoint sent (never above the battery's max speeds)."
         }
       },
       "plans": {
@@ -137,6 +141,14 @@
           "control_sign": "Polarity of the setpoint",
           "control_idle_value": "Idle value (in the unit above)"
         }
+      },
+      "night_limit": {
+        "title": "Night limit (22:00-07:00)",
+        "description": "Between 22:00 and 07:00 these speeds replace every other charge and discharge speed: the plans are worked out with them (a charge at night takes longer, a sale at night is sized for it) and the setpoint sent never goes above them. Outside these hours nothing changes. A night charge speed of 0 means no grid charging at night.",
+        "data": {
+          "night_charge_speed_kw": "Charge speed at night",
+          "night_discharge_speed_kw": "Discharge speed at night"
+        }
       }
     },
     "error": {
@@ -207,7 +219,11 @@
           "max_battery_charge_speed_kw": "Max battery charge speed (physical limit, used by the battery energy forecast - solar above this is assumed exported to the grid instead)",
           "max_battery_discharge_speed_kw": "Max battery discharge speed (physical limit, used by the battery energy forecast - usage above this is assumed drawn from the grid instead)",
           "charge_efficiency_percent": "Charge efficiency (%) - what reaches the battery per kWh charged (inverter and battery losses). At 90%, 2.0 kWh of solar or grid power puts 1.8 kWh into the battery. 100 = no losses",
-          "discharge_efficiency_percent": "Discharge efficiency (%) - what comes out of the inverter per kWh taken from the battery. At 90%, 0.5 kWh of usage takes 0.56 kWh out of the battery. 100 = no losses"
+          "discharge_efficiency_percent": "Discharge efficiency (%) - what comes out of the inverter per kWh taken from the battery. At 90%, 0.5 kWh of usage takes 0.56 kWh out of the battery. 100 = no losses",
+          "night_limit_enabled": "Limit the charge/discharge speed at night (22:00-07:00)"
+        },
+        "data_description": {
+          "night_limit_enabled": "On: the next page asks for a night charge and discharge speed. Between 22:00 and 07:00 those replace every other speed - normal, negative-price, spike and full charge - in the plans and in the setpoint sent (never above the battery's max speeds)."
         }
       },
       "plans": {
@@ -288,6 +304,14 @@
           "control_unit": "Unit the target expects",
           "control_sign": "Polarity of the setpoint",
           "control_idle_value": "Idle value (in the unit above)"
+        }
+      },
+      "night_limit": {
+        "title": "Night limit (22:00-07:00)",
+        "description": "Between 22:00 and 07:00 these speeds replace every other charge and discharge speed: the plans are worked out with them (a charge at night takes longer, a sale at night is sized for it) and the setpoint sent never goes above them. Outside these hours nothing changes. A night charge speed of 0 means no grid charging at night.",
+        "data": {
+          "night_charge_speed_kw": "Charge speed at night",
+          "night_discharge_speed_kw": "Discharge speed at night"
         }
       }
     },

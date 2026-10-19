@@ -260,6 +260,15 @@ DEFAULT_DISCHARGE_SPEED_KW = 10.0
 # charge/discharge limit, easy to tune per-install either way.
 DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW = 10.0
 DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW = 10.0
+# Night limit (as of 2026.10.18): between 22:00 and 07:00 these speeds
+# replace every other charge/discharge speed - in the plans and in the
+# setpoint sent
+CONF_NIGHT_LIMIT_ENABLED = "night_limit_enabled"
+CONF_NIGHT_CHARGE_SPEED_KW = "night_charge_speed_kw"
+CONF_NIGHT_DISCHARGE_SPEED_KW = "night_discharge_speed_kw"
+DEFAULT_NIGHT_LIMIT_ENABLED = False
+DEFAULT_NIGHT_CHARGE_SPEED_KW = 3.0
+DEFAULT_NIGHT_DISCHARGE_SPEED_KW = 3.0
 DEFAULT_CHARGE_EFFICIENCY_PERCENT = 100.0  # 100 = no losses (behavior before v0.4.3)
 DEFAULT_DISCHARGE_EFFICIENCY_PERCENT = 100.0
 DEFAULT_MIN_SOC_PERCENT = 15.0

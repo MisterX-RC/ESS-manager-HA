@@ -70,6 +70,7 @@ STATUS_ATTRIBUTES = [
     "control_action",
     "control_power_kw",
     "control",
+    "night_limit",
     # The status card's Buy / Sell blocks (as of v0.5.0) - display.card_plans.
     "card_plans",
     # The electric car's sessions (as of 2026.10.11) - the EV card.

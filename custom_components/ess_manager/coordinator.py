@@ -36,6 +36,11 @@ from .const import (
     CONF_HP_HEAT_ENTITIES,
     CONF_HP_INDOOR_ENTITY,
     CONF_HP_COP_ENTITY,
+    CONF_NIGHT_LIMIT_ENABLED,
+    CONF_NIGHT_CHARGE_SPEED_KW,
+    CONF_NIGHT_DISCHARGE_SPEED_KW,
+    DEFAULT_NIGHT_CHARGE_SPEED_KW,
+    DEFAULT_NIGHT_DISCHARGE_SPEED_KW,
     CONF_HP_BUFFER_ENABLED,
     CONF_HP_HOURLY_ENABLED,
     HP_STEERING_PLAN,
@@ -1437,13 +1442,18 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # charging it, so the charge plans skip quarters the sun already fills
         # and make their windows long enough.
         rate_units = max(len(all_price), 192)
+        # The night limit (as of 2026.10.18): 22:00-07:00 its own speeds
+        # replace every other charge/discharge speed
+        night_on = bool(conf.get(CONF_NIGHT_LIMIT_ENABLED))
+        night_charge_kw = float(conf.get(CONF_NIGHT_CHARGE_SPEED_KW, DEFAULT_NIGHT_CHARGE_SPEED_KW)) if night_on else None
+        night_discharge_kw = float(conf.get(CONF_NIGHT_DISCHARGE_SPEED_KW, DEFAULT_NIGHT_DISCHARGE_SPEED_KW)) if night_on else None
         charge_rates = forecasting.grid_charge_rates(
             net_energy, now, charge_speed_kw, max_battery_charge_speed_kw, rate_units,
-            charge_efficiency, discharge_efficiency,
+            charge_efficiency, discharge_efficiency, night_kw=night_charge_kw,
         )
         negative_charge_rates = forecasting.grid_charge_rates(
             net_energy, now, negative_price_charge_speed_kw, max_battery_charge_speed_kw, rate_units,
-            charge_efficiency, discharge_efficiency,
+            charge_efficiency, discharge_efficiency, night_kw=night_charge_kw,
         )
 
         # -- full charge plan ("days since last full" tracking) -----------------
@@ -1559,14 +1569,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # -- negative price plan -------------------------------------------------
         if conf.get(CONF_ENABLE_NEGATIVE_PRICE_PLAN, True):
-            self._negative_price_plan = plans.compute_negative_price_plan(
+            self._negative_price_plan = forecasting.night_discharge_plan(lambda kw: plans.compute_negative_price_plan(
                 self._negative_price_plan,
                 current_price_unit,
                 now,
                 all_price,
                 negative_price_threshold,
                 battery_forecast_clipped,
-                discharge_speed_kw,
+                kw,
                 negative_price_charge_speed_kw,
                 low_threshold_kwh,
                 # the most it can charge to: max SOC, but never above 100% -
@@ -1578,7 +1588,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 discharge_efficiency=discharge_efficiency,
                 replan=replan,
                 charge_rates=negative_charge_rates,
-            )
+            ), discharge_speed_kw, night_discharge_kw)
         else:
             self._negative_price_plan = {"active": False}
 
@@ -1588,7 +1598,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # -- spike plan ------------------------------------------------------
         if conf.get(CONF_ENABLE_SPIKE_PLAN, True):
-            self._spike_plan = plans.compute_spike_plan(
+            self._spike_plan = forecasting.night_discharge_plan(lambda kw: plans.compute_spike_plan(
                 self._spike_plan,
                 current_price_unit,
                 all_price,
@@ -1599,7 +1609,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 high_threshold_kwh,
                 spike_margin,
                 charge_speed_kw,
-                spike_discharge_speed_kw,
+                kw,
                 self._negative_price_plan,
                 minimum_charge_target_kwh,
                 buy_price=buy_price,
@@ -1607,7 +1617,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 discharge_efficiency=discharge_efficiency,
                 replan=replan,
                 charge_rates=charge_rates,
-            )
+            ), spike_discharge_speed_kw, night_discharge_kw)
         else:
             self._spike_plan = {"active": False}
 
@@ -1672,12 +1682,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         full_peak_not_yet_reached = full_relying_on_peak_unit is not None and current_price_unit < full_relying_on_peak_unit
         suppress_high_discharge = bool(full_charging_or_holding or full_peak_not_yet_reached)
 
-        self._high_discharge_plan = plans.compute_high_discharge_plan(
+        self._high_discharge_plan = forecasting.night_discharge_plan(lambda kw: plans.compute_high_discharge_plan(
             self._high_discharge_plan,
             current_price_unit,
             forecast_with_spike,
             now,
-            discharge_speed_kw,
+            kw,
             high_threshold_kwh,
             low_threshold_kwh,
             usage_forecast,
@@ -1696,7 +1706,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             capacity_kwh=upper_limit_kwh,
             # sales in blocks too, no shorter than a charge block (2026.10.10)
             min_sale_units=min_charge_units,
-        )
+        ), discharge_speed_kw, night_discharge_kw)
         if replan:
             # only what this cycle saw - a change made meanwhile still counts
             self._replan_requested = max(self._replan_requested - replan_seen, 0)
@@ -1785,12 +1795,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # planned setpoint can be compared against an existing automation
         # before switching over. Only sent when a control mode is chosen and
         # the "Automatic control" switch is on.
+        night_now = night_on and forecasting.is_night_hour(now.hour)
         control_power_kw = control.action_power_kw(
             control_action,
-            charge_speed_kw,
-            discharge_speed_kw,
-            negative_price_charge_speed_kw,
-            spike_discharge_speed_kw,
+            night_charge_kw if night_now else charge_speed_kw,
+            night_discharge_kw if night_now else discharge_speed_kw,
+            night_charge_kw if night_now else negative_price_charge_speed_kw,
+            night_discharge_kw if night_now else spike_discharge_speed_kw,
             max_battery_charge_speed_kw,
             max_battery_discharge_speed_kw,
         )
@@ -1812,6 +1823,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "card_plans": card_plans,
             "control_power_kw": round(control_power_kw, 3),
             "control": self.controller.as_attribute(control_settings, control_action, control_power_kw),
+            "night_limit": {
+                "enabled": night_on, "active_now": night_now, "from": f"{forecasting.NIGHT_FROM_HOUR:02d}:00",
+                "until": f"{forecasting.NIGHT_UNTIL_HOUR:02d}:00", "charge_kw": night_charge_kw, "discharge_kw": night_discharge_kw,
+            } if night_on else None,
             "battery_energy_kwh": battery_now_kwh,
             "battery_soc_percent": soc_now_percent,
             "low_threshold_kwh": low_threshold_kwh,

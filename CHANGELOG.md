@@ -14,6 +14,18 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.10.18] - 2026-10-18
 
+### Added
+- **Night limit.** A new switch on the battery page in Configure: "Limit the
+  charge/discharge speed at night (22:00-07:00)". Switched on, the next page
+  asks for a night charge and a night discharge speed. Between 22:00 and
+  07:00 these replace every other speed - normal, negative-price, spike and
+  full charge: the charge plans count with the night speed for those
+  quarters (a charge at night takes longer, 0 means no grid charging at
+  night), a sale that falls mostly in the night is worked out again at the
+  night discharge speed, and the setpoint sent at night never goes above
+  them (nor above the battery's max speeds). The Status sensor shows it as
+  `night_limit`.
+
 ### Fixed
 - **Direct control: a setpoint entity showing "unknown" is now written.**
   Some Modbus/MQTT number entities (a Victron grid setpoint over MQTT

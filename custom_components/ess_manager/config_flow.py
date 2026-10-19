@@ -83,6 +83,12 @@ from .const import (
     CONF_HIGH_CELL_VOLTAGE_ENTITY,
     CONF_LOW_CELL_VOLTAGE_ENTITY,
     CONF_MAX_BATTERY_CHARGE_SPEED_KW,
+    CONF_NIGHT_LIMIT_ENABLED,
+    CONF_NIGHT_CHARGE_SPEED_KW,
+    CONF_NIGHT_DISCHARGE_SPEED_KW,
+    DEFAULT_NIGHT_LIMIT_ENABLED,
+    DEFAULT_NIGHT_CHARGE_SPEED_KW,
+    DEFAULT_NIGHT_DISCHARGE_SPEED_KW,
     CONF_MAX_BATTERY_DISCHARGE_SPEED_KW,
     CONF_CHARGE_EFFICIENCY_PERCENT,
     CONF_DISCHARGE_EFFICIENCY_PERCENT,
@@ -332,6 +338,10 @@ def _system_schema(defaults: dict[str, Any], seed_values: bool) -> vol.Schema:
                 CONF_DISCHARGE_EFFICIENCY_PERCENT,
                 default=defaults.get(CONF_DISCHARGE_EFFICIENCY_PERCENT, DEFAULT_DISCHARGE_EFFICIENCY_PERCENT),
             ): _number(50, 100, 0.5, "%"),
+            # as of 2026.10.18: its two speeds on the next page
+            vol.Required(
+                CONF_NIGHT_LIMIT_ENABLED, default=defaults.get(CONF_NIGHT_LIMIT_ENABLED, DEFAULT_NIGHT_LIMIT_ENABLED)
+            ): selector.BooleanSelector(),
         }
     )
     if seed_values:
@@ -346,6 +356,22 @@ def _system_schema(defaults: dict[str, Any], seed_values: bool) -> vol.Schema:
             }
         )
     return vol.Schema(fields)
+
+
+def _night_limit_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """The night limit's speeds (as of 2026.10.18) - between 22:00 and 07:00
+    they replace every other charge/discharge speed."""
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_NIGHT_CHARGE_SPEED_KW, default=defaults.get(CONF_NIGHT_CHARGE_SPEED_KW, DEFAULT_NIGHT_CHARGE_SPEED_KW)
+            ): _number(0, 100, 0.1, "kW"),
+            vol.Required(
+                CONF_NIGHT_DISCHARGE_SPEED_KW,
+                default=defaults.get(CONF_NIGHT_DISCHARGE_SPEED_KW, DEFAULT_NIGHT_DISCHARGE_SPEED_KW),
+            ): _number(0.1, 100, 0.1, "kW"),
+        }
+    )
 
 
 def _plans_schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -709,9 +735,19 @@ class _EssManagerSteps:
     async def async_step_system(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
             self._data.update(user_input)
+            if user_input.get(CONF_NIGHT_LIMIT_ENABLED):
+                return await self.async_step_night_limit()
             return await self.async_step_plans()
         return self.async_show_form(
             step_id="system", data_schema=_system_schema(self._defaults(), seed_values=self._seed_values)
+        )
+
+    async def async_step_night_limit(self, user_input: dict[str, Any] | None = None):
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self.async_step_plans()
+        return self.async_show_form(
+            step_id="night_limit", data_schema=_night_limit_schema({**self._defaults(), **self._data})
         )
 
     async def async_step_plans(self, user_input: dict[str, Any] | None = None):

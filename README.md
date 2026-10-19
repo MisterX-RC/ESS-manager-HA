@@ -814,6 +814,17 @@ charging in a charge window and keep discharging in a discharge window.
 The entity is only written when the value changes, or when something else
 changed it (then at most once a minute).
 
+**Night limit** (as of 2026.10.18): on the battery page in Configure,
+"Limit the charge/discharge speed at night (22:00-07:00)" asks for a night
+charge and a night discharge speed. Between 22:00 and 07:00 those replace
+every other speed - normal, negative-price, spike and full charge: the charge
+plans count with the night speed for those quarters (so a charge at night
+gets a longer window; 0 means no grid charging at night), a sale lying mostly
+in the night is worked out again at the night discharge speed, and the
+setpoint sent at night uses them - never above the battery's max speeds.
+Outside those hours nothing changes. Shown on the Status sensor as
+`night_limit` (enabled, active now, the speeds).
+
 Safety:
 
 - **Automatic control** switch (an entity on the device): turn it off to

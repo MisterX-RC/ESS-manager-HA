@@ -286,6 +286,46 @@ def rate_spill(net: list[float], now: datetime, max_charge_kw: Optional[float], 
     return out
 
 
+NIGHT_FROM_HOUR = 22   # the night limit (as of 2026.10.18): 22:00 ...
+NIGHT_UNTIL_HOUR = 7   # ... to 07:00
+
+
+def is_night_hour(hour: int) -> bool:
+    return hour >= NIGHT_FROM_HOUR or hour < NIGHT_UNTIL_HOUR
+
+
+def unit_is_night(unit: int) -> bool:
+    """A 15-minute unit (from today's midnight) in the night window."""
+    return is_night_hour((unit // 4) % 24)
+
+
+def night_share(units: list[int]) -> float:
+    """Share of the given units that fall in the night window."""
+    return sum(1 for u in units if unit_is_night(u)) / len(units) if units else 0.0
+
+
+def night_discharge_plan(compute, day_kw: float, night_kw: Optional[float]) -> dict:
+    """A discharge plan with the night limit (as of 2026.10.18): worked
+    out at the day speed; when its window lies mostly between 22:00 and
+    07:00, worked out again at the night speed (so its length and energy
+    match what can really be sent then)."""
+    plan = compute(day_kw)
+    if night_kw is None or night_kw <= 0 or not plan.get("active"):
+        return plan
+    if plan.get("discharge_start_unit") is not None:
+        units = list(range(plan["discharge_start_unit"], plan.get("discharge_end_unit", plan["discharge_start_unit"])))
+    elif plan.get("blocks"):
+        units = [u for b in plan["blocks"] for u in range(b["start_unit"], b["end_unit"])]
+    elif plan.get("start_unit") is not None:
+        units = list(range(plan["start_unit"], plan.get("end_unit", plan["start_unit"])))
+    else:
+        return plan
+    if night_share(units) >= 0.5 and abs(night_kw - day_kw) > 1e-6:
+        plan = compute(night_kw)
+        plan["night_limited"] = True
+    return plan
+
+
 def grid_charge_rates(
     net: list[float],
     now: datetime,
@@ -294,6 +334,7 @@ def grid_charge_rates(
     n_units: int,
     charge_efficiency: float = 1.0,
     discharge_efficiency: float = 1.0,
+    night_kw: Optional[float] = None,
 ) -> list[float]:
     """Per 15-minute unit (index = units from today's midnight, like the
     prices), how much a grid charge at `speed_kw` really adds to the battery
@@ -304,7 +345,9 @@ def grid_charge_rates(
     sunny hour the grid can only add what's left up to that max - nothing at
     all when the sun alone already fills the max charge speed. In an hour
     without solar the grid charge also covers the house, which the forecast
-    otherwise takes out of the battery. Units before this hour are 0."""
+    otherwise takes out of the battery. Units before this hour are 0. With
+    `night_kw` (the night limit) that speed replaces `speed_kw` between
+    22:00 and 07:00."""
     ce = charge_efficiency if charge_efficiency > 0 else 1.0
     de = discharge_efficiency if discharge_efficiency > 0 else 1.0
     cap = float(max_charge_kw) if max_charge_kw and max_charge_kw > 0 else float("inf")
@@ -313,10 +356,12 @@ def grid_charge_rates(
     def gain(kw: float) -> float:
         return min(kw * ce, cap) if kw > 0 else kw / de
 
+    night = min(max(float(night_kw), 0.0), cap) if night_kw is not None else None
     hour0 = now.hour * 4
     out = [0.0] * max(n_units, 0)
     for u in range(hour0, len(out)):
         h = (u - hour0) // 4
         x = float(net[h]) if h < len(net) and net[h] is not None else 0.0
-        out[u] = round(max(gain(speed + x) - gain(x), 0.0) / 4, 4)
+        s = night if night is not None and unit_is_night(u) else speed
+        out[u] = round(max(gain(s + x) - gain(x), 0.0) / 4, 4) if s > 0 else 0.0
     return out
