@@ -278,13 +278,21 @@ integration producing the same shape works):
   calculates the forecast itself from the statistics the Energy dashboard
   already uses. Alternatively, a sensor reporting your home's total energy
   consumption (cumulative kWh). See "Household usage forecast" below.
-- **Solar forecast**: one or more sensors exposing a `detailedHourly`
-  attribute shaped like Solcast's: a list of
-  `{"period_start": <ISO timestamp>, "pv_estimate": <kWh>}` objects. Add as
-  many forecast-day sensors as you need to cover 121 hours from whatever
-  time of day updates happen to run (Solcast typically needs
-  today/tomorrow/day_3 at minimum, more if you want headroom late in the
-  day).
+- **Solar forecast**: one or more sensors in either of two formats - the
+  integration recognises which one each sensor has by itself:
+  - **Solcast**: a `detailedHourly` attribute, a list of
+    `{"period_start": <ISO timestamp>, "pv_estimate": <kWh>}` objects. Add as
+    many forecast-day sensors as you need to cover 121 hours from whatever
+    time of day updates happen to run (Solcast typically needs
+    today/tomorrow/day_3 at minimum, more if you want headroom late in the
+    day).
+  - **Helios Forecast** *(as of 2026.10.21)*: pick its "Power now" sensor
+    (`sensor.helios_forecast_power_now`). Its `forecast` attribute holds one
+    point per quarter hour (`{"datetime", "watts", ...}`) from midnight
+    today through seven days ahead, so that one sensor covers the whole
+    horizon. Each hour's quarters are averaged: W / 1000 = kWh in that hour.
+  A sensor with neither attribute counts as no sun at all, so the
+  integration logs a warning for it once.
 - **Grid/inverter setpoint** *(optional but recommended)*: the entity that
   holds your current commanded charge/discharge power - a sensor, a
   `number` or an `input_number` (for example the input_number your own ESS

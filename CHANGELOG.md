@@ -12,6 +12,21 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.21] - 2026-10-21
+
+### Added
+- **Helios Forecast as solar forecast.** Besides Solcast's `detailedHourly`,
+  a solar forecast sensor may now be Helios Forecast's "Power now" sensor:
+  its `forecast` attribute (one point per quarter hour in W, from midnight
+  today through seven days ahead) is turned into kWh per hour - the mean
+  of each hour's quarters / 1000 - and used exactly like Solcast's hours.
+  No setting: each sensor's format is recognised by itself, Solcast keeps
+  working as before and both can be mixed. One Helios sensor covers the
+  whole 121-hour horizon.
+- A solar forecast sensor that's available but has neither format (picked
+  by mistake, or its integration changed) is logged once as a warning
+  instead of silently counting as no sun.
+
 ## [2026.10.20] - 2026-10-20
 
 ### Changed

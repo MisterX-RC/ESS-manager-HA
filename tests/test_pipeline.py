@@ -4156,6 +4156,33 @@ _rt3_hp = heatpump_runtime.HeatPumpRuntime()
 _rt3_hp.restore(_rt_hp.as_store())
 check("heat pump runtime: the store round-trips", _rt3_hp.as_store() == _rt_hp.as_store())
 
+# --- solar forecast formats (2026.10.21): Solcast detailedHourly and Helios Forecast quarters
+from datetime import timezone as _tzmod
+_tzH = _tzmod(timedelta(hours=2))
+_sol_attrs = {"detailedHourly": [{"period_start": "2026-10-21T12:00:00+02:00", "pv_estimate": 1.5}]}
+check("solar formats: Solcast detailedHourly is used as is",
+      forecasting.solar_points_from_attributes(_sol_attrs) == _sol_attrs["detailedHourly"])
+_hel = {"forecast": [
+    {"datetime": "2026-10-21T12:00:00+02:00", "watts": 2000.0, "p10": None, "p90": None},
+    {"datetime": "2026-10-21T12:15:00+02:00", "watts": 3000.0, "p10": None, "p90": None},
+    {"datetime": datetime(2026, 10, 21, 12, 30, tzinfo=_tzH), "watts": 4000, "p10": 3500, "p90": 4500},
+    {"datetime": "2026-10-21T12:45:00+02:00", "watts": 3000.0},
+    {"datetime": "2026-10-21T13:00:00+02:00", "watts": 1000.0},
+    {"datetime": "2026-10-21T13:15:00+02:00", "watts": None},
+    {"datetime": "nonsense", "watts": 5.0},
+]}
+_hel_pts = forecasting.solar_points_from_attributes(_hel)
+check("solar formats: Helios quarters (W) -> kWh per hour, a partial hour counts its average",
+      _hel_pts == [{"period_start": "2026-10-21T12:00:00+02:00", "pv_estimate": 3.0},
+                   {"period_start": "2026-10-21T13:00:00+02:00", "pv_estimate": 1.0}])
+_hel_now = datetime(2026, 10, 21, 12, 40, tzinfo=_tzH)
+check("solar formats: Helios points feed the hourly solar forecast",
+      forecasting.build_solar_forecast(forecasting.merge_hourly_points([_hel_pts]), _hel_now, 3) == [3.0, 1.0, None])
+check("solar formats: a sensor with neither attribute gives no points",
+      forecasting.solar_points_from_attributes({"forecast": "x"}) == []
+      and forecasting.solar_points_from_attributes({"forecast": [{"datetime": "2026-10-21T12:00:00+02:00", "soc": 50}]}) == []
+      and forecasting.solar_points_from_attributes(None) == [])
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

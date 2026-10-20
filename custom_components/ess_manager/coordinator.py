@@ -270,6 +270,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # or another day.
         self._replan_requested = 1
         self._started_logged = False
+        self._solar_format_warned: set[str] = set()
         self._last_solar_mode: Optional[str] = None
 
         # Statistics-based usage-forecast cache - recomputed once per hour,
@@ -1274,7 +1275,21 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if state is None or state.state in ("unavailable", "unknown"):
                 waiting_for.append(entity_id)
             if state is not None:
-                solar_points.append(list(state.attributes.get("detailedHourly") or []))
+                points = forecasting.solar_points_from_attributes(state.attributes)
+                solar_points.append(points)
+                # Logged once per sensor (as of 2026.10.21): a sensor without a
+                # known forecast attribute would otherwise count as no sun at all.
+                if not points and state.state not in ("unavailable", "unknown"):
+                    if entity_id not in self._solar_format_warned:
+                        self._solar_format_warned.add(entity_id)
+                        _LOGGER.warning(
+                            "ESS Manager (%s): %s has no solar forecast the integration can read "
+                            "(a Solcast 'detailedHourly' or a Helios Forecast 'forecast' attribute) - "
+                            "it counts as 0 kWh; check the solar forecast sensors in Configure",
+                            self.entry.title, entity_id,
+                        )
+                elif points:
+                    self._solar_format_warned.discard(entity_id)
         if self._usage_missing:
             waiting_for.append("the household usage statistics")
         if waiting_for and now - self._started_at < STARTUP_GRACE:

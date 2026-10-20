@@ -13,6 +13,48 @@ from typing import Optional
 from .const import FORECAST_HOURS
 
 
+def solar_points_from_attributes(attributes) -> list[dict]:
+    """One solar-forecast entity's points, Solcast-shaped (as of 2026.10.21).
+
+    Two formats are recognised by themselves, no setting needed:
+    - Solcast: `detailedHourly` = [{"period_start", "pv_estimate" (kWh in
+      that hour)}, ...] - used as is.
+    - Helios Forecast: `forecast` = [{"datetime", "watts", "p10", "p90"},
+      ...], one point per quarter hour, in W. Turned into hourly points:
+      the mean of the hour's quarters in W / 1000 = kWh in that hour (an
+      hour with only some quarters - the end of the horizon - counts its
+      average, not a partial sum).
+    Anything else gives no points.
+    """
+    attrs = attributes or {}
+    hourly = attrs.get("detailedHourly")
+    if hourly:
+        return list(hourly)
+    quarters = attrs.get("forecast")
+    if not isinstance(quarters, (list, tuple)):
+        return []
+    sums: dict[datetime, list[float]] = {}
+    for point in quarters:
+        if not isinstance(point, dict) or "watts" not in point:
+            continue
+        ts = _as_datetime(point.get("datetime"))
+        watts = point.get("watts")
+        if ts is None or watts is None:
+            continue
+        try:
+            w = float(watts)
+        except (TypeError, ValueError):
+            continue
+        hour = ts.replace(minute=0, second=0, microsecond=0)
+        acc = sums.setdefault(hour, [0.0, 0])
+        acc[0] += w
+        acc[1] += 1
+    return [
+        {"period_start": hour.isoformat(), "pv_estimate": round(total / n / 1000.0, 4)}
+        for hour, (total, n) in sorted(sums.items(), key=lambda kv: kv[0].isoformat())
+    ]
+
+
 def merge_hourly_points(entities_raw: list[list[dict]]) -> list[dict]:
     """Flatten several solar-forecast entities' hourly point lists into one.
 
