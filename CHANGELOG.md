@@ -24,6 +24,14 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   from this integration). Results are the same; only where they are
   computed changed. Sending the setpoint and setting the thermostat stay on
   the event loop.
+- **One cycle a minute instead of every 30 seconds**, plus a cycle right at
+  every quarter boundary (:00:02, :15:02, :30:02, :45:02). Plans work in
+  quarters, so blocks, negative-price and spike quarters and the night
+  limit at 07:00/22:00 still start and stop on time; since every cycle
+  restarts the one-minute timer, the loop settles on that second of every
+  minute. Half the CPU load; a setting changed on the card still replans
+  at once. Cycles never overlap (Home Assistant runs them one at a
+  time): a refresh asked for while one is running waits for it.
 
 ### Fixed
 - **Heat-pump model: a fit that gives no model is retried at most once an

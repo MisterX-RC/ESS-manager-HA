@@ -1,5 +1,5 @@
 """DataUpdateCoordinator that ties the forecasting pipeline and the five
-planning engines together every 30 seconds, reading live entity state and
+planning engines together every minute (and at every quarter boundary), reading live entity state and
 the user-tunable `number` entities, and persisting the plans' self-locking
 state (and the full-charge-plan's "last time the battery was full" tracker)
 across Home Assistant restarts.
@@ -273,7 +273,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_solar_mode: Optional[str] = None
 
         # Statistics-based usage-forecast cache - recomputed once per hour,
-        # on the first cycle after the hour changes, not every 30s cycle
+        # on the first cycle after the hour changes, not every cycle
         # (see usage_forecast.usage_cache_is_stale).
         self._usage_forecast_cache: Optional[list[float]] = None
         self._usage_forecast_computed_at: Optional[datetime] = None
@@ -1209,6 +1209,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- main update ----------------------------------------------------------
     async def _async_update_data(self) -> dict[str, Any]:
+        # One cycle at a time: Home Assistant's coordinator runs every
+        # refresh (the minute timer, the quarter boundary, a setting changed)
+        # under one lock, so the plans in the worker thread never run twice
+        # alongside each other (checked by a test, 2026.10.20).
         try:
             return await self._async_compute()
         except Exception as err:

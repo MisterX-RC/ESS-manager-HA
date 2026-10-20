@@ -142,7 +142,7 @@ def needs_write(
     - For a target we can read back (`current_state` not None): also when
       the entity no longer shows it - someone or something else changed it -
       but at most once per `resend_after_seconds`, so an entity that lags or
-      rounds differently isn't rewritten every 30-second cycle.
+      rounds differently isn't rewritten every cycle.
     """
     if last_sent is None or abs(desired - last_sent) > tolerance:
         return True

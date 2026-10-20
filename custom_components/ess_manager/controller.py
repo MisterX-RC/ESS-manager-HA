@@ -203,7 +203,7 @@ class EssController:
         self._last_error = None
 
     def _set_error(self, message: str) -> None:
-        """Record a problem; log it once, not every 30-second cycle it lasts."""
+        """Record a problem; log it once, not every cycle it lasts."""
         if message != self._last_error:
             _LOGGER.warning("ESS Manager (%s): %s", self.name, message)
         self._last_error = message

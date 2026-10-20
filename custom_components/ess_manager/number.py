@@ -123,5 +123,5 @@ class EssManagerNumber(RestoreNumber, NumberEntity):
             # A setting changed: check running windows again too (v0.5.12).
             self._coordinator.request_replan()
         # A tunable changed - refresh immediately rather than waiting up to
-        # 30s for the next scheduled cycle, so the dashboard feels responsive.
+        # up to a minute for the next scheduled cycle, so the dashboard feels responsive.
         await self._coordinator.async_request_refresh()

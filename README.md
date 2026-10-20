@@ -111,7 +111,7 @@ Five planning engines, all documented in detail in the code
    window, clearing room beforehand if needed.
 
 **When plans move and when they're fixed.** Every plan is worked out again
-every cycle (30 s) from the live battery level and forecast, so a window
+every cycle (once a minute) from the live battery level and forecast, so a window
 still ahead can move or change size. Only a window that is running is
 kept as it is until it ends (a low charge or high discharge also stops
 early once it reaches its target): the charge or sale of the low charge /
@@ -178,7 +178,7 @@ with. A (re)start of Home Assistant or the integration does it too (as of
 2026.10.14), so a window stored before the restart is checked against the
 current settings and forecast. When a sensor it needs (battery SOC, price)
 isn't there yet right after a restart (as of 2026.10.15), the entities are unavailable until
-the next cycle (every 30 s) finds it - no reload needed. For the first 10
+the next cycle (once a minute) finds it - no reload needed. For the first 10
 minutes after a start it also waits for the solar forecast sensor(s) and the
 household usage statistics, so it never plans with "no sun" or "no usage"
 just because those weren't loaded yet; after that it plans with what there
@@ -306,7 +306,10 @@ integration producing the same shape works):
   option instead of the default internal tracking - see "Full-charge
   balancing" below.
 
-The planning runs every 30 seconds. The heavy parts - the battery plans
+The planning runs once a minute, and also right at every quarter boundary
+(:00, :15, :30, :45 - as of 2026.10.20; it was every 30 seconds), so a
+planned block or the night limit still starts and stops on the quarter.
+Changing a setting on the card replans straight away. The heavy parts - the battery plans
 and the heat-pump model - run in a worker thread (as of 2026.10.20), so
 even on a Raspberry Pi they don't hold up the rest of Home Assistant;
 only reading the sensors, sending the setpoint and setting the thermostat

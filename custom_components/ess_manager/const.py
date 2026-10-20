@@ -8,7 +8,13 @@ DOMAIN = "ess_manager"
 # first refresh, so direct control knows whether it's allowed to send.
 PLATFORMS = ["number", "switch", "sensor"]
 
-UPDATE_INTERVAL_SECONDS = 30
+# One cycle a minute (as of 2026.10.20; was 30 s). On top of that a cycle
+# runs right at every quarter boundary (:00/:15/:30/:45, see
+# QUARTER_REFRESH_SECOND), so a planned block, a price quarter or the night
+# limit at 07:00/22:00 starts and stops on time; since each cycle restarts
+# the one-minute timer, the loop runs on that same second every minute.
+UPDATE_INTERVAL_SECONDS = 60
+QUARTER_REFRESH_SECOND = 2
 
 # ---------------------------------------------------------------------------
 # Config entry keys (set once during the config flow / options flow)

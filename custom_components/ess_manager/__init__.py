@@ -12,6 +12,7 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.event import async_track_time_change
 from homeassistant.loader import async_get_integration
 
 from .const import (
@@ -23,6 +24,7 @@ from .const import (
     DEFAULT_NAME,
     DOMAIN,
     PLATFORMS,
+    QUARTER_REFRESH_SECOND,
     REMOVED_CONFIG_KEYS,
     REMOVED_USAGE_SOURCE_LABELS,
     REMOVED_USAGE_SOURCES,
@@ -271,12 +273,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # entities without a working coordinator (unavailable) and the plans
     # without the number entities (so on their default values) until the
     # integration was reloaded by hand. Now a failed first cycle just leaves
-    # the entities unavailable and the next cycle (30 s) tries again.
+    # the entities unavailable and the next cycle (a minute later) tries again.
     await coordinator.async_refresh()
     # the EV card's services (as of 2026.10.11)
     async_setup_services(hass)
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+
+    # A cycle right at every quarter boundary (as of 2026.10.20, with the
+    # one-minute interval): blocks, price quarters and the night limit
+    # start and stop on time instead of up to a minute late.
+    # Not async_request_refresh: that would start its 10-second cooldown, and
+    # a switch or number changed right after the quarter would wait for it.
+    async def _async_quarter(_now) -> None:
+        await coordinator.async_refresh()
+
+    entry.async_on_unload(
+        async_track_time_change(hass, _async_quarter, minute=[0, 15, 30, 45], second=QUARTER_REFRESH_SECOND)
+    )
 
     async def _async_idle_on_stop(_event: Event) -> None:
         # Direct control: nobody supervises the battery while Home Assistant
