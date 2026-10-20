@@ -6,6 +6,8 @@ across Home Assistant restarts.
 """
 from __future__ import annotations
 
+import functools
+
 import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
@@ -830,15 +832,21 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         hourly = heatpump.hourly_weather(
             self._hp_hourly, weather, hour0, FORECAST_HOURS, tz, self._hp_wind_factor, hourly_sun[offset:]
         )
-        total, attribute, used = self.hp.compute(
+        # on a worker thread (as of 2026.10.20): the energy signature's fit (a
+        # grid search over up to two years of days), the forecast and the
+        # hour-by-hour model are pure Python and too heavy for the event loop
+        # on a small machine - the arguments are all gathered here first
+        steering = self.hp_steering_active(conf)
+        total, attribute, used = await self.hass.async_add_executor_job(functools.partial(
+            self.hp.compute,
             meter, now, tz, hour0, FORECAST_HOURS, weather, sun_by_day,
             int(conf.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS)), setpoint, with_cooling=True,
             indoor=indoor, hourly_weather=hourly, prices=prices,
-            steering=self.hp_steering_active(conf),
-            schedule=self.hp_schedule(hour0, 48, tz) if self.hp_steering_active(conf) else None,
+            steering=steering,
+            schedule=self.hp_schedule(hour0, 48, tz) if steering else None,
             buffer_delta=self.get_number(NUM_HP_BUFFER_DELTA, 1.0),
             hourly_model=bool(conf.get(CONF_HP_HOURLY_ENABLED)),
-        )
+        ))
         subtract = used and meter != HP_METER_NONE
         if subtract != self.hp.subtract:
             # the usage history has to leave the heat pump out (or take it
@@ -1514,279 +1522,321 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             replan = True
         self._last_solar_mode = solar_mode["mode"]
 
-        if conf.get(CONF_ENABLE_FULL_CHARGE_PLAN, False):
-            # Passes high_threshold_kwh (the max-SOC-based overshoot
-            # ceiling, ~110% by default) rather than upper_limit_kwh
-            # (nominal 100%) - compute_full_charge_plan uses it both to
-            # decide whether a forecasted future solar peak already
-            # amounts to a real, sustained overshoot (long enough to
-            # finish cell-balancing on its own) and, if not, as the
-            # reference point for how much to buy. battery_forecast (the
-            # raw, unadjusted solar/usage projection - no price-driven
-            # charging baked in) is what it searches for that peak in.
-            self._full_charge_plan = plans.compute_full_charge_plan(
-                self._full_charge_plan,
+        # -- the plans --------------------------------------------------------------
+        # As of 2026.10.20 worked out on a worker thread: pure Python, and on a
+        # small machine (a Raspberry Pi) heavy enough to stall Home Assistant's
+        # event loop - every other integration with it - for a moment each
+        # cycle. It only reads the values gathered above and writes this
+        # coordinator's own plan state; nothing else touches that meanwhile
+        # (the cycle is awaited), and a setting changed meanwhile is counted
+        # by _replan_requested, settled below on the event loop.
+        def _plans() -> dict[str, Any]:
+            if conf.get(CONF_ENABLE_FULL_CHARGE_PLAN, False):
+                # Passes high_threshold_kwh (the max-SOC-based overshoot
+                # ceiling, ~110% by default) rather than upper_limit_kwh
+                # (nominal 100%) - compute_full_charge_plan uses it both to
+                # decide whether a forecasted future solar peak already
+                # amounts to a real, sustained overshoot (long enough to
+                # finish cell-balancing on its own) and, if not, as the
+                # reference point for how much to buy. battery_forecast (the
+                # raw, unadjusted solar/usage projection - no price-driven
+                # charging baked in) is what it searches for that peak in.
+                self._full_charge_plan = plans.compute_full_charge_plan(
+                    self._full_charge_plan,
+                    current_price_unit,
+                    now,
+                    full_charge_interval_days,
+                    time_since_full_days,
+                    soc_now_percent,
+                    full_charge_max_hold_minutes,
+                    voltage_diff,
+                    battery_now_kwh,
+                    high_threshold_kwh,
+                    usage_forecast,
+                    charge_speed_kw,
+                    all_price,
+                    battery_forecast,
+                    battery_voltage,
+                    full_charge_target_voltage,
+                    buy_price=buy_price,
+                    charge_efficiency=charge_efficiency,
+                    replan=replan,
+                    charge_rates=charge_rates,
+                    min_charge_units=min_charge_units,
+                )
+            else:
+                self._full_charge_plan = {"active": False, "phase": None}
+
+            # Situation 1 (passive confirmation) and the fix for the old
+            # SOC-crossing race condition both come from the same change: the
+            # "days since last full" clock now resets strictly AFTER
+            # compute_full_charge_plan runs, and only when ITS OWN output says
+            # all three legs (SOC, voltage differential, battery voltage) were
+            # genuinely satisfied together - never on a bare SOC threshold
+            # crossing computed independently beforehand.
+            if self._full_charge_plan.get("balance_confirmed"):
+                self._last_full_reached = now
+
+            # The negative price and spike plans size their charges and sales on
+            # the level the battery will really be at, so they get the forecast
+            # clipped at 100% too (as of 2026.10.1): after a day that fills it,
+            # the energy over the top is gone. The chain of composed forecasts
+            # below (for the sale plan) stays unclipped.
+            battery_forecast_clipped, _ = forecasting.clip_at_capacity(battery_forecast, battery_now_kwh, upper_limit_kwh)
+
+            # -- negative price plan -------------------------------------------------
+            if conf.get(CONF_ENABLE_NEGATIVE_PRICE_PLAN, True):
+                self._negative_price_plan = forecasting.night_discharge_plan(lambda kw: plans.compute_negative_price_plan(
+                    self._negative_price_plan,
+                    current_price_unit,
+                    now,
+                    all_price,
+                    negative_price_threshold,
+                    battery_forecast_clipped,
+                    kw,
+                    negative_price_charge_speed_kw,
+                    low_threshold_kwh,
+                    # the most it can charge to: max SOC, but never above 100% -
+                    # the battery can't hold more (as of 2026.10.1; up to then a
+                    # max SOC of 110% let it plan 10% that can't go in)
+                    min(high_threshold_kwh, upper_limit_kwh),
+                    buy_price=buy_price,
+                    charge_efficiency=charge_efficiency,
+                    discharge_efficiency=discharge_efficiency,
+                    replan=replan,
+                    charge_rates=negative_charge_rates,
+                ), discharge_speed_kw, night_discharge_kw)
+            else:
+                self._negative_price_plan = {"active": False}
+
+            forecast_with_negative_price = plans.compose_forecast_with_negative_price(
+                battery_forecast, self._negative_price_plan, current_price_unit, now, high_threshold_kwh - 0.01
+            )
+
+            # -- spike plan ------------------------------------------------------
+            if conf.get(CONF_ENABLE_SPIKE_PLAN, True):
+                self._spike_plan = forecasting.night_discharge_plan(lambda kw: plans.compute_spike_plan(
+                    self._spike_plan,
+                    current_price_unit,
+                    all_price,
+                    battery_forecast_clipped,
+                    usage_forecast,
+                    low_threshold_kwh,
+                    upper_limit_kwh,
+                    high_threshold_kwh,
+                    spike_margin,
+                    charge_speed_kw,
+                    kw,
+                    self._negative_price_plan,
+                    minimum_charge_target_kwh,
+                    buy_price=buy_price,
+                    charge_efficiency=charge_efficiency,
+                    discharge_efficiency=discharge_efficiency,
+                    replan=replan,
+                    charge_rates=charge_rates,
+                ), spike_discharge_speed_kw, night_discharge_kw)
+            else:
+                self._spike_plan = {"active": False}
+
+            forecast_with_spike = plans.compose_forecast_with_spike(
+                forecast_with_negative_price, self._spike_plan, current_price_unit, now, high_threshold_kwh - 0.01
+            )
+
+            # -- low charge / high discharge plans -----------------------------------
+            # The charge plan works with the forecast clipped at 100% (as of
+            # 2026.10.1): energy over the top goes to the grid, so after a day that
+            # fills the battery the next dip starts from 100%, not from the running
+            # sum. How much still fits is measured against the unclipped peak; the
+            # sale plan below keeps the unclipped forecast (its highest point is
+            # what it sells off).
+            forecast_with_spike_clipped, _ = forecasting.clip_at_capacity(forecast_with_spike, battery_now_kwh, upper_limit_kwh)
+            horizon_peak_kwh = max(forecast_with_spike[0 : planning_horizon_hours + 1] or [battery_now_kwh])
+            self._low_charge_plan = plans.compute_low_charge_plan(
+                self._low_charge_plan,
                 current_price_unit,
+                forecast_with_spike_clipped,
                 now,
-                full_charge_interval_days,
-                time_since_full_days,
-                soc_now_percent,
-                full_charge_max_hold_minutes,
-                voltage_diff,
-                battery_now_kwh,
-                high_threshold_kwh,
-                usage_forecast,
                 charge_speed_kw,
+                low_threshold_kwh,
+                minimum_charge_target_kwh,
+                upper_limit_kwh,
+                usage_forecast,
                 all_price,
-                battery_forecast,
-                battery_voltage,
-                full_charge_target_voltage,
+                planning_horizon_hours,
+                battery_now_kwh,
+                high_threshold_kwh=high_threshold_kwh,
                 buy_price=buy_price,
                 charge_efficiency=charge_efficiency,
+                discharge_efficiency=discharge_efficiency,
                 replan=replan,
+                floor_kwh=deficit_floor_kwh,
+                peak_kwh=horizon_peak_kwh,
                 charge_rates=charge_rates,
+                # charge up to the low threshold plus the same Safety buffer a
+                # sale keeps (as of 2026.10.4)
+                charge_buffer_kwh=safety_buffer_kwh,
                 min_charge_units=min_charge_units,
             )
-        else:
-            self._full_charge_plan = {"active": False, "phase": None}
+            # A full charge relying on a future solar peak (either genuinely
+            # scheduled to buy up to it, or silently skipped because that peak
+            # already reaches high_threshold_kwh on its own - see
+            # relying_on_peak_unit in compute_full_charge_plan) needs that peak
+            # left alone until it happens: compute_high_discharge_plan's own
+            # peak-scan only looks planning_horizon_hours ahead and has no idea
+            # the full-charge plan exists, so without this it could sell off
+            # exactly the surplus energy the full-charge plan is counting on to
+            # reach that peak for free. Also suppressed outright while a full
+            # charge is actively charging or holding, since discharging then
+            # would directly fight the charge/hold setpoint. Only blocks
+            # scheduling a *new* discharge window - one already in progress
+            # (locked in via compute_high_discharge_plan's own prev check)
+            # finishes normally regardless.
+            full_charging_or_holding = self._full_charge_plan.get("active") and self._full_charge_plan.get("phase") in (
+                "charging",
+                "holding",
+            )
+            full_relying_on_peak_unit = self._full_charge_plan.get("relying_on_peak_unit")
+            full_peak_not_yet_reached = full_relying_on_peak_unit is not None and current_price_unit < full_relying_on_peak_unit
+            suppress_high_discharge = bool(full_charging_or_holding or full_peak_not_yet_reached)
 
-        # Situation 1 (passive confirmation) and the fix for the old
-        # SOC-crossing race condition both come from the same change: the
-        # "days since last full" clock now resets strictly AFTER
-        # compute_full_charge_plan runs, and only when ITS OWN output says
-        # all three legs (SOC, voltage differential, battery voltage) were
-        # genuinely satisfied together - never on a bare SOC threshold
-        # crossing computed independently beforehand.
-        if self._full_charge_plan.get("balance_confirmed"):
-            self._last_full_reached = now
+            self._high_discharge_plan = forecasting.night_discharge_plan(lambda kw: plans.compute_high_discharge_plan(
+                self._high_discharge_plan,
+                current_price_unit,
+                forecast_with_spike,
+                now,
+                kw,
+                high_threshold_kwh,
+                low_threshold_kwh,
+                usage_forecast,
+                all_price,
+                planning_horizon_hours,
+                battery_now_kwh,
+                suppress_high_discharge,
+                safety_buffer_kwh=safety_buffer_kwh,
+                # A sale triggered by the max-SOC threshold brings the peak down
+                # to 100% (as of v0.3.2), not to just under the threshold.
+                sale_target_kwh=upper_limit_kwh,
+                discharge_efficiency=discharge_efficiency,
+                replan=replan,
+                # a sale before an overflow has to beat the overflow's own price
+                # (as of 2026.10.10)
+                capacity_kwh=upper_limit_kwh,
+                # sales in blocks too, no shorter than a charge block (2026.10.10)
+                min_sale_units=min_charge_units,
+            ), discharge_speed_kw, night_discharge_kw)
 
-        # The negative price and spike plans size their charges and sales on
-        # the level the battery will really be at, so they get the forecast
-        # clipped at 100% too (as of 2026.10.1): after a day that fills it,
-        # the energy over the top is gone. The chain of composed forecasts
-        # below (for the sale plan) stays unclipped.
-        battery_forecast_clipped, _ = forecasting.clip_at_capacity(battery_forecast, battery_now_kwh, upper_limit_kwh)
-
-        # -- negative price plan -------------------------------------------------
-        if conf.get(CONF_ENABLE_NEGATIVE_PRICE_PLAN, True):
-            self._negative_price_plan = forecasting.night_discharge_plan(lambda kw: plans.compute_negative_price_plan(
-                self._negative_price_plan,
+            battery_forecast_adjusted_uncapped = plans.compose_forecast_adjusted(
+                forecast_with_spike,
+                self._low_charge_plan,
+                self._high_discharge_plan,
                 current_price_unit,
                 now,
-                all_price,
-                negative_price_threshold,
-                battery_forecast_clipped,
-                kw,
-                negative_price_charge_speed_kw,
-                low_threshold_kwh,
-                # the most it can charge to: max SOC, but never above 100% -
-                # the battery can't hold more (as of 2026.10.1; up to then a
-                # max SOC of 110% let it plan 10% that can't go in)
-                min(high_threshold_kwh, upper_limit_kwh),
-                buy_price=buy_price,
-                charge_efficiency=charge_efficiency,
-                discharge_efficiency=discharge_efficiency,
-                replan=replan,
-                charge_rates=negative_charge_rates,
-            ), discharge_speed_kw, night_discharge_kw)
-        else:
-            self._negative_price_plan = {"active": False}
+                full=self._full_charge_plan,
+                upper_limit_kwh=upper_limit_kwh,
+                battery_now_kwh=battery_now_kwh,
+            )
+            # What the battery will really hold (never above 100%) - shown on the
+            # cards - and the solar surplus: hours the battery is full or can't
+            # take all the solar, so it goes to the grid (as of 2026.10.1).
+            battery_forecast_adjusted, spill_full = forecasting.clip_at_capacity(
+                battery_forecast_adjusted_uncapped, battery_now_kwh, upper_limit_kwh
+            )
+            eff = charge_efficiency if charge_efficiency > 0 else 1.0
+            solar_surplus = forecasting.solar_surplus_windows(
+                [v / eff for v in spill_full],
+                forecasting.rate_spill(net_energy, now, max_battery_charge_speed_kw, charge_efficiency),
+                now,
+            )
 
-        forecast_with_negative_price = plans.compose_forecast_with_negative_price(
-            battery_forecast, self._negative_price_plan, current_price_unit, now, high_threshold_kwh - 0.01
-        )
-
-        # -- spike plan ------------------------------------------------------
-        if conf.get(CONF_ENABLE_SPIKE_PLAN, True):
-            self._spike_plan = forecasting.night_discharge_plan(lambda kw: plans.compute_spike_plan(
-                self._spike_plan,
+            # For "Solar export" (as of 2026.10.3): the last quarter of the hour
+            # the forecast (with the plans) reaches 100%, and whether there's
+            # solar left over right now.
+            hour0_unit = current_price_unit - (now.minute // 15)
+            full_hour = next(
+                (h for h, v in enumerate(battery_forecast_adjusted) if v >= upper_limit_kwh - 0.01), None
+            )
+            full_unit = hour0_unit + full_hour * 4 + 3 if full_hour is not None else None
+            system_status, control_action = plans.compute_system_status_and_action(
+                setpoint_w,
+                idle_setpoint_w,
                 current_price_unit,
-                all_price,
-                battery_forecast_clipped,
-                usage_forecast,
-                low_threshold_kwh,
-                upper_limit_kwh,
-                high_threshold_kwh,
-                spike_margin,
-                charge_speed_kw,
-                kw,
+                self._full_charge_plan,
                 self._negative_price_plan,
-                minimum_charge_target_kwh,
-                buy_price=buy_price,
-                charge_efficiency=charge_efficiency,
-                discharge_efficiency=discharge_efficiency,
-                replan=replan,
-                charge_rates=charge_rates,
-            ), spike_discharge_speed_kw, night_discharge_kw)
-        else:
-            self._spike_plan = {"active": False}
+                self._spike_plan,
+                self._low_charge_plan,
+                self._high_discharge_plan,
+                battery_now_kwh,
+                low_threshold_kwh,
+                charge_speed_kw,
+                discharge_speed_kw,
+                all_price,
+                full_unit=full_unit,
+                solar_surplus_now=bool(net_energy) and net_energy[0] > 0,
+            )
 
-        forecast_with_spike = plans.compose_forecast_with_spike(
-            forecast_with_negative_price, self._spike_plan, current_price_unit, now, high_threshold_kwh - 0.01
-        )
+            charge_kwh, charge_start_text, charge_stop_text = display.charge_display(
+                self._full_charge_plan, self._negative_price_plan, self._spike_plan, self._low_charge_plan, current_price_unit, now
+            )
+            discharge_kwh, discharge_start_text, discharge_stop_text = display.discharge_display(
+                self._negative_price_plan, self._spike_plan, self._high_discharge_plan, current_price_unit, now
+            )
+            # The Buy / Sell blocks of the status card (as of v0.5.0).
+            card_plans = display.card_plans(
+                self._full_charge_plan,
+                self._negative_price_plan,
+                self._spike_plan,
+                self._low_charge_plan,
+                self._high_discharge_plan,
+                current_price_unit,
+                now,
+                battery_now_kwh,
+                capacity_kwh,
+                battery_forecast_adjusted,
+                # The live readings for the balancing wait (as of v0.5.11).
+                {
+                    "max_hold_minutes": full_charge_max_hold_minutes,
+                    "voltage_diff_mv": voltage_diff,
+                    "balance_threshold_mv": plans.BALANCE_THRESHOLD_MV,
+                    "battery_voltage": battery_voltage,
+                    "target_voltage": full_charge_target_voltage,
+                },
+            )
 
-        # -- low charge / high discharge plans -----------------------------------
-        # The charge plan works with the forecast clipped at 100% (as of
-        # 2026.10.1): energy over the top goes to the grid, so after a day that
-        # fills the battery the next dip starts from 100%, not from the running
-        # sum. How much still fits is measured against the unclipped peak; the
-        # sale plan below keeps the unclipped forecast (its highest point is
-        # what it sells off).
-        forecast_with_spike_clipped, _ = forecasting.clip_at_capacity(forecast_with_spike, battery_now_kwh, upper_limit_kwh)
-        horizon_peak_kwh = max(forecast_with_spike[0 : planning_horizon_hours + 1] or [battery_now_kwh])
-        self._low_charge_plan = plans.compute_low_charge_plan(
-            self._low_charge_plan,
-            current_price_unit,
-            forecast_with_spike_clipped,
-            now,
-            charge_speed_kw,
-            low_threshold_kwh,
-            minimum_charge_target_kwh,
-            upper_limit_kwh,
-            usage_forecast,
-            all_price,
-            planning_horizon_hours,
-            battery_now_kwh,
-            high_threshold_kwh=high_threshold_kwh,
-            buy_price=buy_price,
-            charge_efficiency=charge_efficiency,
-            discharge_efficiency=discharge_efficiency,
-            replan=replan,
-            floor_kwh=deficit_floor_kwh,
-            peak_kwh=horizon_peak_kwh,
-            charge_rates=charge_rates,
-            # charge up to the low threshold plus the same Safety buffer a
-            # sale keeps (as of 2026.10.4)
-            charge_buffer_kwh=safety_buffer_kwh,
-            min_charge_units=min_charge_units,
-        )
-        # A full charge relying on a future solar peak (either genuinely
-        # scheduled to buy up to it, or silently skipped because that peak
-        # already reaches high_threshold_kwh on its own - see
-        # relying_on_peak_unit in compute_full_charge_plan) needs that peak
-        # left alone until it happens: compute_high_discharge_plan's own
-        # peak-scan only looks planning_horizon_hours ahead and has no idea
-        # the full-charge plan exists, so without this it could sell off
-        # exactly the surplus energy the full-charge plan is counting on to
-        # reach that peak for free. Also suppressed outright while a full
-        # charge is actively charging or holding, since discharging then
-        # would directly fight the charge/hold setpoint. Only blocks
-        # scheduling a *new* discharge window - one already in progress
-        # (locked in via compute_high_discharge_plan's own prev check)
-        # finishes normally regardless.
-        full_charging_or_holding = self._full_charge_plan.get("active") and self._full_charge_plan.get("phase") in (
-            "charging",
-            "holding",
-        )
-        full_relying_on_peak_unit = self._full_charge_plan.get("relying_on_peak_unit")
-        full_peak_not_yet_reached = full_relying_on_peak_unit is not None and current_price_unit < full_relying_on_peak_unit
-        suppress_high_discharge = bool(full_charging_or_holding or full_peak_not_yet_reached)
+            return {
+                "battery_forecast_adjusted": battery_forecast_adjusted,
+                "battery_forecast_adjusted_uncapped": battery_forecast_adjusted_uncapped,
+                "card_plans": card_plans,
+                "charge_kwh": charge_kwh,
+                "charge_start_text": charge_start_text,
+                "charge_stop_text": charge_stop_text,
+                "control_action": control_action,
+                "discharge_kwh": discharge_kwh,
+                "discharge_start_text": discharge_start_text,
+                "discharge_stop_text": discharge_stop_text,
+                "forecast_with_negative_price": forecast_with_negative_price,
+                "forecast_with_spike": forecast_with_spike,
+                "solar_surplus": solar_surplus,
+                "system_status": system_status,
+            }
 
-        self._high_discharge_plan = forecasting.night_discharge_plan(lambda kw: plans.compute_high_discharge_plan(
-            self._high_discharge_plan,
-            current_price_unit,
-            forecast_with_spike,
-            now,
-            kw,
-            high_threshold_kwh,
-            low_threshold_kwh,
-            usage_forecast,
-            all_price,
-            planning_horizon_hours,
-            battery_now_kwh,
-            suppress_high_discharge,
-            safety_buffer_kwh=safety_buffer_kwh,
-            # A sale triggered by the max-SOC threshold brings the peak down
-            # to 100% (as of v0.3.2), not to just under the threshold.
-            sale_target_kwh=upper_limit_kwh,
-            discharge_efficiency=discharge_efficiency,
-            replan=replan,
-            # a sale before an overflow has to beat the overflow's own price
-            # (as of 2026.10.10)
-            capacity_kwh=upper_limit_kwh,
-            # sales in blocks too, no shorter than a charge block (2026.10.10)
-            min_sale_units=min_charge_units,
-        ), discharge_speed_kw, night_discharge_kw)
+        _planned = await self.hass.async_add_executor_job(_plans)
+        battery_forecast_adjusted = _planned["battery_forecast_adjusted"]
+        battery_forecast_adjusted_uncapped = _planned["battery_forecast_adjusted_uncapped"]
+        card_plans = _planned["card_plans"]
+        charge_kwh = _planned["charge_kwh"]
+        charge_start_text = _planned["charge_start_text"]
+        charge_stop_text = _planned["charge_stop_text"]
+        control_action = _planned["control_action"]
+        discharge_kwh = _planned["discharge_kwh"]
+        discharge_start_text = _planned["discharge_start_text"]
+        discharge_stop_text = _planned["discharge_stop_text"]
+        forecast_with_negative_price = _planned["forecast_with_negative_price"]
+        forecast_with_spike = _planned["forecast_with_spike"]
+        solar_surplus = _planned["solar_surplus"]
+        system_status = _planned["system_status"]
         if replan:
             # only what this cycle saw - a change made meanwhile still counts
             self._replan_requested = max(self._replan_requested - replan_seen, 0)
-
-        battery_forecast_adjusted_uncapped = plans.compose_forecast_adjusted(
-            forecast_with_spike,
-            self._low_charge_plan,
-            self._high_discharge_plan,
-            current_price_unit,
-            now,
-            full=self._full_charge_plan,
-            upper_limit_kwh=upper_limit_kwh,
-            battery_now_kwh=battery_now_kwh,
-        )
-        # What the battery will really hold (never above 100%) - shown on the
-        # cards - and the solar surplus: hours the battery is full or can't
-        # take all the solar, so it goes to the grid (as of 2026.10.1).
-        battery_forecast_adjusted, spill_full = forecasting.clip_at_capacity(
-            battery_forecast_adjusted_uncapped, battery_now_kwh, upper_limit_kwh
-        )
-        eff = charge_efficiency if charge_efficiency > 0 else 1.0
-        solar_surplus = forecasting.solar_surplus_windows(
-            [v / eff for v in spill_full],
-            forecasting.rate_spill(net_energy, now, max_battery_charge_speed_kw, charge_efficiency),
-            now,
-        )
-
-        # For "Solar export" (as of 2026.10.3): the last quarter of the hour
-        # the forecast (with the plans) reaches 100%, and whether there's
-        # solar left over right now.
-        hour0_unit = current_price_unit - (now.minute // 15)
-        full_hour = next(
-            (h for h, v in enumerate(battery_forecast_adjusted) if v >= upper_limit_kwh - 0.01), None
-        )
-        full_unit = hour0_unit + full_hour * 4 + 3 if full_hour is not None else None
-        system_status, control_action = plans.compute_system_status_and_action(
-            setpoint_w,
-            idle_setpoint_w,
-            current_price_unit,
-            self._full_charge_plan,
-            self._negative_price_plan,
-            self._spike_plan,
-            self._low_charge_plan,
-            self._high_discharge_plan,
-            battery_now_kwh,
-            low_threshold_kwh,
-            charge_speed_kw,
-            discharge_speed_kw,
-            all_price,
-            full_unit=full_unit,
-            solar_surplus_now=bool(net_energy) and net_energy[0] > 0,
-        )
-
-        charge_kwh, charge_start_text, charge_stop_text = display.charge_display(
-            self._full_charge_plan, self._negative_price_plan, self._spike_plan, self._low_charge_plan, current_price_unit, now
-        )
-        discharge_kwh, discharge_start_text, discharge_stop_text = display.discharge_display(
-            self._negative_price_plan, self._spike_plan, self._high_discharge_plan, current_price_unit, now
-        )
-        # The Buy / Sell blocks of the status card (as of v0.5.0).
-        card_plans = display.card_plans(
-            self._full_charge_plan,
-            self._negative_price_plan,
-            self._spike_plan,
-            self._low_charge_plan,
-            self._high_discharge_plan,
-            current_price_unit,
-            now,
-            battery_now_kwh,
-            capacity_kwh,
-            battery_forecast_adjusted,
-            # The live readings for the balancing wait (as of v0.5.11).
-            {
-                "max_hold_minutes": full_charge_max_hold_minutes,
-                "voltage_diff_mv": voltage_diff,
-                "balance_threshold_mv": plans.BALANCE_THRESHOLD_MV,
-                "battery_voltage": battery_voltage,
-                "target_voltage": full_charge_target_voltage,
-            },
-        )
 
         await self._async_persist()
 

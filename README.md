@@ -306,6 +306,12 @@ integration producing the same shape works):
   option instead of the default internal tracking - see "Full-charge
   balancing" below.
 
+The planning runs every 30 seconds. The heavy parts - the battery plans
+and the heat-pump model - run in a worker thread (as of 2026.10.20), so
+even on a Raspberry Pi they don't hold up the rest of Home Assistant;
+only reading the sensors, sending the setpoint and setting the thermostat
+happen on Home Assistant's event loop.
+
 ## Household usage forecast
 
 Every planning engine needs a household usage forecast. There are two

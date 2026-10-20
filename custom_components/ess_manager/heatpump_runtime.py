@@ -17,6 +17,9 @@ from . import heatpump_house as hh
 CARD_DAYS = 5
 # a failed statistics read is tried again after this long (s)
 RETRY = 3600
+# a fit that gave no model is tried again after this long (s), unless the
+# journal or the day changes first (as of 2026.10.20)
+REFIT_RETRY = 3600
 
 
 class HeatPumpRuntime:
@@ -61,6 +64,7 @@ class HeatPumpRuntime:
         self.steer: dict[str, Any] = {}
         self._heat_acc: Optional[list[float]] = None
         self._plan_cache: Optional[tuple] = None
+        self._fit_tried_at = 0.0
 
     # -- store ---------------------------------------------------------------
     def restore(self, data: Optional[dict[str, Any]]) -> None:
@@ -358,11 +362,22 @@ class HeatPumpRuntime:
         return out
 
     # -- every cycle ---------------------------------------------------------------
-    def refit(self, today: date, with_cooling: bool) -> None:
-        if self.dirty or self.fitted_day != today.isoformat() or self.model is None:
-            self.model = hp.fit(self.journal, today, with_cooling)
-            self.fitted_day = today.isoformat()
-            self.dirty = False
+    def refit(self, today: date, with_cooling: bool, now_ts: Optional[float] = None) -> None:
+        """The energy signature fitted again when the journal changed or the
+        day did - and, when the last fit gave no model (too few or too
+        scattered days), not again every cycle but at most once an hour
+        (as of 2026.10.20: it's a grid search over up to two years)."""
+        if self.dirty or self.fitted_day != today.isoformat():
+            pass
+        elif self.model is None:
+            if now_ts is None or now_ts - self._fit_tried_at < REFIT_RETRY:
+                return
+        else:
+            return
+        self.model = hp.fit(self.journal, today, with_cooling)
+        self.fitted_day = today.isoformat()
+        self.dirty = False
+        self._fit_tried_at = now_ts if now_ts is not None else 0.0
 
     def compute(
         self,
@@ -388,7 +403,7 @@ class HeatPumpRuntime:
         the difference to add to the usual forecast -, the Status sensor's
         `heat_pump` attribute, whether the model is used)."""
         today = now.astimezone(tz).date()
-        self.refit(today, with_cooling)
+        self.refit(today, with_cooling, now.timestamp())
         model = self.model
         last_day = datetime.fromtimestamp(hour0_epoch + (hours - 1) * hp.HOUR, tz).date()
         days = [today + timedelta(days=i) for i in range((last_day - today).days + 1)]

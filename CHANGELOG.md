@@ -12,6 +12,25 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.20] - 2026-10-20
+
+### Changed
+- **Heavy calculations run off Home Assistant's event loop.** The heat-pump
+  model (the daily fit, the hourly model and its plans) and the battery
+  plans (full charge, negative price, spike, low charge, high discharge,
+  card plans) now run in a worker thread every cycle, so a slow
+  calculation on a Raspberry Pi no longer holds up the rest of Home
+  Assistant (no more "detected blocking call"/"took a long time" warnings
+  from this integration). Results are the same; only where they are
+  computed changed. Sending the setpoint and setting the thermostat stay on
+  the event loop.
+
+### Fixed
+- **Heat-pump model: a fit that gives no model is retried at most once an
+  hour.** While there were too few heating days, the model was fitted again
+  every 30-second cycle; now it waits an hour (or a new day / new data)
+  before trying again.
+
 ## [2026.10.19] - 2026-10-19
 
 ### Changed

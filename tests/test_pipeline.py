@@ -4119,6 +4119,39 @@ check("lowest dip: across a day that fills to 100 %, the later dip's part is bou
       # before the full day only the first dip's own (minimum) block; the later dip's 2 kWh after it
       and sum(b["kwh"] for b in _sun["blocks"] if b["start_unit"] < 4 * 7) == 3.5
       and sum(b["kwh"] for b in _sun["blocks"] if b["start_unit"] >= 4 * 7) == 2.0)
+# 2026.10.20: a fit that gave no model isn't tried again every cycle, only once an hour (or on new data)
+_rf = heatpump_runtime.HeatPumpRuntime()
+_rf.merge(_hpj[-5:], _hp_today)
+_rf_calls = []
+_rf_orig = heatpump.fit
+
+
+def _rf_fit(*a, **k):
+    _rf_calls.append(1)
+    return _rf_orig(*a, **k)
+
+
+heatpump_runtime.hp.fit = _rf_fit
+try:
+    _t0 = datetime(2026, 10, 13, 12, 0, tzinfo=_tzA).timestamp()
+    _rf.refit(_hp_today, True, _t0)
+    _rf.refit(_hp_today, True, _t0 + 30)
+    _rf.refit(_hp_today, True, _t0 + 1800)
+    _n_before = len(_rf_calls)
+    _rf.refit(_hp_today, True, _t0 + 3700)
+    _n_hour = len(_rf_calls)
+    _rf.merge(_hpj[-6:-5], _hp_today)
+    _rf.refit(_hp_today, True, _t0 + 3710)
+    _n_new = len(_rf_calls)
+    _rf2 = heatpump_runtime.HeatPumpRuntime()
+    _rf2.merge(_hpj, _hp_today)
+    _rf2.refit(_hp_today, True, _t0)
+    _rf2.refit(_hp_today, True, _t0 + 30)
+finally:
+    heatpump_runtime.hp.fit = _rf_orig
+check("heat pump: no model -> the fit is tried again after an hour (or new data), not every 30-second cycle",
+      _rf.model is None and _n_before == 1 and _n_hour == 2 and _n_new == 3)
+check("heat pump: with a model the fit runs once a day (or on new data)", _rf2.model is not None and len(_rf_calls) == 4)
 _rt3_hp = heatpump_runtime.HeatPumpRuntime()
 _rt3_hp.restore(_rt_hp.as_store())
 check("heat pump runtime: the store round-trips", _rt3_hp.as_store() == _rt_hp.as_store())
