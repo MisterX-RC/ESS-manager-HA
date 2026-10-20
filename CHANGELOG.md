@@ -23,6 +23,11 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   No setting: each sensor's format is recognised by itself, Solcast keeps
   working as before and both can be mixed. One Helios sensor covers the
   whole 121-hour horizon.
+- **Several solar forecast sensors for the same hours are added up.** Up to
+  now the last sensor won for an hour - fine for Solcast's day sensors,
+  which each cover their own day (they still simply follow on), but Helios
+  set up once per roof plane gives one sensor per plane for the same
+  hours, and only one plane counted. Now the planes are summed.
 - A solar forecast sensor that's available but has neither format (picked
   by mistake, or its integration changed) is logged once as a warning
   instead of silently counting as no sun.

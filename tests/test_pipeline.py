@@ -4182,6 +4182,20 @@ check("solar formats: a sensor with neither attribute gives no points",
       forecasting.solar_points_from_attributes({"forecast": "x"}) == []
       and forecasting.solar_points_from_attributes({"forecast": [{"datetime": "2026-10-21T12:00:00+02:00", "soc": 50}]}) == []
       and forecasting.solar_points_from_attributes(None) == [])
+_roof_b = forecasting.solar_points_from_attributes({"forecast": [
+    {"datetime": "2026-10-21T12:00:00+02:00", "watts": 1000.0},
+    {"datetime": "2026-10-21T14:00:00+02:00", "watts": 500.0},
+]})
+check("solar formats: two Helios roof planes (one sensor each) are added per hour",
+      forecasting.build_solar_forecast(forecasting.merge_hourly_points([_hel_pts, _roof_b]), _hel_now, 3) == [4.0, 1.0, 0.5])
+_day1 = [{"period_start": "2026-10-21T12:00:00+02:00", "pv_estimate": 1.0}, {"period_start": "2026-10-21T13:00:00+02:00", "pv_estimate": 2.0}]
+_day2 = [{"period_start": "2026-10-22T12:00:00+02:00", "pv_estimate": 3.0}]
+_dup = [{"period_start": "2026-10-21T12:00:00+02:00", "pv_estimate": 9.0}, {"period_start": "2026-10-21T12:00:00+02:00", "pv_estimate": 1.0}]
+_m = forecasting.build_solar_forecast(forecasting.merge_hourly_points([_day1, _day2]), _hel_now, 25)
+check("solar formats: Solcast day sensors still chain (each covers its own day)",
+      _m[0] == 1.0 and _m[1] == 2.0 and _m[24] == 3.0 and _m[2] is None)
+check("solar formats: a repeated hour within one sensor keeps its last value",
+      forecasting.build_solar_forecast(forecasting.merge_hourly_points([_dup]), _hel_now, 1) == [1.0])
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

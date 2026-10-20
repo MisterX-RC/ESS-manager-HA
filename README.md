@@ -291,7 +291,13 @@ integration producing the same shape works):
     point per quarter hour (`{"datetime", "watts", ...}`) from midnight
     today through seven days ahead, so that one sensor covers the whole
     horizon. Each hour's quarters are averaged: W / 1000 = kWh in that hour.
-  A sensor with neither attribute counts as no sun at all, so the
+    Helios set up once per roof plane (one installation per plane) gives
+    one "Power now" sensor per plane: add them all, the integration adds
+    them up per hour. One Helios installation with several planes already
+    gives the total in one sensor.
+  Sensors that cover the same hours are added up (several roof planes);
+  Solcast's day sensors each cover their own day, so they simply follow
+  on. A sensor with neither attribute counts as no sun at all, so the
   integration logs a warning for it once.
 - **Grid/inverter setpoint** *(optional but recommended)*: the entity that
   holds your current commanded charge/discharge power - a sensor, a

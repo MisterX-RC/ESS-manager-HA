@@ -56,21 +56,36 @@ def solar_points_from_attributes(attributes) -> list[dict]:
 
 
 def merge_hourly_points(entities_raw: list[list[dict]]) -> list[dict]:
-    """Flatten several solar-forecast entities' hourly point lists into one.
+    """Combine several solar-forecast entities' hourly points into one list.
 
-    Each source entity is expected to expose a list of dicts shaped like
-    Solcast's `detailedHourly` attribute: [{"period_start": <iso str or
-    datetime>, "pv_estimate": <float>}, ...]. Multiple entities (e.g.
-    today/tomorrow/day_3/... forecast sensors) are chained exactly like the
-    original sensor chained up to six Solcast day sensors, so the combined
-    coverage always reaches the full forecast horizon regardless of what
-    time of day the update runs.
+    Each entity's points are Solcast-shaped (see solar_points_from_attributes):
+    [{"period_start": <iso str or datetime>, "pv_estimate": <kWh>}, ...].
+    Hours that several entities cover are ADDED (as of 2026.10.21): Helios
+    Forecast set up once per roof plane gives one sensor per plane for the
+    same hours, and the house gets the sum. Solcast's day sensors
+    (today/tomorrow/day_3/...) each cover their own day, so for them this is
+    the same chaining as before. Within one entity a repeated hour keeps its
+    last value, as before. Hours are keyed like build_solar_forecast does:
+    the local wall-clock top of the hour.
     """
-    merged: list[dict] = []
+    totals: dict[datetime, float] = {}
     for points in entities_raw:
-        if points:
-            merged.extend(points)
-    return merged
+        own: dict[datetime, float] = {}
+        for point in points or []:
+            ts = _as_datetime(point.get("period_start"))
+            estimate = point.get("pv_estimate")
+            if ts is None or estimate is None:
+                continue
+            try:
+                own[ts.replace(minute=0, second=0, microsecond=0, tzinfo=None)] = float(estimate)
+            except (TypeError, ValueError):
+                continue
+        for hour, value in own.items():
+            totals[hour] = totals.get(hour, 0.0) + value
+    return [
+        {"period_start": hour.isoformat(), "pv_estimate": round(value, 4)}
+        for hour, value in sorted(totals.items())
+    ]
 
 
 def _as_datetime(value) -> Optional[datetime]:
