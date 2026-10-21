@@ -77,6 +77,8 @@ STATUS_ATTRIBUTES = [
     "ev",
     # The heat pump model (as of 2026.10.16) - the heat pump card.
     "heat_pump",
+    # The forecast check (as of 2026.10.22) - the forecast check card.
+    "forecast_check",
 ]
 
 # The value sensors the status dashboard card shows (as of v0.4.4) - their
@@ -170,6 +172,7 @@ async def async_setup_entry(
         EssManagerSolarModeSensor(coordinator, entry, device_info),
         EssManagerBatteryActionSensor(coordinator, entry, device_info),
         EssManagerHeatPumpSensor(coordinator, entry, device_info),
+        EssManagerBufferAdviceSensor(coordinator, entry, device_info),
     ]
     async_add_entities(entities)
 
@@ -486,4 +489,45 @@ class EssManagerHeatPumpSensor(CoordinatorEntity[EssManagerCoordinator], SensorE
             "hourly_review": (hp.get("house_model") or {}).get("review"),
             "cop": (hp.get("house_model") or {}).get("cop"),
             "steering_setpoint": (hp.get("house_model") or {}).get("setpoint_now"),
+        }
+
+
+class EssManagerBufferAdviceSensor(CoordinatorEntity[EssManagerCoordinator], SensorEntity):
+    """Safety buffer advice (as of 2026.10.22) - the forecast check's advice
+    in % of the capacity: the smallest buffer that would have covered 95 %
+    of the last 28 days. Unknown until 14 days are measured. Attributes: the
+    buffer in use, the number's value, whether it's automatic, how often
+    the number and the advice would have been enough."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Safety buffer advice"
+    _attr_icon = "mdi:shield-check-outline"
+    _attr_native_unit_of_measurement = "%"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_safety_buffer_advice"
+        self._attr_device_info = device_info
+
+    def _buffer(self) -> dict[str, Any]:
+        if self.coordinator.data is None:
+            return {}
+        return ((self.coordinator.data.get("forecast_check") or {}).get("buffer")) or {}
+
+    @property
+    def native_value(self) -> float | None:
+        return self._buffer().get("advice")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        b = self._buffer()
+        return {
+            "buffer_in_use": b.get("effective"),
+            "number_value": b.get("manual"),
+            "automatic": b.get("auto"),
+            "days_measured": b.get("days"),
+            "days_needed": b.get("min_days"),
+            "number_covered_pct": b.get("coverage_manual"),
+            "advice_covered_pct": b.get("coverage_advice"),
         }

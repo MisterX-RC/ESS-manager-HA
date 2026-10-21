@@ -35,6 +35,7 @@ async def async_setup_entry(
     async_add_entities([
         EssManagerAutomaticControlSwitch(coordinator, entry, device_info),
         EssManagerHeatPumpSteeringSwitch(coordinator, entry, device_info),
+        EssManagerAutoBufferSwitch(coordinator, entry, device_info),
     ])
 
 
@@ -143,3 +144,44 @@ class EssManagerHeatPumpSteeringSwitch(SwitchEntity, RestoreEntity):
         self._coordinator.hp_steering_on = False
         self.async_write_ha_state()
         await self._coordinator.async_request_refresh()
+
+
+class EssManagerAutoBufferSwitch(SwitchEntity, RestoreEntity):
+    """Automatic safety buffer (as of 2026.10.22): on, the plans use the
+    forecast check's advice instead of the Safety buffer number - the
+    smallest buffer that covered 95 % of the last 28 days, approached by at
+    most 2 %-points a day, between 2 and 30 %. Until 14 days are measured
+    (and whenever it's off) the number is used. Off by default; on the
+    forecast check card."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Automatic safety buffer"
+    _attr_icon = "mdi:shield-sync-outline"
+
+    def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
+        self._coordinator = coordinator
+        self._attr_unique_id = f"{entry.entry_id}_automatic_safety_buffer"
+        self._attr_device_info = device_info
+        self._attr_is_on = False
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in ("on", "off"):
+            self._attr_is_on = last_state.state == "on"
+        self._coordinator.auto_buffer_on = bool(self._attr_is_on)
+        self._coordinator.auto_buffer_entity_id = self.entity_id
+
+    async def _async_set(self, on: bool) -> None:
+        self._attr_is_on = on
+        self._coordinator.auto_buffer_on = on
+        self.async_write_ha_state()
+        # another buffer: running windows are checked again
+        self._coordinator.request_replan()
+        await self._coordinator.async_request_refresh()
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._async_set(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._async_set(False)

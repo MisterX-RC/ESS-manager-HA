@@ -160,9 +160,15 @@ def compute_usage_forecast_detailed(
     forecast_hours: int,
     lookback_weeks: int,
     subtract_entities: Optional[list[str]] = None,
+    week_weights: Optional[list[float]] = None,
 ) -> tuple[list[float], list[str]]:
     """Build the h0..h(forecast_hours-1) usage forecast array, plus how
     each hour was found.
+
+    `week_weights` (as of 2026.10.22): the weight of week 1..lookback_weeks
+    in the same-weekday average (None = all equal) - the forecast check's
+    "recent weeks weigh more" method (accuracy.py), used when its backtest
+    showed it's clearly better.
 
     `subtract_entities` (as of 2026.10.11): energy statistics taken out of
     every historical hour - the electric car's charger, which enters the
@@ -206,12 +212,18 @@ def compute_usage_forecast_detailed(
     sources: list[str] = []
     for h in range(forecast_hours):
         target_hour_epoch = base_epoch + h * HOUR_SECONDS
-        samples = [
-            value
+        weighted = [
+            (value, week_weights[week - 1] if week_weights and week - 1 < len(week_weights) else 1.0)
             for week in range(1, lookback_weeks + 1)
             if (value := sample(target_hour_epoch - week * WEEK_SECONDS)) is not None
         ]
+        samples = [value for value, _ in weighted]
         source = HISTORY_WEEKLY
+        if weighted and week_weights:
+            total_weight = sum(w for _, w in weighted)
+            result.append(round(sum(v * w for v, w in weighted) / total_weight, 3) if total_weight else 0.0)
+            sources.append(source)
+            continue
         if not samples:
             source = HISTORY_RECENT_DAYS
             days_back = range(1, (h * HOUR_SECONDS) // DAY_SECONDS + RECENT_DAYS + 2)
@@ -345,6 +357,7 @@ def compute_usage_forecast_from_consumption_detailed(
     forecast_hours: int,
     lookback_weeks: int,
     subtract_entities: Optional[list[str]] = None,
+    week_weights: Optional[list[float]] = None,
 ) -> tuple[list[float], list[str]]:
     """compute_usage_forecast_from_consumption plus the per-hour sources
     (see compute_usage_forecast_detailed)."""
@@ -359,6 +372,7 @@ def compute_usage_forecast_from_consumption_detailed(
         forecast_hours=forecast_hours,
         lookback_weeks=lookback_weeks,
         subtract_entities=subtract_entities,
+        week_weights=week_weights,
     )
 
 

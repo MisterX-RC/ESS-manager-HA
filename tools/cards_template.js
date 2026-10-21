@@ -133,7 +133,34 @@ const I18N = {
     hp_ref_usual: "usual at this time", hp_ref_wanted: "wanted", hp_floor: (h) => `floor keeps heating ${h} h`,
     hp_hold_t: "Heat held", hp_hold_unit: "per °C indoor", hp_cooling_t: "Cooling", hp_cooling_unit: "at 10 °C difference, not heating",
     hp_tau: (h) => `time constant ${h} h`, hp_thermal_learning: "House cooling not learned yet: it needs hours in which the heat pump didn't heat (from the indoor sensor's statistics, or what has been recorded of the thermostat's temperature).",
-    ed_hp_color: "Heat pump",
+    ed_hp_color: "Heat pump", ed_fc_color: "Accent",
+    // forecast check card (2026.10.22)
+    fc_title: "Forecast check", fc_sub: (n) => `last ${n} days`, fc_head_sub: "usage error per day",
+    fc_tab_overview: "Overview", fc_tab_days: "Per day", fc_tab_methods: "Methods",
+    fc_usage: "Usage", fc_solar: "Solar", fc_per_day: "kWh/day", fc_forecast: (v) => `forecast ${v}`,
+    fc_low: (p) => `${p} % too low`, fc_high: (p) => `${p} % too high`, fc_ok: "on target", fc_corrected: "corrected:",
+    fc_err: (v) => `±${v} kWh per day`, fc_days: (a, b) => `${a} of ${b} days`, fc_no_solar: "no solar production in the Energy dashboard",
+    fc_solar_wait: "solar forecasts are kept from now on",
+    fc_buffer: "Safety buffer", fc_advice: (v) => `advice ${v} %`, fc_now: "now",
+    fc_buffer_text: (m, cm, a, ca, n) => `How often the buffer would have covered what the forecasts got wrong during the day, over the last ${n} days: ${m} % on ${cm} % of the days, ${a} % on ${ca} %.`,
+    fc_buffer_wait: (have, need) => `The advice comes once ${need} days are measured (${have} so far): the solar forecasts are kept from the installation on.`,
+    fc_auto: "Adjust automatically",
+    fc_auto_on: (e, m) => `In use: ${e} % (the number: ${m} %). Moves at most 2 %-points a day towards the advice.`,
+    fc_auto_wait: (m) => `On - until there are enough days, the number (${m} %) is used.`,
+    fc_auto_off: (m) => `Off - the plans use the Safety buffer number (${m} %).`,
+    fc_method: "Usage forecast", fc_m_average: (l) => `${l}-week average`, fc_m_weighted: "recent weeks weigh more",
+    fc_m_level: (l) => `pattern ${l} wk + level 1 wk`,
+    fc_level_text: (p, n) => `Level now ${p} (limits 0.80-1.25). Clearly better than the average in the backtest over ${n} days, so in use.`,
+    fc_weighted_text: (n) => `Clearly better than the average in the backtest over ${n} days, so in use.`,
+    fc_avg_text: (n) => `In the backtest over ${n} days no other method was clearly better, so the average stays.`,
+    fc_learning: (have, need) => `The backtest needs ${need} complete days (${have} so far); until then the average stays.`,
+    fc_excl: (list) => `Without ${list} - they have their own forecast.`, fc_hp: "heat pump", fc_ev: "car", fc_and: "and",
+    fc_measured: "measured", fc_forecast_l: "forecast", fc_usage_day: "Usage per day", fc_solar_day: "Solar per day",
+    fc_avg_err: (v) => `avg ±${v} kWh`,
+    fc_days_note: "Usage is recalculated from the statistics, so it's complete from day one. Solar forecasts are kept from the installation on (grey = no forecast yet).",
+    fc_col_method: "usage forecast", fc_col_err: "error", fc_col_bias: "bias", fc_in_use: "in use",
+    fc_methods_note: (n) => `Backtest over the last ${n} complete days, kWh per day. "Bias": on average forecast too low (-) or too high (+). A method is only used when it is clearly (5 %) better.`,
+    fc_waiting: "The first check runs within a few minutes.",
   },
   nl: {
     planned: "gepland", running: "bezig", done: "klaar", of: "van", stop: "stop",
@@ -233,7 +260,33 @@ const I18N = {
     hp_ref_usual: "gebruikelijk om deze tijd", hp_ref_wanted: "gewenst", hp_floor: (h) => `vloer warmt ${h} uur na`,
     hp_hold_t: "Warmte vasthouden", hp_hold_unit: "per °C binnen", hp_cooling_t: "Afkoelen", hp_cooling_unit: "bij 10 °C verschil, zonder stoken",
     hp_tau: (h) => `tijdconstante ${h} uur`, hp_thermal_learning: "Afkoelsnelheid van het huis nog niet geleerd: daar zijn uren voor nodig waarin de warmtepomp niet stookte (uit de statistieken van de binnensensor, of wat er van de temperatuur van de thermostaat is bijgehouden).",
-    ed_hp_color: "Warmtepomp",
+    ed_hp_color: "Warmtepomp", ed_fc_color: "Accent",
+    fc_title: "Prognose-check", fc_sub: (n) => `laatste ${n} dagen`, fc_head_sub: "afwijking verbruik per dag",
+    fc_tab_overview: "Overzicht", fc_tab_days: "Per dag", fc_tab_methods: "Methodes",
+    fc_usage: "Verbruik", fc_solar: "Zon", fc_per_day: "kWh/dag", fc_forecast: (v) => `voorspeld ${v}`,
+    fc_low: (p) => `${p} % te laag`, fc_high: (p) => `${p} % te hoog`, fc_ok: "klopt", fc_corrected: "gecorrigeerd:",
+    fc_err: (v) => `±${v} kWh per dag`, fc_days: (a, b) => `${a} van ${b} dagen`, fc_no_solar: "geen zonneopbrengst in het Energy dashboard",
+    fc_solar_wait: "zonnevoorspellingen worden vanaf nu bewaard",
+    fc_buffer: "Veiligheidsbuffer", fc_advice: (v) => `advies ${v} %`, fc_now: "nu",
+    fc_buffer_text: (m, cm, a, ca, n) => `Hoe vaak de buffer genoeg was geweest om op te vangen wat de voorspellingen in de loop van de dag misten, over de laatste ${n} dagen: ${m} % op ${cm} % van de dagen, ${a} % op ${ca} %.`,
+    fc_buffer_wait: (have, need) => `Het advies komt zodra er ${need} dagen gemeten zijn (nu ${have}): de zonnevoorspellingen worden vanaf de installatie bewaard.`,
+    fc_auto: "Automatisch bijsturen",
+    fc_auto_on: (e, m) => `In gebruik: ${e} % (handmatig: ${m} %). Beweegt maximaal 2 %-punt per dag richting het advies.`,
+    fc_auto_wait: (m) => `Aan - tot er genoeg dagen zijn, geldt de handmatige ${m} %.`,
+    fc_auto_off: (m) => `Uit - de planning gebruikt de ingestelde ${m} %.`,
+    fc_method: "Verbruiksvoorspelling", fc_m_average: (l) => `${l}-weken-gemiddelde`, fc_m_weighted: "recente weken zwaarder",
+    fc_m_level: (l) => `patroon ${l} wk + niveau 1 wk`,
+    fc_level_text: (p, n) => `Niveau nu ${p} (grens 0,80-1,25). In de terugtest over ${n} dagen duidelijk beter dan het gemiddelde, dus in gebruik.`,
+    fc_weighted_text: (n) => `In de terugtest over ${n} dagen duidelijk beter dan het gemiddelde, dus in gebruik.`,
+    fc_avg_text: (n) => `In de terugtest over ${n} dagen was geen andere methode duidelijk beter, dus het gemiddelde blijft.`,
+    fc_learning: (have, need) => `De terugtest heeft ${need} complete dagen nodig (nu ${have}); tot dan blijft het gemiddelde.`,
+    fc_excl: (list) => `Zonder ${list} - die hebben een eigen voorspelling.`, fc_hp: "warmtepomp", fc_ev: "auto", fc_and: "en",
+    fc_measured: "gemeten", fc_forecast_l: "voorspeld", fc_usage_day: "Verbruik per dag", fc_solar_day: "Zon per dag",
+    fc_avg_err: (v) => `gem. ±${v} kWh`,
+    fc_days_note: "Verbruik is terugberekend uit de statistieken, dus vanaf dag 1 compleet. Zonnevoorspellingen worden pas vanaf de installatie bewaard (grijs = nog geen voorspelling).",
+    fc_col_method: "verbruiksvoorspelling", fc_col_err: "afwijking", fc_col_bias: "scheef", fc_in_use: "in gebruik",
+    fc_methods_note: (n) => `Terugtest over de laatste ${n} complete dagen, kWh per dag. "Scheef": gemiddeld te laag (-) of te hoog (+) voorspeld. Een methode wordt alleen gebruikt als hij duidelijk (5 %) beter is.`,
+    fc_waiting: "De eerste controle volgt binnen een paar minuten.",
   },
 };
 
@@ -3019,6 +3072,271 @@ class EssManagerHeatPumpCard extends EssChartCard {
 if (!customElements.get("ess-manager-card-editor")) {
   customElements.define("ess-manager-card-editor", EssManagerCardEditor);
 }
+// -- Forecast check card (2026.10.22) ------------------------------------------------
+// How good the usage and solar forecasts were, which usage method is in use
+// (backtest), the Safety buffer advice and the "adjust automatically" switch.
+const FC_DEFAULTS = {
+  title: "",
+  fc_color: [255, 138, 76],
+  usage_color: [158, 203, 255],
+  solar_color: [232, 195, 90],
+};
+const FC_COLOR_KEYS = ["fc_color", "usage_color", "solar_color"];
+const FC_SCHEMA = (t) => [
+  { name: "title", selector: { text: {} } },
+  {
+    type: "expandable",
+    flatten: true,
+    name: "colours",
+    title: t("ed_colours"),
+    schema: [{ type: "grid", name: "", schema: FC_COLOR_KEYS.map((name) => ({ name, selector: { color_rgb: {} } })) }],
+  },
+];
+const FC_OK = "#6fcf97";
+const FC_CSS = `
+  .fc-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; padding: 4px; border-radius: 22px; background: rgba(127,127,127,.14); }
+  .fc-tabs button { min-height: 40px; border-radius: 18px; border: 0; background: transparent; color: inherit; font: inherit; font-size: 14px; cursor: pointer; }
+  .fc-tabs button[aria-selected="true"] { background: var(--fc); color: #2a160a; font-weight: 600; }
+  .fc-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .fc-tile, .fc-panel { background: rgba(127,127,127,.14); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .fc-tile .t { font-size: 13px; color: var(--secondary-text-color, #a0a0a0); display: flex; align-items: center; gap: 6px; }
+  .fc-tile .n { font-size: 20px; font-weight: 600; }
+  .fc-tile .n small { font-size: 12px; font-weight: 400; color: var(--secondary-text-color, #a0a0a0); }
+  .fc-tile .s { font-size: 12px; line-height: 17px; color: var(--secondary-text-color, #a0a0a0); }
+  .fc-line { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 14px; }
+  .fc-line b { font-weight: 600; text-align: right; }
+  .fc-bar { position: relative; height: 10px; border-radius: 5px; background: rgba(127,127,127,.3); margin: 12px 0 24px; }
+  .fc-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: linear-gradient(90deg, rgba(127,127,127,.4), ${FC_OK}); }
+  .fc-mk { position: absolute; top: -5px; width: 2px; height: 20px; background: var(--primary-text-color, #e1e1e1); }
+  .fc-mk span { position: absolute; top: 22px; transform: translateX(-50%); font-size: 11px; white-space: nowrap; color: var(--secondary-text-color, #c0c0c0); }
+  .fc-mk.adv { background: var(--fc); } .fc-mk.adv span { color: var(--fc); }
+  .fc-note { font-size: 12px; line-height: 17px; color: var(--secondary-text-color, #8f8f8f); }
+  .fc-ctl { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-top: 6px; }
+  .fc-toggle { min-height: 36px; padding: 0 16px; border-radius: 18px; border: 0; background: rgba(127,127,127,.22); color: inherit; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .fc-toggle[aria-pressed="true"] { background: var(--fc); color: #2a160a; }
+  .fc-legend { display: flex; gap: 14px; font-size: 12px; color: var(--secondary-text-color, #a0a0a0); }
+  .fc-legend span { display: flex; align-items: center; gap: 5px; }
+  .fc-legend i { display: inline-block; width: 11px; height: 9px; border-radius: 2px; }
+  .fc-chart svg { display: block; overflow: visible; }
+  .fc-chart text { fill: var(--secondary-text-color, #a0a0a0); font-size: 10px; font-family: inherit; }
+  .fc-table { display: flex; flex-direction: column; gap: 4px; }
+  .fc-row { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(0, .9fr) minmax(0, .8fr) minmax(0, 1.1fr); gap: 0 8px; align-items: center; padding: 8px 10px; border-radius: 8px; font-size: 13px; background: rgba(127,127,127,.12); }
+  .fc-row.head { background: transparent; font-size: 12px; color: var(--secondary-text-color, #a0a0a0); padding-top: 0; padding-bottom: 0; }
+  .fc-row span:nth-child(2), .fc-row span:nth-child(3), .fc-row span:nth-child(4) { text-align: right; }
+  .fc-row.used { font-weight: 600; }
+  .fc-pos { color: var(--fc); } .fc-good { color: ${FC_OK}; }
+  @container (max-width: 420px) { .title { font-size: 20px; } .fc-tiles { gap: 6px; } }
+`;
+
+class EssManagerForecastCard extends EssChartCard {
+  static get info() {
+    return {
+      name: "ESS Manager - Forecast check",
+      description: "How good the usage and solar forecasts were, which usage forecast is in use and the Safety buffer advice (optionally automatic).",
+      schema: FC_SCHEMA,
+      defaults: FC_DEFAULTS,
+      labels: { title: "ed_title", fc_color: "ed_fc_color", usage_color: "ed_usage_color", solar_color: "ed_solar_color" },
+    };
+  }
+
+  getCardSize() {
+    return 7;
+  }
+
+  _num(v, d) {
+    return formats(this._hass).num(Number(v) || 0, d);
+  }
+
+  _bias(p) {
+    if (p === null || p === undefined) return "";
+    const r = Math.round(Math.abs(p));
+    if (r < 2) return `<span class="fc-good">${esc(this._t("fc_ok"))}</span>`;
+    const txt = p < 0 ? this._t("fc_low")(r) : this._t("fc_high")(r);
+    return `<span class="${r >= 5 ? "fc-pos" : "fc-good"}">${esc(txt)}</span>`;
+  }
+
+  _methodName(key, lookback) {
+    if (key === "weighted") return this._t("fc_m_weighted");
+    if (key === "level") return this._t("fc_m_level")(lookback);
+    return this._t("fc_m_average")(lookback);
+  }
+
+  _render() {
+    if (!this._hass || !this._config || !this.shadowRoot) return;
+    const st = this._hass.states[this._config.entity];
+    const opt = colorOptions(this._config, FC_DEFAULTS, FC_COLOR_KEYS);
+    const css = BASE_CSS + FC_CSS + `ha-card { --fc: ${opt.fc_color}; }`;
+    if (!isStatusSensor(st)) {
+      setCardContent(this, css, notStatusMessage(this._hass, this._config.entity, st));
+      return;
+    }
+    const fc = st.attributes.forecast_check;
+    const width = this._chartWidth();
+    const key = [st, width, this._tab, hassLang(this._hass)];
+    if (this._renderKey && key.every((v, i) => v === this._renderKey[i])) return;
+    this._renderKey = key;
+    const title = this._config.title || this._t("fc_title");
+    if (!fc || !fc.ready) {
+      setCardContent(this, css, `<div class="top"><div class="title">${esc(title)}</div></div><div class="fc-note">${esc(this._t("fc_waiting"))}</div>`);
+      return;
+    }
+    const tab = this._tab || "overview";
+    const u = fc.usage || {};
+    const mae = u.chosen_mae != null ? u.chosen_mae : u.mae;
+    let html = `
+      <div class="top">
+        <div style="display:flex;flex-direction:column;gap:2px;flex-grow:1;min-width:0">
+          <div class="title">${esc(title)}</div>
+          <div class="dim" style="font-size:13px">${esc(this._t("fc_sub")(fc.show_days || 14))}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+          <div style="font-size:20px;font-weight:600;white-space:nowrap">${mae != null ? `±${esc(this._num(mae, 1))} kWh` : "—"}</div>
+          <div class="dim" style="font-size:12px">${esc(this._t("fc_head_sub"))}</div>
+        </div>
+      </div>
+      <div class="fc-tabs" role="tablist">
+        ${["overview", "days", "methods"].map((k) => `<button type="button" role="tab" data-tab="${k}" aria-selected="${tab === k}">${esc(this._t("fc_tab_" + k))}</button>`).join("")}
+      </div>`;
+    if (tab === "days") html += this._days(fc, opt, width);
+    else if (tab === "methods") html += this._methods(fc);
+    else html += this._overview(fc, opt);
+    if (setCardContent(this, css, html)) {
+      this.shadowRoot.querySelectorAll("[data-tab]").forEach((el) =>
+        el.addEventListener("click", () => {
+          this._tab = el.getAttribute("data-tab");
+          this._essInner = null;
+          this._renderKey = null;
+          this._render();
+        })
+      );
+      this.shadowRoot.querySelectorAll("[data-toggle]").forEach((el) =>
+        el.addEventListener("click", () => {
+          this._hass.callService("switch", "toggle", { entity_id: el.getAttribute("data-toggle") });
+        })
+      );
+    }
+  }
+
+  _overview(fc, opt) {
+    const u = fc.usage || {};
+    const s = fc.solar || {};
+    const b = fc.buffer || {};
+    const m = fc.methods || {};
+    const unit = `<small>${esc(this._t("fc_per_day"))}</small>`;
+    const corrected = m.chosen && m.chosen !== "average" && u.chosen_bias_pct != null
+      ? `<br>${esc(this._t("fc_corrected"))} ${this._bias(u.chosen_bias_pct)}` : "";
+    const usageTile = `<div class="fc-tile">
+        <div class="t">${icon("home", opt.usage_color, 14, 2.2)}${esc(this._t("fc_usage"))}</div>
+        <div class="n">${u.actual_avg != null ? esc(this._num(u.actual_avg, 1)) : "—"} ${unit}</div>
+        <div class="s">${u.forecast_avg != null ? `${esc(this._t("fc_forecast")(this._num(u.forecast_avg, 1)))} · ${this._bias(u.bias_pct)}` : ""}${corrected}</div>
+      </div>`;
+    let solarSub;
+    if (!s.measured) solarSub = esc(this._t("fc_no_solar"));
+    else if (!s.days) solarSub = esc(this._t("fc_solar_wait"));
+    else solarSub = `${esc(this._t("fc_forecast")(this._num(s.forecast_avg, 1)))} · ${this._bias(s.bias_pct)}<br>${esc(this._t("fc_err")(this._num(s.mae, 1)))} · ${esc(this._t("fc_days")(s.days, fc.show_days || 14))}`;
+    const solarTile = `<div class="fc-tile">
+        <div class="t">${icon("sun", opt.solar_color, 14, 2.2)}${esc(this._t("fc_solar"))}</div>
+        <div class="n">${s.actual_avg != null ? esc(this._num(s.actual_avg, 1)) : "—"} ${unit}</div>
+        <div class="s">${solarSub}</div>
+      </div>`;
+
+    // the buffer
+    let bufferBody;
+    if (b.advice == null) {
+      bufferBody = `<div class="fc-note">${esc(this._t("fc_buffer_wait")(b.days || 0, b.min_days || 14))}</div>`;
+    } else {
+      const top = Math.max(30, b.advice + 5, b.manual + 5);
+      const pos = (v) => `${clamp((v / top) * 100, 0, 100).toFixed(1)}%`;
+      const close = Math.abs(b.advice - b.manual) / top < 0.12;
+      bufferBody = `<div class="fc-bar"><i style="width:${pos(b.advice)}"></i>
+          <div class="fc-mk" style="left:${pos(b.manual)}"><span${close ? ' style="transform:translateX(-100%)"' : ""}>${esc(this._num(b.manual, 0))} % (${esc(this._t("fc_now"))}) · ${b.coverage_manual} %</span></div>
+          <div class="fc-mk adv" style="left:${pos(b.advice)}"><span${close ? ' style="transform:none"' : ""}>${esc(this._num(b.advice, 0))} % · ${b.coverage_advice} %</span></div>
+        </div>
+        <div class="fc-note">${esc(this._t("fc_buffer_text")(this._num(b.manual, 0), b.coverage_manual, this._num(b.advice, 0), b.coverage_advice, b.days))}</div>`;
+    }
+    let autoText;
+    if (!b.auto) autoText = this._t("fc_auto_off")(this._num(b.manual, 0));
+    else if (!b.auto_active) autoText = this._t("fc_auto_wait")(this._num(b.manual, 0));
+    else autoText = this._t("fc_auto_on")(this._num(b.effective, 0), this._num(b.manual, 0));
+    const toggle = b.switch && this._hass.states[b.switch]
+      ? `<button type="button" class="fc-toggle" data-toggle="${esc(b.switch)}" aria-pressed="${!!b.auto}">${esc(this._t("fc_auto"))}</button>` : "";
+    const buffer = `<div class="fc-panel">
+        <div class="fc-line"><span class="dim">${esc(this._t("fc_buffer"))}</span><b>${b.advice != null ? esc(this._t("fc_advice")(this._num(b.advice, 0))) : "—"}</b></div>
+        ${bufferBody}
+        <div class="fc-ctl"><div class="fc-note">${esc(autoText)}</div>${toggle}</div>
+      </div>`;
+
+    // the usage method
+    const lookback = m.lookback_weeks || 6;
+    let methodText;
+    if ((m.test_days || 0) < (m.min_test_days || 14)) methodText = this._t("fc_learning")(m.test_days || 0, m.min_test_days || 14);
+    else if (m.chosen === "level") methodText = this._t("fc_level_text")(m.level != null ? `${m.level >= 1 ? "+" : ""}${Math.round((m.level - 1) * 100)} %` : "—", m.test_days);
+    else if (m.chosen === "weighted") methodText = this._t("fc_weighted_text")(m.test_days);
+    else methodText = this._t("fc_avg_text")(m.test_days);
+    const excl = (u.excluded || []).map((k) => this._t(k === "ev" ? "fc_ev" : "fc_hp"));
+    const exclText = excl.length ? ` ${this._t("fc_excl")(excl.join(` ${this._t("fc_and")} `))}` : "";
+    const method = `<div class="fc-panel">
+        <div class="fc-line"><span class="dim">${esc(this._t("fc_method"))}</span><b class="${m.chosen && m.chosen !== "average" ? "fc-good" : ""}">${esc(this._methodName(m.chosen, lookback))}</b></div>
+        <div class="fc-note">${esc(methodText + exclText)}</div>
+      </div>`;
+    return `<div class="fc-tiles">${usageTile}${solarTile}</div>${buffer}${method}`;
+  }
+
+  _bars(rows, color, width) {
+    const H = 110;
+    const n = Math.max(rows.length, 1);
+    const bw = width / n;
+    let max = 1;
+    for (const r of rows) max = Math.max(max, Number(r.forecast) || 0, Number(r.actual) || 0);
+    max *= 1.08;
+    const y = (v) => H - (v / max) * (H - 4);
+    let svg = "";
+    rows.forEach((r, i) => {
+      const x = i * bw;
+      if (r.forecast == null || r.actual == null) {
+        svg += `<rect x="${r1(x + bw * 0.18)}" y="${H - 5}" width="${r1(bw * 0.64)}" height="5" rx="2" fill="rgba(127,127,127,.35)"/>`;
+      } else {
+        svg += `<rect x="${r1(x + bw * 0.12)}" y="${r1(y(r.forecast))}" width="${r1(bw * 0.36)}" height="${r1(H - y(r.forecast))}" rx="3" fill="none" stroke="rgba(160,160,160,.9)" stroke-width="1.3" stroke-dasharray="3 2"/>`;
+        svg += `<rect x="${r1(x + bw * 0.52)}" y="${r1(y(r.actual))}" width="${r1(bw * 0.36)}" height="${r1(H - y(r.actual))}" rx="3" fill="${color}"><title>${esc(r.d)}: ${esc(this._num(r.forecast, 1))} / ${esc(this._num(r.actual, 1))} kWh</title></rect>`;
+      }
+      const label = formats(this._hass).weekday(Date.parse(`${r.d}T12:00:00`));
+      svg += `<text x="${r1(x + bw / 2)}" y="${H + 13}" text-anchor="middle">${esc(label)}</text>`;
+    });
+    return `<div class="fc-chart"><svg width="${width}" height="${H + 16}" viewBox="0 0 ${width} ${H + 16}">${svg}</svg></div>`;
+  }
+
+  _days(fc, opt, width) {
+    const u = fc.usage || {};
+    const s = fc.solar || {};
+    const legend = (color) => `<div class="fc-legend"><span><i style="border:1.3px dashed #a0a0a0"></i>${esc(this._t("fc_forecast_l"))}</span><span><i style="background:${color}"></i>${esc(this._t("fc_measured"))}</span></div>`;
+    const mae = u.chosen_mae != null ? u.chosen_mae : u.mae;
+    let html = `<div class="fc-line"><span class="dim">${esc(this._t("fc_usage_day"))}</span><b>${mae != null ? esc(this._t("fc_avg_err")(this._num(mae, 1))) : ""}</b></div>
+      ${legend(opt.usage_color)}${this._bars(u.per_day || [], opt.usage_color, width)}`;
+    if (s.measured) {
+      html += `<div class="fc-line" style="margin-top:6px"><span class="dim">${esc(this._t("fc_solar_day"))}</span><b>${s.mae != null ? esc(this._t("fc_avg_err")(this._num(s.mae, 1))) : ""}</b></div>
+        ${legend(opt.solar_color)}${this._bars(s.per_day || [], opt.solar_color, width)}`;
+    }
+    html += `<div class="fc-note">${esc(this._t("fc_days_note"))}</div>`;
+    return html;
+  }
+
+  _methods(fc) {
+    const m = fc.methods || {};
+    const lookback = m.lookback_weeks || 6;
+    const rows = (m.rows || []).map((r) => {
+      const used = r.key === m.chosen;
+      const bias = r.bias_pct == null ? "—" : `${r.bias_pct > 0 ? "+" : ""}${this._num(r.bias_pct, 0)} %`;
+      const cls = r.bias_pct != null && Math.abs(r.bias_pct) >= 5 ? "fc-pos" : "fc-good";
+      return `<div class="fc-row${used ? " used" : ""}"><span>${esc(this._methodName(r.key, lookback))}</span><span>${r.mae != null ? `±${esc(this._num(r.mae, 1))}` : "—"}</span><span class="${cls}">${esc(bias)}</span><span class="fc-good">${used ? `✓ ${esc(this._t("fc_in_use"))}` : ""}</span></div>`;
+    }).join("");
+    return `<div class="fc-table">
+        <div class="fc-row head"><span>${esc(this._t("fc_col_method"))}</span><span>${esc(this._t("fc_col_err"))}</span><span>${esc(this._t("fc_col_bias"))}</span><span></span></div>
+        ${rows}
+      </div>
+      <div class="fc-note">${esc(this._t("fc_methods_note")(m.test_days || 0))}</div>`;
+  }
+}
+
 window.customCards = window.customCards || [];
 for (const [type, cls] of [
   ["ess-manager-status-card", EssManagerStatusCard],
@@ -3026,6 +3344,7 @@ for (const [type, cls] of [
   ["ess-manager-price-card", EssManagerPriceCard],
   ["ess-manager-ev-card", EssManagerEvCard],
   ["ess-manager-heatpump-card", EssManagerHeatPumpCard],
+  ["ess-manager-forecast-card", EssManagerForecastCard],
 ]) {
   if (customElements.get(type)) continue;
   customElements.define(type, cls);

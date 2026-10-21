@@ -15,6 +15,27 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ## [2026.10.22] - 2026-10-22
 
 ### Added
+- **Forecast check.** Once a day from the statistics: how good the usage
+  and solar forecasts were, on a new card **ESS Manager - Forecast check**
+  (Overview / Per day / Methods) and in the Status sensor's attribute
+  `forecast_check`.
+  - Household usage (without heat pump and car) is recalculated for the
+    last 8 weeks and three forecasts are tested: the plain average, recent
+    weeks weighing more, and the pattern of the lookback weeks with the
+    level of the last week (limited to 0.80-1.25; fresh every day, so it
+    fades to 1 as the average catches up and doesn't overshoot). The best
+    one is used for the planning - only when it beat the plain average by
+    5 % over at least 14 days.
+  - Solar: each day's forecast is stored at the day's first cycle and
+    compared with the measured production (Energy dashboard).
+  - **Safety buffer advice** (new sensor): the smallest buffer that would
+    have covered 95 % of the last 28 days' shortfalls (usage above, solar
+    below the forecast since midnight; the car left out), 2-30 %, once 14
+    days are measured.
+  - **Automatic safety buffer** (new switch, also on the card, off by
+    default): the plans use the advice instead of the Safety buffer
+    number, approached by at most 2 %-points a day; the number itself is
+    never changed and is used until there's an advice.
 - **Download diagnostics.** Settings > Devices & services > ESS Manager >
   three dots > Download diagnostics: one JSON file with the version, the
   Configure settings, the number entities and switches, every configured

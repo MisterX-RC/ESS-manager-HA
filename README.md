@@ -618,6 +618,55 @@ The model is on the Status sensor's `heat_pump` attribute and on its own
 diagnostic sensor **Heat pump model** (state active / learning / summer /
 fallback, attributes the figures), hidden while the heat pump is off.
 
+## Forecast check
+
+*(as of 2026.10.22)* How good were the forecasts, and how big does the
+Safety buffer need to be? The **Forecast check** card (and the attribute
+`forecast_check` on the Status sensor) answers that, once a day from the
+statistics - nothing to set up.
+
+**Household usage.** The usage forecast for any past day can be worked out
+again from the statistics, so this part is complete from the first day.
+Three ways of forecasting the house's usage (without heat pump and car,
+which have their own forecasts) are tested on the last 8 weeks:
+
+- the same hour on the same weekday, averaged over the lookback weeks
+  (usually 6) - what the integration always did;
+- the same with recent weeks weighing more (6, 5, ..., 1);
+- the pattern of the lookback weeks with the level of the last week: the
+  average x (last 7 days / the weekly average of the lookback weeks, which
+  includes those 7 days), limited to 0.80-1.25. It's worked out fresh every
+  day, not accumulated, so it fades back to 1 by itself as the average
+  catches up with a changed usage - it doesn't overshoot, the way a
+  correction learned from last week's error would (the higher week would
+  count twice).
+
+The best one is used for the planning, but only when it beat the plain
+average by at least 5 % (daily error) over at least 14 complete days.
+
+**Solar.** The forecast sensors keep no history, so each day's forecast is
+stored at the day's first cycle and compared once the production is
+measured (the solar production in the Energy dashboard). It takes a couple
+of weeks to fill.
+
+**Safety buffer advice.** Per day, the worst shortfall since midnight:
+usage above the forecast and solar below it, added up hour by hour (the
+car is left out - an unplanned charge session isn't something the buffer
+should grow for; the heat pump counts). The advice is the smallest buffer
+that would have covered 95 % of the last 28 days, between 2 and 30 %, once
+14 days are measured. The sensor **Safety buffer advice** has it, with how
+often the current buffer and the advice would have been enough.
+
+**Automatic safety buffer** (switch, also on the card, off by default): the
+plans use the advice instead of the Safety buffer number, approached by at
+most 2 %-points a day. Until there's an advice, and whenever the switch is
+off, the number is used; the number itself is never changed.
+
+The card has three tabs: **Overview** (usage and solar against the
+forecast, the buffer advice and the switch, the usage method in use),
+**Per day** (the last 14 days, forecast against measured) and **Methods**
+(the backtest of the three usage methods).
+
 ## Grid transport tariff
 
 In the Netherlands grid transport is going to be charged per kWh, with a
@@ -754,7 +803,7 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Spike margin | Minimum day price spread (EUR/kWh) to treat a day as spike-worthy |
 | Minimum charge target | The smallest amount (kWh) any charge buys. Low charge plan: the dip is lifted back to the low threshold; if that needs less than this, the charge is rounded up to it (but never so far that a later peak would cross your max SOC and just be sold again). Spike plan: a pre-peak top-up smaller than this is skipped. Full-charge balancing and the negative price plan are not affected |
 | Minimum charge/sale duration | The shortest charge or sale block, in minutes (15-120 in steps of 15, default 30). A charge may be split over the cheapest quarters before it's needed, a sale over the priciest ones (as of 2026.10.10), but never into blocks shorter than this |
-| Safety buffer | % of battery capacity kept on top of your min SOC (default 5%), both ways. Selling: a sale never brings the forecast below min SOC + buffer - e.g. min SOC 10% + buffer 5% = sales stop at 15%, so a sale doesn't end in buying energy back. Charging (as of 2026.10.4): a charge lifts the dip to min SOC + buffer, not just to min SOC, so a bit more usage or less sun than forecast doesn't take the battery just under it (when to charge still follows min SOC itself - except for the rest of a charge in several blocks whose first block has run, which counts from min SOC + buffer until its last block, as of 2026.10.13). 0 = right down to / up to min SOC |
+| Safety buffer | % of battery capacity kept on top of your min SOC (default 5%), both ways. With the **Automatic safety buffer** switch on (as of 2026.10.22) the forecast check's advice is used instead - see [Forecast check](#forecast-check). Selling: a sale never brings the forecast below min SOC + buffer - e.g. min SOC 10% + buffer 5% = sales stop at 15%, so a sale doesn't end in buying energy back. Charging (as of 2026.10.4): a charge lifts the dip to min SOC + buffer, not just to min SOC, so a bit more usage or less sun than forecast doesn't take the battery just under it (when to charge still follows min SOC itself - except for the rest of a charge in several blocks whose first block has run, which counts from min SOC + buffer until its last block, as of 2026.10.13). 0 = right down to / up to min SOC |
 | Transport tariff | Base grid transport tariff (EUR/kWh, default 0): buying costs price + (tariff x factor for that hour), selling doesn't - see "Grid transport tariff" above. 0 = no transport |
 | Planning horizon | How many hours ahead the low/high plans are allowed to react to (price data usually doesn't exist much beyond ~48h anyway) |
 | Full charge interval | Days between full-charge/balance cycles |
@@ -1004,6 +1053,7 @@ browser refresh), edit a dashboard, choose **Add card** and search for
 | ESS Manager - Status (`custom:ess-manager-status-card`) | the planned sale and charge with their progress, the price plans, the control toggle and a timeline |
 | ESS Manager - Electric car (`custom:ess-manager-ev-card`) | the electric car's charging sessions in the planning: check, edit or add them (only with the electric car switched on, see [Electric car](#electric-car)) |
 | ESS Manager - Heat pump (`custom:ess-manager-heatpump-card`) | the heat pump forecast from the weather: the coming days, the energy signature and what the model has learned (only with the heat pump switched on, see [Heat pump](#heat-pump)) |
+| ESS Manager - Forecast check (`custom:ess-manager-forecast-card`) | how good the usage and solar forecasts were, which usage forecast is in use and the Safety buffer advice, with the "adjust automatically" switch (see [Forecast check](#forecast-check)) |
 
 All of them are drawn by the integration itself - nothing else to install
 (since v0.5.1 also not apexcharts-card). The integration loads the card

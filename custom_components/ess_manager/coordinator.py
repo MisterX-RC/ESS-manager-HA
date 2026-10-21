@@ -26,6 +26,8 @@ from .ev_runtime import EvRuntime
 from . import heatpump
 from .heatpump_runtime import HeatPumpRuntime
 from . import heatpump_house
+from . import accuracy
+from .accuracy_runtime import AccuracyRuntime
 from .const import (
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_VOLTAGE_ENTITY,
@@ -324,6 +326,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._hp_demand_day: Optional[str] = None
         # step 2's switch on the card (restored by switch.py)
         self.hp_steering_on = False
+        # The forecast check (as of 2026.10.22) - accuracy_runtime.py; the
+        # "Automatic safety buffer" switch sets auto_buffer_on.
+        self.acc = AccuracyRuntime()
+        self.auto_buffer_on = False
+        self.auto_buffer_entity_id: Optional[str] = None
         self.hp_steering_entity: Any = None
 
     def control_settings(self) -> ControlSettings:
@@ -409,6 +416,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_solar_mode = data.get("solar_mode")
             self.ev.restore(data.get("ev"))
             self.hp.restore(data.get("hp"))
+            self.acc.restore(data.get("accuracy"))
             if "solar_mode" not in data:
                 # stored by a version from before 2026.10.8: take it from
                 # the Solar mode sensor's history, once
@@ -467,6 +475,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "solar_mode": self._last_solar_mode,
                 "ev": self.ev.as_store(),
                 "hp": self.hp.as_store(),
+                "accuracy": self.acc.as_store(),
             }
         )
 
@@ -960,6 +969,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             FORECAST_HOURS,
             lookback_weeks,
             subtract_entities=[*([ev_entity] if ev_entity else []), *hp_ids] or None,
+            week_weights=self.acc.week_weights(lookback_weeks),
         )
         self._usage_hp_subtracted = bool(hp_ids)
         if ev_entity:
@@ -1005,6 +1015,102 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("ESS Manager: could not read today's measured hours: %s", err)
             return
         self._measured_today = {"start": day_start, **hours}
+
+    @staticmethod
+    def _day_hours(day: date) -> list[int]:
+        """The hour epochs of a local day (23 or 25 on a DST change)."""
+        start = int(dt_util.start_of_local_day(day).timestamp())
+        end = int(dt_util.start_of_local_day(day + timedelta(days=1)).timestamp())
+        return list(range(start, end, 3600))
+
+    def _usage_terms(self, conf: dict[str, Any], usage_source: Any) -> Optional[tuple]:
+        """(import, export, solar, battery charge, battery discharge) for the
+        household-usage identity, like the usage forecast."""
+        if usage_source == USAGE_SOURCE_CONSUMPTION_SENSOR:
+            ids = [e for e in conf.get(CONF_USAGE_CONSUMPTION_ENTITIES, []) or [] if e]
+            return (ids, [], [], None, None) if ids else None
+        if usage_source == USAGE_SOURCE_ENERGY_DASHBOARD and self._energy_dashboard_sources:
+            src = self._energy_dashboard_sources
+            if not src["import"]:
+                return None
+            return (src["import"], src["export"], src["solar"], src["battery_charge"], src["battery_discharge"])
+        return None
+
+    async def _async_forecast_check(self, conf: dict[str, Any], usage_source: Any, now: datetime) -> None:
+        """Once a day (and an hour after a failed try): the forecast check
+        from the statistics - see accuracy.py / accuracy_runtime.py.
+        Display and buffer advice only: a failure keeps the last result."""
+        today = now.date()
+        today_iso = today.isoformat()
+        if not self.acc.needs_refresh(today_iso, now.timestamp()):
+            return
+        # yesterday's last hour lands in the statistics a few minutes after midnight
+        if self.acc.refreshed_day is not None and now.hour == 0 and now.minute < 20:
+            return
+        terms = self._usage_terms(conf, usage_source)
+        if terms is None:
+            return
+        self.acc.tried_at = now.timestamp()
+        try:
+            solar_ids: list[str] = []
+            try:
+                solar_ids = list(energy_prefs_to_sources(await async_get_energy_prefs(self.hass)).get("solar") or [])
+            except Exception:  # noqa: BLE001 - solar is optional here
+                solar_ids = []
+            ev_entity = ev_energy_entity(conf)
+            hp_ids = self._hp_subtract_ids(conf)
+            lookback = int(conf.get(CONF_USAGE_LOOKBACK_WEEKS, DEFAULT_USAGE_LOOKBACK_WEEKS))
+            test_days = [
+                ((today - timedelta(days=i)).isoformat(), self._day_hours(today - timedelta(days=i)))
+                for i in range(accuracy.TEST_DAYS, 0, -1)
+            ]
+            today_start = dt_util.start_of_local_day(today)
+            range_start = dt_util.start_of_local_day(today - timedelta(days=accuracy.TEST_DAYS)) - timedelta(
+                weeks=lookback, hours=2
+            )
+            usage_ids = [*terms[0], *terms[1], *terms[2], *(terms[3] or []), *(terms[4] or [])]
+            ids = list(dict.fromkeys([*usage_ids, *solar_ids, *([ev_entity] if ev_entity else []), *hp_ids]))
+            sums = await async_fetch_hourly_sums(self.hass, ids, range_start, today_start + timedelta(hours=1))
+            first = int(range_start.timestamp()) + 3600
+            last = int(today_start.timestamp())
+            ev_ids = [ev_entity] if ev_entity else []
+            capacity = self.get_number(NUM_BATTERY_CAPACITY_KWH, 30.0)
+
+            def _work() -> bool:
+                # ~15 weeks of hours and a backtest: in a worker thread
+                base = {e: accuracy.usage_hour(sums, terms, e, [*ev_ids, *hp_ids]) for e in range(first, last, 3600)}
+                check_from = test_days[0][1][0]
+                house = {e: accuracy.usage_hour(sums, terms, e, ev_ids) for e in range(check_from, last, 3600)}
+                solar = (
+                    {e: accuracy.sum_hour(sums, solar_ids, e) for e in range(check_from, last, 3600)} if solar_ids else None
+                )
+                excluded = [k for k, on in (("heat_pump", bool(hp_ids)), ("ev", bool(ev_ids))) if on]
+                return self.acc.refresh(
+                    today_iso=today_iso,
+                    today_start=last,
+                    base_series=base,
+                    house_series=house,
+                    solar_series=solar,
+                    test_days=test_days,
+                    lookback_weeks=lookback,
+                    capacity_kwh=capacity,
+                    excluded=excluded,
+                )
+
+            changed = await self.hass.async_add_executor_job(_work)
+        except Exception as err:  # noqa: BLE001 - display / advice only
+            _LOGGER.warning("ESS Manager (%s): forecast check failed, trying again in an hour: %s", self.entry.title, err)
+            return
+        if changed:
+            # the weights are in the cached usage forecast
+            self._usage_forecast_cache = None
+            self._usage_forecast_computed_at = None
+        result = self.acc.result or {}
+        _LOGGER.info(
+            "ESS Manager (%s): forecast check - usage method %s (level %s, %s test days), buffer days %s",
+            self.entry.title, self.acc.method, self.acc.level, (result.get("methods") or {}).get("test_days"),
+            len(result.get("needed_pct") or []),
+        )
 
     def _history_today(self, now: datetime, solar_points: list[dict]) -> Optional[dict[str, Any]]:
         """The Status sensor's history_today attribute (as of v0.5.1): today's
@@ -1102,6 +1208,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             FORECAST_HOURS,
             lookback_weeks,
             subtract_entities=[*([ev_entity] if ev_entity else []), *hp_ids] or None,
+            week_weights=self.acc.week_weights(lookback_weeks),
         )
         self._usage_hp_subtracted = bool(hp_ids)
         if ev_entity:
@@ -1300,6 +1407,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         self._update_usage_history_issue()
         await self._async_refresh_measured_today(conf, usage_source, now)
+        # The forecast check (as of 2026.10.22): once a day from the
+        # statistics; the "pattern 6 weeks + level last week" method scales
+        # the forecast when its backtest showed it's clearly better.
+        await self._async_forecast_check(conf, usage_source, now)
+        usage_factor = self.acc.usage_factor()
+        if usage_factor != 1.0:
+            usage_forecast = [round(u * usage_factor, 3) for u in usage_forecast]
 
         solar_points: list[list[dict]] = []
         waiting_for: list[str] = []
@@ -1391,7 +1505,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         minimum_charge_target_kwh = self.get_number(NUM_MINIMUM_CHARGE_TARGET_KWH, 5.0)
         # the shortest charge block, in quarters (as of 2026.10.6)
         min_charge_units = max(int(round(self.get_number(NUM_MINIMUM_CHARGE_MINUTES, 30.0) / 15)), 1)
-        safety_buffer_percent = self.get_number(NUM_SAFETY_BUFFER_PERCENT, 5.0)
+        # The Safety buffer (as of 2026.10.22): the number entity, or - with
+        # the "Automatic safety buffer" switch on and enough days measured -
+        # the forecast check's advice, approached by at most 2 %-points a day.
+        buffer_info = self.acc.buffer(
+            self.get_number(NUM_SAFETY_BUFFER_PERCENT, 5.0), self.auto_buffer_on, now.date().isoformat()
+        )
+        safety_buffer_percent = buffer_info["effective"]
         planning_horizon_hours = int(self.get_number(NUM_PLANNING_HORIZON_HOURS, 72))
         full_charge_interval_days = self.get_number(NUM_FULL_CHARGE_INTERVAL_DAYS, 14.0)
         full_charge_max_hold_minutes = self.get_number(NUM_FULL_CHARGE_MAX_HOLD_MINUTES, 120.0)
@@ -1432,6 +1552,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # household usage (whose history leaves the car out); a solar
         # session charges on what the solar forecast has left after the house.
         ev_attribute = None
+        ev_total = None
         if conf.get(CONF_EV_ENABLED):
             ev_total, ev_attribute = self.ev.update(
                 {
@@ -1452,6 +1573,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if any(ev_total):
                 usage_forecast = [round(u + e, 3) for u, e in zip(usage_forecast, ev_total)]
                 net_energy = forecasting.build_net_energy(solar_forecast, usage_forecast)
+        # the forecast check's snapshot of today (once, at the day's first
+        # cycle): solar and the house's usage without the car
+        day_hours = self._day_hours(now.date())
+        house_forecast = usage_forecast if not ev_total else [round(u - e, 3) for u, e in zip(usage_forecast, ev_total)]
+        self.acc.snapshot(
+            now.date().isoformat(), day_hours, int(now.replace(minute=0, second=0, microsecond=0).timestamp()),
+            solar_forecast, house_forecast,
+        )
         battery_now_kwh = round(capacity_kwh * (soc_now_percent / 100), 2)
         # max_battery_charge_speed_kw/max_battery_discharge_speed_kw are the
         # battery's own physical power limit - distinct from
@@ -1976,6 +2105,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "ev": ev_attribute,
             # The heat pump model (as of 2026.10.16) - heatpump_runtime.
             "heat_pump": hp_attribute,
+            # The forecast check (as of 2026.10.22) - the forecast check card.
+            "forecast_check": self.acc.attribute(buffer_info, self.auto_buffer_entity_id),
             "battery_forecast": battery_forecast,
             "battery_forecast_with_negative_price": forecast_with_negative_price,
             "battery_forecast_with_spike": forecast_with_spike,

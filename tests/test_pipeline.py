@@ -4197,6 +4197,112 @@ check("solar formats: Solcast day sensors still chain (each covers its own day)"
 check("solar formats: a repeated hour within one sensor keeps its last value",
       forecasting.build_solar_forecast(forecasting.merge_hourly_points([_dup]), _hel_now, 1) == [1.0])
 
+# --- forecast check (2026.10.22): accuracy.py / accuracy_runtime.py
+accuracy = _load("accuracy")
+accuracy_runtime = _load("accuracy_runtime")
+_H = 3600
+_t0 = 1_700_000_000 - (1_700_000_000 % 86400)          # a UTC midnight
+_days_all = [(f"d{i}", list(range(_t0 + i * 86400, _t0 + (i + 1) * 86400, _H))) for i in range(140)]
+_shape = [0.3] * 7 + [0.8] * 2 + [0.5] * 8 + [1.2] * 5 + [0.6] * 2   # 24 hours, 13.4 kWh/day
+def _series(level_of_day):
+    out = {}
+    for i, (_, hours) in enumerate(_days_all):
+        for j, e in enumerate(hours):
+            out[e] = _shape[j] * level_of_day(i)
+    return out
+# usage steps from 1.0 to 1.3 on day 100 and stays there
+_step = _series(lambda i: 1.3 if i >= 100 else 1.0)
+_avg = [sum(accuracy.method_forecast(_step, h, 6, "average")) for _, h in _days_all[100:142]]
+_lvl = [sum(accuracy.method_forecast(_step, h, 6, "level")) for _, h in _days_all[100:142]]
+_real = sum(_shape) * 1.3
+check("forecast check: after a step up the plain average lags for weeks",
+      _avg[7] < _real * 0.9 and _avg[30] < _real * 0.99)
+check("forecast check: the level method follows within a week and never overshoots",
+      _avg[7] < _real * 0.85 and all(abs(v - _real) <= _real * 0.04 for v in _lvl[7:]) and max(_lvl) <= _real + 1e-6)
+_lf_week1 = accuracy.level_factor(_step, _days_all[107][1][0], 6)
+_lf_late = accuracy.level_factor(_step, _days_all[139][1][0], 6)
+check("forecast check: the level factor fades to 1 as the average catches up",
+      abs(_lf_week1 - 1.3 / ((5 * 1.0 + 1.3) / 6)) < 1e-6 and abs(_lf_late - 1.3 / ((3 + 39 * 1.3) / 42)) < 1e-6
+      and _lf_late < 1.02)
+_spike = _series(lambda i: 5.0 if i == 120 else 1.0)
+check("forecast check: one odd week is limited to 1.25",
+      accuracy.level_factor(_spike, _days_all[121][1][0], 6) == 1.25)
+_bt = accuracy.backtest(_step, _days_all[84:140], 6)
+check("forecast check: the backtest picks the level method after a lasting change",
+      _bt["chosen"] == "level" and _bt["test_days"] == 56 and len(_bt["per_day"]) == 14
+      and _bt["methods"]["level"]["mae"] < _bt["methods"]["average"]["mae"])
+_flat = _series(lambda i: 1.0 + (0.05 if i % 7 == 3 else 0.0))
+check("forecast check: with steady usage the plain average stays",
+      accuracy.backtest(_flat, _days_all[84:140], 6)["chosen"] == "average")
+check("forecast check: too few days -> the average stays",
+      accuracy.backtest(_step, _days_all[130:140], 6)["chosen"] == "average")
+_w = accuracy.week_weights("weighted", 6)
+check("forecast check: recent weeks weigh more", _w == [6.0, 5.0, 4.0, 3.0, 2.0, 1.0] and accuracy.week_weights("average", 6) is None)
+# the usage forecast with weights: week 1 = 2 kWh, weeks 2..3 = 1 kWh -> (2*3 + 1*2 + 1*1) / 6
+_uf_now = datetime.fromtimestamp(_t0 + 120 * 86400 + 10 * _H)
+_he = int(_uf_now.replace(minute=0, second=0, microsecond=0).timestamp())
+_sums = {"m": {}}
+_acc_v = 0.0
+for _e in range(_he - 4 * 7 * 86400, _he + _H, _H):
+    _wk = (_he - _e) // (7 * 86400)
+    _sums["m"][_e] = _acc_v
+    _acc_v += 2.0 if (_he - _e) % (7 * 86400) == 0 and _wk == 1 else 1.0
+_sums["m"] = {e: v for e, v in _sums["m"].items()}
+def _hour_val(e): return _sums["m"][e] - _sums["m"][e - _H]
+_fc_w, _ = usage_forecast.compute_usage_forecast_from_consumption_detailed(_sums, ["m"], _uf_now, 1, 3, week_weights=[3.0, 2.0, 1.0])
+_fc_a, _ = usage_forecast.compute_usage_forecast_from_consumption_detailed(_sums, ["m"], _uf_now, 1, 3)
+_v = [_hour_val(_he - k * 7 * 86400) for k in (1, 2, 3)]
+check("forecast check: the usage forecast takes week weights",
+      abs(_fc_w[0] - round((_v[0] * 3 + _v[1] * 2 + _v[2]) / 6, 3)) < 1e-9 and abs(_fc_a[0] - round(sum(_v) / 3, 3)) < 1e-9)
+# the buffer
+check("forecast check: shortfall = worst running (usage above + solar below forecast)",
+      accuracy.day_shortfall([1, 1, 1, 1], [1.5, 1.5, 0.5, 1], [0, 2, 2, 0], [0, 1.5, 2.5, 0]) == 1.5
+      and accuracy.day_shortfall([None, 1, 1], [9, 0.5, 0.5], None, None) == 0.0
+      and accuracy.day_shortfall([1, 1], [1, None], None, None) is None)
+_needed = [1.0] * 20 + [5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.5, 14.0]   # 28 days
+_adv = accuracy.buffer_advice(_needed, 10.0)
+check("forecast check: advice = smallest whole % covering 95 % of the days",
+      _adv["advice"] == 12 and _adv["coverage_manual"] == round(26 / 28 * 100) and _adv["coverage_advice"] == round(27 / 28 * 100))
+check("forecast check: no advice before 14 days; limits 2..30 %",
+      accuracy.buffer_advice([3.0] * 13, 10)["advice"] is None
+      and accuracy.buffer_advice([0.0] * 20, 10)["advice"] == 2.0
+      and accuracy.buffer_advice([50.0] * 20, 10)["advice"] == 30.0)
+check("forecast check: the automatic buffer moves 2 %-points a day at most",
+      accuracy.step_towards(10, 13) == 12 and accuracy.step_towards(12, 13) == 13 and accuracy.step_towards(10, 4) == 8)
+# the runtime: snapshot, refresh, automatic buffer
+_rt = accuracy_runtime.AccuracyRuntime()
+_dh = _days_all[130][1]
+_rt.snapshot("d130", _dh, _dh[0] + 2 * _H, [1.0] * 30, [0.5] * 30)
+_rt.snapshot("d130", _dh, _dh[0] + 5 * _H, [9.0] * 30, [9.0] * 30)
+_sn = _rt.snapshots["d130"]
+check("forecast check: one snapshot a day, hours already past are empty",
+      _sn["from"] == 2 and _sn["solar"][:3] == [None, None, 1.0] and len(_sn["usage"]) == 24)
+for i in range(110, 140):
+    h = _days_all[i][1]
+    _rt.snapshots[f"d{i}"] = {"from": 0, "solar": [0.5] * 24, "usage": [_shape[j] for j in range(24)]}
+_house = _series(lambda i: 1.1)          # 10 % above the snapshot's usage
+_solar = {e: 0.5 for _, hs in _days_all for e in hs}
+_changed = _rt.refresh(today_iso="d140", today_start=_t0 + 140 * 86400, base_series=_step, house_series=_house,
+                       solar_series=_solar, test_days=_days_all[84:140], lookback_weeks=6, capacity_kwh=30.0, excluded=["ev"])
+_res = _rt.result
+check("forecast check: refresh picks the method, the level for today and the buffer days",
+      _changed and _rt.method == "level" and abs(_rt.level - 1.3 / ((2 + 40 * 1.3) / 42)) < 1e-6 and len(_res["needed_pct"]) == 28
+      and abs(_res["needed_pct"][0] - round(sum(_shape) * 0.1 / 30 * 100, 2)) < 0.01
+      and _res["solar"]["per_day"][-1]["actual"] == 12.0 and _res["usage"]["excluded"] == ["ev"])
+check("forecast check: usage factor only for the level method", _rt.usage_factor() == _rt.level
+      and accuracy_runtime.AccuracyRuntime().usage_factor() == 1.0)
+_b_off = _rt.buffer(10.0, False, "d140")
+_b1 = _rt.buffer(1.0, True, "d140")
+_b1b = _rt.buffer(1.0, True, "d140")
+_b2 = _rt.buffer(1.0, True, "d141")
+check("forecast check: automatic buffer starts at the number and steps once a day",
+      _b_off["effective"] == 10.0 and _b_off["advice"] == 5 and _b1["effective"] == 3.0 and _b1b["effective"] == 3.0
+      and _b2["effective"] == 5.0)
+_rt2 = accuracy_runtime.AccuracyRuntime()
+_rt2.restore(_rt.as_store())
+check("forecast check: the store round-trips", _rt2.as_store() == _rt.as_store()
+      and "needed_pct" not in _rt.attribute(_b2, "switch.x") and _rt.attribute(_b2, "switch.x")["buffer"]["switch"] == "switch.x")
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:
