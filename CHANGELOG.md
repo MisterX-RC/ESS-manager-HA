@@ -12,6 +12,22 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.22] - 2026-10-22
+
+### Added
+- **Download diagnostics.** Settings > Devices & services > ESS Manager >
+  three dots > Download diagnostics: one JSON file with the version, the
+  Configure settings, the number entities and switches, every configured
+  entity as the integration sees it (price lists whole, a solar forecast
+  sensor as the format recognised plus the kWh per hour read from it, long
+  attributes summarised, missing entities marked), the last result
+  (forecasts, plans, control, night limit, heat pump, EV) and the decision
+  history. Replaces copying YAML out of Developer tools. Nothing to set up.
+- **Decision history** (in the diagnostics): every change of the last 24
+  hours in battery action, setpoint, status or control error - including a
+  fail-safe idle when an update fails - with time, SOC and price. One entry
+  per change, not per cycle; kept in memory (empty after a restart).
+
 ## [2026.10.21] - 2026-10-21
 
 ### Added

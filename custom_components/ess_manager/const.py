@@ -15,6 +15,10 @@ PLATFORMS = ["number", "switch", "sensor"]
 # the one-minute timer, the loop runs on that same second every minute.
 UPDATE_INTERVAL_SECONDS = 60
 QUARTER_REFRESH_SECOND = 2
+# Diagnostics download (as of 2026.10.22): the decision history keeps the
+# changes of the last 24 hours, at most this many entries.
+DECISION_HISTORY_HOURS = 24
+DECISION_HISTORY_MAX = 1500
 
 # ---------------------------------------------------------------------------
 # Config entry keys (set once during the config flow / options flow)

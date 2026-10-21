@@ -7,6 +7,7 @@ across Home Assistant restarts.
 from __future__ import annotations
 
 import functools
+from collections import deque
 
 import logging
 from datetime import date, datetime, timedelta
@@ -122,6 +123,8 @@ from .const import (
     STORAGE_VERSION,
     STORAGE_KEY_SUFFIX,
     UPDATE_INTERVAL_SECONDS,
+    DECISION_HISTORY_HOURS,
+    DECISION_HISTORY_MAX,
     USAGE_SOURCE_CONSUMPTION_SENSOR,
     USAGE_SOURCE_ENERGY_DASHBOARD,
 )
@@ -271,6 +274,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._replan_requested = 1
         self._started_logged = False
         self._solar_format_warned: set[str] = set()
+        # Decision history for the diagnostics download (as of 2026.10.22):
+        # only the moments the action, setpoint, status or control error
+        # changed, kept for 24 hours (in memory - starts empty after a restart).
+        self._decisions: deque[dict[str, Any]] = deque(maxlen=DECISION_HISTORY_MAX)
         self._last_solar_mode: Optional[str] = None
 
         # Statistics-based usage-forecast cache - recomputed once per hour,
@@ -350,6 +357,31 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         as it is until it ends). Without this, raising and lowering a
         threshold could leave a charge running that's no longer needed."""
         self._replan_requested += 1
+
+    # -- decision history (diagnostics, as of 2026.10.22) -----------------------
+    _DECISION_KEYS = ("action", "value", "status", "error", "sending", "night_limit")
+
+    def _record_decision(self, entry: dict[str, Any]) -> None:
+        """Keep `entry` when what it decides differs from the previous one;
+        drop what's older than DECISION_HISTORY_HOURS."""
+        now = dt_util.now()
+        last = self._decisions[-1] if self._decisions else None
+        if last is None or any(last.get(k) != entry.get(k) for k in self._DECISION_KEYS):
+            self._decisions.append({"time": now.isoformat(timespec="seconds"), **entry})
+        self._prune_decisions(now)
+
+    def _prune_decisions(self, now: datetime) -> None:
+        cutoff = now - timedelta(hours=DECISION_HISTORY_HOURS)
+        while self._decisions:
+            ts = dt_util.parse_datetime(self._decisions[0]["time"])
+            if ts is not None and ts >= cutoff:
+                break
+            self._decisions.popleft()
+
+    def decision_history(self) -> list[dict[str, Any]]:
+        """The last 24 hours of decisions, oldest first."""
+        self._prune_decisions(dt_util.now())
+        return list(self._decisions)
 
     # -- wiring from number.py --------------------------------------------------
     def register_number(self, key: str, entity: Any) -> None:
@@ -1221,6 +1253,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # running while the integration can't see what's happening.
             # Does nothing unless direct control is on.
             await self.controller.async_idle(self.control_settings(), f"update failed: {err}")
+            self._record_decision({"action": "idle (fail-safe)", "status": f"update failed: {err}"})
             raise
 
     async def _async_compute(self) -> dict[str, Any]:
@@ -1875,6 +1908,19 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             max_battery_discharge_speed_kw,
         )
         await self.controller.async_apply(control_settings, control_action, control_power_kw, system_status)
+        control_attr = self.controller.as_attribute(control_settings, control_action, control_power_kw)
+        self._record_decision({
+            "action": control_action,
+            "power_kw": round(control_power_kw, 3),
+            "value": control_attr.get("planned_value"),
+            "unit": control_attr.get("unit"),
+            "sending": control_attr.get("sending"),
+            "status": system_status,
+            "error": control_attr.get("last_error"),
+            "soc_percent": round(soc_now_percent, 1),
+            "price": all_price[current_price_unit] if 0 <= current_price_unit < len(all_price) else None,
+            "night_limit": bool(night_now),
+        })
 
         return {
             "system_status": system_status,
@@ -1891,7 +1937,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ),
             "card_plans": card_plans,
             "control_power_kw": round(control_power_kw, 3),
-            "control": self.controller.as_attribute(control_settings, control_action, control_power_kw),
+            "control": control_attr,
             "night_limit": {
                 "enabled": night_on, "active_now": night_now, "from": f"{forecasting.NIGHT_FROM_HOUR:02d}:00",
                 "until": f"{forecasting.NIGHT_UNTIL_HOUR:02d}:00", "charge_kw": night_charge_kw, "discharge_kw": night_discharge_kw,

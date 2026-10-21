@@ -966,6 +966,31 @@ again after it. A session is worked out afresh when the capacity or max
 SOC it was sized against changes, and a stored session ends at its own end
 time (as of 2026.10.14).
 
+## Diagnostics
+
+*(as of 2026.10.22)* Settings > Devices & services > ESS Manager > the
+three-dot menu > **Download diagnostics** gives one JSON file with
+everything needed to see why the integration does what it does - handy to
+attach to an issue instead of copying YAML out of Developer tools:
+
+- the integration and Home Assistant version, the Configure settings, the
+  number entities and switches;
+- every entity chosen in Configure as the integration sees it: state,
+  unit, availability and last update (a missing entity is marked as such).
+  The price lists are included whole; a solar forecast sensor shows which
+  format was recognised (Solcast or Helios Forecast) and the kWh per hour
+  read from it; other long attributes are summarised;
+- the last result: forecasts, all plans, the direct-control state (last
+  value sent, when, why, last error), night limit, heat pump and EV;
+- **the decision history**: every moment of the last 24 hours the battery
+  action, the setpoint, the status or a control error changed, with time,
+  SOC and price - what it did last night and why. Kept in memory, so it
+  starts empty after a restart.
+
+ESS Manager stores no passwords or tokens, so nothing is blanked out; the
+file does contain your energy data and entity names - share it with whom
+you choose.
+
 ## Dashboard
 
 The integration brings its own dashboard cards. After installing (and a
