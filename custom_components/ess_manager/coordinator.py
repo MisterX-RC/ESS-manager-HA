@@ -28,6 +28,7 @@ from .heatpump_runtime import HeatPumpRuntime
 from . import heatpump_house
 from . import accuracy
 from .accuracy_runtime import AccuracyRuntime
+from .problems import ProblemTracker, below_minimum
 from .const import (
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_VOLTAGE_ENTITY,
@@ -329,6 +330,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # The forecast check (as of 2026.10.22) - accuracy_runtime.py; the
         # "Automatic safety buffer" switch sets auto_buffer_on.
         self.acc = AccuracyRuntime()
+        # Problem notices in Settings > Repairs (as of 2026.10.23) - problems.py.
+        self.problems = ProblemTracker(hass, entry)
         self.auto_buffer_on = False
         self.auto_buffer_entity_id: Optional[str] = None
         self.hp_steering_entity: Any = None
@@ -364,6 +367,40 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         as it is until it ends). Without this, raising and lowering a
         threshold could leave a charge running that's no longer needed."""
         self._replan_requested += 1
+
+    # -- problem notices (as of 2026.10.23) --------------------------------------
+    def _report_input_problem(self, conf: dict[str, Any], now: datetime) -> None:
+        """The battery SOC or the price sensor without a usable value."""
+        bad: Optional[str] = None
+        soc_id = conf.get(CONF_BATTERY_SOC_ENTITY)
+        soc = self.hass.states.get(soc_id) if soc_id else None
+        try:
+            soc_ok = soc is not None and float(soc.state) == float(soc.state)
+        except (TypeError, ValueError):
+            soc_ok = False
+        if not soc_ok:
+            bad = soc_id or "battery SOC"
+        else:
+            price_id = conf.get(CONF_PRICE_ENTITY)
+            price = self.hass.states.get(price_id) if price_id else None
+            if price is None or price.state in ("unavailable", "unknown") or not price.attributes.get("today"):
+                bad = price_id or "price"
+        self.problems.report("input_unavailable", bad is not None, now, {"entity": bad or ""})
+
+    def _report_control_problem(self, now: datetime) -> None:
+        """Direct control that can't send its setpoint."""
+        settings = self.control_settings()
+        error = self.controller.last_error
+        active = bool(settings.active and self.controller.enabled and error)
+        reason = ""
+        if active:
+            if "doesn't exist" in error:
+                reason = "the entity doesn't exist (renamed or removed?)"
+            elif error.endswith("is unavailable"):
+                reason = "the entity is unavailable"
+            else:
+                reason = error.split(" failed: ", 1)[-1]
+        self.problems.report("control_write_failed", active, now, {"target": settings.target or "", "reason": reason})
 
     # -- decision history (diagnostics, as of 2026.10.22) -----------------------
     _DECISION_KEYS = ("action", "value", "status", "error", "sending", "night_limit")
@@ -1361,6 +1398,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Does nothing unless direct control is on.
             await self.controller.async_idle(self.control_settings(), f"update failed: {err}")
             self._record_decision({"action": "idle (fail-safe)", "status": f"update failed: {err}"})
+            self._report_control_problem(dt_util.now())
             raise
 
     async def _async_compute(self) -> dict[str, Any]:
@@ -1372,6 +1410,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         battery_soc_entity = conf.get(CONF_BATTERY_SOC_ENTITY)
         battery_soc_state = self.hass.states.get(battery_soc_entity) if battery_soc_entity else None
+        self._report_input_problem(conf, now)
         if battery_soc_state is None or battery_soc_state.state in ("unknown", "unavailable", None):
             raise UpdateFailed(f"Battery SOC entity {battery_soc_entity} is unavailable")
         try:
@@ -1417,6 +1456,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         solar_points: list[list[dict]] = []
         waiting_for: list[str] = []
+        unreadable: list[str] = []
         for entity_id in conf.get(CONF_SOLAR_FORECAST_ENTITIES, []):
             state = self.hass.states.get(entity_id)
             if state is None or state.state in ("unavailable", "unknown"):
@@ -1426,7 +1466,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 solar_points.append(points)
                 # Logged once per sensor (as of 2026.10.21): a sensor without a
                 # known forecast attribute would otherwise count as no sun at all.
-                if not points and state.state not in ("unavailable", "unknown"):
+                # a known attribute that's empty for now (a Solcast day sensor
+                # without data yet) is a format we read, just no sun in it
+                known = "detailedHourly" in state.attributes or isinstance(state.attributes.get("forecast"), list)
+                if not points and not known and state.state not in ("unavailable", "unknown"):
+                    unreadable.append(entity_id)
                     if entity_id not in self._solar_format_warned:
                         self._solar_format_warned.add(entity_id)
                         _LOGGER.warning(
@@ -1435,8 +1479,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "it counts as 0 kWh; check the solar forecast sensors in Configure",
                             self.entry.title, entity_id,
                         )
-                elif points:
+                elif points or known:
                     self._solar_format_warned.discard(entity_id)
+        self.problems.report("solar_unreadable", bool(unreadable), now, {"entities": ", ".join(unreadable)})
         if self._usage_missing:
             waiting_for.append("the household usage statistics")
         if waiting_for and now - self._started_at < STARTUP_GRACE:
@@ -2019,6 +2064,25 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # only what this cycle saw - a change made meanwhile still counts
             self._replan_requested = max(self._replan_requested - replan_seen, 0)
 
+        # Problem notice (as of 2026.10.23): even with the plans the battery
+        # runs into a dip below its (hard) minimum within the next 24 hours
+        # that have prices and lie within the planning horizon - e.g. a
+        # charge that can't fit.
+        priced_hours = max((len(all_price) - current_price_unit) // 4, 0)
+        floor_kwh = deficit_floor_kwh if deficit_floor_kwh is not None else low_threshold_kwh
+        dip = below_minimum(
+            battery_forecast_adjusted, floor_kwh, min(24, priced_hours, planning_horizon_hours), max(0.3, 0.02 * capacity_kwh)
+        )
+        dip_placeholders = {}
+        if dip is not None:
+            at = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=dip[0] + 1)
+            dip_placeholders = {
+                "time": at.strftime("%H:%M"),
+                "soc": f"{dip[1] / capacity_kwh * 100:.0f}" if capacity_kwh else "?",
+                "minimum": f"{floor_kwh / capacity_kwh * 100:.0f}" if capacity_kwh else "?",
+            }
+        self.problems.report("battery_below_minimum", dip is not None, now, dip_placeholders)
+
         await self._async_persist()
 
         # -- direct control ----------------------------------------------------
@@ -2038,6 +2102,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         await self.controller.async_apply(control_settings, control_action, control_power_kw, system_status)
         control_attr = self.controller.as_attribute(control_settings, control_action, control_power_kw)
+        self._report_control_problem(now)
         self._record_decision({
             "action": control_action,
             "power_kw": round(control_power_kw, 3),
@@ -2107,6 +2172,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "heat_pump": hp_attribute,
             # The forecast check (as of 2026.10.22) - the forecast check card.
             "forecast_check": self.acc.attribute(buffer_info, self.auto_buffer_entity_id),
+            # problems going on and whether they became a Repairs notice (2026.10.23)
+            "problems": self.problems.active(),
             "battery_forecast": battery_forecast,
             "battery_forecast_with_negative_price": forecast_with_negative_price,
             "battery_forecast_with_spike": forecast_with_spike,

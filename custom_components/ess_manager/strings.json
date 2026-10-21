@@ -342,6 +342,22 @@
     "usage_forecast_no_history": {
       "title": "ESS Manager: not enough household usage history yet",
       "description": "**{entry_title}**: {hours} of the next {total} hours have no household usage history yet, so the plans count 0 kWh of household usage for them. This happens right after adding a new statistic to the Energy dashboard, or choosing a new consumption sensor, that has less than a day of data.\n\nAs soon as a day of history exists, the average of the last days is used, and after a week the normal same-weekday average takes over. This notice disappears by itself. Until then, keep an eye on the planned charges and sales. The \"Usage forecast history\" sensor shows the progress."
+    },
+    "control_write_failed": {
+      "title": "ESS Manager: the setpoint can't be sent",
+      "description": "**{entry_title}** has been unable to send the battery setpoint to **{target}** for 5 minutes: {reason}.\n\nWhile this lasts the battery isn't steered. Check that the entity exists and is available (Settings > Devices & services > Entities), and that it's the right one in Configure > direct control. This notice goes away by itself once a setpoint gets through."
+    },
+    "input_unavailable": {
+      "title": "ESS Manager: planning paused - a sensor has no value",
+      "description": "**{entry_title}** has had no usable value from **{entity}** for 15 minutes, so nothing is planned and direct control keeps the battery idle.\n\nCheck the sensor (and the integration behind it, e.g. the inverter or price integration). This notice goes away by itself once the sensor has a value again."
+    },
+    "solar_unreadable": {
+      "title": "ESS Manager: a solar forecast sensor can't be read",
+      "description": "**{entry_title}**: {entities} has no solar forecast the integration can read (a Solcast `detailedHourly` or a Helios Forecast `forecast` attribute), so it counts as no sun at all.\n\nCheck the solar forecast sensors in Configure - for Helios Forecast choose its **Power now** sensor. This notice goes away by itself once the forecast can be read."
+    },
+    "battery_below_minimum": {
+      "title": "ESS Manager: battery expected below its minimum",
+      "description": "**{entry_title}**: even with the plans, the battery is expected to drop to {soc} % around {time}, below its minimum of {minimum} %.\n\nUsually a charge that can't be planned: the charge speed or the planning horizon too small, the charge plans limited by the night limit, or more usage than the battery and the cheap hours can cover. Check the Status card and the plans. This notice goes away by itself once the forecast stays above the minimum."
     }
   },
   "services": {

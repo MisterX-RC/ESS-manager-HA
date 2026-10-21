@@ -32,6 +32,7 @@ from .const import (
     USAGE_SOURCE_ENERGY_DASHBOARD,
 )
 from .coordinator import EssManagerCoordinator
+from .problems import PROBLEM_KINDS
 from .energy_source import async_get_energy_prefs
 from .services import async_setup_services, async_unload_services
 from .usage_forecast import energy_prefs_to_sources
@@ -309,6 +310,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if coordinator is not None:
         await coordinator.controller.async_idle(coordinator.control_settings(), "integration unloaded")
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if coordinator is not None:
+        # problem notices go with the integration (a reload raises them
+        # again once the problem has lasted its time)
+        coordinator.problems.clear_all()
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
         if not [v for v in hass.data[DOMAIN].values() if isinstance(v, dict) and "coordinator" in v]:
@@ -319,7 +324,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Deleting the installation also clears its Repairs notices, if any,
     and with the last one the cards' dashboard resource."""
-    for kind in _ISSUE_KINDS:
+    for kind in (*_ISSUE_KINDS, *PROBLEM_KINDS):
         ir.async_delete_issue(hass, DOMAIN, _issue_id(kind, entry))
     # the last installation gone: the cards' dashboard resource goes too
     if not [e for e in hass.config_entries.async_entries(DOMAIN) if e.entry_id != entry.entry_id]:

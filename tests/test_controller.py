@@ -162,6 +162,14 @@ async def main():
     await c.async_apply(settings, control.ACTION_CHARGE, 7.0, "Start charge")
     check("an unavailable target isn't written", len(hass.services.calls) == n)
     check("an unavailable target is reported", "unavailable" in (c.as_attribute(settings, "charge", 7.0)["last_error"] or ""))
+    # 2026.10.23: back with the value already on it - nothing to send, and the error is over
+    sent_before = c.as_attribute(settings, "charge", 7.0)["last_sent_value"]
+    hass.states.data["number.grid_setpoint"] = State(str(sent_before), {"min": -15000, "max": 15000, "step": 1})
+    await c.async_apply(settings, control.ACTION_CHARGE if sent_before and sent_before > 0 else control.ACTION_IDLE,
+                        7.0 if sent_before and sent_before > 0 else 0.0, "same")
+    check("a target back with the value clears the error", c.last_error is None)
+    hass.states.data["number.grid_setpoint"] = State("unavailable")
+    await c.async_apply(settings, control.ACTION_CHARGE, 7.0, "Start charge")
     # 2026.10.18: a target with no value read back yet ('unknown') is still written
     hass.states.data["number.grid_setpoint"] = State("unknown", {"min": -15000, "max": 15000, "step": 1})
     n = len(hass.services.calls)

@@ -183,7 +183,9 @@ class EssController:
         last_sent = self._last_sent if self._last_target == target else None
         since = (now - self._last_sent_at).total_seconds() if self._last_sent_at and last_sent is not None else None
         if not control.needs_write(desired, last_sent, current, tolerance, since):
+            # the target is there and holds the value: an earlier problem is over
             self._last_action = action
+            self._last_error = None
             return
 
         try:
@@ -218,6 +220,11 @@ class EssController:
             ),
             SEND_TIMEOUT_SECONDS,
         )
+
+    @property
+    def last_error(self) -> Optional[str]:
+        """The last send problem, None after a successful send."""
+        return self._last_error
 
     # -- reporting ------------------------------------------------------------
     def as_attribute(self, settings: ControlSettings, action: str, power_kw: float) -> dict[str, Any]:

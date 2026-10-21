@@ -12,6 +12,29 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.23] - 2026-10-23
+
+### Added
+- **Problem notices in Settings > Repairs**, raised once a problem has
+  lasted a while and removed by themselves when it's over:
+  - the setpoint can't be sent (direct control on; the target is gone,
+    unavailable or the call fails) - after 5 minutes;
+  - planning paused because the battery SOC or price sensor has no usable
+    value (or no prices for today) - after 15 minutes;
+  - a solar forecast sensor has no readable forecast attribute - after 15
+    minutes;
+  - even with the plans the battery is expected below its minimum within
+    the next 24 priced hours inside the planning horizon - after 30 minutes.
+  What's going on right now is in the diagnostics (`problems`).
+
+### Fixed
+- Direct control: a target that came back (after being unavailable) still
+  holding the right value kept its old error until the next real send; the
+  error now clears as soon as the target is there with the value.
+- A solar forecast sensor whose `detailedHourly` / `forecast` attribute is
+  just empty for now (a Solcast day sensor without data yet) no longer gets
+  the "can't read" warning.
+
 ## [2026.10.22] - 2026-10-22
 
 ### Added

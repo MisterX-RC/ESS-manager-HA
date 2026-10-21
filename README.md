@@ -1015,6 +1015,24 @@ again after it. A session is worked out afresh when the capacity or max
 SOC it was sized against changes, and a stored session ends at its own end
 time (as of 2026.10.14).
 
+## Problem notices
+
+*(as of 2026.10.23)* When something keeps the integration from doing its
+job, a notice appears in **Settings > Repairs** - and goes away by itself
+once the problem is over. A problem has to last a while first, so a sensor
+that's briefly gone after a restart doesn't raise one:
+
+| Notice | When | After |
+|---|---|---|
+| The setpoint can't be sent | direct control is on, but the target entity doesn't exist, is unavailable or the service call fails - the battery isn't steered meanwhile | 5 minutes |
+| Planning paused - a sensor has no value | the battery SOC sensor has no number, or the price sensor is unavailable / has no prices for today - nothing is planned and direct control keeps the battery idle | 15 minutes |
+| A solar forecast sensor can't be read | a chosen solar forecast sensor is available but has neither a Solcast `detailedHourly` nor a Helios Forecast `forecast` attribute - it would count as no sun (an attribute that's just empty for now is fine) | 15 minutes |
+| Battery expected below its minimum | even with the plans, the battery is expected to run into a dip below its minimum within the next 24 hours that have prices and lie within the planning horizon - usually a charge that can't be fitted (charge speed, night limit, too little room) | 30 minutes |
+
+What's going on right now (also before it becomes a notice) is in the
+diagnostics download under `problems`. Unloading or removing the
+integration clears its notices.
+
 ## Diagnostics
 
 *(as of 2026.10.22)* Settings > Devices & services > ESS Manager > the
