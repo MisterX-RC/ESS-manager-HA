@@ -49,6 +49,8 @@ from .const import (
     DEFAULT_NIGHT_CHARGE_SPEED_KW,
     DEFAULT_NIGHT_DISCHARGE_SPEED_KW,
     CONF_HP_BUFFER_ENABLED,
+    CONF_FLOOR_COOL_CLIMATE_ENTITY,
+    CONF_FLOOR_COOL_SWITCH_ENTITY,
     CONF_FLOOR_DEMAND_ENTITY,
     CONF_FLOOR_ENABLED,
     CONF_FLOOR_HELPER_ENTITY,
@@ -863,9 +865,21 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         domain = entity_id.split(".", 1)[0]
         await self.hass.services.async_call(domain, "set_value", {"entity_id": entity_id, "value": value}, blocking=True)
 
+    def floor_cooling(self, conf: Optional[dict[str, Any]] = None) -> bool:
+        """The heat pump cools (as of 2026.10.23): the changeover switch is on,
+        or the cooling thermostat isn't off. Floor control then leaves the
+        heat pump alone - also its heat demand, which cooling uses too."""
+        conf = conf if conf is not None else {**self.entry.data, **self.entry.options}
+        if self._is_on(conf.get(CONF_FLOOR_COOL_SWITCH_ENTITY)):
+            return True
+        climate_id = conf.get(CONF_FLOOR_COOL_CLIMATE_ENTITY)
+        st = self.hass.states.get(climate_id) if climate_id else None
+        return st is not None and st.state not in ("off", "unavailable", "unknown")
+
     async def async_floor_release(self, conf: Optional[dict[str, Any]] = None) -> None:
         """Hand the heat pump back: the return setpoint as it was before ESS
-        Manager took over, heat demand as the thermostat wants it."""
+        Manager took over, heat demand as the thermostat wants it (not while
+        the heat pump cools: that heat demand is the cooling's)."""
         conf = conf if conf is not None else {**self.entry.data, **self.entry.options}
         stage = self.floor.stage
         if stage in (fc.MODE_SETPOINT, fc.MODE_FULL) and self.floor.baseline_sp is not None and conf.get(CONF_FLOOR_SETPOINT_ENTITY):
@@ -873,7 +887,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._async_floor_setpoint(conf[CONF_FLOOR_SETPOINT_ENTITY], self.floor.baseline_sp)
             except Exception as err:  # noqa: BLE001 - best effort
                 _LOGGER.warning("ESS Manager (%s): return setpoint not restored: %s", self.entry.title, err)
-        if stage == fc.MODE_FULL and conf.get(CONF_FLOOR_DEMAND_ENTITY):
+        if stage == fc.MODE_FULL and conf.get(CONF_FLOOR_DEMAND_ENTITY) and not self.floor_cooling(conf):
             helper = self._is_on(conf.get(CONF_FLOOR_HELPER_ENTITY))
             if helper is not None:
                 try:
@@ -913,6 +927,21 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self.async_floor_release(conf)
             return None
         now_ts = now.timestamp()
+        if self.floor_cooling(conf):
+            # summer: the heat pump cools (its heat demand is the cooling's):
+            # the return setpoint back once, then nothing - and nothing learned
+            if self.floor.stage != fc.MODE_WATCH:
+                await self.async_floor_release(conf)
+                _LOGGER.info("ESS Manager (%s): floor control - the heat pump cools, stepping aside", self.entry.title)
+            self.floor.sample(now_ts, {"pump": None}, None, None, cooling=True)
+            return {
+                "mode": self.floor_mode, "stage": fc.STAGE_COOLING, "waiting": [],
+                "model": {k: (self.floor.model or {}).get(k) for k in ("u", "delta", "p_min", "p_max", "n", "err", "ok", "slab")},
+                "min_hours": fc.MIN_EMIT_HOURS, "response": {"n": 0, "err": None, "ok": False, "min_hours": fc.MIN_RESPONSE_HOURS},
+                "now": {"reason": "cooling"}, "next": [], "select": self.floor_mode_entity_id,
+                "recent": [{k: r.get(k) for k in ("h", "th_kwh", "plan_kwh", "sp", "run_s", "room", "slab")}
+                           for r in self.floor.records if r["h"] >= hour0 - 24 * 3600],
+            }
         sp_id = conf[CONF_FLOOR_SETPOINT_ENTITY]
         sp_state = self.hass.states.get(sp_id)
         sp_actual = _get_float_state(self.hass, sp_id, default=None)

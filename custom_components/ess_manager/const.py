@@ -214,6 +214,10 @@ CONF_FLOOR_RETURN_ENTITY = "floor_return_entity"
 CONF_FLOOR_PUMP_ENTITY = "floor_pump_entity"
 CONF_FLOOR_POWER_ENTITY = "floor_thermal_power_entity"
 CONF_FLOOR_SLAB_ENTITY = "floor_slab_entity"
+# cooling (as of 2026.10.23): the changeover switch (on = cooling) and/or a
+# cooling thermostat (not off = cooling season) - floor control steps aside
+CONF_FLOOR_COOL_SWITCH_ENTITY = "floor_cool_switch_entity"
+CONF_FLOOR_COOL_CLIMATE_ENTITY = "floor_cool_climate_entity"
 DEFAULT_FLOOR_ENABLED = False
 FLOOR_REQUIRED = (
     "floor_return_setpoint_entity", "floor_demand_entity", "floor_thermostat_helper_entity",

@@ -139,6 +139,7 @@ const I18N = {
     fl_stage_watch: "Watching along: the thermostat switches, ESS Manager learns the floor",
     fl_stage_setpoint: "ESS Manager sets the return setpoint, the thermostat switches heat demand",
     fl_stage_full: "ESS Manager heats the floor: return setpoint and heat demand",
+    fl_stage_cooling: "The heat pump cools: floor control leaves it alone", fl_r_cooling: "cooling season",
     fl_waits: "A higher stage waits for", fl_wait_inputs: "a sensor, the thermostat helper or the house model's heat plan",
     fl_wait_emission: (n, need) => `the floor's heat output: ${n} of ${need} running hours`,
     fl_wait_emission_err: (e) => `the floor's heat output fits better (now ${e} % off)`,
@@ -284,6 +285,7 @@ const I18N = {
     fl_stage_watch: "Meekijken: de thermostaat schakelt, ESS Manager leert de vloer",
     fl_stage_setpoint: "ESS Manager zet het retoursetpoint, de thermostaat schakelt de warmtevraag",
     fl_stage_full: "ESS Manager stookt de vloer: retoursetpoint en warmtevraag",
+    fl_stage_cooling: "De warmtepomp koelt: de vloersturing doet niets", fl_r_cooling: "koelseizoen",
     fl_waits: "Een hogere stap wacht op", fl_wait_inputs: "een sensor, de hulpschakelaar van de thermostaat of het warmteplan van het huismodel",
     fl_wait_emission: (n, need) => `de warmteafgifte van de vloer: ${n} van ${need} draaiuren`,
     fl_wait_emission_err: (e) => `een betere fit van de warmteafgifte (nu ${e} % ernaast)`,
@@ -2858,7 +2860,8 @@ class EssManagerHeatPumpCard extends EssChartCard {
     const stage = fl.stage || "watch";
     const why = this._t("fl_r_" + (n.reason || "idle"));
     let html = `<div class="hp-banner${stage !== "watch" ? " house" : ""}">${icon("home", "var(--hp)", 18)}<div><b>${esc(this._t("fl_stage_" + stage))}</b>`;
-    html += `<br>${esc(stage === "full" ? this._t("fl_is")(!!n.demand_on, why) : this._t("fl_would")(!!n.would_heat, why))}</div></div>`;
+    if (stage !== "cooling") html += `<br>${esc(stage === "full" ? this._t("fl_is")(!!n.demand_on, why) : this._t("fl_would")(!!n.would_heat, why))}`;
+    html += "</div></div>";
     const selState = fl.select ? this._hass.states[fl.select] : null;
     const mode = selState ? selState.state : fl.mode;
     if (selState) {

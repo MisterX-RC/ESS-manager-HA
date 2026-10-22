@@ -36,6 +36,12 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   stage, unloading or stopping hands the heat pump back (return setpoint
   restored, heat demand as the thermostat wants). Set up on a new
   Configure page after the heat pump page; see the README.
+  **Cooling:** with the changeover switch and/or the cooling thermostat
+  chosen, floor control steps aside while the heat pump cools (the heat
+  demand switch is the cooling's then): the return setpoint back once, the
+  heat demand never touched, nothing learned, stage **cooling**. The
+  README's fallback automation (now in the format for the automation
+  editor's YAML mode) also leaves the switch alone while cooling.
 - **Problem notices in Settings > Repairs**, raised once a problem has
   lasted a while and removed by themselves when it's over:
   - the setpoint can't be sent (direct control on; the target is gone,

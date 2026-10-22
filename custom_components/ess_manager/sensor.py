@@ -536,7 +536,8 @@ class EssManagerBufferAdviceSensor(CoordinatorEntity[EssManagerCoordinator], Sen
 
 class EssManagerFloorStageSensor(CoordinatorEntity[EssManagerCoordinator], SensorEntity):
     """Floor control stage (as of 2026.10.23): what runs right now - off (not
-    set up), watch, setpoint or full. The fallback automation copies the
+    set up), watch, setpoint, full or cooling (the heat pump cools: floor
+    control leaves it alone). The fallback automation copies the
     thermostat's helper switch to the heat pump's heat demand whenever this
     isn't "full" - also while it's unavailable (ESS Manager stopped or a
     cycle failed), so the thermostat takes over by itself."""
@@ -545,7 +546,7 @@ class EssManagerFloorStageSensor(CoordinatorEntity[EssManagerCoordinator], Senso
     _attr_name = "Floor control stage"
     _attr_icon = "mdi:heating-coil"
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = ["off", "watch", "setpoint", "full"]
+    _attr_options = ["off", "watch", "setpoint", "full", "cooling"]
 
     def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
         super().__init__(coordinator)

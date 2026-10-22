@@ -666,38 +666,71 @@ reference instead of the room once most running hours have it.
    temperature, also a temporary raise.
 2. Add the fallback automation: it copies the helper to the heat pump's heat
    demand whenever ESS Manager isn't in the stage *full* - also when ESS
-   Manager is stopped (the stage sensor then is unavailable):
+   Manager is stopped (the stage sensor then is unavailable) - but never
+   while the heat pump cools. Settings > Automations > Create automation >
+   three dots > *Edit in YAML*, paste, and replace the four entity ids with
+   yours (the helper, ESS Manager's *Floor control stage* sensor, the
+   changeover switch for cooling and the heat pump's heat demand switch):
 
    ```yaml
-   automation:
-     - alias: "Heat demand: thermostat to the heat pump (when ESS Manager doesn't switch)"
-       mode: queued
-       trigger:
-         - trigger: state
-           entity_id: input_boolean.thermostat_heat_demand
-         - trigger: state
+   alias: "Heat demand: thermostat to the heat pump"
+   description: >-
+     Copies the thermostat's helper to the heat pump's heat demand while
+     ESS Manager doesn't switch it itself (stage not 'full', or ESS Manager
+     stopped) and the heat pump isn't cooling.
+   mode: queued
+   triggers:
+     - trigger: state
+       entity_id: input_boolean.thermostat_heat_demand
+     - trigger: state
+       entity_id: sensor.thuis_floor_control_stage
+     - trigger: state
+       entity_id: switch.qube_cooling_changeover
+       to: "off"
+     - trigger: homeassistant
+       event: start
+   conditions:
+     - condition: not
+       conditions:
+         - condition: state
            entity_id: sensor.thuis_floor_control_stage
-         - trigger: homeassistant
-           event: start
-       condition:
-         - condition: not
-           conditions:
-             - condition: state
-               entity_id: sensor.thuis_floor_control_stage
-               state: "full"
-       action:
-         - action: "switch.turn_{{ 'on' if is_state('input_boolean.thermostat_heat_demand', 'on') else 'off' }}"
+           state: "full"
+     - condition: state
+       entity_id: switch.qube_cooling_changeover
+       state: "off"
+   actions:
+     - if:
+         - condition: state
+           entity_id: input_boolean.thermostat_heat_demand
+           state: "on"
+       then:
+         - action: switch.turn_on
+           target:
+             entity_id: switch.qube_heat_demand
+       else:
+         - action: switch.turn_off
            target:
              entity_id: switch.qube_heat_demand
    ```
 
-   (your own entity ids: the helper, ESS Manager's *Floor control stage*
-   sensor and the heat pump's heat demand switch).
+   Your own cooling automation keeps the heat demand switch to itself while
+   the changeover is on. Switch the changeover (or the cooling thermostat) on
+   a few seconds *before* it turns heat demand on.
 3. Configure > the heat pump page: switch on **Floor control** (needs step 1
    and the thermostat as the wanted temperature); the next page asks for the
    return setpoint, the heat demand switch, the thermostat's helper, the
-   supply / return temperatures, the circulation pump (%), the thermal power
-   and optionally the floor sensor.
+   supply / return temperatures, the circulation pump (%), the thermal power,
+   optionally the floor sensor and - with cooling - the changeover switch
+   and/or the cooling thermostat.
+
+**Cooling.** The heat pump's heat demand switch also starts cooling (with
+the changeover switch on). While the changeover is on, or the cooling
+thermostat isn't off, floor control steps aside completely: the return
+setpoint goes back to its old value once, the heat demand switch is never
+touched (also not when ESS Manager stops), nothing is learned, and the
+stage sensor says **cooling**. Once cooling is over it goes on in the stage
+you chose (from *return setpoint* again: the heat pump's response is
+measured anew).
 
 Going back to a lower stage, switching the select back, unloading ESS
 Manager or stopping Home Assistant hands the heat pump back: the return

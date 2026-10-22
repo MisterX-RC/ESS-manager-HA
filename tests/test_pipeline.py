@@ -4401,6 +4401,12 @@ check("floor: the store round-trips", _fr2.as_store() == _fr.as_store())
 check("floor: comfort power - more when the room lags, full at 1.2 degC too cold",
       fcm.comfort_power(2.0, 20.4, 20.5, 1.5, 5.0) == 2.0 and fcm.comfort_power(2.0, 19.3, 20.5, 1.5, 5.0) == 5.0
       and 2.0 < fcm.comfort_power(2.0, 19.9, 20.5, 1.5, 5.0) < 5.0 and fcm.comfort_power(0.5, None, 20.5, 1.5, 5.0) == 1.5)
+_frc = fcm.FloorRuntime()
+for m in range(0, 61):
+    _frc.sample(_h0 + m * 60, {"pump": 80.0, "t_sup": 15.0, "t_ret": 18.0, "t_room": 24.0, "t_slab": None, "p_th": -2.5, "sp": 26.0}, 2.0, 1.0, cooling=True)
+check("floor: while cooling nothing is learned (no running hours, no heat, no plan)",
+      len(_frc.records) == 1 and _frc.records[0]["run_s"] == 0 and _frc.records[0]["th_kwh"] == 0
+      and _frc.records[0]["plan_kwh"] == 0 and "p_target" not in _frc.records[0] and "cooling" in fcm.STAGES)
 # the house model's heat plan for floor control
 _ph = heatpump_runtime.HeatPumpRuntime()
 check("floor: no house model -> no heat plan", _ph.plan_heat(_h0, 20.0, [(5.0, 0.0, 0.0)] * 24, [20.5] * 24, 3.5) is None)

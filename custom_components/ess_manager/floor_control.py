@@ -47,7 +47,8 @@ MODE_SETPOINT = "setpoint"
 MODE_FULL = "full"
 MODES = (MODE_WATCH, MODE_SETPOINT, MODE_FULL)
 STAGE_OFF = "off"            # not configured
-STAGES = (STAGE_OFF, *MODES)
+STAGE_COOLING = "cooling"    # the heat pump cools (summer): floor control steps aside
+STAGES = (STAGE_OFF, *MODES, STAGE_COOLING)
 
 PUMP_RUNNING_PCT = 5.0
 SETTLE_S = 600               # the water needs this long to come back from the floor
@@ -252,9 +253,11 @@ class FloorRuntime:
         self.baseline_sp = data.get("baseline_sp")
 
     # -- the measurements ------------------------------------------------------------
-    def sample(self, now_ts: float, r: dict[str, Optional[float]], p_target: Optional[float], plan_kw: Optional[float]) -> None:
+    def sample(self, now_ts: float, r: dict[str, Optional[float]], p_target: Optional[float], plan_kw: Optional[float],
+               cooling: bool = False) -> None:
         """One cycle's readings (pump %, t_sup, t_ret, t_room, t_slab, p_th kW,
-        sp) into the hour's record; a finished hour into self.records."""
+        sp) into the hour's record; a finished hour into self.records. While
+        the heat pump cools nothing is learned (no running hours, no heat)."""
         hour = int(now_ts // 3600) * 3600
         dt = min(max(now_ts - self.last_ts, 0.0), 300.0) if self.last_ts is not None else 0.0
         self.last_ts = now_ts
@@ -264,7 +267,11 @@ class FloorRuntime:
             self.acc = {"h": hour, "run_s": 0.0, "all_s": 0.0, "th_kwh": 0.0, "plan_kwh": 0.0}
         a = self.acc
         pump = r.get("pump")
-        running = pump is not None and pump >= PUMP_RUNNING_PCT
+        running = pump is not None and pump >= PUMP_RUNNING_PCT and not cooling
+        if cooling:
+            r = {**r, "p_th": None}
+            plan_kw = None
+            p_target = None
         if running:
             self.pump_since = self.pump_since or now_ts
         else:

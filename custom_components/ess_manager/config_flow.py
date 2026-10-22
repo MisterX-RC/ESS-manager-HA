@@ -50,6 +50,8 @@ from .const import (
     CONF_HP_COP_ENTITY,
     CONF_HP_BUFFER_ENABLED,
     DEFAULT_HP_BUFFER_ENABLED,
+    CONF_FLOOR_COOL_CLIMATE_ENTITY,
+    CONF_FLOOR_COOL_SWITCH_ENTITY,
     CONF_FLOOR_DEMAND_ENTITY,
     CONF_FLOOR_ENABLED,
     CONF_FLOOR_HELPER_ENTITY,
@@ -472,6 +474,10 @@ def _floor_schema(defaults: dict[str, Any]) -> vol.Schema:
             req(CONF_FLOOR_PUMP_ENTITY, None): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             req(CONF_FLOOR_POWER_ENTITY, None): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(CONF_FLOOR_SLAB_ENTITY, default=defaults.get(CONF_FLOOR_SLAB_ENTITY)): _optional_entity_selector(),
+            vol.Optional(CONF_FLOOR_COOL_SWITCH_ENTITY, default=defaults.get(CONF_FLOOR_COOL_SWITCH_ENTITY)): _optional_entity_selector(
+                ["switch", "input_boolean", "binary_sensor"]
+            ),
+            vol.Optional(CONF_FLOOR_COOL_CLIMATE_ENTITY, default=defaults.get(CONF_FLOOR_COOL_CLIMATE_ENTITY)): _optional_entity_selector("climate"),
         }
     )
 
@@ -658,6 +664,8 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
         CONF_HP_SETPOINT_ENTITY,
         CONF_HP_COP_ENTITY,
         CONF_FLOOR_SLAB_ENTITY,
+        CONF_FLOOR_COOL_SWITCH_ENTITY,
+        CONF_FLOOR_COOL_CLIMATE_ENTITY,
     ):
         if key in data and not data.get(key):
             data[key] = None
