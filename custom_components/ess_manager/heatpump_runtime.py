@@ -320,6 +320,10 @@ class HeatPumpRuntime:
         # measured: the last 24 hours
         out["measured"] = [[int(k), v] for k, v in sorted(self.indoor_hist.items(), key=lambda kv: int(kv[0]))
                            if int(k) >= hour0_epoch - 24 * hp.HOUR]
+        # the heating electricity measured per complete hour, the last 24 hours
+        # (as of 2026.10.23) - next to the expected kWh on the indoor chart
+        out["measured_kwh"] = [[int(k), v] for k, v in sorted(self.heat_hist.items(), key=lambda kv: int(kv[0]))
+                               if hour0_epoch - 24 * hp.HOUR <= int(k) < hour0_epoch]
         if not hm or indoor is None or not hourly:
             return out
         n = min(hh.FORECAST_HOURS, len(hourly), hours)

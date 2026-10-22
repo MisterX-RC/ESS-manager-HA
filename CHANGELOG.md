@@ -26,6 +26,11 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   - even with the plans the battery is expected below its minimum within
     the next 24 priced hours inside the planning horizon - after 30 minutes.
   What's going on right now is in the diagnostics (`problems`).
+- **Heat pump card, Indoor tab: the measured heating per hour.** Left of
+  "now" the heating electricity of the last 24 complete hours (from the
+  heating meters) as solid bars, next to the expected hours (lighter) on
+  the right - so the model's hours can be compared with what really
+  happened.
 
 ### Fixed
 - Direct control: a target that came back (after being unavailable) still

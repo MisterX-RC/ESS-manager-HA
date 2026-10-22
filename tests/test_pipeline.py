@@ -4303,6 +4303,15 @@ _rt2.restore(_rt.as_store())
 check("forecast check: the store round-trips", _rt2.as_store() == _rt.as_store()
       and "needed_pct" not in _rt.attribute(_b2, "switch.x") and _rt.attribute(_b2, "switch.x")["buffer"]["switch"] == "switch.x")
 
+# --- 2026.10.23: the heating kWh measured per hour on the indoor chart
+_mk_rt = heatpump_runtime.HeatPumpRuntime()
+_mk_h0 = 1_800_000_000 // 3600 * 3600
+_mk_rt.heat_hist = {str(_mk_h0 - k * 3600): 0.1 * k for k in range(0, 30)}
+_mk_out = _mk_rt._house_forecast(None, None, _mk_h0, 48, None, None, None, None, None, None, None, False, "heat", False)
+check("indoor chart: the measured heating kWh of the last 24 complete hours",
+      len(_mk_out["measured_kwh"]) == 24 and _mk_out["measured_kwh"][0][0] == _mk_h0 - 24 * 3600
+      and _mk_out["measured_kwh"][-1] == [_mk_h0 - 3600, 0.1])
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

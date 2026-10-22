@@ -1278,7 +1278,9 @@ or the kWh extra to warm it up. Three tabs:
   measured and the model's mean, and the newest day in it.
 - **Indoor** (with step 1): the measured indoor temperature of the last 24
   hours, the expected one for the next 48 with the target (dashed) and the
-  heating per hour (bars); the model's stage (learning, watching along,
+  heating per hour (bars: the measured heating electricity of the last 24
+  hours solid, the expected one lighter - as of 2026.10.23, with heating
+  meters chosen); the model's stage (learning, watching along,
   used, steering) with its self-check's figures; the buffer plan (warmer /
   cooler when, what it saves); COP at 7 and −2 °C, the floor's delay, the
   heat-up per 10 kWh. With step 2 the steering switch and the day/night

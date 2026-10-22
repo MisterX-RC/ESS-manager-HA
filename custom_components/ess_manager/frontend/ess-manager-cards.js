@@ -120,7 +120,7 @@ const I18N = {
     hp_stage_used: "Hour-by-hour model: used for the planning", hp_stage_steering: "Hour-by-hour model: used, steering the thermostat",
     hp_review: (d, a, b, t) => `Self-check over ${d} heating days: energy per hour \u00b1${a} kWh (usual pattern \u00b1${b}), indoor \u00b1${t} \u00b0C.`,
     hp_review_wait: (d) => `Self-check waits for enough heating days (${d} of 10).`,
-    hp_measured_in: "measured", hp_expected_in: "expected", hp_target_in: "target", hp_heat_kwh: "heating kWh",
+    hp_measured_in: "measured", hp_expected_in: "expected", hp_target_in: "target", hp_heat_kwh: "heating kWh", hp_heat_meas: "kWh measured", hp_heat_exp: "kWh expected",
     hp_plan_boost: (a, b) => `Warmer ${a}\u2013${b}`, hp_plan_dip: (a, b) => `cooler ${a}\u2013${b}`, hp_plan_saving: (v) => `saves about ${v}`,
     hp_cop_t: "COP at 7 / \u22122 \u00b0C", hp_cop_unit: "learned from the COP sensor", hp_floor_t: "Floor delay", hp_floor_unit: "time constant",
     hp_heatup_t: "Heat-up", hp_heatup_unit_th: "per 10 kWh of heat", hp_heatup_unit_el: "per 10 kWh",
@@ -247,7 +247,7 @@ const I18N = {
     hp_stage_used: "Uurmodel: gebruikt voor de planning", hp_stage_steering: "Uurmodel: gebruikt, stuurt de thermostaat",
     hp_review: (d, a, b, t) => `Zelfcontrole over ${d} stookdagen: energie per uur \u00b1${a} kWh (gebruikelijk patroon \u00b1${b}), binnen \u00b1${t} \u00b0C.`,
     hp_review_wait: (d) => `Zelfcontrole wacht op genoeg stookdagen (${d} van 10).`,
-    hp_measured_in: "gemeten", hp_expected_in: "verwacht", hp_target_in: "doel", hp_heat_kwh: "verwarming kWh",
+    hp_measured_in: "gemeten", hp_expected_in: "verwacht", hp_target_in: "doel", hp_heat_kwh: "verwarming kWh", hp_heat_meas: "kWh gemeten", hp_heat_exp: "kWh verwacht",
     hp_plan_boost: (a, b) => `Warmer ${a}\u2013${b}`, hp_plan_dip: (a, b) => `koeler ${a}\u2013${b}`, hp_plan_saving: (v) => `bespaart ongeveer ${v}`,
     hp_cop_t: "COP bij 7 / \u22122 \u00b0C", hp_cop_unit: "geleerd van de COP-sensor", hp_floor_t: "Vertraging vloer", hp_floor_unit: "tijdconstante",
     hp_heatup_t: "Opwarmen", hp_heatup_unit_th: "per 10 kWh warmte", hp_heatup_unit_el: "per 10 kWh",
@@ -2877,13 +2877,15 @@ class EssManagerHeatPumpCard extends EssChartCard {
       const left = 34, right = 30, top = 10, bottom = 24;
       const t0 = fc.start * 1000;
       const meas = (hm.measured || []).map(([e, v]) => [e * 1000, v]);
+      // the heating electricity measured per hour (2026.10.23)
+      const qMeas = (hm.measured_kwh || []).map(([e, v]) => [e * 1000, Number(v) || 0]).filter(([t]) => t < t0);
       const fpts = fc.temps.map((v, i) => [t0 + i * 3600000, v]);
       const tg = (fc.target || []).map((v, i) => [t0 + i * 3600000, v]);
-      const xs = meas.map((p) => p[0]).concat(fpts.map((p) => p[0]));
+      const xs = meas.map((p) => p[0]).concat(fpts.map((p) => p[0]), qMeas.map((p) => p[0]));
       const xMin = Math.min(...xs), xMax = Math.max(...xs);
       const vals = meas.map((p) => p[1]).concat(fpts.map((p) => p[1]), tg.map((p) => p[1]));
       const yMin = Math.floor(Math.min(...vals) - 0.5), yMax = Math.ceil(Math.max(...vals) + 0.5);
-      const qMax = Math.max(1, ...(fc.kwh || []));
+      const qMax = Math.max(1, ...(fc.kwh || []), ...qMeas.map((p) => p[1]));
       const X = (t) => left + ((t - xMin) / Math.max(xMax - xMin, 1)) * (w - left - right);
       const Y = (v) => top + (1 - (v - yMin) / Math.max(yMax - yMin, 0.1)) * (h - top - bottom);
       const QY = (q) => h - bottom - (q / qMax) * (h - top - bottom) * 0.35;
@@ -2897,6 +2899,10 @@ class EssManagerHeatPumpCard extends EssChartCard {
         const x = X(t0 + i * 3600000);
         svg += `<rect x="${x.toFixed(1)}" y="${QY(q).toFixed(1)}" width="${bw.toFixed(1)}" height="${(h - bottom - QY(q)).toFixed(1)}" fill="${opt.hp_color}" fill-opacity=".35"></rect>`;
       });
+      for (const [t, q] of qMeas) {
+        if (q <= 0) continue;
+        svg += `<rect x="${X(t).toFixed(1)}" y="${QY(q).toFixed(1)}" width="${bw.toFixed(1)}" height="${(h - bottom - QY(q)).toFixed(1)}" fill="${opt.hp_color}" fill-opacity=".85"><title>${esc(formats(this._hass).time(t))}: ${esc(this._num(q, 2))} kWh</title></rect>`;
+      }
       svg += `<text x="${w - right + 4}" y="${(h - bottom).toFixed(1)}" text-anchor="start">0</text><text x="${w - right + 4}" y="${(QY(qMax) + 4).toFixed(1)}" text-anchor="start">${this._num(qMax, 1)}</text>`;
       const path = (pts) => pts.map(([t, v], i) => `${i ? "L" : "M"} ${X(t).toFixed(1)} ${Y(v).toFixed(1)}`).join(" ");
       if (tg.length) svg += `<path d="${path(tg)}" fill="none" stroke="rgba(160,160,160,.9)" stroke-width="1.5" stroke-dasharray="4 4"></path>`;
@@ -2909,7 +2915,7 @@ class EssManagerHeatPumpCard extends EssChartCard {
       }
       svg += "</svg>";
       html += `<div class="chart" style="height:${h}px">${svg}</div>`;
-      html += `<div class="hp-legend"><span><i style="display:inline-block;width:14px;height:2px;background:${opt.hp_color}"></i>${esc(this._t("hp_measured_in"))}</span><span><i style="display:inline-block;width:14px;height:2px;background:var(--primary-text-color,#f0f0f0)"></i>${esc(this._t("hp_expected_in"))}</span><span><i style="display:inline-block;width:14px;height:0;border-top:2px dashed #a0a0a0"></i>${esc(this._t("hp_target_in"))}</span><span><i style="display:inline-block;width:10px;height:8px;background:${opt.hp_color};opacity:.4"></i>${esc(this._t("hp_heat_kwh"))}</span></div>`;
+      html += `<div class="hp-legend"><span><i style="display:inline-block;width:14px;height:2px;background:${opt.hp_color}"></i>${esc(this._t("hp_measured_in"))}</span><span><i style="display:inline-block;width:14px;height:2px;background:var(--primary-text-color,#f0f0f0)"></i>${esc(this._t("hp_expected_in"))}</span><span><i style="display:inline-block;width:14px;height:0;border-top:2px dashed #a0a0a0"></i>${esc(this._t("hp_target_in"))}</span>${qMeas.length ? `<span><i style="display:inline-block;width:10px;height:8px;background:${opt.hp_color};opacity:.85"></i>${esc(this._t("hp_heat_meas"))}</span>` : ""}<span><i style="display:inline-block;width:10px;height:8px;background:${opt.hp_color};opacity:.4"></i>${esc(this._t(qMeas.length ? "hp_heat_exp" : "hp_heat_kwh"))}</span></div>`;
     }
     const plan = hm.plan;
     if (plan && (plan.boost || plan.dip)) {
