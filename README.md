@@ -735,6 +735,8 @@ stage sensor says **cooling**. Once cooling is over it goes on in the stage
 you chose (from *return setpoint* again: the heat pump's response is
 measured anew).
 
+Switching the thermostat off (mode off) means no heating in every stage:
+in *full* the heat pump goes back to the thermostat until it's on again.
 Going back to a lower stage, switching the select back, unloading ESS
 Manager or stopping Home Assistant hands the heat pump back: the return
 setpoint as it was before ESS Manager took over, heat demand as the

@@ -976,6 +976,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             and demand_on is not None and helper_on is not None and plan_kw is not None
         )
         stage, waiting = fc.effective_stage(self.floor_mode, bool(model.get("ok")), response["ok"], house_ok, inputs_ok)
+        # the thermostat switched off (as of 2026.10.25): no heating wanted -
+        # the heat pump goes back to the thermostat (whose helper is off then)
+        thermostat = self.hass.states.get(conf.get(CONF_HP_SETPOINT_ENTITY) or "")
+        if thermostat is not None and thermostat.state == "off":
+            stage, waiting = fc.MODE_WATCH, ["thermostat_off"]
 
         p_min = model.get("p_min") or fc.DEFAULT_P_MIN
         p_max = max(model.get("p_max") or p_min * 3, p_min)

@@ -12,6 +12,16 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.25] - 2026-10-25
+
+### Fixed
+- **Floor control: the thermostat switched off means no heating, also in
+  the stage "full".** Up to now ESS Manager kept heating on the
+  thermostat's temperature when its mode was set to off. Now the heat pump
+  goes back to the thermostat (heat demand follows its helper, which is
+  off) and the return setpoint returns to its old value; the Floor tab
+  says it waits for the thermostat to be switched on again.
+
 ## [2026.10.24] - 2026-10-24
 
 ### Fixed

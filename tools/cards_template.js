@@ -144,7 +144,7 @@ const I18N = {
     fl_wait_emission: (n, need) => `the floor's heat output: ${n} of ${need} running hours`,
     fl_wait_emission_err: (e) => `the floor's heat output fits better (now ${e} % off)`,
     fl_wait_response: (n, need) => `the heat pump following the setpoint: ${n} of ${need} running hours`,
-    fl_wait_house: "the house model's self-check (Indoor tab)",
+    fl_wait_house: "the house model's self-check (Indoor tab)", fl_wait_thermostat_off: "the thermostat switched on again (it's off: no heating)",
     fl_u_t: "Floor output", fl_u_unit: "kW per °C", fl_p_t: "Heat pump", fl_p_unit: "kW min - max", fl_delta_t: "Supply - return",
     fl_sp_t: "Return setpoint", fl_sp_unit: "planned / now", fl_debt_t: "Heat owed", fl_slab_t: "Floor", fl_slab_unit: "in the screed",
     fl_would: (on, why) => `${on ? "Would heat now" : "Wouldn't heat now"} - ${why}`,
@@ -290,7 +290,7 @@ const I18N = {
     fl_wait_emission: (n, need) => `de warmteafgifte van de vloer: ${n} van ${need} draaiuren`,
     fl_wait_emission_err: (e) => `een betere fit van de warmteafgifte (nu ${e} % ernaast)`,
     fl_wait_response: (n, need) => `de warmtepomp die het setpoint volgt: ${n} van ${need} draaiuren`,
-    fl_wait_house: "de zelfcontrole van het huismodel (tabblad Binnen)",
+    fl_wait_house: "de zelfcontrole van het huismodel (tabblad Binnen)", fl_wait_thermostat_off: "de thermostaat weer aan (hij staat uit: niet stoken)",
     fl_u_t: "Afgifte vloer", fl_u_unit: "kW per °C", fl_p_t: "Warmtepomp", fl_p_unit: "kW min - max", fl_delta_t: "Aanvoer - retour",
     fl_sp_t: "Retoursetpoint", fl_sp_unit: "gepland / nu", fl_debt_t: "Warmte te goed", fl_slab_t: "Vloer", fl_slab_unit: "in de dekvloer",
     fl_would: (on, why) => `${on ? "Zou nu stoken" : "Zou nu niet stoken"} - ${why}`,
@@ -2874,6 +2874,7 @@ class EssManagerHeatPumpCard extends EssChartCard {
       else if (w === "emission") waits.push((m.n || 0) >= (fl.min_hours || 30) && m.err != null ? this._t("fl_wait_emission_err")(Math.round(m.err * 100)) : this._t("fl_wait_emission")(m.n || 0, fl.min_hours || 30));
       else if (w === "response") waits.push(this._t("fl_wait_response")((fl.response || {}).n || 0, (fl.response || {}).min_hours || 24));
       else if (w === "house") waits.push(this._t("fl_wait_house"));
+      else if (w === "thermostat_off") waits.push(this._t("fl_wait_thermostat_off"));
     }
     if (waits.length && mode !== stage) html += `<div class="hp-note">${esc(this._t("fl_waits"))}: ${waits.map(esc).join(" · ")}</div>`;
 
