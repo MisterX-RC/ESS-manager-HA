@@ -29,6 +29,7 @@ from . import heatpump_house
 from . import accuracy
 from .accuracy_runtime import AccuracyRuntime
 from .problems import ProblemTracker, below_minimum
+from . import floor_control as fc
 from .const import (
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_VOLTAGE_ENTITY,
@@ -48,6 +49,16 @@ from .const import (
     DEFAULT_NIGHT_CHARGE_SPEED_KW,
     DEFAULT_NIGHT_DISCHARGE_SPEED_KW,
     CONF_HP_BUFFER_ENABLED,
+    CONF_FLOOR_DEMAND_ENTITY,
+    CONF_FLOOR_ENABLED,
+    CONF_FLOOR_HELPER_ENTITY,
+    CONF_FLOOR_POWER_ENTITY,
+    CONF_FLOOR_PUMP_ENTITY,
+    CONF_FLOOR_RETURN_ENTITY,
+    CONF_FLOOR_SETPOINT_ENTITY,
+    CONF_FLOOR_SLAB_ENTITY,
+    CONF_FLOOR_SUPPLY_ENTITY,
+    FLOOR_REQUIRED,
     CONF_HP_HOURLY_ENABLED,
     HP_STEERING_PLAN,
     NUM_HP_DAY_TEMP,
@@ -224,6 +235,13 @@ def _efficiency(percent: Any) -> float:
     return min(max(value, 50.0), 100.0) / 100.0
 
 
+def _float_or(value: Any, default: float) -> float:
+    try:
+        return float(value) if value is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
 def _get_float_state(
     hass: HomeAssistant, entity_id: Optional[str], default: Optional[float] = 0.0
 ) -> Optional[float]:
@@ -332,6 +350,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.acc = AccuracyRuntime()
         # Problem notices in Settings > Repairs (as of 2026.10.23) - problems.py.
         self.problems = ProblemTracker(hass, entry)
+        # Floor control (as of 2026.10.23) - floor_control.py; the "Floor
+        # control" select on the heat pump card sets floor_mode.
+        self.floor = fc.FloorRuntime()
+        self.floor_mode = fc.MODE_WATCH
+        self.floor_mode_entity_id: Optional[str] = None
         self.auto_buffer_on = False
         self.auto_buffer_entity_id: Optional[str] = None
         self.hp_steering_entity: Any = None
@@ -454,6 +477,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.ev.restore(data.get("ev"))
             self.hp.restore(data.get("hp"))
             self.acc.restore(data.get("accuracy"))
+            self.floor.restore(data.get("floor"))
             if "solar_mode" not in data:
                 # stored by a version from before 2026.10.8: take it from
                 # the Solar mode sensor's history, once
@@ -513,6 +537,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "ev": self.ev.as_store(),
                 "hp": self.hp.as_store(),
                 "accuracy": self.acc.as_store(),
+                "floor": self.floor.as_store(),
             }
         )
 
@@ -807,6 +832,205 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.info("ESS Manager (%s): steering - thermostat %.1f -> %.1f", self.entry.title, current, desired)
         steer["last_set"] = desired
 
+    # -- floor control (as of 2026.10.23) -------------------------------------------
+    def floor_configured(self, conf: Optional[dict[str, Any]] = None) -> bool:
+        conf = conf if conf is not None else {**self.entry.data, **self.entry.options}
+        return bool(
+            conf.get(CONF_HP_ENABLED) and conf.get(CONF_FLOOR_ENABLED)
+            and (conf.get(CONF_HP_SETPOINT_ENTITY) or "").startswith("climate.")
+            and all(conf.get(k) for k in FLOOR_REQUIRED)
+        )
+
+    def _temp_state(self, entity_id: Optional[str]) -> Optional[float]:
+        value = _get_float_state(self.hass, entity_id, default=None) if entity_id else None
+        if value is not None:
+            st = self.hass.states.get(entity_id)
+            if st and st.attributes.get("unit_of_measurement") == "\u00b0F":
+                value = (value - 32) / 1.8
+        return value
+
+    def _is_on(self, entity_id: Optional[str]) -> Optional[bool]:
+        st = self.hass.states.get(entity_id) if entity_id else None
+        if st is None or st.state not in ("on", "off"):
+            return None
+        return st.state == "on"
+
+    async def _async_floor_switch(self, entity_id: str, on: bool) -> None:
+        domain = entity_id.split(".", 1)[0]
+        await self.hass.services.async_call(domain, "turn_on" if on else "turn_off", {"entity_id": entity_id}, blocking=True)
+
+    async def _async_floor_setpoint(self, entity_id: str, value: float) -> None:
+        domain = entity_id.split(".", 1)[0]
+        await self.hass.services.async_call(domain, "set_value", {"entity_id": entity_id, "value": value}, blocking=True)
+
+    async def async_floor_release(self, conf: Optional[dict[str, Any]] = None) -> None:
+        """Hand the heat pump back: the return setpoint as it was before ESS
+        Manager took over, heat demand as the thermostat wants it."""
+        conf = conf if conf is not None else {**self.entry.data, **self.entry.options}
+        stage = self.floor.stage
+        if stage in (fc.MODE_SETPOINT, fc.MODE_FULL) and self.floor.baseline_sp is not None and conf.get(CONF_FLOOR_SETPOINT_ENTITY):
+            try:
+                await self._async_floor_setpoint(conf[CONF_FLOOR_SETPOINT_ENTITY], self.floor.baseline_sp)
+            except Exception as err:  # noqa: BLE001 - best effort
+                _LOGGER.warning("ESS Manager (%s): return setpoint not restored: %s", self.entry.title, err)
+        if stage == fc.MODE_FULL and conf.get(CONF_FLOOR_DEMAND_ENTITY):
+            helper = self._is_on(conf.get(CONF_FLOOR_HELPER_ENTITY))
+            if helper is not None:
+                try:
+                    await self._async_floor_switch(conf[CONF_FLOOR_DEMAND_ENTITY], helper)
+                except Exception as err:  # noqa: BLE001 - best effort
+                    _LOGGER.warning("ESS Manager (%s): heat demand not handed back: %s", self.entry.title, err)
+        if stage != fc.MODE_WATCH:
+            _LOGGER.info("ESS Manager (%s): floor control - heat pump handed back to the thermostat", self.entry.title)
+        self.floor.stage = fc.MODE_WATCH
+        self.floor.baseline_sp = None
+        self.floor.setpoint_since = None
+
+    def _floor_targets(self, conf: dict[str, Any], hour0: int, setpoint: Optional[float], attribute: dict[str, Any]) -> Optional[list[float]]:
+        """The wanted temperature per hour for floor control: the thermostat's
+        setpoint (what's set there by hand counts), with steering on the
+        day/night temperatures and buffer plan from the hour-by-hour model
+        (after a change by hand from the next day/night switch on)."""
+        if setpoint is None:
+            return None
+        n = 24
+        fc_target = ((attribute.get("house_model") or {}).get("forecast") or {}).get("target") or []
+        if not self.hp_steering_active(conf) or len(fc_target) < 2:
+            return [setpoint] * n
+        override = self.hp.steer.get("override_until")
+        if override and override > hour0:
+            k = min(max(int((override - hour0) // 3600), 1), n)
+            return ([setpoint] * k + list(fc_target[k:n]) + [fc_target[-1]] * n)[:n]
+        return ([setpoint] + list(fc_target[1:n]) + [fc_target[-1]] * n)[:n]
+
+    async def _async_floor(
+        self, conf: dict[str, Any], now: datetime, hour0: int, indoor: Optional[float], hourly: list,
+        setpoint: Optional[float], attribute: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        """One cycle of floor control - see floor_control.py."""
+        if not self.floor_configured(conf):
+            if self.floor.stage != fc.MODE_WATCH:
+                await self.async_floor_release(conf)
+            return None
+        now_ts = now.timestamp()
+        sp_id = conf[CONF_FLOOR_SETPOINT_ENTITY]
+        sp_state = self.hass.states.get(sp_id)
+        sp_actual = _get_float_state(self.hass, sp_id, default=None)
+        readings = {
+            "pump": _get_float_state(self.hass, conf.get(CONF_FLOOR_PUMP_ENTITY), default=None),
+            "t_sup": self._temp_state(conf.get(CONF_FLOOR_SUPPLY_ENTITY)),
+            "t_ret": self._temp_state(conf.get(CONF_FLOOR_RETURN_ENTITY)),
+            "t_room": indoor,
+            "t_slab": self._temp_state(conf.get(CONF_FLOOR_SLAB_ENTITY)),
+            "p_th": _state_in_unit(self.hass, conf.get(CONF_FLOOR_POWER_ENTITY), ("W",), 0.001),
+            "sp": sp_actual,
+        }
+        demand_id = conf[CONF_FLOOR_DEMAND_ENTITY]
+        demand_on = self._is_on(demand_id)
+        helper_on = self._is_on(conf.get(CONF_FLOOR_HELPER_ENTITY))
+        floor = self.floor
+        floor.refit(now_ts)
+        model = floor.model or {}
+        cop = floor.cop_ratio(self.hp.heat_hist)
+        targets = self._floor_targets(conf, hour0, setpoint, attribute)
+        plan = self.hp.plan_heat(hour0, indoor, hourly, targets, cop) if targets else None
+        plan_kw = plan["q_th"][0] if plan and plan["q_th"] else None
+        house = self.hp.house or {}
+        house_ok = bool((house.get("review") or {}).get("passed")) and bool(house.get("model"))
+        response = fc.response_check(floor.records, floor.setpoint_since)
+        inputs_ok = (
+            all(readings[k] is not None for k in ("pump", "t_sup", "t_ret", "t_room", "p_th", "sp"))
+            and demand_on is not None and helper_on is not None and plan_kw is not None
+        )
+        stage, waiting = fc.effective_stage(self.floor_mode, bool(model.get("ok")), response["ok"], house_ok, inputs_ok)
+
+        p_min = model.get("p_min") or fc.DEFAULT_P_MIN
+        p_max = max(model.get("p_max") or p_min * 3, p_min)
+        prev = floor.stage
+        if stage == fc.MODE_FULL and prev != fc.MODE_FULL:
+            # start from what the heat pump does now
+            floor.ctl.update({"on": bool(demand_on), "since": now_ts, "debt": 0.0})
+        step = fc.control_step(floor.ctl, now_ts, plan_kw or 0.0, readings["p_th"] or 0.0, indoor, setpoint, p_min, p_max)
+
+        # the return setpoint: the target power while running (full), the
+        # planned power while the thermostat switches (setpoint stage)
+        if stage == fc.MODE_FULL:
+            p_sp = step["p_target"] if step["on"] else min(max(plan_kw or 0.0, p_min), p_max)
+        else:
+            p_sp = min(max(plan_kw or 0.0, p_min), p_max)
+        # the room lagging behind: more power (full at 1.2 degC too cold)
+        p_sp = fc.comfort_power(p_sp, indoor, setpoint, p_min, p_max)
+        lo, hi = fc.SP_LIMITS
+        if sp_state is not None:
+            lo = max(lo, _float_or(sp_state.attributes.get("min"), lo))
+            hi = min(hi, _float_or(sp_state.attributes.get("max"), hi))
+        sp_step = _float_or(sp_state.attributes.get("step"), 0.5) if sp_state is not None else 0.5
+        t_ref = readings["t_slab"] if model.get("slab") and readings["t_slab"] is not None else indoor
+        sp_planned = fc.return_setpoint(model, p_sp, t_ref, lo, hi, sp_step) if t_ref is not None else None
+        # a COMFORT_BAND too cold: never below the setpoint the heat pump had before
+        if (sp_planned is not None and floor.baseline_sp is not None and indoor is not None and setpoint is not None
+                and setpoint - indoor >= fc.COMFORT_BAND):
+            sp_planned = max(sp_planned, floor.baseline_sp)
+
+        # stage changes
+        if stage in (fc.MODE_SETPOINT, fc.MODE_FULL) and prev == fc.MODE_WATCH:
+            floor.baseline_sp = sp_actual
+            floor.setpoint_since = floor.setpoint_since or now_ts
+            _LOGGER.info("ESS Manager (%s): floor control - %s (return setpoint was %s)", self.entry.title, stage, sp_actual)
+        if stage == fc.MODE_WATCH and prev != fc.MODE_WATCH:
+            await self.async_floor_release(conf)
+            prev = fc.MODE_WATCH
+        elif prev == fc.MODE_FULL and stage == fc.MODE_SETPOINT and helper_on is not None and demand_on != helper_on:
+            await self._async_floor_switch(demand_id, helper_on)
+            _LOGGER.info("ESS Manager (%s): floor control - heat demand back to the thermostat", self.entry.title)
+        floor.stage = stage
+
+        # what's sent
+        if stage in (fc.MODE_SETPOINT, fc.MODE_FULL) and sp_planned is not None and sp_actual is not None:
+            due = now_ts - floor.last_sp_ts >= fc.SP_WRITE_EVERY_S or prev == fc.MODE_WATCH
+            if abs(sp_planned - sp_actual) >= sp_step / 2 and due:
+                await self._async_floor_setpoint(sp_id, sp_planned)
+                floor.last_sp_ts = now_ts
+                floor.last_sp = sp_planned
+        if stage == fc.MODE_FULL and demand_on is not None and demand_on != step["on"]:
+            await self._async_floor_switch(demand_id, step["on"])
+            _LOGGER.info("ESS Manager (%s): floor control - heat demand %s (%s)", self.entry.title,
+                         "on" if step["on"] else "off", step["reason"])
+
+        p_rec = p_sp if stage in (fc.MODE_SETPOINT, fc.MODE_FULL) and readings["pump"] is not None else None
+        floor.sample(now_ts, readings, p_rec, plan_kw)
+
+        # for the card: the next 12 hours as planned, the last 24 as measured
+        nxt = []
+        if plan:
+            for i, q in enumerate(plan["q_th"][:12]):
+                sp_i = fc.return_setpoint(model, min(max(q, p_min), p_max), t_ref, lo, hi, sp_step) if (t_ref is not None and q > 0.05) else None
+                nxt.append({"h": hour0 + i * 3600, "kwh": q, "sp": sp_i, "temp": plan["temps"][i + 1] if i + 1 < len(plan["temps"]) else None})
+        recent = [
+            {k: r.get(k) for k in ("h", "th_kwh", "plan_kwh", "sp", "run_s", "room", "slab")}
+            for r in floor.records if r["h"] >= hour0 - 24 * 3600
+        ]
+        return {
+            "mode": self.floor_mode,
+            "stage": stage,
+            "waiting": waiting,
+            "model": {k: model.get(k) for k in ("u", "delta", "p_min", "p_max", "n", "err", "ok", "slab")},
+            "min_hours": fc.MIN_EMIT_HOURS,
+            "response": {**response, "min_hours": fc.MIN_RESPONSE_HOURS},
+            "house_ok": house_ok,
+            "cop": cop,
+            "now": {
+                "plan_kw": plan_kw, "p_target": step["p_target"], "would_heat": step["on"], "reason": step["reason"],
+                "debt_kwh": step["debt"], "demand_on": demand_on, "thermostat_on": helper_on,
+                "sp": sp_actual, "sp_planned": sp_planned, "baseline_sp": floor.baseline_sp,
+                **{k: readings[k] for k in ("pump", "t_sup", "t_ret", "t_slab", "p_th")},
+                "target": setpoint, "room": indoor,
+            },
+            "next": nxt,
+            "recent": recent,
+            "select": self.floor_mode_entity_id,
+        }
+
     async def _async_set_climate(self, entity_id: str, temperature: float) -> None:
         await self.hass.services.async_call(
             "climate", "set_temperature", {"entity_id": entity_id, "temperature": temperature}, blocking=True
@@ -942,6 +1166,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if "house_model" in attribute:
             attribute["house_model"]["steer"] = dict(self.hp.steer)
             attribute["house_model"]["controls"] = self._hp_controls()
+        try:
+            attribute["floor"] = await self._async_floor(conf, now, hour0, indoor, hourly, setpoint, attribute)
+        except Exception as err:  # noqa: BLE001 - floor control must never stop the planning
+            _LOGGER.warning("ESS Manager (%s): floor control skipped this cycle: %s", self.entry.title, err)
         return total, attribute
 
     # -- usage forecast sources ---------------------------------------------------

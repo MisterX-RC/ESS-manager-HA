@@ -618,6 +618,94 @@ The model is on the Status sensor's `heat_pump` attribute and on its own
 diagnostic sensor **Heat pump model** (state active / learning / summer /
 fallback, attributes the figures), hidden while the heat pump is off.
 
+### Floor control
+
+*(as of 2026.10.23)* With a thermostat the heat pump runs until the room
+reaches its setpoint - by then the floor still holds a few hours of heat
+that comes out afterwards, and the room overshoots. With floor control ESS
+Manager heats the floor itself: the hour-by-hour house model plans the heat
+per hour that keeps the room on its wanted temperature (easing off before
+the room is there, because it knows the floor keeps giving), and that heat
+becomes
+
+- a **return setpoint** for the heat pump: the floor gives off heat in
+  proportion to the mean water temperature above the room (or above the
+  screed, with a floor sensor). How much - kW per °C - ESS Manager learns
+  from the supply and return temperatures, the room and the heat pump's
+  thermal power. Little heat needed: a low setpoint and a better COP;
+- **heat demand** on/off: on when the heat owed (planned minus delivered)
+  is worth a run, off once it's in - at least 45 minutes on and 20 off for
+  the compressor, and always on more than 1 °C too cold / off more than
+  1 °C too warm (1.5 °C: even within those times). A safety net for a floor
+  that gives off less than learned: from 0.2 °C too cold the power goes up
+  (full at 1.2 °C), and 1 °C too cold the return setpoint never goes below
+  the one the heat pump had before.
+
+**Three stages**, chosen on the heat pump card (tab **Floor**, or the
+select **Floor control**), each only running once the one before has
+proven itself:
+
+| Stage | What happens | Runs once |
+|---|---|---|
+| Watch (default) | nothing changes: the thermostat switches, the return setpoint stays; ESS Manager learns and shows what it would do | - |
+| Return setpoint | ESS Manager sets the return setpoint by the planned heat, the thermostat still switches heat demand | the floor's heat output is learned: 30 settled running hours, at most 25 % off on the newest hours |
+| Full | ESS Manager also switches heat demand; the thermostat is only where the wanted temperature is set | the heat pump delivered the target power within 30 % for 24 running hours in the return setpoint stage, and the house model passed its self-check |
+
+The supply and return sensors sit in the heat pump: with the circulation
+pump stopped they warm up from the cabinet, so only samples with the pump
+running (and settled for 10 minutes) count. A **floor sensor** in the
+screed (optional, between two pipes, about half way down) is used as the
+reference instead of the room once most running hours have it.
+
+**Setting it up:**
+
+1. Let your `generic_thermostat` switch a helper instead of the heat
+   pump - create an `input_boolean` (e.g. `input_boolean.thermostat_heat_demand`)
+   and make it the thermostat's `heater`. The thermostat stays exactly as it
+   is on your dashboard: that's where you (or anyone at home) set the wanted
+   temperature, also a temporary raise.
+2. Add the fallback automation: it copies the helper to the heat pump's heat
+   demand whenever ESS Manager isn't in the stage *full* - also when ESS
+   Manager is stopped (the stage sensor then is unavailable):
+
+   ```yaml
+   automation:
+     - alias: "Heat demand: thermostat to the heat pump (when ESS Manager doesn't switch)"
+       mode: queued
+       trigger:
+         - trigger: state
+           entity_id: input_boolean.thermostat_heat_demand
+         - trigger: state
+           entity_id: sensor.thuis_floor_control_stage
+         - trigger: homeassistant
+           event: start
+       condition:
+         - condition: not
+           conditions:
+             - condition: state
+               entity_id: sensor.thuis_floor_control_stage
+               state: "full"
+       action:
+         - action: "switch.turn_{{ 'on' if is_state('input_boolean.thermostat_heat_demand', 'on') else 'off' }}"
+           target:
+             entity_id: switch.qube_heat_demand
+   ```
+
+   (your own entity ids: the helper, ESS Manager's *Floor control stage*
+   sensor and the heat pump's heat demand switch).
+3. Configure > the heat pump page: switch on **Floor control** (needs step 1
+   and the thermostat as the wanted temperature); the next page asks for the
+   return setpoint, the heat demand switch, the thermostat's helper, the
+   supply / return temperatures, the circulation pump (%), the thermal power
+   and optionally the floor sensor.
+
+Going back to a lower stage, switching the select back, unloading ESS
+Manager or stopping Home Assistant hands the heat pump back: the return
+setpoint as it was before ESS Manager took over, heat demand as the
+thermostat wants it. With steering on, the day/night temperatures and the
+buffer are still written to the thermostat, so its card always shows the
+wanted temperature; a change by hand counts until the next day/night switch.
+
 ## Forecast check
 
 *(as of 2026.10.22)* How good were the forecasts, and how big does the

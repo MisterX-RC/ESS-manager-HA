@@ -134,6 +134,25 @@ const I18N = {
     hp_hold_t: "Heat held", hp_hold_unit: "per °C indoor", hp_cooling_t: "Cooling", hp_cooling_unit: "at 10 °C difference, not heating",
     hp_tau: (h) => `time constant ${h} h`, hp_thermal_learning: "House cooling not learned yet: it needs hours in which the heat pump didn't heat (from the indoor sensor's statistics, or what has been recorded of the thermostat's temperature).",
     ed_hp_color: "Heat pump", ed_fc_color: "Accent",
+    // heat pump card, floor tab (2026.10.23)
+    hp_tab_floor: "Floor", fl_mode: "Floor control", fl_mode_watch: "Watch", fl_mode_setpoint: "Return setpoint", fl_mode_full: "Full",
+    fl_stage_watch: "Watching along: the thermostat switches, ESS Manager learns the floor",
+    fl_stage_setpoint: "ESS Manager sets the return setpoint, the thermostat switches heat demand",
+    fl_stage_full: "ESS Manager heats the floor: return setpoint and heat demand",
+    fl_waits: "A higher stage waits for", fl_wait_inputs: "a sensor, the thermostat helper or the house model's heat plan",
+    fl_wait_emission: (n, need) => `the floor's heat output: ${n} of ${need} running hours`,
+    fl_wait_emission_err: (e) => `the floor's heat output fits better (now ${e} % off)`,
+    fl_wait_response: (n, need) => `the heat pump following the setpoint: ${n} of ${need} running hours`,
+    fl_wait_house: "the house model's self-check (Indoor tab)",
+    fl_u_t: "Floor output", fl_u_unit: "kW per °C", fl_p_t: "Heat pump", fl_p_unit: "kW min - max", fl_delta_t: "Supply - return",
+    fl_sp_t: "Return setpoint", fl_sp_unit: "planned / now", fl_debt_t: "Heat owed", fl_slab_t: "Floor", fl_slab_unit: "in the screed",
+    fl_would: (on, why) => `${on ? "Would heat now" : "Wouldn't heat now"} - ${why}`,
+    fl_is: (on, why) => `${on ? "Heating" : "Not heating"} - ${why}`,
+    fl_r_heat_owed: "heat owed", fl_r_running: "heat still owed", fl_r_delivered: "the planned heat is in", fl_r_too_warm: "room too warm",
+    fl_r_too_cold: "room too cold", fl_r_idle: "no heat owed",
+    fl_delivered: "heat delivered", fl_planned: "heat planned", fl_sp_actual: "return setpoint", fl_sp_plan: "planned return setpoint",
+    fl_note: "Heat in thermal kWh per hour. The supply and return temperatures only count with the circulation pump running.",
+    fl_learned: (n, e) => `Floor output learned from ${n} running hours, ${e} % off on the newest hours.`,
     // forecast check card (2026.10.22)
     fc_title: "Forecast check", fc_sub: (n) => `last ${n} days`, fc_head_sub: "usage error per day",
     fc_tab_overview: "Overview", fc_tab_days: "Per day", fc_tab_methods: "Methods",
@@ -261,6 +280,24 @@ const I18N = {
     hp_hold_t: "Warmte vasthouden", hp_hold_unit: "per °C binnen", hp_cooling_t: "Afkoelen", hp_cooling_unit: "bij 10 °C verschil, zonder stoken",
     hp_tau: (h) => `tijdconstante ${h} uur`, hp_thermal_learning: "Afkoelsnelheid van het huis nog niet geleerd: daar zijn uren voor nodig waarin de warmtepomp niet stookte (uit de statistieken van de binnensensor, of wat er van de temperatuur van de thermostaat is bijgehouden).",
     ed_hp_color: "Warmtepomp", ed_fc_color: "Accent",
+    hp_tab_floor: "Vloer", fl_mode: "Vloersturing", fl_mode_watch: "Meekijken", fl_mode_setpoint: "Retoursetpoint", fl_mode_full: "Volledig",
+    fl_stage_watch: "Meekijken: de thermostaat schakelt, ESS Manager leert de vloer",
+    fl_stage_setpoint: "ESS Manager zet het retoursetpoint, de thermostaat schakelt de warmtevraag",
+    fl_stage_full: "ESS Manager stookt de vloer: retoursetpoint en warmtevraag",
+    fl_waits: "Een hogere stap wacht op", fl_wait_inputs: "een sensor, de hulpschakelaar van de thermostaat of het warmteplan van het huismodel",
+    fl_wait_emission: (n, need) => `de warmteafgifte van de vloer: ${n} van ${need} draaiuren`,
+    fl_wait_emission_err: (e) => `een betere fit van de warmteafgifte (nu ${e} % ernaast)`,
+    fl_wait_response: (n, need) => `de warmtepomp die het setpoint volgt: ${n} van ${need} draaiuren`,
+    fl_wait_house: "de zelfcontrole van het huismodel (tabblad Binnen)",
+    fl_u_t: "Afgifte vloer", fl_u_unit: "kW per °C", fl_p_t: "Warmtepomp", fl_p_unit: "kW min - max", fl_delta_t: "Aanvoer - retour",
+    fl_sp_t: "Retoursetpoint", fl_sp_unit: "gepland / nu", fl_debt_t: "Warmte te goed", fl_slab_t: "Vloer", fl_slab_unit: "in de dekvloer",
+    fl_would: (on, why) => `${on ? "Zou nu stoken" : "Zou nu niet stoken"} - ${why}`,
+    fl_is: (on, why) => `${on ? "Stookt" : "Stookt niet"} - ${why}`,
+    fl_r_heat_owed: "warmte te goed", fl_r_running: "nog warmte te goed", fl_r_delivered: "de geplande warmte zit erin", fl_r_too_warm: "kamer te warm",
+    fl_r_too_cold: "kamer te koud", fl_r_idle: "geen warmte te goed",
+    fl_delivered: "warmte geleverd", fl_planned: "warmte gepland", fl_sp_actual: "retoursetpoint", fl_sp_plan: "gepland retoursetpoint",
+    fl_note: "Warmte in thermische kWh per uur. De aanvoer- en retourtemperatuur tellen alleen als de circulatiepomp draait.",
+    fl_learned: (n, e) => `Afgifte vloer geleerd uit ${n} draaiuren, ${e} % ernaast op de nieuwste uren.`,
     fc_title: "Prognose-check", fc_sub: (n) => `laatste ${n} dagen`, fc_head_sub: "afwijking verbruik per dag",
     fc_tab_overview: "Overzicht", fc_tab_days: "Per dag", fc_tab_methods: "Methodes",
     fc_usage: "Verbruik", fc_solar: "Zon", fc_per_day: "kWh/dag", fc_forecast: (v) => `voorspeld ${v}`,
@@ -2772,10 +2809,12 @@ class EssManagerHeatPumpCard extends EssChartCard {
         <button type="button" role="tab" data-tab="signature" aria-selected="${tab === "signature"}">${esc(this._t("hp_tab_signature"))}</button>
         <button type="button" role="tab" data-tab="memory" aria-selected="${tab === "memory"}">${esc(this._t("hp_tab_memory"))}</button>
         ${hp.house_model ? `<button type="button" role="tab" data-tab="indoor" aria-selected="${tab === "indoor"}">${esc(this._t("hp_tab_indoor"))}</button>` : ""}
+        ${hp.floor ? `<button type="button" role="tab" data-tab="floor" aria-selected="${tab === "floor"}">${esc(this._t("hp_tab_floor"))}</button>` : ""}
       </div>`;
     if (tab === "signature") html += this._signature(hp, opt);
     else if (tab === "memory") html += this._memory(hp);
     else if (tab === "indoor" && hp.house_model) html += this._indoor(hp, opt);
+    else if (tab === "floor" && hp.floor) html += this._floor(hp.floor, opt);
     else html += this._forecast(hp, opt);
     if (setCardContent(this, css, html)) {
       this.shadowRoot.querySelectorAll("[data-tab]").forEach((el) =>
@@ -2802,7 +2841,94 @@ class EssManagerHeatPumpCard extends EssChartCard {
           this._hass.callService("switch", "toggle", { entity_id: el.getAttribute("data-toggle") });
         })
       );
+      // floor control's stage (2026.10.23)
+      this.shadowRoot.querySelectorAll("[data-select]").forEach((el) =>
+        el.addEventListener("click", () => {
+          this._hass.callService("select", "select_option", { entity_id: el.getAttribute("data-select"), option: el.getAttribute("data-option") });
+        })
+      );
     }
+  }
+
+  _floor(fl, opt) {
+    // floor control (2026.10.23): stage, what it waits for, the floor's figures, heat per hour
+    const f = formats(this._hass);
+    const n = fl.now || {};
+    const m = fl.model || {};
+    const stage = fl.stage || "watch";
+    const why = this._t("fl_r_" + (n.reason || "idle"));
+    let html = `<div class="hp-banner${stage !== "watch" ? " house" : ""}">${icon("home", "var(--hp)", 18)}<div><b>${esc(this._t("fl_stage_" + stage))}</b>`;
+    html += `<br>${esc(stage === "full" ? this._t("fl_is")(!!n.demand_on, why) : this._t("fl_would")(!!n.would_heat, why))}</div></div>`;
+    const selState = fl.select ? this._hass.states[fl.select] : null;
+    const mode = selState ? selState.state : fl.mode;
+    if (selState) {
+      html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><b>${esc(this._t("fl_mode"))}</b></div>
+        <div class="hp-tabs" role="group">${["watch", "setpoint", "full"].map((k) => `<button type="button" data-select="${esc(fl.select)}" data-option="${k}" aria-selected="${mode === k}">${esc(this._t("fl_mode_" + k))}</button>`).join("")}</div>`;
+    }
+    const waits = [];
+    for (const w of fl.waiting || []) {
+      if (w === "inputs") waits.push(this._t("fl_wait_inputs"));
+      else if (w === "emission") waits.push((m.n || 0) >= (fl.min_hours || 30) && m.err != null ? this._t("fl_wait_emission_err")(Math.round(m.err * 100)) : this._t("fl_wait_emission")(m.n || 0, fl.min_hours || 30));
+      else if (w === "response") waits.push(this._t("fl_wait_response")((fl.response || {}).n || 0, (fl.response || {}).min_hours || 24));
+      else if (w === "house") waits.push(this._t("fl_wait_house"));
+    }
+    if (waits.length && mode !== stage) html += `<div class="hp-note">${esc(this._t("fl_waits"))}: ${waits.map(esc).join(" · ")}</div>`;
+
+    // the chart: heat per hour (last 24 h measured, next 12 h planned) and the return setpoint
+    const recent = fl.recent || [];
+    const next = fl.next || [];
+    if (recent.length || next.length) {
+      const w = this._chartWidth();
+      const h = 200;
+      const left = 30, right = 34, top = 10, bottom = 24;
+      const hours = recent.map((r) => r.h * 1000).concat(next.map((r) => r.h * 1000));
+      const xMin = Math.min(...hours), xMax = Math.max(...hours) + 3600000;
+      const X = (t) => left + ((t - xMin) / Math.max(xMax - xMin, 1)) * (w - left - right);
+      const qTop = Math.max(1, ...recent.map((r) => Math.max(r.th_kwh || 0, r.plan_kwh || 0)), ...next.map((r) => r.kwh || 0));
+      const qMax = qTop * 1.1;
+      const QY = (q) => h - bottom - (q / qMax) * (h - top - bottom);
+      const sps = recent.map((r) => r.sp).concat(next.map((r) => r.sp)).filter((v) => v != null);
+      const sMin = sps.length ? Math.floor(Math.min(...sps) - 1) : 20;
+      const sMax = sps.length ? Math.ceil(Math.max(...sps) + 1) : 30;
+      const SY = (v) => top + (1 - (v - sMin) / Math.max(sMax - sMin, 0.1)) * (h - top - bottom);
+      const bw = Math.max(2, (w - left - right) / Math.max((xMax - xMin) / 3600000, 1));
+      let svg = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block">`;
+      for (let i = 0; i <= 2; i++) {
+        const q = (qTop * i) / 2;
+        svg += `<line x1="${left}" y1="${QY(q).toFixed(1)}" x2="${w - right}" y2="${QY(q).toFixed(1)}" stroke="rgba(127,127,127,.18)"></line><text x="${left - 5}" y="${(QY(q) + 4).toFixed(1)}" text-anchor="end">${this._num(q, 1)}</text>`;
+      }
+      for (const r of recent) {
+        const x = X(r.h * 1000) + 1;
+        if (r.plan_kwh) svg += `<rect x="${x.toFixed(1)}" y="${QY(r.plan_kwh).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${(h - bottom - QY(r.plan_kwh)).toFixed(1)}" fill="none" stroke="rgba(170,170,170,.9)" stroke-dasharray="3 2"></rect>`;
+        if (r.th_kwh) svg += `<rect x="${(x + bw * 0.2).toFixed(1)}" y="${QY(r.th_kwh).toFixed(1)}" width="${Math.max(bw * 0.6 - 2, 1).toFixed(1)}" height="${(h - bottom - QY(r.th_kwh)).toFixed(1)}" fill="${opt.hp_color}" fill-opacity=".85"><title>${esc(f.time(r.h * 1000))}: ${esc(this._num(r.th_kwh, 2))} / ${esc(this._num(r.plan_kwh || 0, 2))} kWh</title></rect>`;
+      }
+      for (const r of next) {
+        if (!r.kwh) continue;
+        svg += `<rect x="${(X(r.h * 1000) + 1).toFixed(1)}" y="${QY(r.kwh).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${(h - bottom - QY(r.kwh)).toFixed(1)}" fill="${opt.hp_color}" fill-opacity=".3"><title>${esc(f.time(r.h * 1000))}: ${esc(this._num(r.kwh, 2))} kWh</title></rect>`;
+      }
+      const line = (pts) => pts.map(([t, v], i) => `${i ? "L" : "M"} ${X(t).toFixed(1)} ${SY(v).toFixed(1)}`).join(" ");
+      const spPast = recent.filter((r) => r.sp != null).map((r) => [r.h * 1000 + 1800000, r.sp]);
+      const spNext = next.filter((r) => r.sp != null).map((r) => [r.h * 1000 + 1800000, r.sp]);
+      if (spPast.length > 1) svg += `<path d="${line(spPast)}" fill="none" stroke="var(--primary-text-color,#f0f0f0)" stroke-width="1.6"></path>`;
+      if (spNext.length > 1) svg += `<path d="${line(spNext)}" fill="none" stroke="var(--primary-text-color,#f0f0f0)" stroke-width="1.6" stroke-dasharray="4 4"></path>`;
+      svg += `<text x="${w - right + 4}" y="${(SY(sMax) + 4).toFixed(1)}" text-anchor="start">${sMax}°</text><text x="${w - right + 4}" y="${(SY(sMin) + 4).toFixed(1)}" text-anchor="start">${sMin}°</text>`;
+      if (next.length) svg += `<line x1="${X(next[0].h * 1000).toFixed(1)}" y1="${top}" x2="${X(next[0].h * 1000).toFixed(1)}" y2="${h - bottom}" stroke="rgba(127,127,127,.6)"></line>`;
+      for (let t = Math.ceil(xMin / 21600000) * 21600000; t <= xMax; t += 21600000) svg += `<text x="${X(t).toFixed(1)}" y="${h - 6}" text-anchor="middle">${esc(f.time(t))}</text>`;
+      svg += "</svg>";
+      html += `<div class="chart" style="height:${h}px">${svg}</div>`;
+      html += `<div class="hp-legend"><span><i style="display:inline-block;width:10px;height:8px;background:${opt.hp_color};opacity:.85"></i>${esc(this._t("fl_delivered"))}</span><span><i style="display:inline-block;width:10px;height:8px;border:1px dashed #aaa"></i>${esc(this._t("fl_planned"))}</span><span><i style="display:inline-block;width:14px;height:2px;background:var(--primary-text-color,#f0f0f0)"></i>${esc(this._t("fl_sp_actual"))}</span><span><i style="display:inline-block;width:14px;height:0;border-top:2px dashed var(--primary-text-color,#f0f0f0)"></i>${esc(this._t("fl_sp_plan"))}</span></div>`;
+    }
+    const tiles = [];
+    if (m.u) tiles.push([this._t("fl_u_t"), this._num(m.u, 2), this._t("fl_u_unit")]);
+    if (m.p_min != null) tiles.push([this._t("fl_p_t"), `${this._num(m.p_min, 1)} - ${this._num(m.p_max, 1)}`, this._t("fl_p_unit")]);
+    if (m.delta != null) tiles.push([this._t("fl_delta_t"), `${this._num(m.delta, 1)} °C`, ""]);
+    tiles.push([this._t("fl_sp_t"), `${n.sp_planned != null ? this._num(n.sp_planned, 1) : "—"} / ${n.sp != null ? this._num(n.sp, 1) : "—"} °C`, this._t("fl_sp_unit")]);
+    tiles.push([this._t("fl_debt_t"), `${this._num(Math.max(n.debt_kwh || 0, 0), 1)} kWh`, ""]);
+    if (n.t_slab != null) tiles.push([this._t("fl_slab_t"), `${this._num(n.t_slab, 1)} °C`, this._t("fl_slab_unit")]);
+    html += `<div class="hp-tiles">${tiles.map(([a, b, c]) => `<div class="hp-tile"><span>${esc(a)}</span><span>${esc(b)}</span><span>${esc(c)}</span></div>`).join("")}</div>`;
+    if (m.n && m.err != null) html += `<div class="hp-note">${esc(this._t("fl_learned")(m.n, Math.round(m.err * 100)))}</div>`;
+    html += `<div class="hp-note">${esc(this._t("fl_note"))}</div>`;
+    return html;
   }
 
   _pct(f) {

@@ -296,6 +296,24 @@ class HeatPumpRuntime:
         cop = hh.cop_at(copm, t_out) if model and model.get("thermal") else 1.0
         return [self.heat_hist.get(str(hour0_epoch - j * hp.HOUR), 0.0) * cop for j in range(hh.LAG_HOURS - 1, 0, -1)]
 
+    def plan_heat(self, hour0_epoch: int, indoor: Optional[float], hourly: list, target: list[float],
+                  cop_fallback: float) -> Optional[dict[str, Any]]:
+        """Floor control (as of 2026.10.23): the heat per hour (thermal kWh)
+        that keeps the house on `target` - the house model's emulated heat
+        pump, the floor's delay and the heat of the hours before included.
+        None without a house model, indoor temperature or weather."""
+        house = self.house or {}
+        hm, copm = house.get("model"), house.get("cop")
+        if not hm or indoor is None or not hourly or not target:
+            return None
+        n = min(len(hourly), len(target), 24)
+        inputs = hourly[:n]
+        if not inputs or inputs[0][0] is None:
+            return None
+        temps, q_el = hh.simulate(hm, indoor, inputs, target[:n], self.q_hist(hour0_epoch, inputs[0][0]), copm)
+        q_th = [round(q * (hh.cop_at(copm, inp[0]) if copm else cop_fallback), 3) for q, inp in zip(q_el, inputs)]
+        return {"temps": temps, "q_el": q_el, "q_th": q_th}
+
     @staticmethod
     def _window(win, hour0_epoch, tz):
         if not win:

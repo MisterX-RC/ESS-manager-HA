@@ -4312,6 +4312,99 @@ check("indoor chart: the measured heating kWh of the last 24 complete hours",
       len(_mk_out["measured_kwh"]) == 24 and _mk_out["measured_kwh"][0][0] == _mk_h0 - 24 * 3600
       and _mk_out["measured_kwh"][-1] == [_mk_h0 - 3600, 0.1])
 
+# --- floor control (2026.10.23): floor_control.py
+floor_control = _load("floor_control")
+fcm = floor_control
+import random as _rnd
+_rnd.seed(3)
+_recs = []
+for i in range(60):
+    room = 20.0 + _rnd.uniform(-0.5, 0.5)
+    tret = 24.0 + _rnd.uniform(0, 6)
+    delta = 4.0
+    p = 0.8 * ((tret + delta / 2) - room) * (1 + _rnd.uniform(-0.05, 0.05))   # U = 0.8 kW/degC
+    _recs.append({"h": 1_800_000_000 + i * 3600, "run_s": 3000, "t_sup": tret + delta, "t_ret": tret, "t_room": room, "p_th": p})
+_em = fcm.fit_emission(_recs)
+check("floor: emission U, supply-return difference and power range learned",
+      _em["ok"] and abs(_em["u"] - 0.8) < 0.05 and _em["delta"] == 4.0 and _em["p_min"] < _em["p_max"] and not _em["slab"])
+check("floor: too few running hours -> not ok", not fcm.fit_emission(_recs[:20])["ok"])
+check("floor: pump-off / short hours are left out",
+      fcm.fit_emission([{**r, "run_s": 600} for r in _recs])["n"] == 0)
+_slab_recs = [{**r, "t_slab": r["t_room"] + 2.0, "p_th": 1.2 * ((r["t_ret"] + 2) - (r["t_room"] + 2.0))} for r in _recs]
+_es = fcm.fit_emission(_slab_recs)
+check("floor: with a floor sensor in most hours it is the reference", _es["slab"] and abs(_es["u"] - 1.2) < 0.01)
+_sp = fcm.return_setpoint({"u": 0.8, "delta": 4.0}, 2.4, 20.0, 20.0, 35.0, 0.5)
+check("floor: return setpoint for a power: room + P/U - delta/2, on the step, within limits",
+      _sp == 21.0 and fcm.return_setpoint({"u": 0.8, "delta": 4.0}, 30.0, 20.0, 20.0, 35.0, 0.5) == 35.0
+      and fcm.return_setpoint({"u": 0.8, "delta": 4.0}, 0.0, 22.0, 20.0, 35.0, 0.5) == 20.0
+      and fcm.return_setpoint({}, 2.0, 20.0, 20.0, 35.0, 0.5) is None)
+# the controller
+_st = {}
+_t = 1_800_000_000.0
+_r = fcm.control_step(_st, _t, 2.0, 0.0, 20.0, 20.5, 1.5, 4.0)
+check("floor: idle and nothing owed yet -> stays off", not _r["on"])
+_ons = []
+for k in range(1, 40):   # a minute apart, 2 kW planned, nothing delivered
+    _r = fcm.control_step(_st, _t + 60 * k, 2.0, 0.0, 20.0, 20.5, 1.5, 4.0)
+    _ons.append(_r["on"])
+_first_on = _ons.index(True) + 1 if True in _ons else None
+check("floor: starts once enough heat is owed (and the minimum off time - here the first start)",
+      _first_on is not None and _first_on >= 20 and _r["reason"] in ("heat_owed", "running"))
+_t_on = _st["since"]
+_r = fcm.control_step(_st, _t_on + 60, 0.0, 5.0, 20.6, 20.5, 1.5, 4.0)
+check("floor: delivered more than owed, but the minimum run time holds it on", _r["on"])
+for k in range(2, 50):
+    _r = fcm.control_step(_st, _t_on + 60 * k, 0.0, 5.0, 20.6, 20.5, 1.5, 4.0)
+check("floor: after the minimum run and nothing owed -> off", not _r["on"] and _st["since"] >= _t_on + fcm.MIN_RUN_S)
+_st2 = {"on": True, "since": _t, "debt": 3.0, "last": _t, "hour": int(_t // 3600)}
+_r = fcm.control_step(_st2, _t + 60, 2.0, 2.0, 22.1, 20.5, 1.5, 4.0)
+check("floor: COMFORT_HARD too warm stops even within the minimum run", not _r["on"] and _r["reason"] == "too_warm")
+_st3 = {"on": False, "since": _t, "debt": 0.0, "last": _t, "hour": int(_t // 3600)}
+_r = fcm.control_step(_st3, _t + 400, 0.0, 0.0, 18.9, 20.5, 1.5, 4.0)
+check("floor: COMFORT_HARD too cold starts even within the minimum off time", _r["on"] and _r["reason"] == "too_cold")
+_st4 = {"on": True, "since": _t, "debt": 0.5, "last": _t, "hour": int(_t // 3600)}
+_r = fcm.control_step(_st4, _t + 60, 1.0, 1.6, 20.0, 20.5, 1.5, 4.0)
+check("floor: target power while on = plan + owed, within the heat pump's range",
+      _r["on"] and abs(_r["p_target"] - min(max(1.0 + _r["debt"], 1.5), 4.0)) < 1e-6)
+_st5 = {"on": False, "since": _t - 7200, "debt": 2.9, "last": _t - 60, "hour": int(_t // 3600) - 1}
+fcm.control_step(_st5, _t + 1, 0.0, 0.0, 20.5, 20.5, 1.5, 4.0)
+check("floor: at a new hour only a small rest of the heat owed carries over", _st5["debt"] <= 1.5 * fcm.MIN_RUN_S / 3600 + 1e-6)
+# stages
+check("floor: stages need the one before",
+      fcm.effective_stage("full", False, False, False, True) == ("watch", ["emission"])
+      and fcm.effective_stage("full", True, False, True, True) == ("setpoint", ["response"])
+      and fcm.effective_stage("full", True, True, True, True) == ("full", [])
+      and fcm.effective_stage("setpoint", True, True, True, True)[0] == "setpoint"
+      and fcm.effective_stage("full", True, True, True, False)[0] == "watch"
+      and fcm.effective_stage("watch", True, True, True, True)[0] == "watch")
+_resp = [{"h": 100 + i, "run_s": 3000, "p_th": 2.0, "p_target": 2.2} for i in range(30)]
+check("floor: response check - the heat pump followed the target power",
+      fcm.response_check(_resp, 100)["ok"] and not fcm.response_check(_resp, 115)["ok"]
+      and not fcm.response_check([{**r, "p_th": 1.0} for r in _resp], 100)["ok"]
+      and fcm.response_check(_resp, None)["n"] == 0)
+# the runtime: pump settling, hourly records, store
+_fr = fcm.FloorRuntime()
+_h0 = 1_800_000_000 // 3600 * 3600
+for m in range(0, 121):   # two hours, a sample a minute; pump runs from minute 5 to 100
+    pump = 60.0 if 5 <= m < 100 else 0.0
+    _fr.sample(_h0 + m * 60, {"pump": pump, "t_sup": 30.0 if pump else 45.0, "t_ret": 26.0 if pump else 44.0,
+                              "t_room": 20.0, "t_slab": None, "p_th": 3.0 if pump else 0.0, "sp": 26.0}, 2.5 if pump else None, 2.0)
+check("floor: one record per finished hour, only settled pump samples in the water temperatures",
+      len(_fr.records) == 2 and _fr.records[0]["t_ret"] == 26.0 and _fr.records[0]["t_sup"] == 30.0
+      and abs(_fr.records[0]["run_s"] - (60 - 15) * 60) <= 60 and abs(_fr.records[0]["th_kwh"] - 3.0 * 55 / 60) < 0.06
+      and _fr.records[1]["run_s"] == 40 * 60
+      and _fr.records[0]["p_target"] == 2.5 and abs(_fr.records[0]["plan_kwh"] - 2.0 * 59 / 60) < 0.05)
+check("floor: COP from thermal / electric hours", fcm.FloorRuntime().cop_ratio({}) == fcm.DEFAULT_COP)
+_fr2 = fcm.FloorRuntime()
+_fr2.restore(_fr.as_store())
+check("floor: the store round-trips", _fr2.as_store() == _fr.as_store())
+check("floor: comfort power - more when the room lags, full at 1.2 degC too cold",
+      fcm.comfort_power(2.0, 20.4, 20.5, 1.5, 5.0) == 2.0 and fcm.comfort_power(2.0, 19.3, 20.5, 1.5, 5.0) == 5.0
+      and 2.0 < fcm.comfort_power(2.0, 19.9, 20.5, 1.5, 5.0) < 5.0 and fcm.comfort_power(0.5, None, 20.5, 1.5, 5.0) == 1.5)
+# the house model's heat plan for floor control
+_ph = heatpump_runtime.HeatPumpRuntime()
+check("floor: no house model -> no heat plan", _ph.plan_heat(_h0, 20.0, [(5.0, 0.0, 0.0)] * 24, [20.5] * 24, 3.5) is None)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

@@ -15,6 +15,27 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ## [2026.10.23] - 2026-10-23
 
 ### Added
+- **Floor control.** ESS Manager can heat the floor itself instead of a
+  thermostat switching on and off (which overshoots: the floor still holds
+  hours of heat when the room reaches its setpoint). The hour-by-hour house
+  model plans the heat per hour; ESS Manager turns it into the heat pump's
+  return setpoint (from the floor's learned heat output, kW per °C of mean
+  water temperature above the room or the screed) and heat demand on/off
+  (heat owed vs delivered, 45 min minimum run / 20 min off, comfort limits
+  at 1 and 1.5 °C). Three stages on the heat pump card's new tab **Floor**
+  (select **Floor control**): watch (learn, nothing changes), return
+  setpoint (the thermostat still switches) and full - each only once the one
+  before has proven itself (the floor's output learned; the heat pump
+  following the setpoints for 24 running hours and the house model's
+  self-check). Supply/return samples only count with the circulation pump
+  running and settled; an optional floor sensor in the screed is used as
+  the reference. The thermostat (a generic_thermostat on a helper switch)
+  stays where the wanted temperature is set; a fallback automation copies
+  its helper to the heat pump whenever the new sensor **Floor control
+  stage** isn't "full" (also while ESS Manager is stopped). Going back a
+  stage, unloading or stopping hands the heat pump back (return setpoint
+  restored, heat demand as the thermostat wants). Set up on a new
+  Configure page after the heat pump page; see the README.
 - **Problem notices in Settings > Repairs**, raised once a problem has
   lasted a while and removed by themselves when it's over:
   - the setpoint can't be sent (direct control on; the target is gone,

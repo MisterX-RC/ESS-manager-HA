@@ -173,6 +173,7 @@ async def async_setup_entry(
         EssManagerBatteryActionSensor(coordinator, entry, device_info),
         EssManagerHeatPumpSensor(coordinator, entry, device_info),
         EssManagerBufferAdviceSensor(coordinator, entry, device_info),
+        EssManagerFloorStageSensor(coordinator, entry, device_info),
     ]
     async_add_entities(entities)
 
@@ -530,4 +531,61 @@ class EssManagerBufferAdviceSensor(CoordinatorEntity[EssManagerCoordinator], Sen
             "days_needed": b.get("min_days"),
             "number_covered_pct": b.get("coverage_manual"),
             "advice_covered_pct": b.get("coverage_advice"),
+        }
+
+
+class EssManagerFloorStageSensor(CoordinatorEntity[EssManagerCoordinator], SensorEntity):
+    """Floor control stage (as of 2026.10.23): what runs right now - off (not
+    set up), watch, setpoint or full. The fallback automation copies the
+    thermostat's helper switch to the heat pump's heat demand whenever this
+    isn't "full" - also while it's unavailable (ESS Manager stopped or a
+    cycle failed), so the thermostat takes over by itself."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Floor control stage"
+    _attr_icon = "mdi:heating-coil"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["off", "watch", "setpoint", "full"]
+
+    def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_floor_control_stage"
+        self._attr_device_info = device_info
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._async_sync_visibility()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._async_sync_visibility()
+        super()._handle_coordinator_update()
+
+    @callback
+    def _async_sync_visibility(self) -> None:
+        async_sync_visibility(self, self.coordinator.floor_configured())
+
+    def _floor(self) -> dict[str, Any]:
+        hp = (self.coordinator.data or {}).get("heat_pump") or {}
+        return hp.get("floor") or {}
+
+    @property
+    def native_value(self) -> str:
+        floor = self._floor()
+        return floor.get("stage") or "off"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        floor = self._floor()
+        if not floor:
+            return {}
+        now = floor.get("now") or {}
+        return {
+            "mode": floor.get("mode"),
+            "waiting_for": floor.get("waiting"),
+            "would_heat": now.get("would_heat"),
+            "reason": now.get("reason"),
+            "planned_power_kw": now.get("plan_kw"),
+            "return_setpoint_planned": now.get("sp_planned"),
+            "heat_owed_kwh": now.get("debt_kwh"),
         }

@@ -6,7 +6,7 @@ DOMAIN = "ess_manager"
 # that coordinator.get_number() has something to read - keep number first.
 # switch.py (the "Automatic control" switch) must also be set up before the
 # first refresh, so direct control knows whether it's allowed to send.
-PLATFORMS = ["number", "switch", "sensor"]
+PLATFORMS = ["number", "switch", "select", "sensor"]
 
 # One cycle a minute (as of 2026.10.20; was 30 s). On top of that a cycle
 # runs right at every quarter boundary (:00/:15/:30/:45, see
@@ -201,6 +201,24 @@ CONF_HP_COP_ENTITY = "hp_cop_entity"
 CONF_HP_HOURLY_ENABLED = "hp_hourly_enabled"
 DEFAULT_HP_HOURLY_ENABLED = False
 CONF_HP_BUFFER_ENABLED = "hp_buffer_enabled"
+# Floor control (as of 2026.10.23) - floor_control.py: ESS Manager sets the
+# heat pump's return setpoint and switches its heat demand, the thermostat
+# (a generic_thermostat on a helper switch) stays where the wanted
+# temperature is set.
+CONF_FLOOR_ENABLED = "floor_enabled"
+CONF_FLOOR_SETPOINT_ENTITY = "floor_return_setpoint_entity"
+CONF_FLOOR_DEMAND_ENTITY = "floor_demand_entity"
+CONF_FLOOR_HELPER_ENTITY = "floor_thermostat_helper_entity"
+CONF_FLOOR_SUPPLY_ENTITY = "floor_supply_entity"
+CONF_FLOOR_RETURN_ENTITY = "floor_return_entity"
+CONF_FLOOR_PUMP_ENTITY = "floor_pump_entity"
+CONF_FLOOR_POWER_ENTITY = "floor_thermal_power_entity"
+CONF_FLOOR_SLAB_ENTITY = "floor_slab_entity"
+DEFAULT_FLOOR_ENABLED = False
+FLOOR_REQUIRED = (
+    "floor_return_setpoint_entity", "floor_demand_entity", "floor_thermostat_helper_entity",
+    "floor_supply_entity", "floor_return_entity", "floor_pump_entity", "floor_thermal_power_entity",
+)
 DEFAULT_HP_BUFFER_ENABLED = False
 HP_STEERING_PLAN = "hp_steering"  # pseudo plan key: heat pump + both steps on
 DEFAULT_HP_ENABLED = False

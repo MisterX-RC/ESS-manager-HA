@@ -50,6 +50,17 @@ from .const import (
     CONF_HP_COP_ENTITY,
     CONF_HP_BUFFER_ENABLED,
     DEFAULT_HP_BUFFER_ENABLED,
+    CONF_FLOOR_DEMAND_ENTITY,
+    CONF_FLOOR_ENABLED,
+    CONF_FLOOR_HELPER_ENTITY,
+    CONF_FLOOR_POWER_ENTITY,
+    CONF_FLOOR_PUMP_ENTITY,
+    CONF_FLOOR_RETURN_ENTITY,
+    CONF_FLOOR_SETPOINT_ENTITY,
+    CONF_FLOOR_SLAB_ENTITY,
+    CONF_FLOOR_SUPPLY_ENTITY,
+    DEFAULT_FLOOR_ENABLED,
+    FLOOR_REQUIRED,
     CONF_HP_HOURLY_ENABLED,
     DEFAULT_HP_HOURLY_ENABLED,
     CONF_HP_TOTAL_ENTITY,
@@ -439,9 +450,30 @@ def _hp_schema(defaults: dict[str, Any], meter: str) -> vol.Schema:
             vol.Optional(
                 CONF_HP_BUFFER_ENABLED, default=defaults.get(CONF_HP_BUFFER_ENABLED, DEFAULT_HP_BUFFER_ENABLED)
             ): selector.BooleanSelector(),
+            # as of 2026.10.23 - its own page follows
+            vol.Optional(
+                CONF_FLOOR_ENABLED, default=defaults.get(CONF_FLOOR_ENABLED, DEFAULT_FLOOR_ENABLED)
+            ): selector.BooleanSelector(),
         }
     )
     return vol.Schema(fields)
+
+
+def _floor_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Floor control's entities (as of 2026.10.23)."""
+    req = lambda key, _unused: vol.Required(key, default=defaults.get(key)) if defaults.get(key) else vol.Required(key)  # noqa: E731
+    return vol.Schema(
+        {
+            req(CONF_FLOOR_SETPOINT_ENTITY, None): selector.EntitySelector(selector.EntitySelectorConfig(domain=["number", "input_number"])),
+            req(CONF_FLOOR_DEMAND_ENTITY, None): selector.EntitySelector(selector.EntitySelectorConfig(domain=["switch", "input_boolean"])),
+            req(CONF_FLOOR_HELPER_ENTITY, None): selector.EntitySelector(selector.EntitySelectorConfig(domain=["input_boolean", "switch"])),
+            req(CONF_FLOOR_SUPPLY_ENTITY, None): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            req(CONF_FLOOR_RETURN_ENTITY, None): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            req(CONF_FLOOR_PUMP_ENTITY, None): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            req(CONF_FLOOR_POWER_ENTITY, None): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Optional(CONF_FLOOR_SLAB_ENTITY, default=defaults.get(CONF_FLOOR_SLAB_ENTITY)): _optional_entity_selector(),
+        }
+    )
 
 
 EV_PHASE_OPTIONS = [
@@ -625,6 +657,7 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
         CONF_HP_INDOOR_ENTITY,
         CONF_HP_SETPOINT_ENTITY,
         CONF_HP_COP_ENTITY,
+        CONF_FLOOR_SLAB_ENTITY,
     ):
         if key in data and not data.get(key):
             data[key] = None
@@ -838,12 +871,31 @@ class _EssManagerSteps:
                 errors["base"] = "hp_outdoor_required"
             elif not cleaned.get(CONF_HP_WEATHER_ENTITY):
                 errors["base"] = "hp_weather_required"
+            elif cleaned.get(CONF_FLOOR_ENABLED) and not (cleaned.get(CONF_HP_SETPOINT_ENTITY) or "").startswith("climate."):
+                errors["base"] = "floor_needs_thermostat"
+            elif cleaned.get(CONF_FLOOR_ENABLED) and not cleaned.get(CONF_HP_HOURLY_ENABLED):
+                errors["base"] = "floor_needs_hourly"
             else:
                 self._data.update(cleaned)
+                if cleaned.get(CONF_FLOOR_ENABLED):
+                    return await self.async_step_floor()
                 return await self.async_step_control()
         return self.async_show_form(
             step_id="hp", data_schema=_hp_schema({**self._defaults(), **self._data}, meter), errors=errors
         )
+
+    async def async_step_floor(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            cleaned = _clean(user_input)
+            if not all(cleaned.get(k) for k in FLOOR_REQUIRED):
+                errors["base"] = "floor_entities_required"
+            elif cleaned.get(CONF_FLOOR_HELPER_ENTITY) == cleaned.get(CONF_FLOOR_DEMAND_ENTITY):
+                errors["base"] = "floor_helper_same"
+            else:
+                self._data.update(cleaned)
+                return await self.async_step_control()
+        return self.async_show_form(step_id="floor", data_schema=_floor_schema({**self._defaults(), **self._data}), errors=errors)
 
     async def async_step_control(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:

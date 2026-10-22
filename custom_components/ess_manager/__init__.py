@@ -297,6 +297,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Direct control: nobody supervises the battery while Home Assistant
         # is down, so don't leave a charge/discharge command running.
         await coordinator.controller.async_idle(coordinator.control_settings(), "Home Assistant stopping")
+        # floor control: the return setpoint back as it was, heat demand as the thermostat had it
+        await coordinator.async_floor_release()
 
     entry.async_on_unload(hass.bus.async_listen(EVENT_HOMEASSISTANT_STOP, _async_idle_on_stop))
 
@@ -309,6 +311,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator: EssManagerCoordinator | None = hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("coordinator")
     if coordinator is not None:
         await coordinator.controller.async_idle(coordinator.control_settings(), "integration unloaded")
+        # floor control (2026.10.23): the heat pump back to the thermostat
+        await coordinator.async_floor_release()
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if coordinator is not None:
         # problem notices go with the integration (a reload raises them

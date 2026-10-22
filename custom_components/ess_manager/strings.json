@@ -117,12 +117,14 @@
           "hp_setpoint_entity": "Wanted temperature - a thermostat (climate) or a sensor/number (optional)",
           "hp_cop_entity": "COP of the heat pump (optional)",
           "hp_buffer_enabled": "Step 2: steering - ESS Manager may set the thermostat (switched on and off on the heat pump card)",
-          "hp_hourly_enabled": "Step 1: the house hour by hour - its forecast feeds the planning once it has proven itself"
+          "hp_hourly_enabled": "Step 1: the house hour by hour - its forecast feeds the planning once it has proven itself",
+          "floor_enabled": "Floor control: ESS Manager sets the return setpoint and heat demand (own page follows)"
         },
         "data_description": {
           "hp_cop_entity": "With it the model learns the COP by the outdoor temperature: what a kWh of heat costs at which hour.",
           "hp_buffer_enabled": "Needs step 1 and a thermostat (climate entity). On the card: steering on/off, a day and a night temperature with their times, and the range the house may be warmer or cooler as a buffer (warmer in cheap or sunny hours, cooler in expensive ones) - the buffer only once step 1 has passed its self-check. A change by hand on the thermostat wins until the next day/night switch.",
-          "hp_hourly_enabled": "Learns how the indoor temperature follows the weather and the heat put in (with the floor's delay) and forecasts it 48 hours ahead. Every day it checks itself against the measurements; only when it places the energy per hour better than the usual pattern does the planning use it - and it falls back by itself when it gets worse."
+          "hp_hourly_enabled": "Learns how the indoor temperature follows the weather and the heat put in (with the floor's delay) and forecasts it 48 hours ahead. Every day it checks itself against the measurements; only when it places the energy per hour better than the usual pattern does the planning use it - and it falls back by itself when it gets worse.",
+          "floor_enabled": "Needs step 1 and a thermostat (climate entity, a generic_thermostat on a helper switch). Starts in the stage 'watch': nothing changes until you choose a higher stage on the heat pump card and the self-checks have passed."
         }
       },
       "control": {
@@ -149,6 +151,24 @@
           "night_charge_speed_kw": "Charge speed at night",
           "night_discharge_speed_kw": "Discharge speed at night"
         }
+      },
+      "floor": {
+        "title": "Heat pump - floor control",
+        "description": "ESS Manager can heat the floor itself: from the hour-by-hour house model it plans the heat per hour and turns it into the heat pump's return setpoint and heat demand - with less overshoot and lower water temperatures than a thermostat switching on and off. It goes in three stages, chosen on the heat pump card (Floor control): watch (it only learns and shows what it would do), setpoint (it sets the return setpoint, the thermostat still switches) and full (it also switches heat demand). Each stage only runs once the one before has proven itself.\n\nSet up the thermostat first: let your generic_thermostat switch a helper (input_boolean) instead of the heat pump, and add the fallback automation from the README that copies that helper to the heat pump's heat demand whenever the sensor \"Floor control stage\" isn't \"full\". The thermostat stays where you set the wanted temperature; if ESS Manager stops, the thermostat takes over by itself.",
+        "data": {
+          "floor_return_setpoint_entity": "Return temperature setpoint of the heat pump (number)",
+          "floor_demand_entity": "Heat demand switch of the heat pump",
+          "floor_thermostat_helper_entity": "The thermostat's helper switch (what the generic_thermostat now switches)",
+          "floor_supply_entity": "Supply (flow) temperature",
+          "floor_return_entity": "Return temperature",
+          "floor_pump_entity": "Circulation pump (%)",
+          "floor_thermal_power_entity": "Thermal power of the heat pump (W or kW)",
+          "floor_slab_entity": "Floor temperature in the screed (optional)"
+        },
+        "data_description": {
+          "floor_pump_entity": "The supply and return sensors only show the floor's water with the pump running - other samples are left out.",
+          "floor_slab_entity": "A sensor in the screed between two pipes. Used instead of the room temperature as the floor's reference once most running hours have it - the model is learned again by itself."
+        }
       }
     },
     "error": {
@@ -164,7 +184,11 @@
       "hp_heat_required": "Select at least one heating energy sensor.",
       "hp_total_required": "Select the heat pump's total energy sensor.",
       "hp_outdoor_required": "Select an outdoor temperature sensor.",
-      "hp_weather_required": "Select a weather entity for the forecast."
+      "hp_weather_required": "Select a weather entity for the forecast.",
+      "floor_needs_thermostat": "Floor control needs a thermostat (climate entity) as the wanted temperature.",
+      "floor_needs_hourly": "Floor control needs step 1 (the house hour by hour).",
+      "floor_entities_required": "Choose all floor control entities (only the floor sensor is optional).",
+      "floor_helper_same": "The thermostat's helper switch must be another entity than the heat pump's heat demand switch."
     },
     "abort": {
       "already_configured": "An ESS Manager instance with this name already exists."
@@ -281,12 +305,14 @@
           "hp_setpoint_entity": "Wanted temperature - a thermostat (climate) or a sensor/number (optional)",
           "hp_cop_entity": "COP of the heat pump (optional)",
           "hp_buffer_enabled": "Step 2: steering - ESS Manager may set the thermostat (switched on and off on the heat pump card)",
-          "hp_hourly_enabled": "Step 1: the house hour by hour - its forecast feeds the planning once it has proven itself"
+          "hp_hourly_enabled": "Step 1: the house hour by hour - its forecast feeds the planning once it has proven itself",
+          "floor_enabled": "Floor control: ESS Manager sets the return setpoint and heat demand (own page follows)"
         },
         "data_description": {
           "hp_cop_entity": "With it the model learns the COP by the outdoor temperature: what a kWh of heat costs at which hour.",
           "hp_buffer_enabled": "Needs step 1 and a thermostat (climate entity). On the card: steering on/off, a day and a night temperature with their times, and the range the house may be warmer or cooler as a buffer (warmer in cheap or sunny hours, cooler in expensive ones) - the buffer only once step 1 has passed its self-check. A change by hand on the thermostat wins until the next day/night switch.",
-          "hp_hourly_enabled": "Learns how the indoor temperature follows the weather and the heat put in (with the floor's delay) and forecasts it 48 hours ahead. Every day it checks itself against the measurements; only when it places the energy per hour better than the usual pattern does the planning use it - and it falls back by itself when it gets worse."
+          "hp_hourly_enabled": "Learns how the indoor temperature follows the weather and the heat put in (with the floor's delay) and forecasts it 48 hours ahead. Every day it checks itself against the measurements; only when it places the energy per hour better than the usual pattern does the planning use it - and it falls back by itself when it gets worse.",
+          "floor_enabled": "Needs step 1 and a thermostat (climate entity, a generic_thermostat on a helper switch). Starts in the stage 'watch': nothing changes until you choose a higher stage on the heat pump card and the self-checks have passed."
         }
       },
       "control": {
@@ -313,6 +339,24 @@
           "night_charge_speed_kw": "Charge speed at night",
           "night_discharge_speed_kw": "Discharge speed at night"
         }
+      },
+      "floor": {
+        "title": "Heat pump - floor control",
+        "description": "ESS Manager can heat the floor itself: from the hour-by-hour house model it plans the heat per hour and turns it into the heat pump's return setpoint and heat demand - with less overshoot and lower water temperatures than a thermostat switching on and off. It goes in three stages, chosen on the heat pump card (Floor control): watch (it only learns and shows what it would do), setpoint (it sets the return setpoint, the thermostat still switches) and full (it also switches heat demand). Each stage only runs once the one before has proven itself.\n\nSet up the thermostat first: let your generic_thermostat switch a helper (input_boolean) instead of the heat pump, and add the fallback automation from the README that copies that helper to the heat pump's heat demand whenever the sensor \"Floor control stage\" isn't \"full\". The thermostat stays where you set the wanted temperature; if ESS Manager stops, the thermostat takes over by itself.",
+        "data": {
+          "floor_return_setpoint_entity": "Return temperature setpoint of the heat pump (number)",
+          "floor_demand_entity": "Heat demand switch of the heat pump",
+          "floor_thermostat_helper_entity": "The thermostat's helper switch (what the generic_thermostat now switches)",
+          "floor_supply_entity": "Supply (flow) temperature",
+          "floor_return_entity": "Return temperature",
+          "floor_pump_entity": "Circulation pump (%)",
+          "floor_thermal_power_entity": "Thermal power of the heat pump (W or kW)",
+          "floor_slab_entity": "Floor temperature in the screed (optional)"
+        },
+        "data_description": {
+          "floor_pump_entity": "The supply and return sensors only show the floor's water with the pump running - other samples are left out.",
+          "floor_slab_entity": "A sensor in the screed between two pipes. Used instead of the room temperature as the floor's reference once most running hours have it - the model is learned again by itself."
+        }
       }
     },
     "error": {
@@ -327,7 +371,11 @@
       "hp_heat_required": "Select at least one heating energy sensor.",
       "hp_total_required": "Select the heat pump's total energy sensor.",
       "hp_outdoor_required": "Select an outdoor temperature sensor.",
-      "hp_weather_required": "Select a weather entity for the forecast."
+      "hp_weather_required": "Select a weather entity for the forecast.",
+      "floor_needs_thermostat": "Floor control needs a thermostat (climate entity) as the wanted temperature.",
+      "floor_needs_hourly": "Floor control needs step 1 (the house hour by hour).",
+      "floor_entities_required": "Choose all floor control entities (only the floor sensor is optional).",
+      "floor_helper_same": "The thermostat's helper switch must be another entity than the heat pump's heat demand switch."
     }
   },
   "issues": {
