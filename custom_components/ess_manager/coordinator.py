@@ -867,14 +867,18 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def floor_cooling(self, conf: Optional[dict[str, Any]] = None) -> bool:
         """The heat pump cools (as of 2026.10.23): the changeover switch is on,
-        or the cooling thermostat isn't off. Floor control then leaves the
-        heat pump alone - also its heat demand, which cooling uses too."""
+        or the cooling thermostat calls for cooling (hvac_action "cooling" -
+        as of 2026.10.24; a cooling thermostat left on "cool" all year with a
+        high setpoint doesn't count while it's idle). Floor control then
+        leaves the heat pump alone - also its heat demand, which cooling
+        uses too."""
         conf = conf if conf is not None else {**self.entry.data, **self.entry.options}
         if self._is_on(conf.get(CONF_FLOOR_COOL_SWITCH_ENTITY)):
             return True
         climate_id = conf.get(CONF_FLOOR_COOL_CLIMATE_ENTITY)
         st = self.hass.states.get(climate_id) if climate_id else None
-        return st is not None and st.state not in ("off", "unavailable", "unknown")
+        return st is not None and st.state not in ("off", "unavailable", "unknown") \
+            and st.attributes.get("hvac_action") == "cooling"
 
     async def async_floor_release(self, conf: Optional[dict[str, Any]] = None) -> None:
         """Hand the heat pump back: the return setpoint as it was before ESS

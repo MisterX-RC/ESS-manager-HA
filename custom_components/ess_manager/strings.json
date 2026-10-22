@@ -165,13 +165,13 @@
           "floor_thermal_power_entity": "Thermal power of the heat pump (W or kW)",
           "floor_slab_entity": "Floor temperature in the screed (optional)",
           "floor_cool_switch_entity": "Cooling: the changeover switch (on = cooling, optional)",
-          "floor_cool_climate_entity": "Cooling: the cooling thermostat (not off = cooling season, optional)"
+          "floor_cool_climate_entity": "Cooling: the cooling thermostat (calling for cooling = cooling, optional)"
         },
         "data_description": {
           "floor_pump_entity": "The supply and return sensors only show the floor's water with the pump running - other samples are left out.",
           "floor_slab_entity": "A sensor in the screed between two pipes. Used instead of the room temperature as the floor's reference once most running hours have it - the model is learned again by itself.",
           "floor_cool_switch_entity": "While the heat pump cools, floor control leaves it completely alone - its heat demand is then the cooling's. The return setpoint goes back to its old value once, and nothing is learned.",
-          "floor_cool_climate_entity": "Also counts as cooling as long as this thermostat isn't off - set before cooling starts, so there's no moment floor control could take the cooling's heat demand for heating."
+          "floor_cool_climate_entity": "Counts as cooling while this thermostat calls for cooling (its action is 'cooling') - that comes before your cooling automation turns heat demand on, so there's no moment floor control could take the cooling's heat demand for heating. Left on 'cool' and idle it doesn't count."
         }
       }
     },
@@ -357,13 +357,13 @@
           "floor_thermal_power_entity": "Thermal power of the heat pump (W or kW)",
           "floor_slab_entity": "Floor temperature in the screed (optional)",
           "floor_cool_switch_entity": "Cooling: the changeover switch (on = cooling, optional)",
-          "floor_cool_climate_entity": "Cooling: the cooling thermostat (not off = cooling season, optional)"
+          "floor_cool_climate_entity": "Cooling: the cooling thermostat (calling for cooling = cooling, optional)"
         },
         "data_description": {
           "floor_pump_entity": "The supply and return sensors only show the floor's water with the pump running - other samples are left out.",
           "floor_slab_entity": "A sensor in the screed between two pipes. Used instead of the room temperature as the floor's reference once most running hours have it - the model is learned again by itself.",
           "floor_cool_switch_entity": "While the heat pump cools, floor control leaves it completely alone - its heat demand is then the cooling's. The return setpoint goes back to its old value once, and nothing is learned.",
-          "floor_cool_climate_entity": "Also counts as cooling as long as this thermostat isn't off - set before cooling starts, so there's no moment floor control could take the cooling's heat demand for heating."
+          "floor_cool_climate_entity": "Counts as cooling while this thermostat calls for cooling (its action is 'cooling') - that comes before your cooling automation turns heat demand on, so there's no moment floor control could take the cooling's heat demand for heating. Left on 'cool' and idle it doesn't count."
         }
       }
     },

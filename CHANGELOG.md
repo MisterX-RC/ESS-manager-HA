@@ -12,6 +12,16 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.24] - 2026-10-24
+
+### Fixed
+- **Floor control: a cooling thermostat left on "cool" all year no longer
+  counts as cooling.** Up to now any state but "off" of the cooling
+  thermostat meant cooling, so with it on "cool" and a high setpoint (idle)
+  floor control stood aside in the middle of the heating season. Now it
+  counts while it calls for cooling (its action is "cooling") - or while
+  the changeover switch is on, as before.
+
 ## [2026.10.23] - 2026-10-23
 
 ### Added

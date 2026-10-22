@@ -714,8 +714,9 @@ reference instead of the room once most running hours have it.
    ```
 
    Your own cooling automation keeps the heat demand switch to itself while
-   the changeover is on. Switch the changeover (or the cooling thermostat) on
-   a few seconds *before* it turns heat demand on.
+   the changeover is on. Let it switch the changeover on a few seconds
+   *before* it turns heat demand on (the cooling thermostat calling for
+   cooling already counts before that).
 3. Configure > the heat pump page: switch on **Floor control** (needs step 1
    and the thermostat as the wanted temperature); the next page asks for the
    return setpoint, the heat demand switch, the thermostat's helper, the
@@ -725,7 +726,9 @@ reference instead of the room once most running hours have it.
 
 **Cooling.** The heat pump's heat demand switch also starts cooling (with
 the changeover switch on). While the changeover is on, or the cooling
-thermostat isn't off, floor control steps aside completely: the return
+thermostat calls for cooling (its action is *cooling* - left on *cool* and
+idle all year it doesn't count, as of 2026.10.24), floor control steps aside
+completely: the return
 setpoint goes back to its old value once, the heat demand switch is never
 touched (also not when ESS Manager stops), nothing is learned, and the
 stage sensor says **cooling**. Once cooling is over it goes on in the stage
