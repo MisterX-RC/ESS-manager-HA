@@ -7,7 +7,9 @@ update cycles, and picking which config/number values to pass in.
 
 15-minute "price units" are used throughout, exactly as in the original:
 unit 0 = today 00:00-00:15, unit 95 = today 23:45-00:00, unit 96 = tomorrow
-00:00-00:15, and so on. `cur_unit = hour*4 + minute // 15`.
+00:00-00:15, and so on - in real time: `cur_unit` = quarters since local
+midnight (units.price_unit), so the day summer time ends has 100 units and
+tomorrow starts at 100 (92 the day it starts) - as of 2026.10.25.
 """
 from __future__ import annotations
 
@@ -634,6 +636,7 @@ def compute_spike_plan(
     discharge_efficiency: float = 1.0,
     replan: bool = False,
     charge_rates: Optional[list[float]] = None,
+    today_units: int = 96,
 ) -> dict:
     """`all_price` is the sell price, `buy_price` what buying costs (price
     + transport, as of v0.4.0; defaults to all_price). The spread is the
@@ -693,12 +696,15 @@ def compute_spike_plan(
     day_start_sel = 0
     low_abs = high_abs = 0
     day_min = day_max = 0.0
-    for day_start in (0, 96):
-        if found or (day_start + 96) > len(prices):
+    # today and tomorrow, each a whole day: 92-100 units on a summer-time
+    # change day (today_units = len(today), as of 2026.10.25)
+    day_len_sel = 96
+    for day_start, day_len in ((0, today_units), (today_units, len(prices) - today_units)):
+        if found or day_len < 92 or (day_start + day_len) > len(prices):
             continue
         d_min = d_max = None
         min_idx = max_idx = day_start
-        for i in range(day_start, day_start + 96):
+        for i in range(day_start, day_start + day_len):
             if neg.get("active") and neg_excl_start <= i < neg_excl_end:
                 continue
             if d_min is None or buy[i] < d_min:
@@ -709,6 +715,7 @@ def compute_spike_plan(
             if min_idx < max_idx and (max_idx > cur_unit or max_idx == running_peak):
                 found = True
                 day_start_sel = day_start
+                day_len_sel = day_len
                 low_abs, high_abs = min_idx, max_idx
                 day_min, day_max = d_min, d_max
 
@@ -858,7 +865,7 @@ def compute_spike_plan(
     desired_units = max(math.ceil(desired_discharge_kwh / effective_discharge_per_unit), 1)
 
     discharge_price_floor = (int(day_min * 100) / 100) + spike_margin
-    day_end = day_start_sel + 96
+    day_end = day_start_sel + day_len_sel
     back_i = high_abs
     for _ in range(96):
         if back_i > day_start_sel and prices[back_i - 1] >= discharge_price_floor:
@@ -2630,6 +2637,7 @@ def compute_system_status_and_action(
     all_price: list[float],
     full_unit: Optional[int] = None,
     solar_surplus_now: bool = False,
+    today_units: int = 96,
 ) -> tuple[str, str]:
     """The Status (what the dashboard and an external automation see) plus
     the control action behind it (control.ACTION_*), which direct control
@@ -2680,7 +2688,7 @@ def compute_system_status_and_action(
         status == "Standby"
         and solar_surplus_now
         and full_unit is not None
-        and cur_unit < full_unit < 96
+        and cur_unit < full_unit < today_units
     ):
         ahead = all_price[cur_unit + 1 : full_unit + 1]
         price_now = all_price[cur_unit] if cur_unit < len(all_price) else None

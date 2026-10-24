@@ -8,6 +8,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Optional
 
+from . import units
+
 
 def _format_time(now: datetime, cur_unit: int, target_unit: int) -> str:
     """`now` is the coordinator's actual wall-clock timestamp at the moment
@@ -19,9 +21,8 @@ def _format_time(now: datetime, cur_unit: int, target_unit: int) -> str:
     never cancels out), showing e.g. "19:08" instead of "19:00"/"19:15" and
     drifting a little between updates as the real clock advances.
     """
-    unit_start = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
-    offset_units = target_unit - cur_unit
-    return (unit_start + timedelta(minutes=offset_units * 15)).strftime("%a %H:%M")
+    # real time, also across a summer-time change (as of 2026.10.25)
+    return units.unit_start(now, cur_unit, target_unit).strftime("%a %H:%M")
 
 
 def charge_display(
@@ -148,8 +149,7 @@ def cell_voltage_differential_mv(low_v: Optional[float], high_v: Optional[float]
 # integration's own status card, one dict per side.
 # ---------------------------------------------------------------------------
 def _unit_datetime(now: datetime, cur_unit: int, target_unit: int) -> datetime:
-    unit_start = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
-    return unit_start + timedelta(minutes=(target_unit - cur_unit) * 15)
+    return units.unit_start(now, cur_unit, target_unit)
 
 
 def _card_side(
@@ -262,11 +262,11 @@ def _level_at_unit(
     None without a forecast."""
     if not forecast:
         return None
-    now_min = now.hour * 60 + now.minute + now.second / 60.0
+    now_min = units.seconds_since_midnight(now) / 60.0  # real minutes (as of 2026.10.25)
     target = (unit * 15 - now_min) / 60.0  # hours from now
     if target <= 0:
         return battery_now_kwh
-    first = 1.0 - now_min % 60 / 60.0  # hours from now to the end of hour 0
+    first = 1.0 - (now.minute + now.second / 60.0) / 60.0  # hours from now to the end of hour 0
     points = [(0.0, battery_now_kwh)] + [(first + i, float(v)) for i, v in enumerate(forecast) if v is not None]
     for (ta, va), (tb, vb) in zip(points, points[1:]):
         if target <= tb:

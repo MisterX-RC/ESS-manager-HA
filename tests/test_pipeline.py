@@ -30,6 +30,7 @@ def _load(name):
 
 _load("const")
 control = _load("control")
+units = _load("units")
 forecasting = _load("forecasting")
 plans = _load("plans")
 display = _load("display")
@@ -4410,6 +4411,46 @@ check("floor: while cooling nothing is learned (no running hours, no heat, no pl
 # the house model's heat plan for floor control
 _ph = heatpump_runtime.HeatPumpRuntime()
 check("floor: no house model -> no heat plan", _ph.plan_heat(_h0, 20.0, [(5.0, 0.0, 0.0)] * 24, [20.5] * 24, 3.5) is None)
+
+# -- summer-time change days: price units in real time (2026.10.25) -------------
+_ams = ZoneInfo("Europe/Amsterdam")
+_d1 = datetime(2026, 10, 25, 17, 45, tzinfo=_ams)          # the long day: 100 units
+check("dst: the long day - 17:45 is unit 75 (the price list's 17:45), not 71",
+      units.price_unit(_d1) == 75 and units.price_unit(datetime(2026, 10, 25, 1, 59, tzinfo=_ams)) == 7)
+check("dst: the repeated hour counts twice (02:30 summer = unit 10, 02:30 winter = unit 14)",
+      units.price_unit(datetime(2026, 10, 25, 2, 30, tzinfo=_ams)) == 10
+      and units.price_unit(datetime(2026, 10, 25, 2, 30, fold=1, tzinfo=_ams)) == 14
+      and units.price_unit(datetime(2026, 10, 25, 23, 45, tzinfo=_ams)) == 99)
+check("dst: the short day - 17:45 is unit 67, the last quarter 91",
+      units.price_unit(datetime(2026, 3, 29, 17, 45, tzinfo=_ams)) == 67
+      and units.price_unit(datetime(2026, 3, 29, 23, 45, tzinfo=_ams)) == 91)
+check("dst: a normal day stays hour * 4 + minute // 15",
+      units.price_unit(datetime(2026, 10, 24, 23, 0, tzinfo=_ams)) == 92)
+# the case from a live installation: planned the evening before, a block at
+# units 147-156 / 167-169 / 192-196 (tomorrow = the long day)
+_eve = datetime(2026, 10, 24, 23, 0, 30, tzinfo=_ams)
+_s = display._unit_datetime(_eve, 92, 167)
+check("dst: a block in tomorrow's unit 71 shows at 16:45 (winter time), not 17:45",
+      _s.isoformat() == "2026-10-25T16:45:00+01:00"
+      and display._unit_datetime(_eve, 92, 147).isoformat() == "2026-10-25T11:45:00+01:00"
+      and display._unit_datetime(_eve, 92, 192).isoformat() == "2026-10-25T23:00:00+01:00"
+      and display._format_time(_eve, 92, 167) == "Sun 16:45")
+check("dst: and runs then - at 16:45 winter time the current unit is that block's unit",
+      96 + units.price_unit(datetime(2026, 10, 25, 16, 45, tzinfo=_ams)) == 167)
+_solar_pts = [{"period_start": f"2026-10-25T{h:02d}:00:00+0{2 if h < 3 else 1}:00", "pv_estimate": float(h)} for h in range(0, 24)]
+_sf = forecasting.build_solar_forecast(_solar_pts, datetime(2026, 10, 25, 0, 10, tzinfo=_ams), 25)
+check("dst: the solar forecast steps in real hours - hour 3 and 2 of the long day are both 02:00, 12:00 is index 13",
+      _sf[2] == 2.0 and _sf[3] == 2.0 and _sf[13] == 12.0 and _sf[24] == 23.0)
+_rates = forecasting.grid_charge_rates([0.0] * 30, datetime(2026, 10, 25, 23, 10, tzinfo=_ams), 4.0, None, 104, night_kw=2.0)
+check("dst: charge rates start at the real hour and the night limit follows the clock (22:00 = unit 92 on the long day)",
+      _rates[95] == 0.0 and _rates[96] == 0.5 and forecasting.unit_is_night(92, _d1) and not forecasting.unit_is_night(91, _d1)
+      and forecasting.unit_is_night(88) and not forecasting.unit_is_night(87))
+_lvl_now = datetime(2026, 10, 25, 16, 0, tzinfo=_ams)   # unit 68 on the long day
+check("dst: the card's level at a unit counts real minutes",
+      units.price_unit(_lvl_now) == 68
+      and display._level_at_unit([10.0, 8.0, 6.0], 9.0, _lvl_now, 68) == 9.0
+      and abs(display._level_at_unit([10.0, 8.0, 6.0], 9.0, _lvl_now, 72) - 10.0) < 1e-9
+      and abs(display._level_at_unit([10.0, 8.0, 6.0], 9.0, _lvl_now, 76) - 8.0) < 1e-9)
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

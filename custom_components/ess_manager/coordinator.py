@@ -21,7 +21,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from . import control, display, forecasting, plans, transport
+from . import control, display, forecasting, plans, transport, units
 from .ev_runtime import EvRuntime
 from . import heatpump
 from .heatpump_runtime import HeatPumpRuntime
@@ -1935,7 +1935,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else None
         )
 
-        current_price_unit = (now.hour * 4) + (now.minute // 15)
+        # real quarters since midnight (as of 2026.10.25): the price list has
+        # 100 units the day summer time ends and 92 the day it starts
+        current_price_unit = units.price_unit(now)
 
         # What a grid charge really adds to the battery per quarter (as of
         # 2026.10.4): the battery's max charge speed minus the solar already
@@ -2097,7 +2099,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     discharge_efficiency=discharge_efficiency,
                     replan=replan,
                     charge_rates=negative_charge_rates,
-                ), discharge_speed_kw, night_discharge_kw)
+                ), discharge_speed_kw, night_discharge_kw, now=now)
             else:
                 self._negative_price_plan = {"active": False}
 
@@ -2126,7 +2128,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     discharge_efficiency=discharge_efficiency,
                     replan=replan,
                     charge_rates=charge_rates,
-                ), spike_discharge_speed_kw, night_discharge_kw)
+                    today_units=len(today_price) or 96,
+                ), spike_discharge_speed_kw, night_discharge_kw, now=now)
             else:
                 self._spike_plan = {"active": False}
 
@@ -2215,7 +2218,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 capacity_kwh=upper_limit_kwh,
                 # sales in blocks too, no shorter than a charge block (2026.10.10)
                 min_sale_units=min_charge_units,
-            ), discharge_speed_kw, night_discharge_kw)
+            ), discharge_speed_kw, night_discharge_kw, now=now)
 
             battery_forecast_adjusted_uncapped = plans.compose_forecast_adjusted(
                 forecast_with_spike,
@@ -2264,6 +2267,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 all_price,
                 full_unit=full_unit,
                 solar_surplus_now=bool(net_energy) and net_energy[0] > 0,
+                today_units=len(today_price) or 96,
             )
 
             charge_kwh, charge_start_text, charge_stop_text = display.charge_display(
@@ -2341,7 +2345,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         dip_placeholders = {}
         if dip is not None:
-            at = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=dip[0] + 1)
+            at = units.shift(now.replace(minute=0, second=0, microsecond=0), timedelta(hours=dip[0] + 1))
             dip_placeholders = {
                 "time": at.strftime("%H:%M"),
                 "soc": f"{dip[1] / capacity_kwh * 100:.0f}" if capacity_kwh else "?",

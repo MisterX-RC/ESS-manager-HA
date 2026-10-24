@@ -15,6 +15,17 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ## [2026.10.25] - 2026-10-25
 
 ### Fixed
+- **Summer-time change days: the plans no longer run an hour off.** On the
+  day summer time ends the price list has 100 quarters (the hour
+  02:00-03:00 comes twice), but ESS Manager counted the current quarter
+  from the clock (hour x 4 + minute / 15) - so from 03:00 it was an hour
+  behind the price list: a block planned in a cheap quarter ran, and showed
+  on the card, an hour later - with a cheap quarter just before the
+  evening peak, in the peak itself. On the day summer time starts (92
+  quarters) the other way round. Now the current quarter is the real time
+  since midnight, and so are the times the cards show, the solar forecast
+  per hour, the charge speeds per quarter and the night limit; the spike
+  plan and "Solar export" take today's real length.
 - **Floor control: the thermostat switched off means no heating, also in
   the stage "full".** Up to now ESS Manager kept heating on the
   thermostat's temperature when its mode was set to off. Now the heat pump

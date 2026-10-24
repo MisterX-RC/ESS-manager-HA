@@ -272,7 +272,10 @@ integration producing the same shape works):
   as flat lists of **quarter-hour (15-minute)** prices - this is the shape
   the Nordpool HACS integration produces for markets settled at 15-minute
   resolution. A sensor with hourly-only prices will not line up correctly
-  with the planning engines' 15-minute unit indexing.
+  with the planning engines' 15-minute unit indexing. The lists run in
+  real time from local midnight, so the day summer time ends has 100
+  quarters and the day it starts 92; ESS Manager counts the current
+  quarter the same way (as of 2026.10.25).
 - **Household usage forecast**: nothing extra if your Home Assistant
   Energy dashboard is set up (at least a grid source) - the integration
   calculates the forecast itself from the statistics the Energy dashboard

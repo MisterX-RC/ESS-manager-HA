@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Optional
 
+from . import units
 from .const import FORECAST_HOURS
 
 
@@ -124,10 +125,13 @@ def build_solar_forecast(
         if estimate is not None:
             lookup[ts] = float(estimate)
 
-    base = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
+    # hours of real time from now (as of 2026.10.25), looked up by their
+    # local clock hour - so on the day summer time ends the hours after
+    # 02:00 don't slip an hour against the battery forecast
+    base = now.replace(minute=0, second=0, microsecond=0)
     values: list[Optional[float]] = []
     for h in range(hours):
-        target = base + timedelta(hours=h)
+        target = units.shift(base, timedelta(hours=h)).replace(tzinfo=None)
         values.append(lookup.get(target))
     return values
 
@@ -304,8 +308,8 @@ def solar_surplus_windows(
         rate = spill_rate_kwh[h] if h < len(spill_rate_kwh) else 0.0
         total = full + rate
         if total >= min_kwh:
-            start = now if h == 0 else hour0 + timedelta(hours=h)
-            stop = hour0 + timedelta(hours=h + 1)
+            start = now if h == 0 else units.shift(hour0, timedelta(hours=h))
+            stop = units.shift(hour0, timedelta(hours=h + 1))
             if current is None:
                 current = {"start": start, "stop": stop, "kwh": 0.0, "full": False}
             current["stop"] = stop
@@ -351,14 +355,15 @@ def is_night_hour(hour: int) -> bool:
     return hour >= NIGHT_FROM_HOUR or hour < NIGHT_UNTIL_HOUR
 
 
-def unit_is_night(unit: int) -> bool:
-    """A 15-minute unit (from today's midnight) in the night window."""
-    return is_night_hour((unit // 4) % 24)
+def unit_is_night(unit: int, now: Optional[datetime] = None) -> bool:
+    """A 15-minute unit (from today's midnight) in the night window - its
+    local clock hour, also on a summer-time change day when `now` is given."""
+    return is_night_hour(units.unit_hour(unit, now))
 
 
-def night_share(units: list[int]) -> float:
+def night_share(window: list[int], now: Optional[datetime] = None) -> float:
     """Share of the given units that fall in the night window."""
-    return sum(1 for u in units if unit_is_night(u)) / len(units) if units else 0.0
+    return sum(1 for u in window if unit_is_night(u, now)) / len(window) if window else 0.0
 
 
 def _window_units(plan: dict) -> list[int]:
@@ -371,7 +376,9 @@ def _window_units(plan: dict) -> list[int]:
     return []
 
 
-def night_discharge_plan(compute, day_kw: float, night_kw: Optional[float], rounds: int = 4) -> dict:
+def night_discharge_plan(
+    compute, day_kw: float, night_kw: Optional[float], rounds: int = 4, now: Optional[datetime] = None
+) -> dict:
     """A discharge plan with the night limit (as of 2026.10.18), per quarter:
     the setpoint sent is the night speed in the quarters between 22:00 and
     07:00 and the plan's own speed in the others, so the plan is worked out
@@ -386,10 +393,10 @@ def night_discharge_plan(compute, day_kw: float, night_kw: Optional[float], roun
     kw = day_kw
     share = 0.0
     for _ in range(rounds):
-        units = _window_units(plan)
-        if not units:
+        window = _window_units(plan)
+        if not window:
             return plan
-        share = night_share(units)
+        share = night_share(window, now)
         avg = share * night_kw + (1 - share) * day_kw
         if abs(avg - kw) < 1e-6:
             break
@@ -435,11 +442,11 @@ def grid_charge_rates(
         return min(kw * ce, cap) if kw > 0 else kw / de
 
     night = min(max(float(night_kw), 0.0), cap) if night_kw is not None else None
-    hour0 = now.hour * 4
+    hour0 = units.price_unit(now) - now.minute // 15  # real time (as of 2026.10.25)
     out = [0.0] * max(n_units, 0)
     for u in range(hour0, len(out)):
         h = (u - hour0) // 4
         x = float(net[h]) if h < len(net) and net[h] is not None else 0.0
-        s = night if night is not None and unit_is_night(u) else speed
+        s = night if night is not None and unit_is_night(u, now) else speed
         out[u] = round(max(gain(s + x) - gain(x), 0.0) / 4, 4) if s > 0 else 0.0
     return out
