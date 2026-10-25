@@ -197,6 +197,59 @@ class _VictronMixin:
         return next((s for s in self.manual if s["id"] == sid), None)
 
     # -- answers ----------------------------------------------------------------------
+    # -- shared by the phone and the card ------------------------------------------------
+    def _apply_car(self, car: dict[str, Any]) -> None:
+        flow = self.flow
+        assert flow is not None
+        flow["car"] = car["id"]
+        session = self._session(flow["sid"])
+        if session is not None:
+            session["car"] = car["id"]
+
+    def _apply_choice(self, value: str) -> None:
+        flow = self.flow
+        assert flow is not None
+        flow["choice"] = value
+        flow["done"] = False
+        session = self._session(flow["sid"])
+        if session is not None:
+            if value == evc.CHOICE_DEADLINE:
+                session.update({"mode": ev.MODE_SOLAR, "current_a": None})
+            else:
+                max_a, min_a = self.ctx["max_a"], self.ctx["min_a"]
+                session.update({"mode": ev.MODE_FIXED, "current_a": max_a if value == evc.CHOICE_ASAP else min_a})
+            session["plan"] = value
+
+    def _deadline(self, day: Optional[str], hm: tuple[int, int], now_epoch: int) -> int:
+        tz = self.ctx["tz"]
+        today = datetime.fromtimestamp(now_epoch, tz).date()
+        date = today + timedelta(days=1 if day == evc.DAY_TOMORROW else 0)
+        return int(datetime.combine(date, time(hm[0], hm[1]), tzinfo=tz).timestamp())
+
+    def _apply_need(self, need: float, soc: Optional[float]) -> None:
+        flow = self.flow
+        assert flow is not None
+        car = self._car(flow.get("car"))
+        flow["step"] = None
+        flow["soc"] = soc
+        flow["need_kwh"] = need
+        flow["energy_at_need"] = flow.get("last_energy")
+        flow["announce"] = True
+        flow["done"] = need <= 0
+        session = self._session(flow["sid"])
+        if session is not None:
+            # the session counts from plugging in: what went in before the
+            # answer plus what's still needed (its start SOC follows from
+            # that, see ev.apply_car)
+            start = (self.running or {}).get("energy_start") if (self.running or {}).get("id") == flow["sid"] else None
+            last = flow.get("last_energy")
+            before = max(float(last) - float(start), 0.0) if start is not None and last is not None else 0.0
+            session["kwh"] = round(need + before, 2)
+            session["start_soc"] = None
+            if car and car.get("target_soc") is not None:
+                session["target_soc"] = car["target_soc"]
+
+    # -- answers on the phone -------------------------------------------------------------
     def answer(self, token: str, what: str, reply_text: Optional[str], now_epoch: int) -> bool:
         """A tap or reply on the phone. True when something changed."""
         if what.startswith("m_"):
@@ -205,28 +258,16 @@ class _VictronMixin:
         if not flow or token != flow.get("token"):
             return False
         key, _, value = what.partition("=")
-        tz = self.ctx["tz"]
-        session = self._session(flow["sid"])
         if key == "car":
             car = self._car(value) if value else evc.match_car(reply_text, self.ctx.get("cars") or [])
             if car is None:
                 self._ask("car", bad=True)
                 return False
-            flow["car"] = car["id"]
-            if session is not None:
-                session["car"] = car["id"]
+            self._apply_car(car)
             self._ask("choice")
             return True
         if key == "choice" and value in evc.CHOICES:
-            flow["choice"] = value
-            flow["done"] = False
-            if session is not None:
-                if value == evc.CHOICE_DEADLINE:
-                    session.update({"mode": ev.MODE_SOLAR, "current_a": None})
-                else:
-                    max_a, min_a = self.ctx["max_a"], self.ctx["min_a"]
-                    session.update({"mode": ev.MODE_FIXED, "current_a": max_a if value == evc.CHOICE_ASAP else min_a})
-                session["plan"] = value
+            self._apply_choice(value)
             if value == evc.CHOICE_DEADLINE:
                 self._ask("day")
             elif flow.get("need_kwh") is None:
@@ -247,9 +288,7 @@ class _VictronMixin:
             if hm is None:
                 self._ask("hour")
                 return False
-            today = datetime.fromtimestamp(now_epoch, tz).date()
-            day = today + timedelta(days=1 if flow.get("day") == evc.DAY_TOMORROW else 0)
-            deadline = int(datetime.combine(day, time(hm[0], hm[1]), tzinfo=tz).timestamp())
+            deadline = self._deadline(flow.get("day"), hm, now_epoch)
             if deadline <= now_epoch:
                 self._ask("hour_past")
                 return False
@@ -267,25 +306,78 @@ class _VictronMixin:
             if need is None:
                 self._ask(key, bad=True)
                 return False
-            flow["step"] = None
-            flow["soc"] = soc
-            flow["need_kwh"] = need
-            flow["energy_at_need"] = flow.get("last_energy")
-            flow["announce"] = True
-            flow["done"] = need <= 0
-            if session is not None:
-                # the session counts from plugging in: what went in before
-                # the answer plus what's still needed (its start SOC follows
-                # from that, see ev.apply_car)
-                start = (self.running or {}).get("energy_start") if (self.running or {}).get("id") == flow["sid"] else None
-                last = flow.get("last_energy")
-                before = max(float(last) - float(start), 0.0) if start is not None and last is not None else 0.0
-                session["kwh"] = round(need + before, 2)
-                session["start_soc"] = None
-                if car and car.get("target_soc") is not None:
-                    session["target_soc"] = car["target_soc"]
+            self._apply_need(need, soc)
             return True
         return False
+
+    # -- the same on the card (as of 2026.10.27) ---------------------------------------------
+    def set_plan(self, fields: dict[str, Any], now_epoch: int) -> None:
+        """The plugged-in car's plan in one go, from the EV card (service
+        ess_manager.ev_charge_plan): car, choice (asap / calm / deadline),
+        day (today / tomorrow / any) and hour ("HH:MM") for a deadline, and
+        soc (%) or kwh. What isn't given stays as it was (a SOC or kWh that
+        is already known can be left out). The open question on the phone
+        is withdrawn; the end time comes as a notification like after an
+        answer there. Raises ValueError with what's missing."""
+        flow = self.flow
+        if not flow:
+            raise ValueError("No car is plugged in")
+        cars = self.ctx.get("cars") or []
+        car = None
+        if fields.get("car"):
+            car = self._car(fields["car"])
+            if car is None:
+                raise ValueError(f"No car {fields['car']}")
+        elif flow.get("car"):
+            car = self._car(flow["car"])
+        elif len(cars) > 1:
+            raise ValueError("Pick the car")
+        else:
+            car = self._car(None)
+        choice = fields.get("choice") or flow.get("choice")
+        if choice not in evc.CHOICES:
+            raise ValueError("Pick as fast as possible, slowly or full by a time")
+        day = fields.get("day") or flow.get("day")
+        deadline = flow.get("deadline")
+        if choice == evc.CHOICE_DEADLINE:
+            if day not in evc.DAYS:
+                raise ValueError("Pick the day: today, tomorrow or doesn't matter")
+            if day == evc.DAY_ANY:
+                deadline = None
+            elif fields.get("hour") is not None or deadline is None or fields.get("day"):
+                hm = evc.parse_hour(fields.get("hour"))
+                if hm is None:
+                    raise ValueError("Give the time it should be full")
+                deadline = self._deadline(day, hm, now_epoch)
+                if deadline <= now_epoch:
+                    raise ValueError("That time has passed")
+        need = soc = None
+        if fields.get("soc") is not None:
+            soc = float(fields["soc"])
+            if not 0 <= soc <= 100:
+                raise ValueError("The state of charge is 0-100 %")
+            need = evc.needed_kwh(car, soc)
+            if need is None:
+                raise ValueError("This car has no battery size: give the kWh")
+        elif fields.get("kwh") is not None:
+            need = float(fields["kwh"])
+            if not 0 < need <= 250:
+                raise ValueError("The energy is 0-250 kWh")
+        elif flow.get("need_kwh") is None:
+            raise ValueError("Give the car's state of charge" if car and car.get("capacity_kwh") else "Give the kWh to charge")
+        # all checked: apply
+        if car is not None:
+            self._apply_car(car)
+        self._apply_choice(choice)
+        flow["day"] = day if choice == evc.CHOICE_DEADLINE else None
+        flow["deadline"] = deadline if choice == evc.CHOICE_DEADLINE else None
+        if need is not None:
+            self._apply_need(need, soc)
+        flow["step"] = None
+        flow["announce"] = True
+        # the phone's buttons go stale; its open question goes away
+        flow["token"] = _token()
+        self._clear()
 
     def need_left(self) -> Optional[float]:
         flow = self.flow or {}

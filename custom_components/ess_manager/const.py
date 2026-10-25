@@ -243,6 +243,8 @@ DEFAULT_HP_METER = HP_METER_SEPARATE
 
 SERVICE_EV_SESSION_SAVE = "ev_session_save"
 SERVICE_EV_SESSION_REMOVE = "ev_session_remove"
+# the plugged-in car's plan from the EV card (Victron charger, as of 2026.10.27)
+SERVICE_EV_CHARGE_PLAN = "ev_charge_plan"
 
 # Seed values only - the live, user-adjustable copies of these live as
 # `number` entities once the config entry is set up (see number.py). These

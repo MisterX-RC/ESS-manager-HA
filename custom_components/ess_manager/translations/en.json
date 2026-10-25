@@ -486,6 +486,40 @@
           "description": "The session's id."
         }
       }
+    },
+    "ev_charge_plan": {
+      "name": "Electric car charge plan",
+      "description": "The plugged-in car's plan (Victron EV charging station; used by the EV card) - the same choices as the question on the phone, which is withdrawn.",
+      "fields": {
+        "entity_id": {
+          "name": "Status sensor",
+          "description": "The ESS Manager Status sensor of the installation (may be left out with a single installation)."
+        },
+        "car": {
+          "name": "Car",
+          "description": "The car's id (from the Status sensor's ev attribute); needed with more than one car."
+        },
+        "choice": {
+          "name": "Choice",
+          "description": "asap: right away at the max current; calm: right away at the min current; deadline: full by a time (sun first, the rest in the cheapest hours)."
+        },
+        "day": {
+          "name": "Day",
+          "description": "For deadline: today, tomorrow or any (within the prices known)."
+        },
+        "hour": {
+          "name": "Time",
+          "description": "For deadline today/tomorrow: the time it should be full (HH:MM)."
+        },
+        "soc": {
+          "name": "State of charge",
+          "description": "The car's state of charge now (%) - for a car with a battery size; may be left out once known."
+        },
+        "kwh": {
+          "name": "Energy",
+          "description": "The energy to charge (kWh) - for a car without a battery size."
+        }
+      }
     }
   }
 }

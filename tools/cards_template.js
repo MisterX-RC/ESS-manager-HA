@@ -78,6 +78,11 @@ const I18N = {
     ev_vc_waiting: "waiting for the answer on the phone · charger on Auto (solar surplus)", ev_vc_asap: "as fast as possible",
     ev_vc_calm: "slowly", ev_vc_deadline: (t) => `full by ${t}`, ev_vc_any: "sun first, then the cheapest hours",
     ev_vc_grid: (w) => `grid: ${w}`, ev_vc_done: "done - the charger is stopped", ev_vc_short: (k) => `${k} short`,
+    ev_vp_title: "Charge plan", ev_vp_car: "Car", ev_vp_pick: "pick the car", ev_vp_asap: "As fast as possible", ev_vp_calm: "Slowly now",
+    ev_vp_deadline: "Full by a time", ev_vp_today: "Today", ev_vp_tomorrow: "Tomorrow", ev_vp_any: "Doesn't matter", ev_vp_time: "Full at",
+    ev_vp_soc: "State of charge now (%)", ev_vp_kwh: "Energy to charge (kWh)", ev_vp_known: "known - leave empty to keep",
+    ev_vp_go: "Start", ev_vp_cancel: "Cancel", ev_vc_change: "Change plan",
+    ev_vp_hint: "The same choices as the question on the phone - that one goes away.",
     ev_now_soc: (p, k) => `now ± ${p}% · ${k} charged`, ev_charged: (k) => `${k} charged`,
     ev_warn_none: "No solar surplus that day - this session won't charge.",
     ev_warn_short: (got, need) => `Not enough sun that day: ± ${got} of ${need}`,
@@ -229,6 +234,11 @@ const I18N = {
     ev_vc_waiting: "wacht op het antwoord op de telefoon · lader op Auto (zon-overschot)", ev_vc_asap: "zo snel mogelijk",
     ev_vc_calm: "rustig", ev_vc_deadline: (t) => `vol om ${t}`, ev_vc_any: "eerst de zon, dan de goedkoopste uren",
     ev_vc_grid: (w) => `net: ${w}`, ev_vc_done: "klaar - de lader staat stil", ev_vc_short: (k) => `${k} tekort`,
+    ev_vp_title: "Laadplan", ev_vp_car: "Auto", ev_vp_pick: "kies de auto", ev_vp_asap: "Zo snel mogelijk", ev_vp_calm: "Nu rustig",
+    ev_vp_deadline: "Vol voor tijd X", ev_vp_today: "Vandaag", ev_vp_tomorrow: "Morgen", ev_vp_any: "Maakt niet uit", ev_vp_time: "Vol om",
+    ev_vp_soc: "Laadstand nu (%)", ev_vp_kwh: "Energie erin (kWh)", ev_vp_known: "bekend - leeg laten om te houden",
+    ev_vp_go: "Start", ev_vp_cancel: "Annuleren", ev_vc_change: "Plan wijzigen",
+    ev_vp_hint: "Dezelfde keuzes als de vraag op de telefoon - die verdwijnt dan.",
     ev_now_soc: (p, k) => `nu ± ${p}% · ${k} geladen`, ev_charged: (k) => `${k} geladen`,
     ev_warn_none: "Geen zon-overschot die dag - deze sessie laadt niet.",
     ev_warn_short: (got, need) => `Te weinig zon die dag: ± ${got} van ${need}`,
@@ -2133,6 +2143,10 @@ const EV_CSS = `
   .btn.link { border: 0; padding: 0 12px; text-decoration: underline; color: var(--secondary-text-color, #9b9b9b); font-size: 13px; }
   .btn:disabled { opacity: .5; cursor: default; }
   .err { font-size: 13px; color: ${EV_WARN}; }
+  .fld input { min-height: 44px; border-radius: 8px; background: var(--ha-card-background, var(--card-background-color, #1c1c1c)); color: var(--primary-text-color, #e1e1e1); border: 1px solid rgba(127,127,127,.35); padding: 0 8px; font: inherit; font-size: 15px; box-sizing: border-box; width: 100%; }
+  .seg.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .seg.three button { font-size: 13px; padding: 0 4px; }
+  .ev-plan-bar { display: flex; justify-content: flex-end; margin-top: -4px; }
 `;
 
 const ICON_LOCK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>';
@@ -2157,6 +2171,8 @@ class EssManagerEvCard extends EssChartCard {
   setConfig(config) {
     this._edit = null;
     this._error = null;
+    this._plan = null;
+    this._planError = null;
     super.setConfig(config);
   }
 
@@ -2318,6 +2334,7 @@ class EssManagerEvCard extends EssChartCard {
     if (this._dragging) return; // never replace a slider while it's being dragged
     const active = this.shadowRoot.activeElement;
     if (active && active.tagName === "SELECT") return; // nor a list that's open
+    if (active && active.tagName === "INPUT" && active.hasAttribute("data-p")) return; // nor a field being typed in
     const st = this._hass.states[this._config.entity];
     const opt = this._opt();
     const css = BASE_CSS + EV_CSS + `ha-card { --ev: ${opt.ev_color}; --evsun: ${opt.solar_color}; }`;
@@ -2351,7 +2368,12 @@ class EssManagerEvCard extends EssChartCard {
     if (!sessions.length) {
       html += `<div class="ev-empty">${esc(this._t(ev.predict ? "ev_none" : "ev_none_manual"))}</div>`;
     }
-    for (const s of sessions) html += this._row(ev, s, opt);
+    const cs = ev.charger && ev.charger.session ? ev.charger.session : null;
+    if (this._plan && (!cs || this._plan.sid !== cs.id)) this._plan = null;
+    for (const s of sessions) {
+      html += this._row(ev, s, opt);
+      if (cs && cs.id === s.id) html += this._planBlock(ev, cs);
+    }
     html += "</div>";
     if (sessions.some((s) => s.solar_history)) {
       html += `<div class="legend-hist"><span></span>${esc(this._t("ev_hist_legend"))}</div>`;
@@ -2427,6 +2449,87 @@ class EssManagerEvCard extends EssChartCard {
         </button>
         <label class="ev-check"><input type="checkbox" data-toggle="${esc(s.id)}" ${s.enabled ? "checked" : ""} aria-label="${esc(this._t("ev_count"))}"></label>
       </div>`;
+  }
+
+  // -- the plugged-in car's plan (Victron charger, as of 2026.10.27) ---------------------
+  _planInit(ev, cs) {
+    const cars = ev.cars || [];
+    let hour = "07:00";
+    if (cs.deadline) {
+      const [h, m] = formats(this._hass).clock(Date.parse(cs.deadline));
+      hour = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    }
+    return {
+      sid: cs.id,
+      car: cs.car || (cars.length === 1 ? cars[0].id : ""),
+      choice: cs.choice || null,
+      day: cs.day || "today",
+      hour,
+      amount: "",
+      known: cs.need_kwh != null,
+    };
+  }
+
+  _planBlock(ev, cs) {
+    const needed = !cs.done && (!cs.choice || cs.need_kwh == null);
+    if (!this._plan && !needed) {
+      return `<div class="ev-plan-bar"><button type="button" class="btn link" data-act="plan-open">${esc(this._t("ev_vc_change"))}</button></div>`;
+    }
+    if (!this._plan) this._plan = this._planInit(ev, cs);
+    const p = this._plan;
+    const cars = ev.cars || [];
+    const car = this._car(ev, p.car);
+    const seg = (attr, items, cur) => `
+      <div class="seg three" role="radiogroup">
+        ${items.map(([v, k]) => `<button type="button" role="radio" ${attr}="${v}" aria-checked="${cur === v}">${esc(this._t(k))}</button>`).join("")}
+      </div>`;
+    let out = `<div class="ev-edit"><div class="head"><span>${esc(this._t("ev_vp_title"))}</span></div>`;
+    if (cars.length > 1) {
+      const opts = [`<option value="" ${p.car ? "" : "selected"}>${esc(this._t("ev_vp_pick"))}</option>`]
+        .concat(cars.map((c) => `<option value="${esc(c.id)}" ${c.id === p.car ? "selected" : ""}>${esc(c.name)}</option>`));
+      out += `<label class="fld">${esc(this._t("ev_vp_car"))}<select data-pf="car">${opts.join("")}</select></label>`;
+    }
+    out += seg("data-pc", [["asap", "ev_vp_asap"], ["calm", "ev_vp_calm"], ["deadline", "ev_vp_deadline"]], p.choice);
+    if (p.choice === "deadline") {
+      out += seg("data-pd", [["today", "ev_vp_today"], ["tomorrow", "ev_vp_tomorrow"], ["any", "ev_vp_any"]], p.day);
+      if (p.day !== "any") {
+        out += `<label class="fld">${esc(this._t("ev_vp_time"))}<input type="time" data-p="hour" value="${esc(p.hour)}"></label>`;
+      }
+    }
+    const soc = !!(car && car.capacity_kwh);
+    const ph = p.known ? this._t("ev_vp_known") : "";
+    out += `<label class="fld">${esc(this._t(soc ? "ev_vp_soc" : "ev_vp_kwh"))}<input type="number" inputmode="decimal" data-p="amount" min="0" max="${soc ? 100 : 250}" step="${soc ? 1 : 0.5}" value="${esc(p.amount)}" placeholder="${esc(ph)}"></label>`;
+    out += `<div class="hint">${esc(this._t("ev_vp_hint"))}</div>`;
+    if (this._planError) out += `<div class="err">${esc(this._planError)}</div>`;
+    out += `<div class="actions"><span class="grow"></span>`;
+    if (!needed) out += `<button type="button" class="btn" data-act="plan-cancel">${esc(this._t("ev_vp_cancel"))}</button>`;
+    out += `<button type="button" class="btn primary" data-act="plan-go" ${p.choice && !this._saving ? "" : "disabled"}>${esc(this._t("ev_vp_go"))}</button></div></div>`;
+    return out;
+  }
+
+  async _planGo(ev) {
+    const p = this._plan;
+    if (!p) return;
+    const car = this._car(ev, p.car);
+    const data = { choice: p.choice };
+    if (p.car) data.car = p.car;
+    if (p.choice === "deadline") {
+      data.day = p.day;
+      if (p.day !== "any") data.hour = p.hour;
+    }
+    const amount = String(p.amount).trim().replace(",", ".");
+    if (amount !== "") data[car && car.capacity_kwh ? "soc" : "kwh"] = Number(amount);
+    this._saving = true;
+    this._planError = null;
+    this._rerender();
+    try {
+      await this._hass.callService(ESS_DOMAIN, "ev_charge_plan", { entity_id: this._config.entity, ...data });
+      this._plan = null;
+    } catch (err) {
+      this._planError = (err && err.message) || String(err);
+    }
+    this._saving = false;
+    this._rerender();
   }
 
   _editBlock(ev, opt) {
@@ -2611,6 +2714,43 @@ class EssManagerEvCard extends EssChartCard {
       this._rerender();
     });
     act("save", () => this._save(ev));
+    // the plugged-in car's plan
+    act("plan-open", () => {
+      const cs = ev.charger && ev.charger.session;
+      if (cs) this._plan = this._planInit(ev, cs);
+      this._planError = null;
+      this._rerender();
+    });
+    act("plan-cancel", () => {
+      this._plan = null;
+      this._planError = null;
+      this._rerender();
+    });
+    act("plan-go", () => this._planGo(ev));
+    if (this._plan) {
+      const p = this._plan;
+      root.querySelectorAll("[data-pc]").forEach((el) => el.addEventListener("click", () => {
+        p.choice = el.getAttribute("data-pc");
+        this._rerender();
+      }));
+      root.querySelectorAll("[data-pd]").forEach((el) => el.addEventListener("click", () => {
+        p.day = el.getAttribute("data-pd");
+        this._rerender();
+      }));
+      root.querySelectorAll("select[data-pf]").forEach((el) => el.addEventListener("change", () => {
+        p.car = el.value;
+        p.amount = "";
+        this._rerender();
+      }));
+      root.querySelectorAll("input[data-p]").forEach((el) => {
+        el.addEventListener("input", () => {
+          p[el.getAttribute("data-p")] = el.value;
+        });
+        el.addEventListener("change", () => {
+          p[el.getAttribute("data-p")] = el.value;
+        });
+      });
+    }
     act("average", () => this._call("ev_session_remove", { id: this._edit.id }, true));
     act("remove", () => this._call("ev_session_remove", { id: this._edit.id }, true));
     if (!this._edit) return;

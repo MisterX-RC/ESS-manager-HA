@@ -1,5 +1,5 @@
 """The EV card's services (as of 2026.10.11): save or remove a charging
-session. The card passes its Status sensor as `entity_id`, which picks the
+session; and (as of 2026.10.27, Victron charger) the plugged-in car's plan. The card passes its Status sensor as `entity_id`, which picks the
 installation; with a single installation it may be left out."""
 from __future__ import annotations
 
@@ -12,7 +12,8 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN, SERVICE_EV_SESSION_REMOVE, SERVICE_EV_SESSION_SAVE
+from .const import DOMAIN, SERVICE_EV_CHARGE_PLAN, SERVICE_EV_SESSION_REMOVE, SERVICE_EV_SESSION_SAVE
+from .ev_charger import CHOICES, DAYS
 from .ev import MODE_FIXED, MODE_SOLAR
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,6 +36,18 @@ SAVE_SCHEMA = vol.Schema(
 )
 
 REMOVE_SCHEMA = vol.Schema({vol.Optional("entity_id"): cv.entity_id, vol.Required("id"): cv.string})
+
+PLAN_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entity_id"): cv.entity_id,
+        vol.Optional("car"): vol.Any(None, cv.string),
+        vol.Required("choice"): vol.In(list(CHOICES)),
+        vol.Optional("day"): vol.Any(None, vol.In(list(DAYS))),
+        vol.Optional("hour"): vol.Any(None, cv.string),
+        vol.Optional("soc"): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=100))),
+        vol.Optional("kwh"): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=250))),
+    }
+)
 
 
 def _coordinator(hass: HomeAssistant, call: ServiceCall):
@@ -88,7 +101,19 @@ def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(DOMAIN, SERVICE_EV_SESSION_REMOVE, _remove, schema=REMOVE_SCHEMA)
 
+    async def _plan(call: ServiceCall) -> None:
+        coordinator = _coordinator(hass, call)
+        fields = {k: v for k, v in call.data.items() if k != "entity_id"}
+        try:
+            coordinator.ev.set_plan(fields, int(coordinator.now().timestamp()))
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        await coordinator.async_ev_flush()
+        await _async_after_edit(coordinator)
+
+    hass.services.async_register(DOMAIN, SERVICE_EV_CHARGE_PLAN, _plan, schema=PLAN_SCHEMA)
+
 
 def async_unload_services(hass: HomeAssistant) -> None:
-    for service in (SERVICE_EV_SESSION_SAVE, SERVICE_EV_SESSION_REMOVE):
+    for service in (SERVICE_EV_SESSION_SAVE, SERVICE_EV_SESSION_REMOVE, SERVICE_EV_CHARGE_PLAN):
         hass.services.async_remove(DOMAIN, service)

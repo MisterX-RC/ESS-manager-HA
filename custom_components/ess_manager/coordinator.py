@@ -655,6 +655,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning("ESS Manager (%s): notify.%s failed: %s", self.entry.title, service, err)
 
+    async def async_ev_flush(self) -> None:
+        """Send what the EV runtime queued outside a cycle (the card's plan)."""
+        await self._async_ev_send()
+
     async def async_ev_action(self, action: Any, reply_text: Any) -> None:
         """A tap or reply on one of the EV notifications (the Companion
         app's mobile_app_notification_action event)."""

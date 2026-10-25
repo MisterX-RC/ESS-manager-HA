@@ -30,7 +30,10 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   charger runs on Auto. Planned sessions the new one overlaps are dropped,
   and at 09:00 on a day with a planned session it asks whether that's
   still right (and the expected state of charge). The old setup with plain
-  sensors stays as it was.
+  sensors stays as it was. The same choices are on the EV card (a Charge
+  plan panel under the plugged-in car's session, service
+  `ess_manager.ev_charge_plan`), for when the notification isn't
+  answered - or to change the plan later.
 
 ### Changed
 - **The charge and discharge speeds are grid setpoints; the max battery

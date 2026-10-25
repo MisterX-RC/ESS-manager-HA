@@ -4649,6 +4649,46 @@ check("victron: no -> the session is removed", _va4["sessions"] == [])
 check("victron: the store round-trips the conversation",
       ev_runtime.EvRuntime().as_store() != _vrt2.as_store() and _vrt2.as_store()["flow"]["choice"] == "asap")
 
+# the same plan from the EV card (service ev_charge_plan)
+_vrt5 = ev_runtime.EvRuntime()
+_vrt5.morning_day = "2026-11-03"
+_vrt5.update(_vconf2, _vn, _ams2, 6, [0.0] * 121, 0.0, 10.0, victron=_vin(False))
+_err = None
+try:
+    _vrt5.set_plan({"choice": "asap"}, int(_vn.timestamp()))
+except ValueError as e:
+    _err = str(e)
+check("card plan: nothing plugged in -> an error", _err == "No car is plugged in")
+_vrt5.update(_vconf2, _vn, _ams2, 6, [0.0] * 121, 0.0, 10.0, victron=_vin(True))
+_old_token = _vrt5.flow["token"]
+def _plan_err(fields):
+    try:
+        _vrt5.set_plan(fields, int(_vn.timestamp()))
+    except ValueError as e:
+        return str(e)
+    return None
+check("card plan: what's missing is said - the car (two cars), the time, the SOC, a passed time",
+      _plan_err({"choice": "asap"}) == "Pick the car"
+      and _plan_err({"car": "c1", "choice": "deadline", "day": "today"}) == "Give the time it should be full"
+      and _plan_err({"car": "c1", "choice": "deadline", "day": "today", "hour": "07:00", "soc": 40}) == "That time has passed"
+      and _plan_err({"car": "c1", "choice": "deadline", "day": "tomorrow", "hour": "07:00"}) == "Give the car's state of charge"
+      and _plan_err({"car": "c2", "choice": "calm", "soc": 40}) == "This car has no battery size: give the kWh"
+      and _vrt5.flow["choice"] is None)
+_vrt5.outbox = []
+_vrt5.set_plan({"car": "c1", "choice": "deadline", "day": "tomorrow", "hour": "07:00", "soc": 40}, int(_vn.timestamp()))
+check("card plan: tomorrow 07:00 at 40 % - set in one go, the phone's question withdrawn (cleared, old buttons dead)",
+      _vrt5.flow["car"] == "c1" and _vrt5.flow["deadline"] == _dl and _vrt5.flow["need_kwh"] == 24.0
+      and _vrt5.outbox[-1]["payload"]["message"] == "clear_notification" and _vrt5.flow["token"] != _old_token
+      and _vrt5.answer(_old_token, "choice=asap", None, int(_vn.timestamp())) is False)
+_vrt5.outbox = []
+_t5, _va5 = _vrt5.update(_vconf2, _vn, _ams2, 6, [0.0] * 121, 0.0, 10.0, victron=_vin(True))
+check("card plan: the end time comes as a notification, the plan is on the attribute",
+      "Vol om wo 07:00" in _vrt5.outbox[0]["payload"]["message"] and _va5["charger"]["session"]["grid_kwh"] == 24.0)
+_vrt5.set_plan({"choice": "asap"}, int(_vn.timestamp()))
+check("card plan: changing it later keeps the known car and SOC (24 kWh, now as fast as possible)",
+      _vrt5.flow["choice"] == "asap" and _vrt5.flow["need_kwh"] == 24.0 and _vrt5.flow["deadline"] is None
+      and evc.charger_target(_vrt5.flow, 0, 6, 16)["current"] == 16)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

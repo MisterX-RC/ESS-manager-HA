@@ -516,6 +516,18 @@ card): "A charging session is planned today at 18:00 - still right?"
 **No** removes it; **Yes** asks the expected state of charge (or kWh),
 which then sets the session's energy.
 
+**The same on the EV card.** Under the plugged-in car's session the card
+shows a **Charge plan** panel while no plan has been chosen (and a "Change
+plan" link after): the car (with more than one), the three choices, for a
+deadline the day and the time, and the state of charge now (or the kWh for
+a car without a battery size - once known it may be left empty). **Start**
+sets it all at once; the open question on the phone goes away and the end
+time arrives as a notification, the same as after answering there. A plan
+can be changed this way at any time. The card uses the service
+`ess_manager.ev_charge_plan` (`choice`: asap / calm / deadline, `day`:
+today / tomorrow / any, `hour`: "07:00", `soc` or `kwh`, `car`) - also
+usable in automations.
+
 The plugged-in car's plan is on the Status sensor's `ev` attribute
 (`charger`: connected, status, and the session - question, choice,
 deadline, needed / left kWh, grid windows, solar / grid / short kWh,
