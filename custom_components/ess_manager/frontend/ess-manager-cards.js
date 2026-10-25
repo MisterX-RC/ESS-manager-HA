@@ -393,7 +393,15 @@ function formats(hass) {
 // next one - 23 or 25 hours later on a daylight saving day.
 function localMidnight(hass, ms) {
   const [hour, minute] = formats(hass).clock(ms);
-  return Math.floor(ms / 60000) * 60000 - (hour * 60 + minute) * 60000;
+  let t = Math.floor(ms / 60000) * 60000 - (hour * 60 + minute) * 60000;
+  // On a daylight saving day the clock moved since midnight, so the clock
+  // time alone lands an hour off (01:00 or 23:00) - as of 2026.10.26; up to
+  // then the cards started that day an hour late (price card shifted, no
+  // measured solar / usage left of "now" on the battery card).
+  const [h] = formats(hass).clock(t);
+  if (h === 1) t -= HOUR_MS;
+  else if (h === 23) t += HOUR_MS;
+  return t;
 }
 function nextMidnight(hass, ms) {
   let t = ms + 24 * HOUR_MS;

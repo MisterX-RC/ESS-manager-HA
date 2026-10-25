@@ -12,6 +12,16 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.26] - 2026-10-25
+
+### Fixed
+- **Cards on a summer-time change day: the day starts at midnight again.**
+  The cards worked out today's midnight from the clock time, which on the
+  day summer time ends (or starts) lands an hour off once the clocks have
+  changed. So all of that day the price card showed the prices an hour
+  late, and the battery card had no measured solar and usage left of
+  "now" (and missed the first hour of the SOC history).
+
 ## [2026.10.25] - 2026-10-25
 
 ### Fixed
