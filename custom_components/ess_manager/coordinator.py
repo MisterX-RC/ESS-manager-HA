@@ -593,8 +593,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Drive the charger: mode, current and start/stop as the plugged-in
         car's plan says. Paused while direct control's Automatic control
-        switch is off; a value is written only when the charger has another
-        one (at most once a minute per entity)."""
+        switch is off. A value is sent when the plan's value changes (plug-in,
+        a choice, a grid window starting or ending, done) - not again while
+        it stays the same: what's changed on the charger itself in between
+        (e.g. started by hand) is left alone (as of 2026.10.28; up to then
+        it was put back every minute, so a charge started on the charger
+        was stopped again). The values sent are kept in the flow (stored)."""
         target = evc.charger_target(
             self.ev.flow, int(now.timestamp()),
             float(conf.get(CONF_EV_MIN_CURRENT, DEFAULT_EV_MIN_CURRENT)),
@@ -603,12 +607,17 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._ev_target = target
         if target is None or (control_settings.active and not self.controller.enabled):
             return
-        calls: list[tuple[str, str, str, dict[str, Any], Any]] = []
-        mode_state = self.hass.states.get(ents.get("mode", ""))
-        if mode_state is not None and mode_state.state != target["mode"]:
-            if target["mode"] in (mode_state.attributes.get("options") or [target["mode"]]):
-                calls.append((ents["mode"], "select", "select_option", {"option": target["mode"]}, target["mode"]))
-        if target.get("current") is not None:
+        flow = self.ev.flow
+        applied: dict[str, Any] = flow.setdefault("applied", {}) if flow is not None else {}
+        calls: list[tuple[str, str, str, str, dict[str, Any], Any]] = []
+        if applied.get("mode") != target["mode"]:
+            mode_state = self.hass.states.get(ents.get("mode", ""))
+            if mode_state is not None and target["mode"] in (mode_state.attributes.get("options") or [target["mode"]]):
+                if mode_state.state == target["mode"]:
+                    applied["mode"] = target["mode"]
+                else:
+                    calls.append(("mode", ents["mode"], "select", "select_option", {"option": target["mode"]}, target["mode"]))
+        if target.get("current") is not None and applied.get("current") != target["current"]:
             cur_state = self.hass.states.get(ents.get("current", ""))
             if cur_state is not None:
                 want = float(target["current"])
@@ -618,15 +627,20 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if hi is not None:
                     want = min(want, float(hi))
                 have = _float_state(cur_state)
-                if have is None or abs(have - want) >= 0.5:
-                    calls.append((ents["current"], "number", "set_value", {"value": want}, want))
-        charge_state = self.hass.states.get(ents.get("charge", ""))
-        if charge_state is not None and charge_state.state in ("on", "off"):
-            if (charge_state.state == "on") != bool(target["charge"]):
-                service = "turn_on" if target["charge"] else "turn_off"
-                calls.append((ents["charge"], "switch", service, {}, service))
+                if have is not None and abs(have - want) < 0.5:
+                    applied["current"] = target["current"]
+                else:
+                    calls.append(("current", ents["current"], "number", "set_value", {"value": want}, target["current"]))
+        if applied.get("charge") != bool(target["charge"]):
+            charge_state = self.hass.states.get(ents.get("charge", ""))
+            if charge_state is not None and charge_state.state in ("on", "off"):
+                if (charge_state.state == "on") == bool(target["charge"]):
+                    applied["charge"] = bool(target["charge"])
+                else:
+                    service = "turn_on" if target["charge"] else "turn_off"
+                    calls.append(("charge", ents["charge"], "switch", service, {}, bool(target["charge"])))
         mono = time.monotonic()
-        for entity_id, domain, service, data, value in calls:
+        for role, entity_id, domain, service, data, value in calls:
             last = self._ev_writes.get(entity_id)
             if last is not None and last[0] == value and mono - last[1] < 60:
                 continue
@@ -641,6 +655,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._ev_error = message
                 continue
             self._ev_writes[entity_id] = (value, mono)
+            applied[role] = value
             self._ev_error = None
             _LOGGER.info("ESS Manager (%s): EV charger %s.%s %s %s (%s)", self.entry.title, domain, service, entity_id, data or "", target.get("why"))
 

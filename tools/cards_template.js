@@ -2599,7 +2599,7 @@ class EssManagerEvCard extends EssChartCard {
     if (this._error) out += `<div class="err">${esc(this._error)}</div>`;
     let extra = "";
     if (e.id && e.label === "edited") extra = `<button type="button" class="btn link" data-act="average">${esc(this._t("ev_back_average"))}</button>`;
-    else if (e.id && e.label === "manual") extra = `<button type="button" class="btn link" data-act="remove">${esc(this._t("ev_remove"))}</button>`;
+    else if (e.id && e.label === "manual" && !(ev.charger && ev.charger.session && ev.charger.session.id === e.id)) extra = `<button type="button" class="btn link" data-act="remove">${esc(this._t("ev_remove"))}</button>`;
     out += `
         <div class="actions">${extra}<div class="grow"></div>
           <button type="button" class="btn" data-act="cancel">${esc(this._t("ev_cancel"))}</button>

@@ -4689,6 +4689,24 @@ check("card plan: changing it later keeps the known car and SOC (24 kWh, now as 
       _vrt5.flow["choice"] == "asap" and _vrt5.flow["need_kwh"] == 24.0 and _vrt5.flow["deadline"] is None
       and evc.charger_target(_vrt5.flow, 0, 6, 16)["current"] == 16)
 
+# the plugged-in car's session can't get lost (2026.10.28)
+_vrt6 = ev_runtime.EvRuntime()
+_vrt6.morning_day = "2026-11-03"
+_vrt6.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 10.0, victron=_vin(True))
+_sid6 = _vrt6.flow["sid"]
+_err6 = None
+try:
+    _vrt6.remove(_sid6)
+except ValueError as e:
+    _err6 = str(e)
+check("victron: the plugged-in car's session can't be removed on the card", _err6 is not None and "plugged-in" in _err6)
+_vrt6.manual = []            # lost anyway (e.g. removed by an older version)
+_vrt6.running = None
+_t6, _va6 = _vrt6.update(_vconf, _vn + timedelta(hours=2), _ams2, 6, [0.0] * 121, 0.0, 11.0, victron=_vin(True))
+check("victron: ... and comes back by itself, running, delivered counted from plugging in",
+      [s["id"] for s in _va6["sessions"]] == [_sid6] and _va6["sessions"][0]["running"]
+      and _va6["sessions"][0]["delivered_kwh"] == 1.0)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

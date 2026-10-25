@@ -94,6 +94,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
             coordinator.ev.remove(call.data["id"])
         except KeyError as err:
             raise ServiceValidationError(f"No charging session {err}") from err
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
         await _async_after_edit(coordinator)
 
     hass.services.async_register(

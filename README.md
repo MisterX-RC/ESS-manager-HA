@@ -506,7 +506,12 @@ possible**, **Slowly now** or **Full by a time**.
   do anyway; the battery forecast leaves that energy out too.
 
 **Until there's an answer** - and when there never is one - the charger
-runs in its **Auto** mode (solar surplus). Once the energy is in (or the
+runs in its **Auto** mode (solar surplus). ESS Manager sends a value to the
+charger only when its plan changes (plugging in, a choice, a grid window
+starting or ending, done); what you change on the charger itself in
+between - e.g. starting a charge by hand - is left alone (as of
+2026.10.28). The plugged-in car's session can't be removed on the card
+while the car is plugged in. Once the energy is in (or the
 charger says "charged") it's stopped (Manual, off); unplugging ends the
 session and clears the notification. With direct control's **Automatic
 control** switch off, ESS Manager doesn't touch the charger.

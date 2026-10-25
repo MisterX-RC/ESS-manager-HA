@@ -12,6 +12,25 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.28] - 2026-10-26
+
+### Fixed
+- **Victron EV charger: a charge started on the charger itself is left
+  alone.** ESS Manager put the charger back every minute (e.g. to Auto
+  while it waited for an answer - which at night means no charging), so a
+  charge started by hand was stopped again. Now it sends a value only when
+  its plan changes - plugging in, a choice on the phone or the card, a grid
+  window starting or ending, done - and leaves what's changed on the
+  charger in between. A new choice is sent again in full.
+- **The plugged-in car's session can't get lost.** Removing it on the EV
+  card dropped it from the list (no Charge plan panel, nothing in the
+  forecast) while the car was still plugged in. It can't be removed any
+  more (unplug the car, or change its plan), and if it's missing anyway it
+  comes back by itself.
+- **The new EV card.** 2026.10.27 was released twice under the same
+  number, so a browser that loaded the first one kept that card (without
+  the Charge plan panel); the new number makes it load the new one.
+
 ## [2026.10.27] - 2026-10-25
 
 ### Added

@@ -147,11 +147,12 @@ class _VictronMixin:
             self._clear()
             return True
         if flow or not connected:
-            if flow is not None:
-                flow["last_energy"] = energy_kwh
-                if status == evc.STATUS_CHARGED and flow.get("choice") is not None:
-                    flow["done"] = True
-            return False
+            if flow is None:
+                return False
+            flow["last_energy"] = energy_kwh
+            if status == evc.STATUS_CHARGED and flow.get("choice") is not None:
+                flow["done"] = True
+            return self._victron_heal(now_epoch, energy_kwh, typical_kwh)
         # a car plugged in: a new session; planned ones it overlaps go
         hour = _floor_hour(now_epoch)
         expected = None
@@ -184,7 +185,8 @@ class _VictronMixin:
             "sid": sid, "token": _token(), "step": None, "since": now_epoch,
             "car": cars[0]["id"] if len(cars) == 1 else None,
             "choice": None, "day": None, "deadline": None, "need_kwh": None, "soc": None,
-            "energy_at_need": energy_kwh, "last_energy": energy_kwh, "windows": [], "quarters": [],
+            "energy_at_need": energy_kwh, "last_energy": energy_kwh, "energy_start": energy_kwh,
+            "windows": [], "quarters": [], "applied": {},
             "plan": None, "done": False, "announce": False,
         }
         if len(cars) > 1:
@@ -192,6 +194,39 @@ class _VictronMixin:
         else:
             self._ask("choice")
         return True
+
+    def _victron_heal(self, now_epoch: int, energy_kwh: Optional[float], typical_kwh: float) -> bool:
+        """The plugged-in car's session and its running mark must be there
+        while it's plugged in (as of 2026.10.28: up to then removing it on
+        the card, or a lost running mark, dropped it from the list - no plan
+        panel on the card, nothing in the forecast). True when repaired."""
+        flow = self.flow
+        assert flow is not None
+        changed = False
+        if self._session(flow["sid"]) is None:
+            choice = flow.get("choice")
+            fixed = choice in (evc.CHOICE_ASAP, evc.CHOICE_CALM)
+            self.manual.append({
+                "id": flow["sid"],
+                "start": _floor_hour(int(flow.get("since") or now_epoch)),
+                "kwh": round(float(flow.get("need_kwh") or typical_kwh), 2),
+                "mode": ev.MODE_FIXED if fixed else ev.MODE_SOLAR,
+                "current_a": (self.ctx.get("max_a") if choice == evc.CHOICE_ASAP else self.ctx.get("min_a")) if fixed else None,
+                "car": flow.get("car"),
+                "start_soc": None,
+                "target_soc": None,
+                "enabled": True,
+                "auto": True,
+                "victron": True,
+                "plan": choice,
+            })
+            changed = True
+        if not self.running or self.running.get("id") != flow["sid"]:
+            start = flow.get("energy_start")
+            self.running = {"id": flow["sid"], "energy_start": start if start is not None else energy_kwh, "low_since": None}
+            changed = True
+        self.done.pop(flow["sid"], None)
+        return changed
 
     def _session(self, sid: str) -> Optional[dict[str, Any]]:
         return next((s for s in self.manual if s["id"] == sid), None)
@@ -211,6 +246,9 @@ class _VictronMixin:
         assert flow is not None
         flow["choice"] = value
         flow["done"] = False
+        # a choice (again) is a new instruction for the charger, also where
+        # it's what was sent before and changed on the charger since
+        flow["applied"] = {}
         session = self._session(flow["sid"])
         if session is not None:
             if value == evc.CHOICE_DEADLINE:
@@ -591,6 +629,9 @@ class EvRuntime(_VictronMixin):
         if session_id.startswith("h:"):
             self.overrides.pop(session_id, None)
             return
+        if self.flow and self.flow.get("sid") == session_id:
+            # (as of 2026.10.28) it comes back as long as the car is plugged in
+            raise ValueError("This is the plugged-in car's session - unplug the car to end it, or change its plan")
         before = len(self.manual)
         self.manual = [s for s in self.manual if s["id"] != session_id]
         if len(self.manual) == before:
