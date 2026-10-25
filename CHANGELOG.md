@@ -26,6 +26,12 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   instead of the house sharing a setpoint at the max (with an electric car
   charging, much less went into the battery). Applies to all four speeds
   and the night speeds.
+- **The night speeds are a limit.** Between 22:00 and 07:00 a speed above
+  the night speed is lowered to it, a lower one stays as it is - normal,
+  negative-price, spike and full charge, in the plans and in the setpoint
+  sent. Up to now the night speeds replaced every other speed, also a
+  lower one (a negative-price charge speed of 3 kW went at a 6 kW night
+  speed at night).
 
 ### Fixed
 - **Sales are sized at what the battery can deliver.** The high discharge,
@@ -33,6 +39,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   also when that is above the max battery discharge speed - so their
   blocks were too short and sold less than planned. The battery side
   (sale plus house) is now capped at the max; the charges already were.
+  The negative-price plan's sale takes the house out of the max as well
+  (from the usage forecast before its charge).
 
 ## [2026.10.26] - 2026-10-25
 

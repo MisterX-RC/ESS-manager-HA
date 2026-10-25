@@ -463,6 +463,7 @@ def compute_negative_price_plan(
     replan: bool = False,
     charge_rates: Optional[list[float]] = None,
     max_discharge_kw: Optional[float] = None,
+    usage: Optional[list[float]] = None,
 ) -> dict:
     """`all_price` is the sell price, `buy_price` what buying costs (price
     + transport, as of v0.4.0; defaults to all_price). Charging is a buy:
@@ -531,10 +532,22 @@ def compute_negative_price_plan(
     forecast_min_pre = min(pre_vals) if pre_vals else level_at_start
     max_safe_discharge_kwh = max(forecast_min_pre - low_threshold_kwh, 0)
 
-    discharge_per_unit = min(discharge_speed_kw / 4, _max_per_unit(max_discharge_kw)) / discharge_efficiency
-    discharge_units_needed_raw = max(math.ceil(discharge_needed_kwh / discharge_per_unit), 0)
+    # The discharge speed is a grid setpoint (as of 2026.10.27): the battery
+    # delivers the sale plus the house (the forecast already takes the
+    # house out), at most its max speed - so the sale itself gets what the
+    # max leaves after the house (`usage`: the hours before the charge).
+    house_per_unit = 0.0
+    if usage:
+        lead = [float(usage[h]) for h in range(len(usage)) if hour0_start_unit + h * 4 < charge_start and usage[h] is not None]
+        house_per_unit = sum(lead) / len(lead) / 4 if lead else 0.0
+    sale_room = max(_max_per_unit(max_discharge_kw) - house_per_unit, 0.0)
+    discharge_per_unit = min(discharge_speed_kw / 4, sale_room) / discharge_efficiency
+    if discharge_per_unit > 0:
+        discharge_units_needed_raw = max(math.ceil(discharge_needed_kwh / discharge_per_unit), 0)
+        discharge_units_by_energy = max(math.floor(max_safe_discharge_kwh / discharge_per_unit), 0)
+    else:
+        discharge_units_needed_raw = discharge_units_by_energy = 0
     available_lead_units = max(charge_start - cur_unit, 0)
-    discharge_units_by_energy = max(math.floor(max_safe_discharge_kwh / discharge_per_unit), 0)
     discharge_units = min(discharge_units_needed_raw, available_lead_units, discharge_units_by_energy)
     actual_discharge_kwh = round(discharge_units * discharge_per_unit, 2)
     achievable_headroom = headroom_available + actual_discharge_kwh

@@ -361,6 +361,14 @@ def unit_is_night(unit: int, now: Optional[datetime] = None) -> bool:
     return is_night_hour(units.unit_hour(unit, now))
 
 
+def night_limit(speed_kw: float, night_kw: Optional[float]) -> float:
+    """The speed at night: the night speed is a limit (as of 2026.10.27) -
+    a lower speed stays as it is."""
+    if night_kw is None:
+        return speed_kw
+    return min(speed_kw, max(float(night_kw), 0.0))
+
+
 def night_share(window: list[int], now: Optional[datetime] = None) -> float:
     """Share of the given units that fall in the night window."""
     return sum(1 for u in window if unit_is_night(u, now)) / len(window) if window else 0.0
@@ -381,7 +389,9 @@ def night_discharge_plan(
 ) -> dict:
     """A discharge plan with the night limit (as of 2026.10.18), per quarter:
     the setpoint sent is the night speed in the quarters between 22:00 and
-    07:00 and the plan's own speed in the others, so the plan is worked out
+    07:00 - when it's lower than the plan's own speed (a limit, as of
+    2026.10.27; up to then it replaced it) - and the plan's own speed in the
+    others, so the plan is worked out
     at the average of those over its window - its energy is then exactly
     what the quarters really move, also for a block across 07:00 or 22:00.
     The window can move with the speed, so this is repeated (a few rounds)
@@ -389,6 +399,9 @@ def night_discharge_plan(
     `plan["speed_kw"]` = the average it was worked out at."""
     plan = compute(day_kw)
     if night_kw is None or night_kw <= 0 or not plan.get("active"):
+        return plan
+    night_kw = night_limit(day_kw, night_kw)
+    if night_kw >= day_kw:
         return plan
     kw = day_kw
     share = 0.0
@@ -431,8 +444,8 @@ def grid_charge_rates(
     all when the sun alone already fills the max charge speed. In an hour
     without solar the grid charge also covers the house, which the forecast
     otherwise takes out of the battery. Units before this hour are 0. With
-    `night_kw` (the night limit) that speed replaces `speed_kw` between
-    22:00 and 07:00."""
+    `night_kw` (the night limit) that speed limits `speed_kw` between
+    22:00 and 07:00 (replaced it up to 2026.10.26)."""
     ce = charge_efficiency if charge_efficiency > 0 else 1.0
     de = discharge_efficiency if discharge_efficiency > 0 else 1.0
     cap = float(max_charge_kw) if max_charge_kw and max_charge_kw > 0 else float("inf")
@@ -443,7 +456,7 @@ def grid_charge_rates(
     def gain(kw: float) -> float:
         return min(kw * ce, cap) if kw > 0 else kw / de
 
-    night = max(float(night_kw), 0.0) if night_kw is not None else None
+    night = night_limit(speed, night_kw) if night_kw is not None else None
     hour0 = units.price_unit(now) - now.minute // 15  # real time (as of 2026.10.25)
     out = [0.0] * max(n_units, 0)
     for u in range(hour0, len(out)):

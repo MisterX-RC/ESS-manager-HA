@@ -1040,15 +1040,18 @@ changed it (then at most once a minute).
 
 **Night limit** (as of 2026.10.18): on the battery page in Configure,
 "Limit the charge/discharge speed at night (22:00-07:00)" asks for a night
-charge and a night discharge speed. Between 22:00 and 07:00 those replace
-every other speed - normal, negative-price, spike and full charge: the charge
-plans count with the night speed for those quarters (so a charge at night
-gets a longer window; 0 means no grid charging at night), and a sale is
-worked out per quarter too - at the average of the night speed in its night
-quarters and its own speed in the others, so a block across 07:00 or 22:00
-plans exactly what is sent. The setpoint switches by itself at 07:00 and
-22:00 (also in the middle of a running block) and never goes above the
-battery's max speeds.
+charge and a night discharge speed. Between 22:00 and 07:00 those limit
+every other speed - normal, negative-price, spike and full charge: a speed
+above the night speed is lowered to it, a lower one stays as it is (as of
+2026.10.27; up to then the night speeds replaced the others, also when they
+were higher). The charge plans count with that speed for those quarters (so
+a charge at night gets a longer window; 0 means no grid charging at night),
+and a sale is worked out per quarter too - at the average of the night
+speed in its night quarters and its own speed in the others, so a block
+across 07:00 or 22:00 plans exactly what is sent. The setpoint switches by
+itself at 07:00 and 22:00 (also in the middle of a running block). Like
+the other speeds, the night speeds are grid setpoints: the battery side
+stays within its max speeds.
 Outside those hours nothing changes. Shown on the Status sensor as
 `night_limit` (enabled, active now, the speeds).
 

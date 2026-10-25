@@ -59,7 +59,7 @@
           "night_limit_enabled": "Limit the charge/discharge speed at night (22:00-07:00)"
         },
         "data_description": {
-          "night_limit_enabled": "On: the next page asks for a night charge and discharge speed. Between 22:00 and 07:00 those replace every other speed - normal, negative-price, spike and full charge - in the plans and in the setpoint sent (never above the battery's max speeds)."
+          "night_limit_enabled": "On: the next page asks for a night charge and discharge speed. Between 22:00 and 07:00 those limit every other speed - normal, negative-price, spike and full charge - in the plans and in the setpoint sent: a speed above the night speed is lowered to it, a lower one stays."
         }
       },
       "plans": {
@@ -146,7 +146,7 @@
       },
       "night_limit": {
         "title": "Night limit (22:00-07:00)",
-        "description": "Between 22:00 and 07:00 these speeds replace every other charge and discharge speed: the plans are worked out with them (a charge at night takes longer, a sale at night is sized for it) and the setpoint sent never goes above them. Outside these hours nothing changes. A night charge speed of 0 means no grid charging at night.",
+        "description": "Between 22:00 and 07:00 these speeds limit every other charge and discharge speed (a lower speed stays as it is): the plans are worked out with them (a charge at night takes longer, a sale at night is sized for it) and the setpoint sent never goes above them. Outside these hours nothing changes. A night charge speed of 0 means no grid charging at night.",
         "data": {
           "night_charge_speed_kw": "Charge speed at night",
           "night_discharge_speed_kw": "Discharge speed at night"
@@ -251,7 +251,7 @@
           "night_limit_enabled": "Limit the charge/discharge speed at night (22:00-07:00)"
         },
         "data_description": {
-          "night_limit_enabled": "On: the next page asks for a night charge and discharge speed. Between 22:00 and 07:00 those replace every other speed - normal, negative-price, spike and full charge - in the plans and in the setpoint sent (never above the battery's max speeds)."
+          "night_limit_enabled": "On: the next page asks for a night charge and discharge speed. Between 22:00 and 07:00 those limit every other speed - normal, negative-price, spike and full charge - in the plans and in the setpoint sent: a speed above the night speed is lowered to it, a lower one stays."
         }
       },
       "plans": {
@@ -338,7 +338,7 @@
       },
       "night_limit": {
         "title": "Night limit (22:00-07:00)",
-        "description": "Between 22:00 and 07:00 these speeds replace every other charge and discharge speed: the plans are worked out with them (a charge at night takes longer, a sale at night is sized for it) and the setpoint sent never goes above them. Outside these hours nothing changes. A night charge speed of 0 means no grid charging at night.",
+        "description": "Between 22:00 and 07:00 these speeds limit every other charge and discharge speed (a lower speed stays as it is): the plans are worked out with them (a charge at night takes longer, a sale at night is sized for it) and the setpoint sent never goes above them. Outside these hours nothing changes. A night charge speed of 0 means no grid charging at night.",
         "data": {
           "night_charge_speed_kw": "Charge speed at night",
           "night_discharge_speed_kw": "Discharge speed at night"

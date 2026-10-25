@@ -2100,6 +2100,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     replan=replan,
                     charge_rates=negative_charge_rates,
                     max_discharge_kw=max_battery_discharge_speed_kw,
+                    usage=usage_forecast,
                 ), discharge_speed_kw, night_discharge_kw, now=now)
             else:
                 self._negative_price_plan = {"active": False}
@@ -2366,10 +2367,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         night_now = night_on and forecasting.is_night_hour(now.hour)
         control_power_kw = control.action_power_kw(
             control_action,
-            night_charge_kw if night_now else charge_speed_kw,
-            night_discharge_kw if night_now else discharge_speed_kw,
-            night_charge_kw if night_now else negative_price_charge_speed_kw,
-            night_discharge_kw if night_now else spike_discharge_speed_kw,
+            # the night speeds limit every speed (as of 2026.10.27)
+            forecasting.night_limit(charge_speed_kw, night_charge_kw) if night_now else charge_speed_kw,
+            forecasting.night_limit(discharge_speed_kw, night_discharge_kw) if night_now else discharge_speed_kw,
+            forecasting.night_limit(negative_price_charge_speed_kw, night_charge_kw) if night_now else negative_price_charge_speed_kw,
+            forecasting.night_limit(spike_discharge_speed_kw, night_discharge_kw) if night_now else spike_discharge_speed_kw,
         )
         await self.controller.async_apply(control_settings, control_action, control_power_kw, system_status)
         control_attr = self.controller.as_attribute(control_settings, control_action, control_power_kw)

@@ -4473,6 +4473,29 @@ check("grid setpoint: a sale at 10 kW with a 5 kW battery is sized at 5 kW batte
       and _hp_free["effective_discharge_per_unit"] > 2.5
       and sum(b["end_unit"] - b["start_unit"] for b in _hp_cap["blocks"]) > sum(b["end_unit"] - b["start_unit"] for b in _hp_free["blocks"]))
 
+# -- the night speeds are a limit (2026.10.27) --
+check("night limit: a higher speed is lowered to the night speed, a lower one stays",
+      forecasting.night_limit(10.0, 6.0) == 6.0 and forecasting.night_limit(3.0, 6.0) == 3.0 and forecasting.night_limit(4.0, None) == 4.0)
+_nr = forecasting.grid_charge_rates([0.0] * 30, datetime(2026, 11, 3, 21, 0), 3.0, 10.0, 104, night_kw=6.0)
+_nr2 = forecasting.grid_charge_rates([0.0] * 30, datetime(2026, 11, 3, 21, 0), 10.0, 20.0, 104, night_kw=6.0)
+check("night limit: the charge rates - 3 kW stays 3 kW at night, 10 kW is 6 kW at night",
+      _nr[84] == 0.75 and _nr[88] == 0.75 and _nr2[84] == 2.5 and _nr2[88] == 1.5)
+_calls = []
+def _fake(kw):
+    _calls.append(kw)
+    return {"active": True, "start_unit": 88, "end_unit": 92}
+_pl = forecasting.night_discharge_plan(_fake, 3.0, 6.0)
+check("night limit: a sale below the night speed isn't changed", _calls == [3.0] and "night_limited" not in _pl)
+# the negative price plan's sale: what the max leaves after the house
+_neg_args = dict(prev=None, cur_unit=0, now=datetime(2026, 11, 3, 0, 0), all_price=[0.1] * 16 + [-0.5] * 8 + [0.1] * 72,
+                 threshold=-0.2, battery_forecast=[25.0] * 30, discharge_speed_kw=10.0, negative_price_charge_speed_kw=10.0,
+                 low_threshold_kwh=3.0, high_threshold_kwh=30.0)
+_n1 = plans.compute_negative_price_plan(**_neg_args, max_discharge_kw=5.0)
+_n2 = plans.compute_negative_price_plan(**_neg_args, max_discharge_kw=5.0, usage=[2.0] * 30)
+check("negative price plan: the sale is capped at the max minus the house (5 kW max, 2 kW house -> 3 kW)",
+      abs(_n1["effective_discharge_per_unit"] - 1.25) < 1e-9 and abs(_n2["effective_discharge_per_unit"] - 0.75) < 1e-9
+      and (_n2["discharge_end_unit"] - _n2["discharge_start_unit"]) > (_n1["discharge_end_unit"] - _n1["discharge_start_unit"]))
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:
