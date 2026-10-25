@@ -14,6 +14,24 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.10.27] - 2026-10-25
 
+### Added
+- **Victron EV charging station.** The charger page can take a Victron EV
+  charging station (a device of the Victron GX integration) instead of an
+  energy and a power sensor. ESS Manager then drives it and asks on your
+  phone (Companion app, buttons and a reply field) what to do when a car
+  is plugged in: which car (with more than one), then as fast as possible
+  (max current), slowly now (min current) or full by a time (today /
+  tomorrow at an hour, or doesn't matter), and the car's state of charge.
+  Full by a time charges on the sun first (the charger's Auto mode) and
+  buys what the solar forecast can't deliver in the cheapest quarters
+  before the deadline; during those grid windows the grid setpoint goes up
+  by what the car takes, so the house battery stays out of it. Every
+  answer gets the expected end time back. Until there's an answer the
+  charger runs on Auto. Planned sessions the new one overlaps are dropped,
+  and at 09:00 on a day with a planned session it asks whether that's
+  still right (and the expected state of charge). The old setup with plain
+  sensors stays as it was.
+
 ### Changed
 - **The charge and discharge speeds are grid setpoints; the max battery
   speeds are the hard limit of the battery.** With direct control the

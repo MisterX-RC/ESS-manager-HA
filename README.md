@@ -417,7 +417,8 @@ Switch it on in Configure, on the price plans page (**Electric car that
 charges from the home battery**); two pages follow:
 
 - **The charger**: its **energy sensor** (cumulative kWh - Wh works too)
-  and **power sensor** (W or kW), the **minimum and maximum charging
+  and **power sensor** (W or kW) - or a **Victron EV charging station**,
+  which ESS Manager then drives (see below) - the **minimum and maximum charging
   current** (default 6 and 16 A, up to 75 A), the **phases** (1 or 3, at
   230 V per phase - 16 A on 3 phases is 11.0 kW) and **Predict sessions
   from history**.
@@ -460,6 +461,65 @@ start time are fixed, the rest can still change, and what's already charged
 (from the energy sensor) counts. Charging that matches no session becomes a
 manual session from the current hour (with the typical energy - change it
 on the card). Ten minutes without power and the session is done.
+
+### Victron EV charging station
+
+*(As of 2026.10.27.)* Instead of an energy and a power sensor, the charger
+page can take a **Victron EV charging station** - the device of the
+**Victron GX** integration (in Home Assistant itself since 2026.5). Its
+entities are found on the device by themselves (status, connected, power,
+total energy, mode, charge current setpoint, EV charging); the energy and
+power then also feed the history and the prediction, so leave those two
+sensors empty. Then ESS Manager **drives the charger** and asks on your
+phone what to do. Pick the phones under **Phones to ask on**: the Home
+Assistant Companion app's notify services (`notify.mobile_app_...`) -
+those show buttons and a reply field. Without a phone nothing is asked
+and the charger stays on its own Auto mode.
+
+**A car is plugged in** (the charger's Connected / Status): a session
+starts and planned sessions it overlaps are dropped (the first one's energy
+is the estimate until you say more). With more than one car the first
+question is which one (buttons; with more than three cars - Android shows
+three buttons - you type its number or name). Then: **As fast as
+possible**, **Slowly now** or **Full by a time**.
+
+- **As fast as possible**: the charger starts right away at the maximum
+  current (Manual mode). Then it asks for the car's state of charge (%) -
+  for a car without a battery size: the kWh to charge - and answers when
+  it will be full.
+- **Slowly now**: the same at the minimum current.
+- **Full by a time**: today, tomorrow or "doesn't matter"; for today or
+  tomorrow it asks the hour (typed: `7`, `7:30`, `19u`), then the state of
+  charge. What's needed (to the car's target %) is planned: **the sun
+  first** - the charger on its own **Auto** mode, which charges on the
+  solar surplus - and whatever the solar forecast can't deliver in time
+  is **bought in the cheapest quarters before the deadline** ("doesn't
+  matter": within the prices known), at the maximum current in Manual mode,
+  in blocks of at least half an hour. The answer says how much comes from
+  the sun, how much is bought when, and when it's full - or how much
+  doesn't fit. The plan is worked out again every cycle (new prices, a
+  different solar forecast, what's charged so far); a grid window that's
+  running finishes.
+- **During a grid window the house battery stays out of it**: with direct
+  control, the grid setpoint sent goes up by what the car takes (measured),
+  so the grid supplies the car and the battery does what it was going to
+  do anyway; the battery forecast leaves that energy out too.
+
+**Until there's an answer** - and when there never is one - the charger
+runs in its **Auto** mode (solar surplus). Once the energy is in (or the
+charger says "charged") it's stopped (Manual, off); unplugging ends the
+session and clears the notification. With direct control's **Automatic
+control** switch off, ESS Manager doesn't touch the charger.
+
+**09:00 on a day with a planned session** (predicted or added on the
+card): "A charging session is planned today at 18:00 - still right?"
+**No** removes it; **Yes** asks the expected state of charge (or kWh),
+which then sets the session's energy.
+
+The plugged-in car's plan is on the Status sensor's `ev` attribute
+(`charger`: connected, status, and the session - question, choice,
+deadline, needed / left kWh, grid windows, solar / grid / short kWh,
+expected end) and on the EV card under the running session.
 
 Edits are stored and survive a restart; the planning is worked out again
 right after each one. The sessions are on the Status sensor's `ev`

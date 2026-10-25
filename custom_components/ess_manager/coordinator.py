@@ -6,7 +6,9 @@ across Home Assistant restarts.
 """
 from __future__ import annotations
 
+import asyncio
 import functools
+import time
 from collections import deque
 
 import logging
@@ -23,6 +25,7 @@ from homeassistant.util import dt as dt_util
 
 from . import control, display, forecasting, plans, transport, units
 from .ev_runtime import EvRuntime
+from . import ev_charger as evc, ev_notify as evn
 from . import heatpump
 from .heatpump_runtime import HeatPumpRuntime
 from . import heatpump_house
@@ -38,6 +41,10 @@ from .const import (
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
     CONF_EV_CARS,
+    CONF_EV_CHARGER,
+    CONF_EV_NOTIFY,
+    CONF_EV_VICTRON_DEVICE,
+    EV_CHARGER_VICTRON,
     CONF_HP_COOL_ENTITIES,
     CONF_HP_ENABLED,
     CONF_HP_HEAT_ENTITIES,
@@ -207,6 +214,13 @@ def hp_energy_entities(conf: dict[str, Any]) -> tuple[list[str], list[str]]:
     return [], []
 
 
+def _float_state(state: Any) -> Optional[float]:
+    try:
+        return float(state.state)
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
 WIND_FACTORS = {"m/s": 1.0, "km/h": 1 / 3.6, "mph": 0.44704, "kn": 0.514444, "ft/s": 0.3048}
 
 
@@ -334,6 +348,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._usage_missing = False
         # The electric car (as of 2026.10.11) - see ev_runtime.py.
         self.ev = EvRuntime()
+        # the Victron charger (as of 2026.10.27): what was written to it
+        # (entity -> (value, monotonic time)), its last error, and the grid
+        # setpoint offset that keeps the house battery out of a grid window
+        self._ev_writes: dict[str, tuple[Any, float]] = {}
+        self._ev_error: Optional[str] = None
+        self._ev_offset_w = 0.0
+        self._ev_target: Optional[dict[str, Any]] = None
         # The heat pump model (as of 2026.10.16) - see heatpump_runtime.py.
         self.hp = HeatPumpRuntime()
         # whether the cached usage forecast left the heat pump out
@@ -519,6 +540,134 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def now(self) -> datetime:
         return dt_util.now()
+
+    # -- the Victron EV charger (as of 2026.10.27) -------------------------------------
+    def _victron_entities(self, device_id: Optional[str]) -> dict[str, str]:
+        """The charger's Victron GX entities by role, found on its device by
+        translation key (ev_charger.VICTRON_KEYS)."""
+        if not device_id:
+            return {}
+        by_key = {v: k for k, v in evc.VICTRON_KEYS.items()}
+        out: dict[str, str] = {}
+        for entry in er.async_entries_for_device(er.async_get(self.hass), device_id):
+            role = by_key.get(entry.translation_key or "")
+            if role and not entry.disabled_by:
+                out[role] = entry.entity_id
+        return out
+
+    def _victron_inputs(self, conf: dict[str, Any], ents: dict[str, str], now: datetime, buy_price: list[float]) -> dict[str, Any]:
+        status_state = self.hass.states.get(ents.get("status", ""))
+        status = status_state.state if status_state and status_state.state not in ("unknown", "unavailable") else None
+        connected_state = self.hass.states.get(ents.get("connected", ""))
+        if connected_state is not None and connected_state.state in ("on", "off"):
+            connected = connected_state.state == "on"
+        else:
+            connected = status is not None and status != evc.STATUS_DISCONNECTED
+        if status is None and (connected_state is None or connected_state.state not in ("on", "off")):
+            # the charger can't be read: keep what we had (no false unplug)
+            connected = self.ev.flow is not None
+        notify = [s for s in (conf.get(CONF_EV_NOTIFY) or []) if self.hass.services.has_service("notify", s)]
+        return {
+            "connected": connected,
+            "status": status,
+            "entry_id": self.entry.entry_id,
+            "language": evn.lang(self.hass.config.language),
+            "notify": bool(notify),
+            "notify_services": notify,
+            "prices": list(buy_price),
+            "price_start": int(units.local_midnight(now).timestamp()),
+        }
+
+    def _ev_grid_offset_kw(self, victron: dict[str, Any], ents: dict[str, str], now: datetime) -> float:
+        """What the car takes now (kW) when it's in a grid window, else 0."""
+        flow = self.ev.flow
+        if not flow or flow.get("done") or not evc.in_windows(int(now.timestamp()), flow.get("windows") or []):
+            return 0.0
+        power_w = _state_in_unit(self.hass, ents.get("power"), ("kW",), 1000.0)
+        if not power_w or power_w <= 0:
+            return 0.0
+        return round(power_w / 1000.0, 1)
+
+    async def _async_ev_charger(
+        self, conf: dict[str, Any], ents: dict[str, str], now: datetime, control_settings: ControlSettings
+    ) -> None:
+        """Drive the charger: mode, current and start/stop as the plugged-in
+        car's plan says. Paused while direct control's Automatic control
+        switch is off; a value is written only when the charger has another
+        one (at most once a minute per entity)."""
+        target = evc.charger_target(
+            self.ev.flow, int(now.timestamp()),
+            float(conf.get(CONF_EV_MIN_CURRENT, DEFAULT_EV_MIN_CURRENT)),
+            float(conf.get(CONF_EV_MAX_CURRENT, DEFAULT_EV_MAX_CURRENT)),
+        )
+        self._ev_target = target
+        if target is None or (control_settings.active and not self.controller.enabled):
+            return
+        calls: list[tuple[str, str, str, dict[str, Any], Any]] = []
+        mode_state = self.hass.states.get(ents.get("mode", ""))
+        if mode_state is not None and mode_state.state != target["mode"]:
+            if target["mode"] in (mode_state.attributes.get("options") or [target["mode"]]):
+                calls.append((ents["mode"], "select", "select_option", {"option": target["mode"]}, target["mode"]))
+        if target.get("current") is not None:
+            cur_state = self.hass.states.get(ents.get("current", ""))
+            if cur_state is not None:
+                want = float(target["current"])
+                lo, hi = cur_state.attributes.get("min"), cur_state.attributes.get("max")
+                if lo is not None:
+                    want = max(want, float(lo))
+                if hi is not None:
+                    want = min(want, float(hi))
+                have = _float_state(cur_state)
+                if have is None or abs(have - want) >= 0.5:
+                    calls.append((ents["current"], "number", "set_value", {"value": want}, want))
+        charge_state = self.hass.states.get(ents.get("charge", ""))
+        if charge_state is not None and charge_state.state in ("on", "off"):
+            if (charge_state.state == "on") != bool(target["charge"]):
+                service = "turn_on" if target["charge"] else "turn_off"
+                calls.append((ents["charge"], "switch", service, {}, service))
+        mono = time.monotonic()
+        for entity_id, domain, service, data, value in calls:
+            last = self._ev_writes.get(entity_id)
+            if last is not None and last[0] == value and mono - last[1] < 60:
+                continue
+            try:
+                await asyncio.wait_for(
+                    self.hass.services.async_call(domain, service, {"entity_id": entity_id, **data}, blocking=True), 10
+                )
+            except Exception as err:  # noqa: BLE001 - a failed write must not fail the cycle
+                message = f"EV charger: {domain}.{service} on {entity_id} failed: {type(err).__name__}: {err}"
+                if message != self._ev_error:
+                    _LOGGER.warning("ESS Manager (%s): %s", self.entry.title, message)
+                self._ev_error = message
+                continue
+            self._ev_writes[entity_id] = (value, mono)
+            self._ev_error = None
+            _LOGGER.info("ESS Manager (%s): EV charger %s.%s %s %s (%s)", self.entry.title, domain, service, entity_id, data or "", target.get("why"))
+
+    async def _async_ev_send(self) -> None:
+        """The notifications the EV runtime queued (questions, plans)."""
+        outbox, self.ev.outbox = self.ev.outbox, []
+        services = (self.ev.ctx or {}).get("notify_services") or []
+        for item in outbox:
+            for service in services:
+                try:
+                    await self.hass.services.async_call("notify", service, item["payload"], blocking=False)
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning("ESS Manager (%s): notify.%s failed: %s", self.entry.title, service, err)
+
+    async def async_ev_action(self, action: Any, reply_text: Any) -> None:
+        """A tap or reply on one of the EV notifications (the Companion
+        app's mobile_app_notification_action event)."""
+        parsed = evn.parse_action(action)
+        if parsed is None or parsed[0] != self.entry.entry_id or not self.ev.ctx:
+            return
+        _, token, what = parsed
+        changed = self.ev.answer(token, what, reply_text if isinstance(reply_text, str) else None, int(self.now().timestamp()))
+        await self._async_ev_send()
+        if changed:
+            self.request_replan()
+            await self.async_persist_state()
+            await self.async_refresh()
 
     async def async_persist_state(self) -> None:
         """Store now (after an edit on the EV card), not only at the end of
@@ -1771,6 +1920,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # number entity's own value is the best readback there is.
             readback = self.controller.readback_power_w(control_settings)
             setpoint_w = readback if readback is not None else 0.0
+        # the car's grid window offset sent last cycle isn't the battery's
+        # (as of 2026.10.27)
+        setpoint_w -= self._ev_offset_w
         # With direct control, "idle" is whatever idle value is sent (e.g.
         # -30 W), so the Status's idle check uses that instead of 0 W.
         idle_setpoint_w = control_settings.idle_power_w if control_settings.active else IDLE_SETPOINT_W
@@ -1864,6 +2016,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # session charges on what the solar forecast has left after the house.
         ev_attribute = None
         ev_total = None
+        ev_victron = None
+        ev_entities: dict[str, str] = {}
+        if conf.get(CONF_EV_ENABLED) and conf.get(CONF_EV_CHARGER) == EV_CHARGER_VICTRON:
+            ev_entities = self._victron_entities(conf.get(CONF_EV_VICTRON_DEVICE))
+            ev_victron = self._victron_inputs(conf, ev_entities, now, buy_price)
         if conf.get(CONF_EV_ENABLED):
             ev_total, ev_attribute = self.ev.update(
                 {
@@ -1880,9 +2037,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _state_in_unit(self.hass, conf.get(CONF_EV_POWER_ENTITY), ("kW",), 1000.0),
                 _state_in_unit(self.hass, conf.get(CONF_EV_ENERGY_ENTITY), ("Wh",), 0.001),
                 EV_DAYS,
+                victron=ev_victron,
             )
+            # the car's grid windows (Victron charger) don't come out of the
+            # house battery: the grid setpoint covers them
+            ev_grid = (ev_attribute or {}).get("grid_120h") or [0.0] * len(ev_total)
             if any(ev_total):
-                usage_forecast = [round(u + e, 3) for u, e in zip(usage_forecast, ev_total)]
+                usage_forecast = [round(u + e - g, 3) for u, e, g in zip(usage_forecast, ev_total, ev_grid)]
                 net_energy = forecasting.build_net_energy(solar_forecast, usage_forecast)
         # the forecast check's snapshot of today (once, at the day's first
         # cycle): solar and the house's usage without the car
@@ -2373,7 +2534,17 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             forecasting.night_limit(negative_price_charge_speed_kw, night_charge_kw) if night_now else negative_price_charge_speed_kw,
             forecasting.night_limit(spike_discharge_speed_kw, night_discharge_kw) if night_now else spike_discharge_speed_kw,
         )
-        await self.controller.async_apply(control_settings, control_action, control_power_kw, system_status)
+        # the Victron charger (as of 2026.10.27): in a grid window of the
+        # plugged-in car the grid setpoint goes up by what the car takes, so
+        # the house battery stays out of it
+        ev_offset_kw = self._ev_grid_offset_kw(ev_victron, ev_entities, now) if ev_victron else 0.0
+        await self.controller.async_apply(
+            control_settings, control_action, control_power_kw, system_status, offset_kw=ev_offset_kw
+        )
+        self._ev_offset_w = ev_offset_kw * 1000.0 if control_settings.active and self.controller.enabled else 0.0
+        if ev_victron is not None:
+            await self._async_ev_charger(conf, ev_entities, now, control_settings)
+        await self._async_ev_send()
         control_attr = self.controller.as_attribute(control_settings, control_action, control_power_kw)
         self._report_control_problem(now)
         self._record_decision({

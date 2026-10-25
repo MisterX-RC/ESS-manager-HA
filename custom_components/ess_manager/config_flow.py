@@ -11,12 +11,12 @@ first one - see _EssManagerSteps for the page order.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers import selector
+from homeassistant.helpers import entity_registry as er, selector
 
 from .const import (
     CONF_BATTERY_CAPACITY_KWH,
@@ -40,6 +40,13 @@ from .const import (
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
     CONF_EV_CARS,
+    CONF_EV_CHARGER,
+    CONF_EV_NOTIFY,
+    CONF_EV_VICTRON_DEVICE,
+    DEFAULT_EV_CHARGER,
+    EV_CHARGER_SENSORS,
+    EV_CHARGER_VICTRON,
+    VICTRON_GX_DOMAIN,
     CONF_HP_COOL_ENTITIES,
     CONF_HP_ENABLED,
     CONF_HP_HEAT_ENTITIES,
@@ -495,13 +502,55 @@ EV_CAR_TARGET = "ev_car_target_soc"
 EV_CAR_ADD_ANOTHER = "ev_car_add_another"
 
 
-def _ev_schema(defaults: dict[str, Any]) -> vol.Schema:
+EV_CHARGER_OPTIONS = [
+    selector.SelectOptionDict(value=EV_CHARGER_SENSORS, label="Energy and power sensors (forecast only)"),
+    selector.SelectOptionDict(value=EV_CHARGER_VICTRON, label="Victron EV charging station (ESS Manager drives it)"),
+]
+
+
+def victron_charger_entities(hass, device_id: Optional[str]) -> dict[str, str]:
+    """The Victron GX entities of an EV charging station device, by role
+    (see ev_charger.VICTRON_KEYS) - found by their translation key."""
+    from .ev_charger import VICTRON_KEYS
+
+    if not device_id:
+        return {}
+    by_key = {v: k for k, v in VICTRON_KEYS.items()}
+    out: dict[str, str] = {}
+    for entry in er.async_entries_for_device(er.async_get(hass), device_id):
+        role = by_key.get(entry.translation_key or "")
+        if role and not entry.disabled_by:
+            out[role] = entry.entity_id
+    return out
+
+
+def _notify_options(hass) -> list[selector.SelectOptionDict]:
+    """The Companion app notify services (the ones that can show buttons)."""
+    services = sorted(s for s in (hass.services.async_services().get("notify") or {}) if s.startswith("mobile_app_"))
+    return [selector.SelectOptionDict(value=s, label=f"notify.{s}") for s in services]
+
+
+def _ev_schema(defaults: dict[str, Any], notify_options: Optional[list] = None) -> vol.Schema:
     """The car charger (as of 2026.10.11): its energy and power sensors, the
     charging current range and phases, and whether sessions are predicted
-    from the history."""
+    from the history. As of 2026.10.27 the charger can instead be a Victron
+    EV charging station (a device of the Victron GX integration) with the
+    phones to ask on."""
     current = _number(1, EV_MAX_CURRENT_LIMIT, 1, "A")
     return vol.Schema(
         {
+            vol.Required(CONF_EV_CHARGER, default=defaults.get(CONF_EV_CHARGER, DEFAULT_EV_CHARGER)): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=EV_CHARGER_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+            ),
+            vol.Optional(CONF_EV_VICTRON_DEVICE, default=defaults.get(CONF_EV_VICTRON_DEVICE)): vol.Maybe(
+                selector.DeviceSelector(selector.DeviceSelectorConfig(integration=VICTRON_GX_DOMAIN))
+            ),
+            vol.Optional(CONF_EV_NOTIFY, default=list(defaults.get(CONF_EV_NOTIFY) or [])): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=notify_options or [], multiple=True, custom_value=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             vol.Optional(CONF_EV_ENERGY_ENTITY, default=defaults.get(CONF_EV_ENERGY_ENTITY)): _optional_entity_selector(),
             vol.Optional(CONF_EV_POWER_ENTITY, default=defaults.get(CONF_EV_POWER_ENTITY)): _optional_entity_selector(),
             vol.Required(
@@ -803,7 +852,23 @@ class _EssManagerSteps:
         errors: dict[str, str] = {}
         if user_input is not None:
             cleaned = _clean(user_input)
-            if not cleaned.get(CONF_EV_ENERGY_ENTITY) or not cleaned.get(CONF_EV_POWER_ENTITY):
+            cleaned[CONF_EV_NOTIFY] = [s.removeprefix("notify.") for s in (cleaned.get(CONF_EV_NOTIFY) or []) if s]
+            victron = cleaned.get(CONF_EV_CHARGER) == EV_CHARGER_VICTRON
+            if victron:
+                from .ev_charger import VICTRON_REQUIRED
+
+                found = victron_charger_entities(self.hass, cleaned.get(CONF_EV_VICTRON_DEVICE))
+                if not cleaned.get(CONF_EV_VICTRON_DEVICE):
+                    errors["base"] = "ev_victron_device_required"
+                elif any(k not in found for k in VICTRON_REQUIRED):
+                    errors["base"] = "ev_victron_incomplete"
+                else:
+                    # the history and the live values come from the charger itself
+                    cleaned[CONF_EV_ENERGY_ENTITY] = found["energy"]
+                    cleaned[CONF_EV_POWER_ENTITY] = found["power"]
+            if errors:
+                pass
+            elif not cleaned.get(CONF_EV_ENERGY_ENTITY) or not cleaned.get(CONF_EV_POWER_ENTITY):
                 errors["base"] = "ev_entities_required"
             elif float(cleaned[CONF_EV_MIN_CURRENT]) > float(cleaned[CONF_EV_MAX_CURRENT]):
                 errors["base"] = "ev_current_range"
@@ -814,7 +879,7 @@ class _EssManagerSteps:
                 self._data.update(cleaned)
                 return await self.async_step_ev_cars()
         return self.async_show_form(
-            step_id="ev", data_schema=_ev_schema({**self._defaults(), **self._data}), errors=errors
+            step_id="ev", data_schema=_ev_schema({**self._defaults(), **self._data}, _notify_options(self.hass)), errors=errors
         )
 
     async def async_step_ev_cars(self, user_input: dict[str, Any] | None = None):

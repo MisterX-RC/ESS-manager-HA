@@ -4496,6 +4496,159 @@ check("negative price plan: the sale is capped at the max minus the house (5 kW 
       abs(_n1["effective_discharge_per_unit"] - 1.25) < 1e-9 and abs(_n2["effective_discharge_per_unit"] - 0.75) < 1e-9
       and (_n2["discharge_end_unit"] - _n2["discharge_start_unit"]) > (_n1["discharge_end_unit"] - _n1["discharge_start_unit"]))
 
+# -- the Victron EV charger (2026.10.27) -------------------------------------------
+evc = _load("ev_charger")
+evn = _load("ev_notify")
+_ams2 = ZoneInfo("Europe/Amsterdam")
+check("victron: typed answers - SOC, kWh, hour, car",
+      evc.parse_soc("45 %") == 45.0 and evc.parse_soc("120") is None and evc.parse_kwh("12,5 kWh") == 12.5
+      and evc.parse_hour("7") == (7, 0) and evc.parse_hour("07:30") == (7, 30) and evc.parse_hour("19u") == (19, 0)
+      and evc.parse_hour("25") is None
+      and evc.match_car("2", [{"name": "A"}, {"name": "Tiguan"}])["name"] == "Tiguan"
+      and evc.match_car("tig", [{"name": "A"}, {"name": "Tiguan"}])["name"] == "Tiguan")
+check("victron: what a car needs - 60 kWh, 40 -> 80 % = 24 kWh",
+      evc.needed_kwh({"capacity_kwh": 60, "target_soc": 80}, 40) == 24.0 and evc.needed_kwh({"capacity_kwh": None}, 40) is None)
+# deadline plan: 11 kW, 10 kWh, no sun, quarters 8-11 cheapest
+_t0 = int(datetime(2026, 11, 3, 18, 0, tzinfo=_ams2).timestamp())
+_ps = int(datetime(2026, 11, 3, 0, 0, tzinfo=_ams2).timestamp())
+_pr = [0.30] * 96 + [0.30] * 96
+for _i in range(96 + 8, 96 + 12):
+    _pr[_i] = 0.05
+_dl = int(datetime(2026, 11, 4, 7, 0, tzinfo=_ams2).timestamp())
+_pl = evc.plan_deadline(_t0, _dl, 10.0, [0.0] * 30, _t0, _pr, _ps, 4.14, 11.04)
+check("victron: deadline plan - no sun, 10 kWh at 11 kW = the 4 cheapest quarters (02:00-03:00), full at about 02:54",
+      _pl["windows"] == [[int(datetime(2026, 11, 4, 2, 0, tzinfo=_ams2).timestamp()), int(datetime(2026, 11, 4, 3, 0, tzinfo=_ams2).timestamp())]]
+      and _pl["grid_kwh"] == 10.0 and _pl["solar_kwh"] == 0.0 and _pl["short_kwh"] == 0.0
+      and datetime.fromtimestamp(_pl["end"], _ams2).strftime("%H:%M") == "02:54")
+_net = [0.0] * 40
+for _h in range(15, 20):      # tomorrow 09:00-14:00: 5 kWh/h surplus
+    _net[_h] = 5.0
+_pl2 = evc.plan_deadline(_t0, int(datetime(2026, 11, 4, 17, 0, tzinfo=_ams2).timestamp()), 20.0, _net, _t0, _pr, _ps, 4.14, 11.04)
+check("victron: deadline plan - the sun first (5 h x 5 kW = 25 kWh available), nothing bought",
+      _pl2["windows"] == [] and _pl2["solar_kwh"] == 20.0 and _pl2["grid_kwh"] == 0.0)
+_pl3 = evc.plan_deadline(_t0, int(datetime(2026, 11, 4, 17, 0, tzinfo=_ams2).timestamp()), 30.0, _net, _t0, _pr, _ps, 4.14, 11.04)
+check("victron: deadline plan - 5 kWh short of the sun is bought in the cheapest quarters (2 of them, no lone quarter)",
+      len(_pl3["quarters"]) == 2 and _pl3["short_kwh"] == 0.0 and abs(_pl3["grid_kwh"] + _pl3["solar_kwh"] - 30.0) < 0.01
+      and _pl3["windows"][0][1] - _pl3["windows"][0][0] == 1800)
+_pl4 = evc.plan_deadline(_t0, _t0 + 3600, 30.0, [0.0] * 30, _t0, _pr, _ps, 4.14, 11.04)
+check("victron: deadline plan - too little time: every quarter, the rest short",
+      len(_pl4["quarters"]) == 4 and _pl4["short_kwh"] == 30.0 - 11.04 and _pl4["end"] is None)
+check("victron: the charger - waiting = Auto, asap = max, calm = min, deadline in a window = manual max, outside = Auto, done = stop",
+      evc.charger_target({"choice": None}, 0, 6, 16)["mode"] == "auto"
+      and evc.charger_target({"choice": "asap"}, 0, 6, 16) == {"mode": "manual", "charge": True, "current": 16, "why": "asap"}
+      and evc.charger_target({"choice": "calm"}, 0, 6, 16)["current"] == 6
+      and evc.charger_target({"choice": "deadline", "need_kwh": 5, "windows": [[0, 900]]}, 100, 6, 16)["why"] == "grid_window"
+      and evc.charger_target({"choice": "deadline", "need_kwh": 5, "windows": [[0, 900]]}, 1000, 6, 16)["mode"] == "auto"
+      and evc.charger_target({"done": True, "choice": "asap"}, 0, 6, 16)["charge"] is False
+      and evc.charger_target(None, 0, 6, 16) is None)
+check("victron: the grid window's energy per hour (11 kW, 02:00-03:00, 10 kWh left)",
+      abs(sum(evc.grid_profile(_pl["windows"], _t0, 24, _t0, 11.04, 10.0)) - 10.0) < 1e-6
+      and evc.grid_profile(_pl["windows"], _t0, 24, _t0, 11.04, 10.0)[8] == 10.0)
+check("victron: the grid offset is added to the setpoint (idle 0 + 7.4 kW car; W, discharge positive flips it)",
+      control.command_value("idle", 0.0, "W", "charge_positive", 0, offset_kw=7.4) == 7400.0
+      and control.command_value("charge", 5.0, "W", "charge_positive", 0, offset_kw=7.4) == 12400.0
+      and control.command_value("idle", 0.0, "W", "discharge_positive", -30, offset_kw=7.4) == -7430.0)
+check("victron: action ids round-trip", evn.parse_action(evn.action_id("E1", "tok", "choice=asap")) == ("E1", "tok", "choice=asap")
+      and evn.parse_action("OTHER:x") is None)
+
+# the conversation
+_vrt = ev_runtime.EvRuntime()
+_vcar = {"id": "c1", "name": "Tiguan", "capacity_kwh": 60.0, "target_soc": 80}
+_vconf = {"phases": 3, "min_current": 6, "max_current": 16, "predict": False, "cars": [_vcar]}
+def _vin(connected, status="connected", notify=True):
+    return {"connected": connected, "status": status, "entry_id": "E1", "language": "nl", "notify": notify,
+            "notify_services": ["mobile_app_x"], "prices": _pr, "price_start": _ps}
+_vn = datetime(2026, 11, 3, 17, 30, tzinfo=_ams2)
+_vrt.morning_day = "2026-11-03"   # (the morning question is tested below)
+_manual = _vrt.save(None, {"start": int(datetime(2026, 11, 3, 18, 0, tzinfo=_ams2).timestamp()), "kwh": 15.0, "mode": "fixed"}, int(_vn.timestamp()))
+_vrt.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_vin(False))
+check("victron: nothing plugged in - no conversation", _vrt.flow is None and _vrt.outbox == [])
+_t, _va = _vrt.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_vin(True))
+_msg = _vrt.outbox[0]["payload"] if _vrt.outbox else {}
+check("victron: plugged in - a session (the planned 18:00 one it overlaps is gone, its 15 kWh the estimate) and the question with three buttons",
+      _vrt.flow is not None and _manual not in [s["id"] for s in _va["sessions"]]
+      and _va["sessions"][0]["kwh"] == 15.0 and _va["sessions"][0]["running"]
+      and "Tiguan is aangesloten" in _msg.get("message", "") and len(_msg["data"]["actions"]) == 3
+      and _msg["data"]["actions"][2]["title"] == "Vol voor tijd X")
+_tok = _vrt.flow["token"]
+check("victron: an old notification's tap does nothing", _vrt.answer("old", "choice=asap", None, int(_vn.timestamp())) is False)
+_vrt.outbox = []
+_vrt.answer(_tok, "choice=deadline", None, int(_vn.timestamp()))
+check("victron: 'full by a time' -> today / tomorrow / doesn't matter",
+      [a["title"] for a in _vrt.outbox[-1]["payload"]["data"]["actions"]] == ["Vandaag", "Morgen", "Maakt niet uit"])
+_vrt.answer(_tok, "day=tomorrow", None, int(_vn.timestamp()))
+check("victron: then the hour, typed", _vrt.outbox[-1]["payload"]["data"]["actions"][0]["behavior"] == "textInput")
+_vrt.answer(_tok, "hour", "half acht", int(_vn.timestamp()))
+check("victron: a reply that isn't a time asks again", _vrt.flow["deadline"] is None and _vrt.flow["step"] == "hour")
+_vrt.answer(_tok, "hour", "7", int(_vn.timestamp()))
+check("victron: 7 -> tomorrow 07:00, then the SOC",
+      _vrt.flow["deadline"] == _dl and _vrt.flow["step"] == "soc")
+_vrt.answer(_tok, "soc", "40", int(_vn.timestamp()))
+_vrt.outbox = []
+_t2, _va2 = _vrt.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_vin(True))
+_ch = _va2["charger"]["session"]
+check("victron: SOC 40 % -> 24 kWh, planned in the cheapest quarters before 07:00 (02:00-03:00 first) and announced",
+      _vrt.flow["need_kwh"] == 24.0 and _ch["grid_kwh"] == 24.0 and _ch["short_kwh"] == 0.0 and _ch["question"] is None
+      and any(w[0].startswith("2026-11-04T02:00") for w in _ch["windows"])
+      and "Vol om wo 07:00" in _vrt.outbox[0]["payload"]["message"] and _va2["sessions"][0]["kwh"] == 24.0)
+check("victron: the grid window's energy is reported apart (the house battery stays out of it)",
+      _va2["grid_120h"] == _t2 and sum(_t2[1:]) > 0)
+_win = _vrt.flow["windows"][0]
+check("victron: in a window the charger runs manual at the max, outside on Auto",
+      evc.charger_target(_vrt.flow, _win[0] + 60, 6, 16)["why"] == "grid_window"
+      and evc.charger_target(_vrt.flow, int(datetime(2026, 11, 3, 20, 0, tzinfo=_ams2).timestamp()), 6, 16)["mode"] == "auto")
+# 24 kWh in: done
+_vrt.update(_vconf, datetime(2026, 11, 4, 4, 0, tzinfo=_ams2), _ams2, 6, [0.0] * 121, 0.0, 524.0, victron=_vin(True))
+check("victron: the energy in -> done (the charger stops)", _vrt.flow["done"] is True
+      and evc.charger_target(_vrt.flow, 0, 6, 16)["charge"] is False)
+_vrt.update(_vconf, datetime(2026, 11, 4, 7, 30, tzinfo=_ams2), _ams2, 6, [0.0] * 121, 0.0, 524.0, victron=_vin(False, "disconnected"))
+check("victron: unplugged - the session is finished and its notification cleared",
+      _vrt.flow is None and _vrt.outbox[-1]["payload"]["message"] == "clear_notification")
+# asap with two cars
+_vrt2 = ev_runtime.EvRuntime()
+_vrt2.morning_day = "2026-11-03"
+_vconf2 = {**_vconf, "cars": [_vcar, {"id": "c2", "name": "Zoe", "capacity_kwh": None, "target_soc": 80}]}
+_vrt2.update(_vconf2, _vn, _ams2, 6, [0.0] * 121, 0.0, 10.0, victron=_vin(True))
+check("victron: two cars -> first which one", [a["title"] for a in _vrt2.outbox[0]["payload"]["data"]["actions"]] == ["Tiguan", "Zoe"])
+_tk2 = _vrt2.flow["token"]
+_vrt2.answer(_tk2, "car=c2", None, int(_vn.timestamp()))
+_vrt2.answer(_tk2, "choice=asap", None, int(_vn.timestamp()))
+check("victron: a car without a battery size is asked for kWh", _vrt2.flow["step"] == "kwh")
+_vrt2.answer(_tk2, "kwh", "11", int(_vn.timestamp()))
+_vrt2.outbox = []
+_vrt2.update(_vconf2, _vn, _ams2, 6, [0.0] * 121, 0.0, 10.0, victron=_vin(True))
+check("victron: as fast as possible - 11 kWh at 11.04 kW, full at about 18:30",
+      "vol rond 18:29" in _vrt2.outbox[0]["payload"]["message"]
+      and evc.charger_target(_vrt2.flow, 0, 6, 16)["current"] == 16)
+# the morning question
+_vrt3 = ev_runtime.EvRuntime()
+_m9 = datetime(2026, 11, 3, 9, 5, tzinfo=_ams2)
+_ms = _vrt3.save(None, {"start": int(datetime(2026, 11, 3, 18, 0, tzinfo=_ams2).timestamp()), "kwh": 15.0, "mode": "fixed"}, int(_m9.timestamp()))
+_vrt3.update(_vconf, datetime(2026, 11, 3, 8, 55, tzinfo=_ams2), _ams2, 6, [0.0] * 121, 0.0, 0.0, victron=_vin(False))
+check("victron: no morning question before 09:00", _vrt3.outbox == [])
+_vrt3.update(_vconf, _m9, _ams2, 6, [0.0] * 121, 0.0, 0.0, victron=_vin(False))
+_mq = _vrt3.outbox[0]["payload"]
+check("victron: 09:00 - the session at 18:00 today: still right?",
+      "vandaag om 18:00" in _mq["message"] and [a["title"] for a in _mq["data"]["actions"]] == ["Ja", "Nee"])
+_vrt3.outbox = []
+_vrt3.update(_vconf, _m9 + timedelta(minutes=5), _ams2, 6, [0.0] * 121, 0.0, 0.0, victron=_vin(False))
+check("victron: asked once a day", _vrt3.outbox == [])
+_mtok = _vrt3.morning[_ms]["token"]
+_vrt3.answer(_mtok, f"m_yes={_ms}", None, int(_m9.timestamp()))
+check("victron: yes -> the expected SOC", _vrt3.outbox[-1]["payload"]["data"]["actions"][0]["behavior"] == "textInput")
+_vrt3.answer(_mtok, f"m_val={_ms}", "55", int(_m9.timestamp()))
+_t3, _va3 = _vrt3.update(_vconf, _m9, _ams2, 6, [0.0] * 121, 0.0, 0.0, victron=_vin(False))
+check("victron: SOC 55 % -> the session becomes 15 kWh (55 -> 80 % of 60 kWh)", _va3["sessions"][0]["kwh"] == 15.0
+      and _va3["sessions"][0]["start_soc"] == 55)
+_vrt4 = ev_runtime.EvRuntime()
+_ms4 = _vrt4.save(None, {"start": int(datetime(2026, 11, 3, 18, 0, tzinfo=_ams2).timestamp()), "kwh": 15.0, "mode": "fixed"}, int(_m9.timestamp()))
+_vrt4.update(_vconf, _m9, _ams2, 6, [0.0] * 121, 0.0, 0.0, victron=_vin(False))
+_vrt4.answer(_vrt4.morning[_ms4]["token"], f"m_no={_ms4}", None, int(_m9.timestamp()))
+_t4, _va4 = _vrt4.update(_vconf, _m9, _ams2, 6, [0.0] * 121, 0.0, 0.0, victron=_vin(False))
+check("victron: no -> the session is removed", _va4["sessions"] == [])
+check("victron: the store round-trips the conversation",
+      ev_runtime.EvRuntime().as_store() != _vrt2.as_store() and _vrt2.as_store()["flow"]["choice"] == "asap")
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

@@ -74,8 +74,11 @@
       },
       "ev": {
         "title": "Electric car - charger",
-        "description": "Only for a car that charges from the home battery: its charging then really comes out of the battery, so the planning has to know when it charges and how much.\n\nThe charger's energy is always taken out of the household usage history; the car only enters the 120-hour forecast through its charging sessions, shown and edited on the EV card (`custom:ess-manager-ev-card`).\n\n**Predict sessions from history** - a session that starts around the same hour on the same weekday in more than half of your lookback weeks is predicted, with its average energy and charging current (and on solar surplus when it charged from the sun). Off: the list starts empty and every session is added by hand on the card.",
+        "description": "Only for a car that charges from the home battery: its charging then really comes out of the battery, so the planning has to know when it charges and how much.\n\nThe charger's energy is always taken out of the household usage history; the car only enters the 120-hour forecast through its charging sessions, shown and edited on the EV card (`custom:ess-manager-ev-card`).\n\n**Predict sessions from history** - a session that starts around the same hour on the same weekday in more than half of your lookback weeks is predicted, with its average energy and charging current (and on solar surplus when it charged from the sun). Off: the list starts empty and every session is added by hand on the card.\n\n**Charger** - *Energy and power sensors*: any charger; ESS Manager forecasts the car's charging but doesn't drive the charger. *Victron EV charging station*: pick the charger's device (Victron GX integration); its energy and power are used automatically (leave the two sensors below empty) and ESS Manager drives it: when a car is plugged in it asks on your phone what should happen - as fast as possible, slowly now, or full by a time (on the sun first, the rest bought in the cheapest hours, the house battery kept out of that) - and until there's an answer the charger runs in its own Auto mode (solar surplus). On days with a planned session it asks at 09:00 whether it's still right. The phones are the Home Assistant Companion app's notify services (`notify.mobile_app_...`); without one nothing is asked and the charger stays on Auto.",
         "data": {
+          "ev_charger": "Charger",
+          "ev_victron_device": "Victron EV charging station (device)",
+          "ev_notify_services": "Phones to ask on (Companion app notify services)",
           "ev_energy_entity": "Charger energy sensor (cumulative kWh)",
           "ev_power_entity": "Charger power sensor (W) - above 0 a session is running: its day and start time are then fixed",
           "ev_min_current": "Minimum charging current (A) - the charger doesn't charge below this (it also decides when solar surplus is enough)",
@@ -192,7 +195,9 @@
       "floor_needs_thermostat": "Floor control needs a thermostat (climate entity) as the wanted temperature.",
       "floor_needs_hourly": "Floor control needs step 1 (the house hour by hour).",
       "floor_entities_required": "Choose all floor control entities (only the floor sensor is optional).",
-      "floor_helper_same": "The thermostat's helper switch must be another entity than the heat pump's heat demand switch."
+      "floor_helper_same": "The thermostat's helper switch must be another entity than the heat pump's heat demand switch.",
+      "ev_victron_device_required": "Pick the Victron EV charging station's device.",
+      "ev_victron_incomplete": "This device doesn't have the entities of a Victron EV charging station (status, power, total energy, mode, charge current setpoint, EV charging) - or some of them are disabled."
     },
     "abort": {
       "already_configured": "An ESS Manager instance with this name already exists."
@@ -266,8 +271,11 @@
       },
       "ev": {
         "title": "Electric car - charger",
-        "description": "Only for a car that charges from the home battery: its charging then really comes out of the battery, so the planning has to know when it charges and how much.\n\nThe charger's energy is always taken out of the household usage history; the car only enters the 120-hour forecast through its charging sessions, shown and edited on the EV card (`custom:ess-manager-ev-card`).\n\n**Predict sessions from history** - a session that starts around the same hour on the same weekday in more than half of your lookback weeks is predicted, with its average energy and charging current (and on solar surplus when it charged from the sun). Off: the list starts empty and every session is added by hand on the card.",
+        "description": "Only for a car that charges from the home battery: its charging then really comes out of the battery, so the planning has to know when it charges and how much.\n\nThe charger's energy is always taken out of the household usage history; the car only enters the 120-hour forecast through its charging sessions, shown and edited on the EV card (`custom:ess-manager-ev-card`).\n\n**Predict sessions from history** - a session that starts around the same hour on the same weekday in more than half of your lookback weeks is predicted, with its average energy and charging current (and on solar surplus when it charged from the sun). Off: the list starts empty and every session is added by hand on the card.\n\n**Charger** - *Energy and power sensors*: any charger; ESS Manager forecasts the car's charging but doesn't drive the charger. *Victron EV charging station*: pick the charger's device (Victron GX integration); its energy and power are used automatically (leave the two sensors below empty) and ESS Manager drives it: when a car is plugged in it asks on your phone what should happen - as fast as possible, slowly now, or full by a time (on the sun first, the rest bought in the cheapest hours, the house battery kept out of that) - and until there's an answer the charger runs in its own Auto mode (solar surplus). On days with a planned session it asks at 09:00 whether it's still right. The phones are the Home Assistant Companion app's notify services (`notify.mobile_app_...`); without one nothing is asked and the charger stays on Auto.",
         "data": {
+          "ev_charger": "Charger",
+          "ev_victron_device": "Victron EV charging station (device)",
+          "ev_notify_services": "Phones to ask on (Companion app notify services)",
           "ev_energy_entity": "Charger energy sensor (cumulative kWh)",
           "ev_power_entity": "Charger power sensor (W) - above 0 a session is running: its day and start time are then fixed",
           "ev_min_current": "Minimum charging current (A) - the charger doesn't charge below this (it also decides when solar surplus is enough)",
@@ -383,7 +391,9 @@
       "floor_needs_thermostat": "Floor control needs a thermostat (climate entity) as the wanted temperature.",
       "floor_needs_hourly": "Floor control needs step 1 (the house hour by hour).",
       "floor_entities_required": "Choose all floor control entities (only the floor sensor is optional).",
-      "floor_helper_same": "The thermostat's helper switch must be another entity than the heat pump's heat demand switch."
+      "floor_helper_same": "The thermostat's helper switch must be another entity than the heat pump's heat demand switch.",
+      "ev_victron_device_required": "Pick the Victron EV charging station's device.",
+      "ev_victron_incomplete": "This device doesn't have the entities of a Victron EV charging station (status, power, total energy, mode, charge current setpoint, EV charging) - or some of them are disabled."
     }
   },
   "issues": {

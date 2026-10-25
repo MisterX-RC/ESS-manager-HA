@@ -302,6 +302,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(hass.bus.async_listen(EVENT_HOMEASSISTANT_STOP, _async_idle_on_stop))
 
+    # the Victron EV charger's questions on the phone (as of 2026.10.27):
+    # a tap or reply comes back as this Companion app event
+    async def _async_ev_action(event: Event) -> None:
+        action = event.data.get("action")
+        if isinstance(action, str) and action.startswith("ESSEV:"):
+            await coordinator.async_ev_action(action, event.data.get("reply_text"))
+
+    entry.async_on_unload(hass.bus.async_listen("mobile_app_notification_action", _async_ev_action))
+
     return True
 
 

@@ -168,6 +168,16 @@ CONF_EV_MAX_CURRENT = "ev_max_current"
 CONF_EV_PHASES = "ev_phases"
 CONF_EV_PREDICT = "ev_predict"
 CONF_EV_CARS = "ev_cars"
+# The charger (as of 2026.10.27): plain energy/power sensors (forecast only),
+# or a Victron EV charging station (via the Victron GX integration) that
+# ESS Manager drives, asking on the phone what to do when a car is plugged in.
+CONF_EV_CHARGER = "ev_charger"
+EV_CHARGER_SENSORS = "sensors"
+EV_CHARGER_VICTRON = "victron"
+DEFAULT_EV_CHARGER = EV_CHARGER_SENSORS
+CONF_EV_VICTRON_DEVICE = "ev_victron_device"
+CONF_EV_NOTIFY = "ev_notify_services"
+VICTRON_GX_DOMAIN = "victron_gx"
 DEFAULT_EV_ENABLED = False
 DEFAULT_EV_MIN_CURRENT = 6
 DEFAULT_EV_MAX_CURRENT = 16

@@ -101,13 +101,17 @@ def readback_to_watts(value: float, unit: Optional[str], sign: str = SIGN_CHARGE
     return watts + 0.0
 
 
-def command_value(action: str, power_kw: float, unit: str, sign: str, idle_value: float) -> float:
+def command_value(
+    action: str, power_kw: float, unit: str, sign: str, idle_value: float, offset_kw: float = 0.0
+) -> float:
     """The exact value to send. Idle sends the configured idle value as-is
     (already in the output's own unit and sign, e.g. 0 or -30), never a
-    converted one."""
+    converted one. `offset_kw` (as of 2026.10.27: the car in a grid window)
+    is added in the output's unit and sign."""
+    extra = power_to_output(offset_kw, unit, sign) if offset_kw else 0.0
     if action == ACTION_IDLE or power_kw == 0:
-        return float(idle_value)
-    return power_to_output(power_kw, unit, sign)
+        return float(idle_value) + extra
+    return power_to_output(power_kw, unit, sign) + extra
 
 
 def clamp_to_range(value: float, minimum: Optional[float], maximum: Optional[float]) -> float:

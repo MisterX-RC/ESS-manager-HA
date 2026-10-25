@@ -119,15 +119,19 @@ class EssController:
 
     # -- sending --------------------------------------------------------------
     async def async_apply(
-        self, settings: ControlSettings, action: str, power_kw: float, reason: str
+        self, settings: ControlSettings, action: str, power_kw: float, reason: str, offset_kw: float = 0.0
     ) -> None:
         """One cycle: send the value for `action` if control is on and the
-        target doesn't already have it."""
+        target doesn't already have it. `offset_kw` (as of 2026.10.27) is
+        added on top - the car in a grid window, which the grid has to
+        cover instead of the house battery."""
         async with self._lock:
             await self._async_release_previous_target(settings)
             if not settings.active or not self.enabled:
                 return
-            desired = control.command_value(action, power_kw, settings.unit, settings.sign, settings.idle_value)
+            desired = control.command_value(
+                action, power_kw, settings.unit, settings.sign, settings.idle_value, offset_kw=offset_kw
+            )
             await self._async_send(settings, desired, action, reason)
 
     async def async_idle(self, settings: ControlSettings, reason: str, force: bool = False) -> None:

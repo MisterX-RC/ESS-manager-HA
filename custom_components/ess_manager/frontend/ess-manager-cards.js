@@ -75,6 +75,9 @@ const I18N = {
     ev_hist_legend: "solar session from history: depends on the sun \u00b7 tap to make it a fixed session",
     ev_add: "Add manual session", ev_label_history: "average", ev_label_edited: "edited", ev_label_manual: "manual",
     ev_mode_solar_hist: "solar surplus (history)", ev_mode_solar: "solar surplus", ev_charging_now: "charging now",
+    ev_vc_waiting: "waiting for the answer on the phone \u00b7 charger on Auto (solar surplus)", ev_vc_asap: "as fast as possible",
+    ev_vc_calm: "slowly", ev_vc_deadline: (t) => `full by ${t}`, ev_vc_any: "sun first, then the cheapest hours",
+    ev_vc_grid: (w) => `grid: ${w}`, ev_vc_done: "done - the charger is stopped", ev_vc_short: (k) => `${k} short`,
     ev_now_soc: (p, k) => `now \u00b1 ${p}% \u00b7 ${k} charged`, ev_charged: (k) => `${k} charged`,
     ev_warn_none: "No solar surplus that day - this session won't charge.",
     ev_warn_short: (got, need) => `Not enough sun that day: \u00b1 ${got} of ${need}`,
@@ -223,6 +226,9 @@ const I18N = {
     ev_hist_legend: "zon-sessie volgens de historie: hangt van de zon af \u00b7 tik om er een vaste sessie van te maken",
     ev_add: "Handmatige sessie toevoegen", ev_label_history: "gemiddelde", ev_label_edited: "aangepast", ev_label_manual: "handmatig",
     ev_mode_solar_hist: "zon-overschot (historie)", ev_mode_solar: "zon-overschot", ev_charging_now: "laadt nu",
+    ev_vc_waiting: "wacht op het antwoord op de telefoon \u00b7 lader op Auto (zon-overschot)", ev_vc_asap: "zo snel mogelijk",
+    ev_vc_calm: "rustig", ev_vc_deadline: (t) => `vol om ${t}`, ev_vc_any: "eerst de zon, dan de goedkoopste uren",
+    ev_vc_grid: (w) => `net: ${w}`, ev_vc_done: "klaar - de lader staat stil", ev_vc_short: (k) => `${k} tekort`,
     ev_now_soc: (p, k) => `nu \u00b1 ${p}% \u00b7 ${k} geladen`, ev_charged: (k) => `${k} geladen`,
     ev_warn_none: "Geen zon-overschot die dag - deze sessie laadt niet.",
     ev_warn_short: (got, need) => `Te weinig zon die dag: \u00b1 ${got} van ${need}`,
@@ -2388,6 +2394,23 @@ class EssManagerEvCard extends EssChartCard {
       const part = s.kwh ? clamp(((Number(s.delivered_kwh) || 0) / s.kwh) * 100, 0, 100) : 0;
       bar = `<div class="socline"><div class="bar"><i style="left:0;width:${part}%;background:var(--ev)"></i></div><span class="to">${esc(this._t("ev_charged")(this._kwh(s.delivered_kwh)))}</span></div>`;
     }
+    // the Victron charger's plan for the plugged-in car (as of 2026.10.27)
+    const cs = ev.charger && ev.charger.session && ev.charger.session.id === s.id ? ev.charger.session : null;
+    let plan = "";
+    if (cs) {
+      const parts = [];
+      if (cs.done) parts.push(this._t("ev_vc_done"));
+      else if (!cs.choice || cs.need_kwh == null) parts.push(this._t("ev_vc_waiting"));
+      else if (cs.choice === "asap") parts.push(this._t("ev_vc_asap"));
+      else if (cs.choice === "calm") parts.push(this._t("ev_vc_calm"));
+      else {
+        parts.push(cs.day === "any" ? this._t("ev_vc_any") : this._t("ev_vc_deadline")(`${this._day(Date.parse(cs.deadline))} ${this._time(Date.parse(cs.deadline))}`));
+        const wins = (cs.windows || []).map(([a, b]) => `${this._time(Date.parse(a))}\u2013${this._time(Date.parse(b))}`);
+        if (wins.length) parts.push(this._t("ev_vc_grid")(wins.join(", ")));
+        if (cs.short_kwh > 0.05) parts.push(this._t("ev_vc_short")(this._kwh(cs.short_kwh)));
+      }
+      plan = `<div class="dim" style="font-size:12px;margin-top:2px">${esc(parts.join(" \u00b7 "))}</div>`;
+    }
     let warn = "";
     if (s.warning === "no_surplus") warn = `<div class="ev-warn">${esc(this._t("ev_warn_none"))}</div>`;
     else if (s.warning === "short") warn = `<div class="ev-warn">${esc(this._t("ev_warn_short")(this._kwh(s.charged_kwh), this._kwh(s.kwh)))}</div>`;
@@ -2400,7 +2423,7 @@ class EssManagerEvCard extends EssChartCard {
             ${car ? `<span class="car">${esc(car.name)} \u00b7</span>` : ""}
             <span>${esc(mode)}</span>
           </div>
-          ${bar}${warn}
+          ${plan}${bar}${warn}
         </button>
         <label class="ev-check"><input type="checkbox" data-toggle="${esc(s.id)}" ${s.enabled ? "checked" : ""} aria-label="${esc(this._t("ev_count"))}"></label>
       </div>`;
