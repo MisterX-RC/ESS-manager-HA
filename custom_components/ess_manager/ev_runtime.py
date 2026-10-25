@@ -152,7 +152,8 @@ class _VictronMixin:
             flow["last_energy"] = energy_kwh
             if status == evc.STATUS_CHARGED and flow.get("choice") is not None:
                 flow["done"] = True
-            return self._victron_heal(now_epoch, energy_kwh, typical_kwh)
+            healed = self._victron_heal(now_epoch, energy_kwh, typical_kwh)
+            return self._victron_external(status) or healed
         # a car plugged in: a new session; planned ones it overlaps go
         hour = _floor_hour(now_epoch)
         expected = None
@@ -189,11 +190,34 @@ class _VictronMixin:
             "windows": [], "quarters": [], "applied": {},
             "plan": None, "done": False, "announce": False,
         }
+        self._victron_external(status)
         if len(cars) > 1:
             self._ask("car")
         else:
             self._ask("choice")
         return True
+
+    def _victron_external(self, status: Optional[str]) -> bool:
+        """Without a choice yet: the charger charging by itself (started on
+        the charger, its auto start, a schedule) is "now, at the current it's
+        set to" - left alone and forecast like that (as of 2026.10.28)."""
+        flow = self.flow
+        if not flow or flow.get("choice") is not None:
+            return False
+        if not evc.charging_by_itself(self.ctx.get("power_w"), status, self.ctx.get("mode")):
+            return False
+        session = self._session(flow["sid"])
+        min_a, max_a = float(self.ctx.get("min_a") or 6), float(self.ctx.get("max_a") or 16)
+        current = self.ctx.get("set_current")
+        if current is None and self.ctx.get("power_w"):
+            current = ev.current_for_power(float(self.ctx["power_w"]) / 1000.0, int(self.ctx.get("phases") or 3), min_a, max_a)
+        current = int(min(max(float(current or max_a), min_a), max_a))
+        changed = not flow.get("external")
+        flow["external"] = True
+        if session is not None and (session.get("mode") != ev.MODE_FIXED or session.get("current_a") != current):
+            session.update({"mode": ev.MODE_FIXED, "current_a": current})
+            changed = True
+        return changed
 
     def _victron_heal(self, now_epoch: int, energy_kwh: Optional[float], typical_kwh: float) -> bool:
         """The plugged-in car's session and its running mark must be there
@@ -246,6 +270,7 @@ class _VictronMixin:
         assert flow is not None
         flow["choice"] = value
         flow["done"] = False
+        flow["external"] = False
         # a choice (again) is a new instruction for the charger, also where
         # it's what was sent before and changed on the charger since
         flow["applied"] = {}
@@ -923,6 +948,7 @@ class EvRuntime(_VictronMixin):
                 "car": flow.get("car"),
                 "question": flow.get("step"),
                 "choice": flow.get("choice"),
+                "external": bool(flow.get("external")),
                 "day": flow.get("day"),
                 "deadline": iso(plan.get("deadline") or flow.get("deadline")),
                 "need_kwh": flow.get("need_kwh"),

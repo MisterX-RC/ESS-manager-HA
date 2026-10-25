@@ -567,9 +567,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # the charger can't be read: keep what we had (no false unplug)
             connected = self.ev.flow is not None
         notify = [s for s in (conf.get(CONF_EV_NOTIFY) or []) if self.hass.services.has_service("notify", s)]
+        mode_state = self.hass.states.get(ents.get("mode", ""))
+        current_state = self.hass.states.get(ents.get("current", ""))
         return {
             "connected": connected,
             "status": status,
+            "mode": mode_state.state if mode_state and mode_state.state not in ("unknown", "unavailable") else None,
+            "set_current": _float_state(current_state) if current_state is not None else None,
+            "power_w": _state_in_unit(self.hass, ents.get("power"), ("kW",), 1000.0),
             "entry_id": self.entry.entry_id,
             "language": evn.lang(self.hass.config.language),
             "notify": bool(notify),

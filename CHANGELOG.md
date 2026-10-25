@@ -22,6 +22,14 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   its plan changes - plugging in, a choice on the phone or the card, a grid
   window starting or ending, done - and leaves what's changed on the
   charger in between. A new choice is sent again in full.
+- **A charge the charger starts by itself goes on.** When the charger
+  charges without a choice made yet and not on its Auto mode - started on
+  the charger, by its own auto start, or a schedule - that's "now, at the
+  current it's set to": ESS Manager leaves it alone and forecasts the
+  session like that (the card says so). Right after plugging in the charger
+  gets two minutes for its auto start before ESS Manager puts it on Auto.
+  The question on the phone still comes; a choice there or on the card
+  takes over.
 - **The plugged-in car's session can't get lost.** Removing it on the EV
   card dropped it from the list (no Charge plan panel, nothing in the
   forecast) while the car was still plugged in. It can't be removed any

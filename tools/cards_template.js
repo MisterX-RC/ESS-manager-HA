@@ -76,6 +76,7 @@ const I18N = {
     ev_add: "Add manual session", ev_label_history: "average", ev_label_edited: "edited", ev_label_manual: "manual",
     ev_mode_solar_hist: "solar surplus (history)", ev_mode_solar: "solar surplus", ev_charging_now: "charging now",
     ev_vc_waiting: "waiting for the answer on the phone · charger on Auto (solar surplus)", ev_vc_asap: "as fast as possible",
+    ev_vc_external: "started on the charger itself · charging now at its current, left alone",
     ev_vc_calm: "slowly", ev_vc_deadline: (t) => `full by ${t}`, ev_vc_any: "sun first, then the cheapest hours",
     ev_vc_grid: (w) => `grid: ${w}`, ev_vc_done: "done - the charger is stopped", ev_vc_short: (k) => `${k} short`,
     ev_vp_title: "Charge plan", ev_vp_car: "Car", ev_vp_pick: "pick the car", ev_vp_asap: "As fast as possible", ev_vp_calm: "Slowly now",
@@ -232,6 +233,7 @@ const I18N = {
     ev_add: "Handmatige sessie toevoegen", ev_label_history: "gemiddelde", ev_label_edited: "aangepast", ev_label_manual: "handmatig",
     ev_mode_solar_hist: "zon-overschot (historie)", ev_mode_solar: "zon-overschot", ev_charging_now: "laadt nu",
     ev_vc_waiting: "wacht op het antwoord op de telefoon · lader op Auto (zon-overschot)", ev_vc_asap: "zo snel mogelijk",
+    ev_vc_external: "door de lader zelf gestart · laadt nu op zijn eigen stroom, ESS Manager laat hem met rust",
     ev_vc_calm: "rustig", ev_vc_deadline: (t) => `vol om ${t}`, ev_vc_any: "eerst de zon, dan de goedkoopste uren",
     ev_vc_grid: (w) => `net: ${w}`, ev_vc_done: "klaar - de lader staat stil", ev_vc_short: (k) => `${k} tekort`,
     ev_vp_title: "Laadplan", ev_vp_car: "Auto", ev_vp_pick: "kies de auto", ev_vp_asap: "Zo snel mogelijk", ev_vp_calm: "Nu rustig",
@@ -2422,6 +2424,7 @@ class EssManagerEvCard extends EssChartCard {
     if (cs) {
       const parts = [];
       if (cs.done) parts.push(this._t("ev_vc_done"));
+      else if (!cs.choice && cs.external) parts.push(this._t("ev_vc_external"));
       else if (!cs.choice || cs.need_kwh == null) parts.push(this._t("ev_vc_waiting"));
       else if (cs.choice === "asap") parts.push(this._t("ev_vc_asap"));
       else if (cs.choice === "calm") parts.push(this._t("ev_vc_calm"));

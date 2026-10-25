@@ -4534,7 +4534,9 @@ _pl4 = evc.plan_deadline(_t0, _t0 + 3600, 30.0, [0.0] * 30, _t0, _pr, _ps, 4.14,
 check("victron: deadline plan - too little time: every quarter, the rest short",
       len(_pl4["quarters"]) == 4 and _pl4["short_kwh"] == 30.0 - 11.04 and _pl4["end"] is None)
 check("victron: the charger - waiting = Auto, asap = max, calm = min, deadline in a window = manual max, outside = Auto, done = stop",
-      evc.charger_target({"choice": None}, 0, 6, 16)["mode"] == "auto"
+      evc.charger_target({"choice": None, "since": 0}, 600, 6, 16)["mode"] == "auto"
+      and evc.charger_target({"choice": None, "since": 0}, 60, 6, 16) is None
+      and evc.charger_target({"choice": None, "since": 0, "external": True}, 600, 6, 16) is None
       and evc.charger_target({"choice": "asap"}, 0, 6, 16) == {"mode": "manual", "charge": True, "current": 16, "why": "asap"}
       and evc.charger_target({"choice": "calm"}, 0, 6, 16)["current"] == 6
       and evc.charger_target({"choice": "deadline", "need_kwh": 5, "windows": [[0, 900]]}, 100, 6, 16)["why"] == "grid_window"
@@ -4706,6 +4708,28 @@ _t6, _va6 = _vrt6.update(_vconf, _vn + timedelta(hours=2), _ams2, 6, [0.0] * 121
 check("victron: ... and comes back by itself, running, delivered counted from plugging in",
       [s["id"] for s in _va6["sessions"]] == [_sid6] and _va6["sessions"][0]["running"]
       and _va6["sessions"][0]["delivered_kwh"] == 1.0)
+
+# started by the charger itself (2026.10.28): "now, at its current" - left alone
+check("victron: charging by itself = charging and not on Auto",
+      evc.charging_by_itself(3500.0, "charging", "manual") and not evc.charging_by_itself(3500.0, "charging", "auto")
+      and not evc.charging_by_itself(0.0, "connected", "manual") and evc.charging_by_itself(None, "start_charging", "scheduled_charge"))
+_vrt7 = ev_runtime.EvRuntime()
+_vrt7.morning_day = "2026-11-03"
+def _vin7(connected, status, power, mode, current=10.0):
+    return {**_vin(connected, status), "power_w": power, "mode": mode, "set_current": current}
+_t7, _va7 = _vrt7.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 2300.0, 10.0, victron=_vin7(True, "charging", 2300.0, "manual"))
+check("victron: plugged in and charging by itself -> left alone, forecast at its current (10 A), still asked",
+      _vrt7.flow["external"] and evc.charger_target(_vrt7.flow, int(_vn.timestamp()) + 600, 6, 16) is None
+      and _va7["sessions"][0]["mode"] == "fixed" and _va7["sessions"][0]["current_a"] == 10
+      and _va7["charger"]["session"]["external"] and "aangesloten" in _vrt7.outbox[0]["payload"]["message"])
+_vrt7.set_plan({"choice": "calm", "soc": 70}, int(_vn.timestamp()))
+check("victron: a choice afterwards takes over again", not _vrt7.flow["external"]
+      and evc.charger_target(_vrt7.flow, int(_vn.timestamp()), 6, 16)["current"] == 6)
+_vrt8 = ev_runtime.EvRuntime()
+_vrt8.morning_day = "2026-11-03"
+_vrt8.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 10.0, victron=_vin7(True, "connected", 0.0, "manual"))
+_vrt8.update(_vconf, _vn + timedelta(minutes=1), _ams2, 6, [0.0] * 121, 3000.0, 10.0, victron=_vin7(True, "charging", 3000.0, "manual"))
+check("victron: ... also when it starts a minute after plugging in (its auto start)", _vrt8.flow["external"])
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

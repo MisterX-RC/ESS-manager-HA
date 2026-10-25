@@ -61,6 +61,20 @@ DAYS = (DAY_TODAY, DAY_TOMORROW, DAY_ANY)
 
 # a grid window is at least this many quarters (no on/off every quarter)
 MIN_WINDOW_UNITS = 2
+# after plugging in the charger gets this long to start by itself (its own
+# auto start) before it's put on Auto (as of 2026.10.28)
+PLUGIN_GRACE = 120
+# the charger counts as charging above this power (W) or with these Status values
+CHARGING_W = 50.0
+STATUS_CHARGING = ("charging", "start_charging")
+
+
+def charging_by_itself(power_w: Optional[float], status: Optional[str], mode: Optional[str]) -> bool:
+    """The charger charges and not on its Auto mode (that's ESS Manager's
+    own waiting state): started on the charger, by its auto start or a
+    schedule - "now, at the current it's set to"."""
+    charging = (power_w or 0.0) > CHARGING_W or status in STATUS_CHARGING
+    return charging and mode not in (None, MODE_AUTO)
 
 
 # -- answers typed on the phone -------------------------------------------------
@@ -232,7 +246,8 @@ def in_windows(epoch: int, windows: list[list[int]]) -> bool:
 # -- what the charger should do ------------------------------------------------------
 def charger_target(flow: Optional[dict[str, Any]], now_epoch: int, min_a: float, max_a: float) -> Optional[dict[str, Any]]:
     """{mode, charge, current} for the plugged-in car's flow; None = leave
-    the charger alone (no car)."""
+    the charger alone (no car; or, without a choice, charging by itself or
+    just plugged in)."""
     if not flow:
         return None
     if flow.get("done"):
@@ -246,7 +261,13 @@ def charger_target(flow: Optional[dict[str, Any]], now_epoch: int, min_a: float,
         if in_windows(now_epoch, flow.get("windows") or []):
             return {"mode": MODE_MANUAL, "charge": True, "current": int(max_a), "why": "grid_window"}
         return {"mode": MODE_AUTO, "charge": True, "current": None, "why": "solar"}
-    return {"mode": MODE_AUTO, "charge": True, "current": None, "why": "waiting" if choice is None else "solar"}
+    if choice is None:
+        # started by itself (by hand, auto start, schedule): it goes on as it
+        # is; just plugged in: a moment for the charger's own auto start
+        if flow.get("external") or now_epoch - int(flow.get("since") or 0) < PLUGIN_GRACE:
+            return None
+        return {"mode": MODE_AUTO, "charge": True, "current": None, "why": "waiting"}
+    return {"mode": MODE_AUTO, "charge": True, "current": None, "why": "solar"}
 
 
 def grid_profile(windows: list[list[int]], hour0_epoch: int, hours: int, now_epoch: int, p_max_kw: float, need_left: float) -> list[float]:
