@@ -2231,11 +2231,12 @@ check(
 )
 
 speeds = dict(charge_speed_kw=7.0, discharge_speed_kw=10.0, negative_price_charge_speed_kw=14.0,
-              spike_discharge_speed_kw=15.0, max_charge_kw=10.0, max_discharge_kw=12.0)
+              spike_discharge_speed_kw=15.0)
 check("power: charge uses the charge speed", control.action_power_kw("charge", **speeds) == 7.0)
 check("power: discharge is negative at the discharge speed", control.action_power_kw("discharge", **speeds) == -10.0)
-check("power: negative price charge is clamped to the max charge speed", control.action_power_kw("negative_price_charge", **speeds) == 10.0)
-check("power: spike discharge is clamped to the max discharge speed", control.action_power_kw("spike_discharge", **speeds) == -12.0)
+check("power: the speeds are grid setpoints - sent as they are, also above the battery's max (2026.10.27)",
+      control.action_power_kw("negative_price_charge", **speeds) == 14.0
+      and control.action_power_kw("spike_discharge", **speeds) == -15.0)
 check("power: idle and unknown actions are 0", control.action_power_kw("idle", **speeds) == 0.0 and control.action_power_kw("bogus", **speeds) == 0.0)
 check("output: W, charge positive", control.command_value("charge", 7.0, "W", "charge_positive", 0) == 7000.0)
 check("output: kW, discharge positive", control.command_value("discharge", -10.0, "kW", "discharge_positive", 0) == 10.0)
@@ -4451,6 +4452,26 @@ check("dst: the card's level at a unit counts real minutes",
       and display._level_at_unit([10.0, 8.0, 6.0], 9.0, _lvl_now, 68) == 9.0
       and abs(display._level_at_unit([10.0, 8.0, 6.0], 9.0, _lvl_now, 72) - 10.0) < 1e-9
       and abs(display._level_at_unit([10.0, 8.0, 6.0], 9.0, _lvl_now, 76) - 8.0) < 1e-9)
+
+# -- the speeds are grid setpoints, the max battery speeds the hard limit (2026.10.27) --
+_flat = datetime(2026, 11, 3, 10, 0)
+_r = forecasting.grid_charge_rates([-1.0] * 10, _flat, 10.0, 5.0, 48)
+check("grid setpoint: 10 kW from the grid with the house on 1 kW and a 5 kW battery adds 6 kW to the forecast (5 in, 1 kW house no longer from it)",
+      abs(_r[40] - 1.5) < 1e-9)
+_r2 = forecasting.grid_charge_rates([-1.0] * 10, _flat, 4.0, 5.0, 48)
+check("grid setpoint: 4 kW from the grid covers the house first - 3 kW into the battery (+4 against the forecast)",
+      abs(_r2[40] - 1.0) < 1e-9)
+check("grid setpoint: the battery's max per quarter", plans._max_per_unit(6.0) == 1.5 and plans._max_per_unit(None) == float("inf"))
+
+_hp_args = dict(cur_unit=0, forecast_with_spike=high_breach_forecast, now=now_top_of_hour, discharge_speed_kw=10.0,
+                high_threshold_kwh=33.0, low_threshold_kwh=3.0, usage=usage_flat, all_price=all_price,
+                planning_horizon_hours=72, battery_now_kwh=10.0)
+_hp_free = plans.compute_high_discharge_plan(None, **_hp_args)
+_hp_cap = plans.compute_high_discharge_plan(None, max_discharge_kw=5.0, **_hp_args)
+check("grid setpoint: a sale at 10 kW with a 5 kW battery is sized at 5 kW battery side - longer blocks",
+      _hp_cap["active"] and abs(_hp_cap["effective_discharge_per_unit"] - 1.25) < 1e-9
+      and _hp_free["effective_discharge_per_unit"] > 2.5
+      and sum(b["end_unit"] - b["start_unit"] for b in _hp_cap["blocks"]) > sum(b["end_unit"] - b["start_unit"] for b in _hp_free["blocks"]))
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

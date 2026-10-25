@@ -925,9 +925,9 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Minimum SOC (solar surplus) | The same while there's a solar surplus; can be set close to 0. Starts at the deficit value |
 | Maximum SOC | Battery %, above which the high discharge plan triggers (can be set above 100% to allow deliberate solar overshoot before discharging - the original hand-written version hardcoded this to 110% of a 30 kWh battery). Once triggered, a sale brings the forecast peak down to 100%, not just under this value, so e.g. 110% means sales of at least 10% of capacity; set below 100%, this value itself is the target |
 | Battery capacity | kWh, used to convert the SOC % settings above into kWh thresholds |
-| Charge speed / Discharge speed | Normal charge/discharge rate (kW) used by the planning engines to size grid-driven charge/discharge windows |
-| Negative price charge speed | Rate used specifically during a negative-price event |
-| Spike discharge speed | Rate used specifically during a spike-arbitrage discharge |
+| Charge speed / Discharge speed | Normal charge/discharge rate (kW) as a grid setpoint: how much is taken from / sent to the grid during a charge / sale - the house is covered out of it, the battery gets the rest up to its max speed (see Direct control) |
+| Negative price charge speed | The same, during a negative-price event |
+| Spike discharge speed | The same, during a spike-arbitrage discharge |
 | Negative price threshold | Price (EUR/kWh) below which charging is considered "getting paid" |
 | Spike margin | Minimum day price spread (EUR/kWh) to treat a day as spike-worthy |
 | Minimum charge target | The smallest amount (kWh) any charge buys. Low charge plan: the dip is lifted back to the low threshold; if that needs less than this, the charge is rounded up to it (but never so far that a later peak would cross your max SOC and just be sold again). Spike plan: a pre-peak top-up smaller than this is skipped. Full-charge balancing and the negative price plan are not affected |
@@ -945,7 +945,11 @@ appearing in this table - they're a fixed hardware property (the battery's
 own physical power limit, in kW), not a live dashboard setpoint. They cap
 the passive, solar/usage-driven battery energy forecast (anything solar or
 usage implies faster than this is assumed to flow to/from the grid
-instead), and, with direct control, every setpoint that is sent.
+instead), and what a charge or sale really moves in and out of the
+battery: the speeds above are grid setpoints, the battery side is capped
+at these (as of 2026.10.27). They don't limit the setpoint that is sent -
+set the inverter's own limits (e.g. Victron DVCC max charge current) to
+protect the battery.
 
 **Charge efficiency** and **discharge efficiency** (%, default 100 = no
 losses) are set the same way. They account for the inverter and battery
@@ -1010,8 +1014,18 @@ inverter automation already reads.
 What gets sent: each action uses the speed its plan was sized with -
 Charge speed for normal charges (low charge, spike top-up, full charge),
 Discharge speed for normal discharges, Negative price charge speed and
-Spike discharge speed for those plans - always limited to your max battery
-charge/discharge speed, and to the target entity's own min/max. Every
+Spike discharge speed for those plans - limited only to the target
+entity's own min/max. The speeds are **grid setpoints** (as of
+2026.10.27): what the inverter takes from (or sends to) the grid. The
+house is covered out of it and the battery gets the rest, but never more
+than its max charge/discharge speed - the inverter limits that by itself,
+and the plans count with it. So a Charge speed above the battery's max
+charges the battery at its max and keeps the house on the grid too (the
+battery fills faster than with a setpoint at the max, which the house
+would share); a Charge speed below it is a gentler charge, which the
+house shares. (Up to 2026.10.26 the setpoint was cut down to the max
+battery speed, and the sales were sized at the full Discharge speed even
+when the battery couldn't deliver it.) Every
 Status that means "do nothing" (`Stop`, `Standby`, `Grid usage`,
 `Solar export`, `Full charge scheduled`, `Awaiting solar (full charge)`)
 sends your **idle value** exactly as entered (usually 0; some Victron

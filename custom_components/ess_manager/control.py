@@ -44,26 +44,28 @@ def action_power_kw(
     discharge_speed_kw: float,
     negative_price_charge_speed_kw: float,
     spike_discharge_speed_kw: float,
-    max_charge_kw: float,
-    max_discharge_kw: float,
 ) -> float:
-    """The signed battery power (kW, + = charge) an action stands for.
+    """The signed grid setpoint (kW, + = from the grid into the house and
+    battery) an action stands for.
 
-    Each action uses the speed its plan was sized with - so the energy that
-    actually moves matches what the plan expected - and is always clamped to
-    the battery's own max charge/discharge speed from setup, whatever a plan
-    asks for. Unknown actions are treated as idle.
+    Each action uses the speed its plan was sized with. The speeds are grid
+    setpoints, not battery powers (as of 2026.10.27): the inverter takes
+    that much from (or sends that much to) the grid, the house is covered
+    out of it, and the battery gets the rest - never more than its own max
+    speed, which the inverter limits by itself and the plans count with.
+    So a speed above the battery's max isn't cut down here: the house keeps
+    coming from the grid while the battery charges at its max. (Up to
+    2026.10.26 it was limited to the max battery speed.) Unknown actions
+    are treated as idle.
     """
-    max_charge_kw = max(float(max_charge_kw or 0.0), 0.0)
-    max_discharge_kw = max(float(max_discharge_kw or 0.0), 0.0)
     if action == ACTION_CHARGE:
-        return min(max(charge_speed_kw, 0.0), max_charge_kw)
+        return max(charge_speed_kw, 0.0)
     if action == ACTION_NEGATIVE_PRICE_CHARGE:
-        return min(max(negative_price_charge_speed_kw, 0.0), max_charge_kw)
+        return max(negative_price_charge_speed_kw, 0.0)
     if action == ACTION_DISCHARGE:
-        return -min(max(discharge_speed_kw, 0.0), max_discharge_kw)
+        return -max(discharge_speed_kw, 0.0)
     if action == ACTION_SPIKE_DISCHARGE:
-        return -min(max(spike_discharge_speed_kw, 0.0), max_discharge_kw)
+        return -max(spike_discharge_speed_kw, 0.0)
     return 0.0
 
 

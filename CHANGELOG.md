@@ -12,6 +12,28 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.27] - 2026-10-25
+
+### Changed
+- **The charge and discharge speeds are grid setpoints; the max battery
+  speeds are the hard limit of the battery.** With direct control the
+  speed is now sent as it is (only limited to the target entity's own
+  min/max), no longer cut down to the max battery speed: the inverter takes
+  that much from the grid (or sends it), covers the house out of it and
+  charges (discharges) the battery with the rest - at most its max, which
+  the inverter limits by itself. A Charge speed above the battery's max so
+  keeps the house on the grid while the battery charges at its max,
+  instead of the house sharing a setpoint at the max (with an electric car
+  charging, much less went into the battery). Applies to all four speeds
+  and the night speeds.
+
+### Fixed
+- **Sales are sized at what the battery can deliver.** The high discharge,
+  spike and negative-price sales counted with the full Discharge speed,
+  also when that is above the max battery discharge speed - so their
+  blocks were too short and sold less than planned. The battery side
+  (sale plus house) is now capped at the max; the charges already were.
+
 ## [2026.10.26] - 2026-10-25
 
 ### Fixed

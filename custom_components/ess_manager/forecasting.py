@@ -436,12 +436,14 @@ def grid_charge_rates(
     ce = charge_efficiency if charge_efficiency > 0 else 1.0
     de = discharge_efficiency if discharge_efficiency > 0 else 1.0
     cap = float(max_charge_kw) if max_charge_kw and max_charge_kw > 0 else float("inf")
-    speed = min(max(float(speed_kw or 0.0), 0.0), cap)
+    # the speed is a grid setpoint (as of 2026.10.27): not limited itself,
+    # the battery side is (gain)
+    speed = max(float(speed_kw or 0.0), 0.0)
 
     def gain(kw: float) -> float:
         return min(kw * ce, cap) if kw > 0 else kw / de
 
-    night = min(max(float(night_kw), 0.0), cap) if night_kw is not None else None
+    night = max(float(night_kw), 0.0) if night_kw is not None else None
     hour0 = units.price_unit(now) - now.minute // 15  # real time (as of 2026.10.25)
     out = [0.0] * max(n_units, 0)
     for u in range(hour0, len(out)):

@@ -26,6 +26,13 @@ from .control import (
 )
 
 
+def _max_per_unit(max_kw: Optional[float]) -> float:
+    """The battery's own max speed per 15-minute unit (kWh), inf when not
+    given. The speeds the plans run at are grid setpoints (as of 2026.10.27):
+    the battery delivers the sale plus the house, but never more than this."""
+    return float(max_kw) / 4 if max_kw is not None and max_kw > 0 else math.inf
+
+
 def _hour0_start_unit(cur_unit: int, now: datetime) -> int:
     """Absolute unit at the top of the current hour."""
     return cur_unit - (now.minute // 15)
@@ -455,6 +462,7 @@ def compute_negative_price_plan(
     discharge_efficiency: float = 1.0,
     replan: bool = False,
     charge_rates: Optional[list[float]] = None,
+    max_discharge_kw: Optional[float] = None,
 ) -> dict:
     """`all_price` is the sell price, `buy_price` what buying costs (price
     + transport, as of v0.4.0; defaults to all_price). Charging is a buy:
@@ -523,7 +531,7 @@ def compute_negative_price_plan(
     forecast_min_pre = min(pre_vals) if pre_vals else level_at_start
     max_safe_discharge_kwh = max(forecast_min_pre - low_threshold_kwh, 0)
 
-    discharge_per_unit = (discharge_speed_kw / 4) / discharge_efficiency
+    discharge_per_unit = min(discharge_speed_kw / 4, _max_per_unit(max_discharge_kw)) / discharge_efficiency
     discharge_units_needed_raw = max(math.ceil(discharge_needed_kwh / discharge_per_unit), 0)
     available_lead_units = max(charge_start - cur_unit, 0)
     discharge_units_by_energy = max(math.floor(max_safe_discharge_kwh / discharge_per_unit), 0)
@@ -636,6 +644,7 @@ def compute_spike_plan(
     discharge_efficiency: float = 1.0,
     replan: bool = False,
     charge_rates: Optional[list[float]] = None,
+    max_discharge_kw: Optional[float] = None,
     today_units: int = 96,
 ) -> dict:
     """`all_price` is the sell price, `buy_price` what buying costs (price
@@ -842,7 +851,7 @@ def compute_spike_plan(
     relevant_usage_d = usage[0 : hour_index_high + 1]
     avg_usage_kwh_d = sum(relevant_usage_d) / len(relevant_usage_d) if relevant_usage_d else 0
     avg_usage_per_unit_d = avg_usage_kwh_d / 4
-    effective_discharge_per_unit = (discharge_per_unit + avg_usage_per_unit_d) / discharge_efficiency
+    effective_discharge_per_unit = min(discharge_per_unit + avg_usage_per_unit_d, _max_per_unit(max_discharge_kw)) / discharge_efficiency
 
     forecast_min = min(forecast) if forecast else low_threshold_kwh
     max_safe_surplus = max(forecast_min - low_threshold_kwh, 0)
@@ -1459,6 +1468,7 @@ def compute_high_discharge_plan(
     replan: bool = False,
     capacity_kwh: Optional[float] = None,
     min_sale_units: int = 2,
+    max_discharge_kw: Optional[float] = None,
 ) -> dict:
     """`min_sale_units` (as of 2026.10.10): the shortest sale block in
     quarters (the coordinator passes the Minimum charge duration). A sale
@@ -1556,7 +1566,7 @@ def compute_high_discharge_plan(
         plan = _high_discharge_sale(
             forecast, hour_from, search_from, cur_unit, hour0_unit, units_to_next_hour, discharge_per_unit,
             high_threshold_kwh, low_threshold_kwh, usage, all_price, battery_now_kwh, safety_buffer_kwh,
-            sale_target_kwh, discharge_efficiency, min_sale_units,
+            sale_target_kwh, discharge_efficiency, min_sale_units, _max_per_unit(max_discharge_kw),
         )
         if plan is None or capacity_kwh is None or capacity_kwh >= high_threshold_kwh:
             break
@@ -1649,6 +1659,7 @@ def _high_discharge_sale(
     sale_target_kwh: Optional[float],
     discharge_efficiency: float,
     min_block_units: int = 1,
+    max_per_unit: float = math.inf,
 ) -> Optional[dict]:
     """compute_high_discharge_plan's sale for the first hour from
     `hour_from` on where `forecast` goes over the high threshold, in a
@@ -1677,8 +1688,9 @@ def _high_discharge_sale(
     avg_usage_kwh = sum(relevant_usage) / len(relevant_usage) if relevant_usage else 0
     avg_usage_per_unit = avg_usage_kwh / 4
     # Battery side: the sale (discharge speed) plus the house, divided by
-    # the discharge efficiency (as of v0.4.3).
-    effective_discharge_per_unit = (discharge_per_unit + avg_usage_per_unit) / discharge_efficiency
+    # the discharge efficiency (as of v0.4.3) - at most the battery's own
+    # max discharge speed (as of 2026.10.27: the speed is a grid setpoint)
+    effective_discharge_per_unit = min(discharge_per_unit + avg_usage_per_unit, max_per_unit) / discharge_efficiency
     search_end = min(breach_unit, len(all_price))
     sale_floor_kwh = low_threshold_kwh + max(safety_buffer_kwh, 0.0)
     if search_from >= search_end:
