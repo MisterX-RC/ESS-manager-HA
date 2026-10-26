@@ -12,6 +12,36 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.33] - 2026-10-26
+
+### Fixed
+- **A scheduled full charge no longer holds the other plans back.** As
+  long as a full (balancing) charge was scheduled - its first block still
+  ahead - the status said "Full charge scheduled" and ESS Manager did
+  nothing else: no low charge, no negative price charge, no spike plan.
+  With a slow charger a full charge is spread over several sessions, and
+  between them it's scheduled again, so the low charge plan could be off
+  for days (live: a battery at 25% with a low charge planned for tonight,
+  skipped because the full charge's first block was at 02:45). Now:
+  - the low charge plan works from the forecast with the full charge's
+    quarters in it, and doesn't use those quarters itself (the battery
+    charges once), so it only buys what the full charge doesn't bring in
+    in time - nothing is bought twice;
+  - a low charge, negative price or spike plan whose window is now goes
+    ahead; "Full charge scheduled" only with nothing else going on. A full
+    charge that's charging or balancing still comes first;
+  - no max SOC sale is planned while a full charge is due (that surplus is
+    what fills the battery).
+- **The battery forecast counts every block of a full charge**, not just
+  the first.
+
+### Changed
+- **Status card: a full charge shows its session**, not "-> 100%": the
+  energy over all its blocks and the level the battery ends at (with a
+  slow charger a full charge takes several sessions). The Buy block shows
+  the charge that comes first - another plan's when it starts before the
+  full charge.
+
 ## [2026.10.32] - 2026-10-26
 
 ### Fixed

@@ -2346,8 +2346,18 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # sum. How much still fits is measured against the unclipped peak; the
             # sale plan below keeps the unclipped forecast (its highest point is
             # what it sells off).
-            forecast_with_spike_clipped, _ = forecasting.clip_at_capacity(forecast_with_spike, battery_now_kwh, upper_limit_kwh)
-            horizon_peak_kwh = max(forecast_with_spike[0 : planning_horizon_hours + 1] or [battery_now_kwh])
+            # With a full charge scheduled or charging (as of 2026.10.33) the low
+            # charge plan works from the forecast with its quarters in it, and
+            # can't use those quarters itself (the battery charges once), so it
+            # only buys what the full charge doesn't bring in in time.
+            forecast_for_low = plans.with_full_charge(forecast_with_spike, self._full_charge_plan, current_price_unit, now)
+            full_quarters = plans.full_charge_units(self._full_charge_plan, current_price_unit)
+            low_charge_rates = (
+                [0.0 if u in full_quarters else r for u, r in enumerate(charge_rates)]
+                if charge_rates is not None and full_quarters else charge_rates
+            )
+            forecast_with_spike_clipped, _ = forecasting.clip_at_capacity(forecast_for_low, battery_now_kwh, upper_limit_kwh)
+            horizon_peak_kwh = max(forecast_for_low[0 : planning_horizon_hours + 1] or [battery_now_kwh])
             self._low_charge_plan = plans.compute_low_charge_plan(
                 self._low_charge_plan,
                 current_price_unit,
@@ -2368,7 +2378,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 replan=replan,
                 floor_kwh=deficit_floor_kwh,
                 peak_kwh=horizon_peak_kwh,
-                charge_rates=charge_rates,
+                charge_rates=low_charge_rates,
                 # charge up to the low threshold plus the same Safety buffer a
                 # sale keeps (as of 2026.10.4)
                 charge_buffer_kwh=safety_buffer_kwh,
@@ -2388,7 +2398,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # scheduling a *new* discharge window - one already in progress
             # (locked in via compute_high_discharge_plan's own prev check)
             # finishes normally regardless.
+            # (as of 2026.10.33 also while it's only scheduled: now that it no
+            # longer holds the other plans back, a sale of the surplus would
+            # only have to be bought back for it)
             full_charging_or_holding = self._full_charge_plan.get("active") and self._full_charge_plan.get("phase") in (
+                "scheduled",
                 "charging",
                 "holding",
             )

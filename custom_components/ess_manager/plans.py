@@ -38,6 +38,50 @@ def _hour0_start_unit(cur_unit: int, now: datetime) -> int:
     return cur_unit - (now.minute // 15)
 
 
+def full_charge_units(full: Optional[dict], cur_unit: int) -> dict[int, float]:
+    """The quarters a scheduled or charging full charge buys in, from now
+    on, with what each adds to the battery ({unit: kWh}) - all its blocks
+    (as of 2026.10.33), or its one window without blocks."""
+    full = full or {}
+    if not full.get("active") or full.get("phase") not in ("scheduled", "charging"):
+        return {}
+    out: dict[int, float] = {}
+    blocks = full.get("blocks") or []
+    if blocks:
+        for block in blocks:
+            for i, u in enumerate(range(int(block["start_unit"]), int(block["end_unit"]))):
+                rates = block.get("rates") or []
+                if u >= cur_unit:
+                    out[u] = float(rates[i]) if i < len(rates) else float(full.get("effective_charge_per_unit", 0) or 0)
+    else:
+        rate = float(full.get("effective_charge_per_unit", 0) or 0)
+        for u in range(max(int(full.get("start_unit", 0)), cur_unit), int(full.get("end_unit", 0))):
+            out[u] = rate
+    return out
+
+
+def with_full_charge(forecast: list[float], full: Optional[dict], cur_unit: int, now: datetime) -> list[float]:
+    """The forecast with a scheduled / charging full charge's quarters in it
+    (as of 2026.10.33): what the low charge plan works from, so it only buys
+    what the full charge doesn't already bring in in time - the two never
+    buy the same energy twice."""
+    adds = full_charge_units(full, cur_unit)
+    if not adds:
+        return list(forecast)
+    hour0 = _hour0_start_unit(cur_unit, now)
+    delta = [0.0] * len(forecast)
+    for u, kwh in adds.items():
+        h = (u - hour0) // 4
+        if 0 <= h < len(delta):
+            delta[h] += kwh
+    out = []
+    running = 0.0
+    for h, value in enumerate(forecast):
+        running += delta[h]
+        out.append(value + running if value is not None else value)
+    return out
+
+
 def _best_price_window(
     prices: list[float], search_start: int, search_end: int, units_needed: int, cheapest: bool
 ) -> int:
@@ -2176,8 +2220,8 @@ def compose_forecast_adjusted(
     the low/high plans can keep calling with just `base`/`low`/`high`/
     `cur_unit`/`now` and get the pre-v0.1.14 behavior unchanged.
 
-    Its "scheduled"/"charging" phases add energy the same way the low
-    charge plan does (a per-unit rate over its own start_unit/end_unit).
+    Its "scheduled"/"charging" phases add the energy of every block (as of
+    2026.10.33; up to then only its first window's).
     Its "holding" phase is different in kind, not just in when it applies:
     the system deliberately keeps the battery pinned at 100% for the
     balancing wait (`hold_start_unit`..`hold_end_unit`, see
@@ -2205,6 +2249,10 @@ def compose_forecast_adjusted(
     """
     full = full or {"active": False, "phase": None}
     hour0_start_unit = _hour0_start_unit(cur_unit, now)
+    # every block of a scheduled / charging full charge, not just its first
+    # (as of 2026.10.33) - in the base, so the low charge plan's blocks (made
+    # on the same forecast, see with_full_charge) stop where they were planned
+    base = with_full_charge(base, full, cur_unit, now)
     low_levels = high_levels = None
     if battery_now_kwh is not None:
         low_levels = _plan_draw_levels(low, base, cur_unit, hour0_start_unit, battery_now_kwh, charging=True)
@@ -2216,10 +2264,6 @@ def compose_forecast_adjusted(
         (0.0, 0.0, 0.0) if high_levels is not None else _plan_draw_window(high, cur_unit, battery_now_kwh, charging=False)
     )
 
-    full_charging = full.get("active") and full.get("phase") in ("scheduled", "charging")
-    full_charge_rate = full.get("effective_charge_per_unit", 0) if full_charging else 0
-    full_start = full.get("start_unit", 0) if full_charging else 0
-    full_end = full.get("end_unit", 0) if full_charging else 0
 
     full_holding = full.get("active") and full.get("phase") == "holding"
     hold_start = full.get("hold_start_unit", 0) if full_holding else 0
@@ -2232,8 +2276,7 @@ def compose_forecast_adjusted(
         hour_end = hour_start + 4
         charge_overlap = max(min(hour_end, low_end) - max(hour_start, low_start), 0.0)
         discharge_overlap = max(min(hour_end, high_end) - max(hour_start, high_start), 0.0)
-        full_overlap = max(min(hour_end, full_end) - max(hour_start, full_start), 0)
-        delta += (charge_overlap * charge_rate) - (discharge_overlap * discharge_rate) + (full_overlap * full_charge_rate)
+        delta += (charge_overlap * charge_rate) - (discharge_overlap * discharge_rate)
         value = base[h] + delta
         if low_levels is not None:
             value += low_levels[h]
@@ -2786,7 +2829,21 @@ def _compute_system_status_raw(
         return ("Actief" if setpoint_w >= charge_engaged_at else "Start charge"), ACTION_CHARGE
 
     if full.get("active") and full.get("phase") == "scheduled":
-        return "Full charge scheduled", ACTION_IDLE
+        # A full charge that's only scheduled no longer holds the other
+        # plans back (as of 2026.10.33): a low charge, a negative price
+        # charge or a spike plan whose window is now goes ahead (the low
+        # charge plan already counts the full charge's quarters, see
+        # with_full_charge); with nothing else going on it's "Full charge
+        # scheduled". Up to then this returned right away - for a slow
+        # charger whose full charge is spread over days, the low charge plan
+        # was off all that time.
+        status, action = _compute_system_status_raw(
+            setpoint_w, idle_setpoint_w, cur_unit, {"active": False, "phase": None}, neg, spike, low, high,
+            battery_now_kwh, low_threshold_kwh, charge_speed_kw, discharge_speed_kw, all_price,
+        )
+        if status == "Standby":
+            return "Full charge scheduled", ACTION_IDLE
+        return status, action
 
     if neg.get("active") and cur_unit < neg.get("charge_end_unit", -1):
         if neg["charge_start_unit"] <= cur_unit < neg["charge_end_unit"]:

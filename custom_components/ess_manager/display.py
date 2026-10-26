@@ -25,6 +25,23 @@ def _format_time(now: datetime, cur_unit: int, target_unit: int) -> str:
     return units.unit_start(now, cur_unit, target_unit).strftime("%a %H:%M")
 
 
+def _other_charge_first(full: dict, neg: dict, spike: dict, low: dict, cur_unit: int) -> bool:
+    """A scheduled full charge no longer holds the other plans back (as of
+    2026.10.33): the charge shown is the one that comes first - another
+    plan's when it's running now or starts before the full charge's next
+    block. A charging full charge always comes first."""
+    if full.get("phase") != "scheduled":
+        return False
+    starts = []
+    if neg.get("active") and cur_unit < neg.get("charge_end_unit", -1):
+        starts.append(neg.get("charge_start_unit", 0))
+    if spike.get("active") and cur_unit < spike.get("charge_end_unit", -1) and spike.get("charge_needed_kwh", 0) > 0:
+        starts.append(spike.get("charge_start_unit", 0))
+    if low.get("active"):
+        starts.append(low.get("start_unit", 0))
+    return bool(starts) and min(starts) < full.get("start_unit", 0)
+
+
 def charge_display(
     full: dict, neg: dict, spike: dict, low: dict, cur_unit: int, now: datetime
 ) -> tuple[Optional[float], Optional[str], Optional[str]]:
@@ -42,7 +59,9 @@ def charge_display(
     doesn't represent a charge window at all, so it falls through to the
     other plans same as when full charge plan isn't active.
     """
-    if full.get("active") and full.get("phase") in ("scheduled", "charging"):
+    if full.get("active") and full.get("phase") in ("scheduled", "charging") and not _other_charge_first(
+        full, neg, spike, low, cur_unit
+    ):
         return (
             # with blocks (as of 2026.10.6): what this block charges
             round(full.get("block_kwh", full["target_kwh"]), 2),
@@ -322,11 +341,34 @@ def card_plans(
     buy = None
     if full.get("active") and full.get("phase") == "holding":
         buy = _holding_side(full, balance or {}, *common)
-    elif full.get("active") and full.get("phase") in ("scheduled", "charging"):
+    elif full.get("active") and full.get("phase") in ("scheduled", "charging") and not _other_charge_first(
+        full, neg, spike, low, cur_unit
+    ):
+        # the whole session (as of 2026.10.33): what it buys over its blocks
+        # and the level it ends at - a slow charger spreads a full charge
+        # over several sessions, so "100%" was only right for the last one
+        blocks = full.get("blocks") or []
+        session_kwh = full.get("planned_kwh", full.get("block_kwh", full.get("target_kwh", 0)))
+        end_level = capacity_kwh
+        if blocks and blocks[-1].get("target_level_kwh") is not None:
+            end_level = min(float(blocks[-1]["target_level_kwh"]), capacity_kwh) if capacity_kwh else float(blocks[-1]["target_level_kwh"])
+        # (no progress measured against it: the end level counts the usage
+        # in between, so "level now vs end level" isn't what's been bought -
+        # like before, the block shows its amount until the battery is full)
         buy = _card_side(
-            "full_charge", True, full["start_unit"], full["end_unit"], full.get("block_kwh", full.get("target_kwh", 0)),
-            capacity_kwh, full.get("effective_charge_per_unit", 0) * 4, False, *common,
+            "full_charge", True, full["start_unit"], full["end_unit"], session_kwh,
+            None, full.get("effective_charge_per_unit", 0) * 4, False, *common,
         )
+        if buy["started"]:
+            # the time left is this block's (what the card's "left" is worked
+            # out from), not the whole session's
+            buy["remaining_kwh"] = round(min(float(full.get("block_kwh", session_kwh) or 0), float(session_kwh or 0)), 2)
+            buy["done_kwh"] = 0.0
+        if end_level is not None:
+            buy["target_level_kwh"] = round(end_level, 2)
+            buy["target_soc_percent"] = (
+                round(min(max(end_level / capacity_kwh * 100.0, 0.0), 100.0), 1) if capacity_kwh else None
+            )
         buy["phase"] = full["phase"]
         _add_blocks(buy, full, cur_unit, now)
     elif neg.get("active") and cur_unit < neg.get("charge_end_unit", -1):

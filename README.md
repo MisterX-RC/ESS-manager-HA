@@ -96,7 +96,21 @@ Five planning engines, all documented in detail in the code
    the morning.
 3. **Full charge plan** *(optional)* - periodically charges all the way to
    100% and holds there briefly to let the BMS balance cells, on a
-   configurable interval.
+   configurable interval. With a slow charger it's spread over several
+   sessions (each at most four hours at the charge speed, or 30x the
+   average hourly usage when that's more); the status card's Buy block
+   shows the session - its energy over all its blocks and the level it
+   ends at (as of 2026.10.33; up to then always "-> 100%"). While it's
+   charging or balancing it comes first. While it's only **scheduled**
+   (as of 2026.10.33) it no longer holds the other plans back: the low
+   charge plan counts the full charge's quarters (it only buys what the
+   full charge doesn't bring in in time, and never in the same quarters),
+   and a low charge, negative price or spike plan whose window is now goes
+   ahead - the status says `Full charge scheduled` only when nothing else
+   is going on. Up to then a scheduled full charge kept everything else
+   idle until it started, which with a slow charger could be days. A sale
+   of the surplus (the max SOC sale) isn't planned while a full charge is
+   due: that energy is what fills the battery.
 4. **Spike arbitrage plan** - on a day with a large enough price spread,
    deliberately charges cheap and discharges into the peak instead of just
    capping at your normal SOC band. Before a discharge, it tops the battery

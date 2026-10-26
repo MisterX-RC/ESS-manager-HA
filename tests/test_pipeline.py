@@ -729,9 +729,18 @@ full_scheduled = {"active": True, "phase": "scheduled", "start_unit": 135, "end_
 energy_full, start_full, stop_full = display.charge_display(
     full_scheduled, {"active": False}, {"active": False}, low_plan, cur_unit=93, now=now_top_of_hour
 )
+# 2026.10.33: a scheduled full charge is shown only when it comes first
 check(
-    "charge_display shows the full charge plan's scheduled window ahead of an active low charge plan",
-    energy_full == 11.99 and start_full is not None and stop_full is not None,
+    "charge_display: a low charge plan that starts before the scheduled full charge is shown first (2026.10.33)",
+    energy_full == round(low_plan["target_kwh"], 2),
+)
+energy_full2, start_full2, stop_full2 = display.charge_display(
+    {**full_scheduled, "start_unit": 1}, {"active": False}, {"active": False}, {**low_plan, "start_unit": 20}, cur_unit=0,
+    now=now_top_of_hour,
+)
+check(
+    "charge_display: the full charge plan's window when it starts first",
+    energy_full2 == 11.99 and start_full2 is not None and stop_full2 is not None,
 )
 
 full_holding = {"active": True, "phase": "holding", "hold_start": now_top_of_hour.isoformat(), "hold_minutes": 5.0}
@@ -3503,10 +3512,12 @@ _fc15 = _fcp(_fc30, 16.5)
 check("full charge: the capacity is now 15 (max 16.5): planned again, not started with 27 kWh",
       _fc15["phase"] == "scheduled" and _fc15["deficit_kwh"] == round(16.5 - 6.06, 3) and _fc15["high_threshold_kwh"] == 16.5)
 _fcc = _fcp(_fc15, 16.5)
-check("full charge: the charging phase keeps the block - the cards show the first block, not the whole charge",
+_fcc_card = display.card_plans(_fcc, {"active": False}, {"active": False}, {"active": False}, {"active": False}, 84,
+                               _fc_now, 6.06, 15.0)["buy"]
+check("full charge: the charging phase keeps the blocks - the card shows this session (all its blocks, to the level it ends at - 2026.10.33), not the whole charge",
       _fcc["phase"] == "charging" and _fcc["block_kwh"] == _fc15["block_kwh"] and _fcc["blocks"] == _fc15["blocks"]
-      and display.card_plans(_fcc, {"active": False}, {"active": False}, {"active": False}, {"active": False}, 84,
-                             _fc_now, 6.06, 15.0)["buy"]["energy_kwh"] == round(_fc15["block_kwh"], 2)
+      and _fcc_card["energy_kwh"] == round(_fc15["planned_kwh"], 2)
+      and _fcc_card["target_level_kwh"] == round(min(_fc15["blocks"][-1]["target_level_kwh"], 15.0), 2)
       and display.charge_display(_fcc, {"active": False}, {"active": False}, {"active": False}, 84, _fc_now)[0]
       == round(_fc15["block_kwh"], 2))
 check("full charge: a stored session of another day (its end time passed) isn't picked up again at the same time of day",
@@ -4864,6 +4875,46 @@ _tr_price = [0.05, 0.22, 0.22, 0.15, 0.3, 0.08, 0.05, 0.22]
 _tr = plans._schedule_charge([(8, 4.0, False)], [1.0] * 8, _tr_price, _tr_price, 0, 8, 1.0, 1.0, 2, [], 0, 100.0)
 check("charge blocks: the cheap blocks are kept, not the expensive lengthening (0.05+0.22 and 0.08+0.05, not 0.05+0.22+0.22+0.15)",
       _tr == [0, 1, 5, 6])
+
+# 2026.10.33: a full charge that's only scheduled no longer holds the other
+# plans back; the low charge plan counts its quarters
+_fs_full = {"active": True, "phase": "scheduled", "start_unit": 140, "end_unit": 142, "effective_charge_per_unit": 0.4,
+            "blocks": [{"start_unit": 140, "end_unit": 142, "kwh": 0.8, "target_level_kwh": 5.0, "rates": [0.4, 0.4]},
+                       {"start_unit": 150, "end_unit": 152, "kwh": 0.8, "target_level_kwh": 6.0, "rates": [0.4, 0.4]}]}
+_fs_low = {"active": True, "start_unit": 106, "end_unit": 116, "breach_unit": 172}
+_fs_args = (0.0, 0.0, 106, _fs_full, {"active": False}, {"active": False})
+check("full charge scheduled: a low charge window that's now goes ahead (2026.10.33)",
+      plans.compute_system_status_and_action(*_fs_args, _fs_low, {"active": False, "breach_unit": 999999}, 6.0, 4.5, 1.7, 2.8, [0.1] * 192)
+      == ("Start charge", "charge"))
+check("full charge scheduled: with nothing else going on still 'Full charge scheduled'",
+      plans.compute_system_status_and_action(*_fs_args, {"active": False, "breach_unit": 999999}, {"active": False, "breach_unit": 999999},
+                                             6.0, 4.5, 1.7, 2.8, [0.1] * 192) == ("Full charge scheduled", "idle")
+      and plans.compute_system_status_and_action(0.0, 0.0, 120, _fs_full, {"active": False}, {"active": False}, _fs_low,
+                                                 {"active": False, "breach_unit": 999999}, 6.0, 4.5, 1.7, 2.8, [0.1] * 192)[0]
+      == "Full charge scheduled")
+_fs_now = datetime(2026, 10, 26, 2, 30)   # unit 10 of the day; tomorrow's units go on past 96
+_fs_full2 = {**_fs_full, "start_unit": 12, "end_unit": 14,
+             "blocks": [{"start_unit": 12, "end_unit": 14, "kwh": 0.8, "target_level_kwh": 5.0, "rates": [0.4, 0.4]},
+                        {"start_unit": 21, "end_unit": 23, "kwh": 0.8, "target_level_kwh": 6.0, "rates": [0.4, 0.4]}]}
+check("full charge quarters: every block from now on",
+      plans.full_charge_units(_fs_full2, 10) == {12: 0.4, 13: 0.4, 21: 0.4, 22: 0.4}
+      and plans.full_charge_units(_fs_full2, 13) == {13: 0.4, 21: 0.4, 22: 0.4}
+      and plans.full_charge_units({**_fs_full2, "phase": "holding"}, 10) == {})
+_fs_fc = plans.with_full_charge([5.0] * 6, _fs_full2, 10, _fs_now)
+check("the forecast with the full charge in it: each block from its hour on (03:00 hour: +0.8, 05:00 hour: +0.8 more)",
+      [round(v, 2) for v in _fs_fc] == [5.0, 5.8, 5.8, 6.6, 6.6, 6.6])
+check("the adjusted forecast counts every full charge block, not just the first",
+      [round(v, 2) for v in plans.compose_forecast_adjusted([5.0] * 6, {"active": False}, {"active": False}, 10, _fs_now,
+                                                            full=_fs_full2, upper_limit_kwh=15.0)] == [5.0, 5.8, 5.8, 6.6, 6.6, 6.6])
+_fs_full3 = {**_fs_full2, "planned_kwh": 1.6}
+_fs_card3 = display.card_plans(_fs_full3, {"active": False}, {"active": False}, {"active": False}, {"active": False}, 10,
+                               _fs_now, 3.7, 15.0)["buy"]
+check("card: a scheduled full charge shows this session (1.6 kWh -> 6 kWh = 40%), not '-> 100%'",
+      _fs_card3["energy_kwh"] == 1.6 and _fs_card3["target_level_kwh"] == 6.0 and _fs_card3["target_soc_percent"] == 40.0
+      and _fs_card3["more_blocks"] == 1)
+_fs_card4 = display.card_plans(_fs_full3, {"active": False}, {"active": False}, {**_fs_low, "start_unit": 10, "end_unit": 12, "target_kwh": 1.0,
+                               "effective_charge_per_unit": 0.4}, {"active": False}, 10, _fs_now, 3.7, 15.0)["buy"]
+check("card: a low charge that starts before the scheduled full charge is the one shown", _fs_card4["source"] == "low_charge")
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
