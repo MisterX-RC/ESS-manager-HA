@@ -591,9 +591,11 @@ and **Change** opens the panel again - for Fast/Slow with a slider for the
 charging current; the end time follows the slider. Below, **Planned**: the
 predicted and added sessions, each with its way of charging (fast, slow or
 on the sun); tap one to edit it in the same kind of panel (day, plug-in
-time, way of charging, state of charge when plugged in and target). The
-card uses the service `ess_manager.ev_charge_plan` (`choice`: asap / calm /
-solar / deadline, `day`: today / tomorrow / any, `hour`: "07:00", `soc` or
+time, way of charging, state of charge when plugged in and target; for
+"full by" the day and the time it should be full - as of 2026.10.32 the day
+is picked too: the plug-in day or one of the three after it, moving along
+when the plug-in day changes). The card uses the service `ess_manager.ev_charge_plan` (`choice`: asap / calm /
+solar / deadline, `day`: today / tomorrow / after / any, `hour`: "07:00", `soc` or
 `kwh`, `target_soc`, `current_a` for asap/calm, `car`) - also usable in
 automations.
 

@@ -12,6 +12,18 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.32] - 2026-10-26
+
+### Fixed
+- **EV card: a planned "full by" session gets its own day.** Adding or
+  editing a planned session with "Full by" only had a time: the day was
+  always the first one after the plug-in time, so it couldn't be chosen.
+  Next to the time there's now **Full on**: the plug-in day or one of the
+  three after it (it moves along when the plug-in day changes). A full-by
+  time before the plug-in time shows in red and isn't saved. The "planned
+  to be done by ... (an hour before ...)" line now shows the day when it
+  isn't today.
+
 ## [2026.10.31] - 2026-10-26
 
 ### Changed
