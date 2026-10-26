@@ -467,8 +467,9 @@ on the card). Ten minutes without power and the session is done.
 *(As of 2026.10.27.)* Instead of an energy and a power sensor, the charger
 page can take a **Victron EV charging station** - the device of the
 **Victron GX** integration (in Home Assistant itself since 2026.5). Its
-entities are found on the device by themselves (status, connected, power,
-total energy, mode, charge current setpoint, EV charging); the energy and
+entities are found on the device by themselves (status, power, total
+energy, mode, charge current setpoint, EV charging; a car is plugged in when
+the Status isn't "disconnected"); the energy and
 power then also feed the history and the prediction, so leave those two
 sensors empty. Then ESS Manager **drives the charger** and asks on your
 phone what to do. Pick the phones under **Phones to ask on**: the Home
@@ -476,7 +477,7 @@ Assistant Companion app's notify services (`notify.mobile_app_...`) -
 those show buttons and a reply field. Without a phone nothing is asked
 and the charger stays on its own Auto mode.
 
-**A car is plugged in** (the charger's Connected / Status): a session
+**A car is plugged in** (the charger's Status is anything but "disconnected"): a session
 starts and planned sessions it overlaps are dropped (the first one's energy
 is the estimate until you say more). With more than one car the first
 question is which one (buttons; with more than three cars - Android shows

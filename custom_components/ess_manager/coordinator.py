@@ -558,20 +558,23 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _victron_inputs(self, conf: dict[str, Any], ents: dict[str, str], now: datetime, buy_price: list[float]) -> dict[str, Any]:
         status_state = self.hass.states.get(ents.get("status", ""))
         status = status_state.state if status_state and status_state.state not in ("unknown", "unavailable") else None
-        connected_state = self.hass.states.get(ents.get("connected", ""))
-        if connected_state is not None and connected_state.state in ("on", "off"):
-            connected = connected_state.state == "on"
-        else:
-            connected = status is not None and status != evc.STATUS_DISCONNECTED
-        if status is None and (connected_state is None or connected_state.state not in ("on", "off")):
+        # A car is plugged in when the charger's Status isn't "disconnected".
+        # Not its "Connected" entity (as of 2026.10.30): that's whether the
+        # charger itself is connected to the GX, not the car - with it a car
+        # was never seen as unplugged.
+        if status is None:
             # the charger can't be read: keep what we had (no false unplug)
             connected = self.ev.flow is not None
+        else:
+            connected = status != evc.STATUS_DISCONNECTED
         notify = [s for s in (conf.get(CONF_EV_NOTIFY) or []) if self.hass.services.has_service("notify", s)]
         mode_state = self.hass.states.get(ents.get("mode", ""))
         current_state = self.hass.states.get(ents.get("current", ""))
         return {
             "connected": connected,
             "status": status,
+            # when the Status last changed: the unplug time for the log
+            "status_since": int(status_state.last_changed.timestamp()) if status_state is not None else None,
             "mode": mode_state.state if mode_state and mode_state.state not in ("unknown", "unavailable") else None,
             "set_current": _float_state(current_state) if current_state is not None else None,
             "power_w": _state_in_unit(self.hass, ents.get("power"), ("kW",), 1000.0),

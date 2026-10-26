@@ -161,10 +161,14 @@ class _VictronMixin:
             # the plug-in log (as of 2026.10.29): what this connection was
             start = flow.get("energy_start")
             last = energy_kwh if energy_kwh is not None else flow.get("last_energy")
+            # unplugged when the charger's Status went to "disconnected"
+            off = int(self.ctx.get("status_since") or now_epoch)
+            if not int(flow.get("since") or 0) < off <= now_epoch:
+                off = now_epoch
             self.log.append({
                 "car": flow.get("car"),
                 "on": int(flow.get("since") or now_epoch),
-                "off": now_epoch,
+                "off": off,
                 "kwh": round(max(float(last) - float(start), 0.0), 2) if start is not None and last is not None else 0.0,
                 "choice": flow.get("choice"),
                 "deadline": flow.get("deadline") if flow.get("choice") == evc.CHOICE_DEADLINE else None,

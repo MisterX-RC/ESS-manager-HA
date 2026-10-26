@@ -34,6 +34,7 @@ UNIT = 900
 # Victron GX translation keys (= victron_mqtt short ids) of an EV charging station
 VICTRON_KEYS = {
     "status": "evcharger_status",
+    # the charger's connection to the GX - not the car (not used for that)
     "connected": "evcharger_connected",
     "power": "evcharger_power",
     "energy": "evcharger_total_energy",

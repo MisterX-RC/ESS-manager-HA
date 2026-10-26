@@ -12,6 +12,17 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.30] - 2026-10-26
+
+### Fixed
+- **Victron EV charger: unplugging the car is recognised.** ESS Manager took
+  the charger's "Connected" entity for the car being plugged in, but that's
+  whether the charger itself is connected to the GX - so a car was never
+  seen as unplugged (the session stayed "running", the plug-in log stayed
+  empty). The car is now read from the charger's Status alone (anything but
+  "disconnected" is a car). The plug-in log takes the time the Status went
+  to "disconnected" as the unplug time.
+
 ## [2026.10.29] - 2026-10-26
 
 ### Changed
