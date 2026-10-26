@@ -12,6 +12,28 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.31] - 2026-10-26
+
+### Changed
+- **Victron EV charger: no answer, no plan - nothing is started.** Up to now
+  the charger was put on its Auto mode (solar surplus) while ESS Manager
+  waited for an answer on the phone. Now ESS Manager doesn't touch the
+  charger then. A car plugged in during a planned or predicted session
+  still starts on that session's plan - and that now includes sessions
+  predicted from the charging energy (up to now only the ones edited or
+  added on the card or predicted from the plug-in log). A charge the
+  charger starts by itself (by hand, its auto start, a schedule, its own
+  Auto mode) still goes on and is forecast at its current.
+- **Unplugging puts the charger back to rest** (Manual mode, charging off -
+  written once), so the next car plugged in without a plan doesn't start
+  charging on the setting the last session left.
+- **"Full by a time": also the day after tomorrow.** The phone and the
+  card ask today, tomorrow, the day after or "doesn't matter"; tomorrow and
+  the day after are shown as their day of the week (*dinsdag*,
+  *woensdag*). That's four buttons on the phone: an iPhone shows them all,
+  Android the first three. Service `ess_manager.ev_charge_plan` takes
+  `day: after`.
+
 ## [2026.10.30] - 2026-10-26
 
 ### Fixed

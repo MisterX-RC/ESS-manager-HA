@@ -98,6 +98,7 @@ ev_charge_plan:
           options:
             - today
             - tomorrow
+            - after
             - any
     hour:
       example: "07:00"

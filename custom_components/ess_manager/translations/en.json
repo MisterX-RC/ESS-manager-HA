@@ -509,11 +509,11 @@
         },
         "day": {
           "name": "Day",
-          "description": "For deadline: today, tomorrow or any (within the prices known)."
+          "description": "For deadline: today, tomorrow, after (the day after tomorrow) or any (within the prices known)."
         },
         "hour": {
           "name": "Time",
-          "description": "For deadline today/tomorrow: the time it should be full (HH:MM)."
+          "description": "For deadline today, tomorrow or the day after: the time it should be full (HH:MM)."
         },
         "soc": {
           "name": "State of charge",

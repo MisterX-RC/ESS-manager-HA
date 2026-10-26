@@ -612,6 +612,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             float(conf.get(CONF_EV_MIN_CURRENT, DEFAULT_EV_MIN_CURRENT)),
             float(conf.get(CONF_EV_MAX_CURRENT, DEFAULT_EV_MAX_CURRENT)),
         )
+        resting = False
+        if target is None and self.ev.flow is None and self.ev.rest_charger:
+            # unplugged: once back to rest (as of 2026.10.31)
+            target = dict(evc.REST_TARGET)
+            resting = True
         self._ev_target = target
         if target is None or (control_settings.active and not self.controller.enabled):
             return
@@ -648,9 +653,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     service = "turn_on" if target["charge"] else "turn_off"
                     calls.append(("charge", ents["charge"], "switch", service, {}, bool(target["charge"])))
         mono = time.monotonic()
+        pending = False
         for role, entity_id, domain, service, data, value in calls:
             last = self._ev_writes.get(entity_id)
             if last is not None and last[0] == value and mono - last[1] < 60:
+                pending = True
                 continue
             try:
                 await asyncio.wait_for(
@@ -661,11 +668,15 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if message != self._ev_error:
                     _LOGGER.warning("ESS Manager (%s): %s", self.entry.title, message)
                 self._ev_error = message
+                pending = True
                 continue
             self._ev_writes[entity_id] = (value, mono)
             applied[role] = value
             self._ev_error = None
             _LOGGER.info("ESS Manager (%s): EV charger %s.%s %s %s (%s)", self.entry.title, domain, service, entity_id, data or "", target.get("why"))
+        if resting and not pending:
+            # back at rest (or already was): leave the charger alone from now on
+            self.ev.rest_charger = False
 
     async def _async_ev_send(self) -> None:
         """The notifications the EV runtime queued (questions, plans)."""

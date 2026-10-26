@@ -30,6 +30,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "day": "Full by when?",
         "today": "Today",
         "tomorrow": "Tomorrow",
+        "after": "The day after tomorrow",
         "any": "Doesn't matter",
         "hour": "At what time should it be full ({day})? E.g. 7 or 7:30",
         "hour_past": "That time has passed - at what time should it be full ({day})?",
@@ -77,6 +78,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "day": "Wanneer moet hij vol zijn?",
         "today": "Vandaag",
         "tomorrow": "Morgen",
+        "after": "Overmorgen",
         "any": "Maakt niet uit",
         "hour": "Hoe laat moet hij vol zijn ({day})? Bijv. 7 of 7:30",
         "hour_past": "Die tijd is al voorbij - hoe laat moet hij vol zijn ({day})?",
@@ -113,6 +115,23 @@ TEXTS: dict[str, dict[str, str]] = {
         "morning_set": "Sessie van {time}: {kwh} kWh.",
     },
 }
+
+
+WEEKDAYS = {
+    "en": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+    "nl": ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"],
+}
+
+
+def day_name(language: str, offset: int, now_epoch: int, tz: tzinfo, button: bool = False) -> str:
+    """Today as "today" / "vandaag", tomorrow and later as the day of the week
+    ("Tuesday" / "dinsdag"; capitalised on a button) - as of 2026.10.31."""
+    if offset == 0:
+        word = t(language, "today")
+        return word if button else word.lower()
+    when = datetime.fromtimestamp(int(now_epoch), tz)
+    word = WEEKDAYS[language][(when.weekday() + offset) % 7]
+    return word[:1].upper() + word[1:] if button else word
 
 
 def lang(language: Optional[str]) -> str:

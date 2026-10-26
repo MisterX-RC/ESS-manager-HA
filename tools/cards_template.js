@@ -75,7 +75,7 @@ const I18N = {
     ev_hist_legend: "solar session from history: depends on the sun · tap to make it a fixed session",
     ev_add: "Add manual session", ev_label_history: "average", ev_label_edited: "edited", ev_label_manual: "manual",
     ev_mode_solar_hist: "solar surplus (history)", ev_mode_solar: "solar surplus", ev_charging_now: "charging now",
-    ev_vc_waiting: "waiting for the answer on the phone · charger on Auto (solar surplus)", ev_vc_asap: "as fast as possible",
+    ev_vc_waiting: "waiting for the answer on the phone · ESS Manager leaves the charger alone", ev_vc_asap: "as fast as possible",
     ev_vc_external: "started on the charger itself · charging now at its current, left alone",
     ev_vc_calm: "slowly", ev_vc_deadline: (t) => `full by ${t}`, ev_vc_any: "sun first, then the cheapest hours",
     ev_vc_grid: (w) => `grid: ${w}`, ev_vc_done: "done - the charger is stopped", ev_vc_short: (k) => `${k} short`,
@@ -102,7 +102,7 @@ const I18N = {
     ev_st_plugged: (c) => `${c} plugged in`, ev_st_charging: (c, kw) => `${c} charging · ${kw}`, ev_st_done: (c) => `${c} · done`, ev_st_running: "Charging now",
     ev_chip_wait: "waiting for a choice", ev_chip_ext: "started by the charger", ev_chip_asap: (a) => `fast · ${a} A`, ev_chip_calm: (a) => `slow · ${a} A`,
     ev_chip_solar: "on the sun", ev_chip_by: (t) => `full by ${t}`, ev_chip_done: "done", ev_chip_fixed: (a) => `fixed · ${a} A`,
-    ev_wait_text: "Until you choose, the charger charges on the solar surplus (Auto). The same question is on your phone.",
+    ev_wait_text: "Until you choose, ESS Manager doesn't start the charger (what it starts itself goes on). The same question is on your phone.",
     ev_ext_text: "The charger started by itself and charges at its own current - ESS Manager leaves it alone until you choose.",
     ev_done_text: "Full according to the sums - the charger stays as it is, the car stops by itself when it's really full. Unplug the car to end the session.",
     ev_r_by_fixed: (amps, kw, a, b) => `${amps} A · ${kw} · planned to be done by ${a} (an hour before ${b})`, ev_r_estimate: "prices for then not known yet: estimated as a calm charge",
@@ -258,7 +258,7 @@ const I18N = {
     ev_hist_legend: "zon-sessie volgens de historie: hangt van de zon af · tik om er een vaste sessie van te maken",
     ev_add: "Handmatige sessie toevoegen", ev_label_history: "gemiddelde", ev_label_edited: "aangepast", ev_label_manual: "handmatig",
     ev_mode_solar_hist: "zon-overschot (historie)", ev_mode_solar: "zon-overschot", ev_charging_now: "laadt nu",
-    ev_vc_waiting: "wacht op het antwoord op de telefoon · lader op Auto (zon-overschot)", ev_vc_asap: "zo snel mogelijk",
+    ev_vc_waiting: "wacht op het antwoord op de telefoon · ESS Manager laat de lader met rust", ev_vc_asap: "zo snel mogelijk",
     ev_vc_external: "door de lader zelf gestart · laadt nu op zijn eigen stroom, ESS Manager laat hem met rust",
     ev_vc_calm: "rustig", ev_vc_deadline: (t) => `vol om ${t}`, ev_vc_any: "eerst de zon, dan de goedkoopste uren",
     ev_vc_grid: (w) => `net: ${w}`, ev_vc_done: "klaar - de lader staat stil", ev_vc_short: (k) => `${k} tekort`,
@@ -284,7 +284,7 @@ const I18N = {
     ev_st_plugged: (c) => `${c} aangesloten`, ev_st_charging: (c, kw) => `${c} laadt · ${kw}`, ev_st_done: (c) => `${c} · klaar`, ev_st_running: "Laadt nu",
     ev_chip_wait: "wacht op keuze", ev_chip_ext: "door lader gestart", ev_chip_asap: (a) => `snel · ${a} A`, ev_chip_calm: (a) => `rustig · ${a} A`,
     ev_chip_solar: "op zon", ev_chip_by: (t) => `vol om ${t}`, ev_chip_done: "klaar", ev_chip_fixed: (a) => `vast · ${a} A`,
-    ev_wait_text: "Tot je kiest laadt de lader op zon-overschot (Auto). Dezelfde vraag staat op je telefoon.",
+    ev_wait_text: "Tot je kiest start ESS Manager de lader niet (wat de lader zelf start, loopt door). Dezelfde vraag staat op je telefoon.",
     ev_ext_text: "De lader is zelf begonnen en laadt op zijn eigen stroom - ESS Manager laat hem met rust tot je kiest.",
     ev_done_text: "Vol volgens de berekening - de lader blijft zoals hij staat, de auto stopt zelf als hij echt vol is. Koppel de auto los om de sessie af te sluiten.",
     ev_r_by_fixed: (amps, kw, a, b) => `${amps} A · ${kw} · gepland klaar om ${a} (een uur voor ${b})`, ev_r_estimate: "prijzen voor dan nog niet bekend: geschat als rustige lading",
@@ -430,6 +430,7 @@ function formats(hass) {
   };
   const time = make({ hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
   const weekday = make({ weekday: "short" });
+  const weekdayLong = make({ weekday: "long" });
   const dayLabel = make({ weekday: "short", day: "numeric" });
   const clock = make({ hour: "numeric", minute: "numeric", hourCycle: "h23" });
   let money;
@@ -442,6 +443,7 @@ function formats(hass) {
   _formats[key] = {
     time: (ms) => time.format(ms),
     weekday: (ms) => weekday.format(ms),
+    weekdayLong: (ms) => weekdayLong.format(ms),
     dayLabel: (ms) => dayLabel.format(ms),
     // [hour, minute] on the wall clock of the shown time zone
     clock: (ms) => {
@@ -2187,7 +2189,7 @@ const EV_CSS = `
   .socbig .mark { position: absolute; top: -4px; bottom: -4px; width: 0; border-left: 2px dashed var(--secondary-text-color, #bdbdbd); }
   .hint { font-size: 11px; color: var(--secondary-text-color, #9b9b9b); }
   .seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 22px; background: var(--ha-card-background, var(--card-background-color, #1c1c1c)); }
-  .seg button { min-height: 40px; border-radius: 18px; border: 0; background: transparent; color: inherit; font: inherit; font-size: 14px; cursor: pointer; }
+  .seg button { min-height: 40px; border-radius: 18px; border: 0; background: transparent; color: inherit; font: inherit; font-size: 14px; line-height: 1.15; padding: 2px 4px; cursor: pointer; }
   .seg button[aria-checked="true"] { background: var(--ev); color: #0f1f19; font-weight: 600; }
   .result { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--ev) 10%, transparent); font-size: 14px; }
   .result.warn { background: color-mix(in srgb, ${EV_WARN} 14%, transparent); }
@@ -2470,7 +2472,9 @@ class EssManagerEvCard extends EssChartCard {
 
   _deadlineMs(p) {
     const today = localMidnight(this._hass, Date.now());
-    const day = p.day === "tomorrow" ? nextMidnight(this._hass, today) : today;
+    const offset = { tomorrow: 1, after: 2 }[p.day] || 0;
+    let day = today;
+    for (let i = 0; i < offset; i++) day = nextMidnight(this._hass, day);
     const [h, m] = String(p.hour || "07:00").split(":").map((v) => Number(v) || 0);
     return this._at(day, h, m);
   }
@@ -2588,7 +2592,15 @@ class EssManagerEvCard extends EssChartCard {
       out += `<div class="hint">${esc(this._t("ev_r_solar_hint")(`${ev.min_current} A`, `${ev.max_current} A`))}</div>`;
     }
     if (p.how === "deadline") {
-      out += `<div class="fldgrp"><span class="lab">${esc(this._t("ev_when_full"))}</span>${this._seg("data-pd", [["today", this._t("ev_d_today")], ["tomorrow", this._t("ev_d_tomorrow")], ["any", this._t("ev_d_any")]], p.day, 3)}</div>`;
+      // tomorrow and the day after by their day of the week (as of 2026.10.31)
+      const today = localMidnight(this._hass, Date.now());
+      const d1 = nextMidnight(this._hass, today);
+      const d2 = nextMidnight(this._hass, d1);
+      const dayName = (ms) => {
+        const w = formats(this._hass).weekdayLong(ms + 12 * 3600000);
+        return w.charAt(0).toUpperCase() + w.slice(1);
+      };
+      out += `<div class="fldgrp"><span class="lab">${esc(this._t("ev_when_full"))}</span>${this._seg("data-pd", [["today", this._t("ev_d_today")], ["tomorrow", dayName(d1)], ["after", dayName(d2)], ["any", this._t("ev_d_any")]], p.day, 4)}</div>`;
       if (p.day !== "any") out += `<label class="fld">${esc(this._t("ev_full_at"))}<input type="time" data-p="hour" value="${esc(p.hour)}"></label>`;
     }
     if (car && car.capacity_kwh) {

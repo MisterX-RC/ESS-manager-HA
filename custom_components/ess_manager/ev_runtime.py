@@ -122,12 +122,18 @@ class _VictronMixin:
                 (f"choice={evc.CHOICE_DEADLINE}", self._t("deadline")),
             ]))
         elif step == "day":
+            # four buttons (as of 2026.10.31): an iPhone shows them all,
+            # Android the first three
+            now_epoch = int(self.ctx.get("now") or flow.get("since") or 0)
             self._send(prefix + self._t("day"), evn.buttons(entry, token, [
-                (f"day={d}", self._t(d)) for d in evc.DAYS
+                (f"day={d}", evn.day_name(lg, evc.DAY_OFFSET[d], now_epoch, self.ctx["tz"], True) if d in evc.DAY_OFFSET else self._t(d))
+                for d in evc.DAYS
             ]))
         elif step in ("hour", "hour_past"):
             flow["step"] = "hour"
-            self._send(self._t(step, day=self._t(flow.get("day") or evc.DAY_TODAY).lower()), evn.reply(entry, token, "hour", lg, "ph_hour"))
+            now_epoch = int(self.ctx.get("now") or flow.get("since") or 0)
+            offset = evc.DAY_OFFSET.get(flow.get("day") or evc.DAY_TODAY, 0)
+            self._send(self._t(step, day=evn.day_name(lg, offset, now_epoch, self.ctx["tz"])), evn.reply(entry, token, "hour", lg, "ph_hour"))
         elif step == "confirm":
             car = self._car(flow.get("car"))
             what = self._plan_words()
@@ -176,6 +182,8 @@ class _VictronMixin:
             })
             self.log = [c for c in self.log if now_epoch - int(c.get("on", 0)) < ev.LOG_DAYS * 86400]
             self.done[flow["sid"]] = now_epoch
+            # the charger back to rest (manual, off): see ev_charger.REST_TARGET
+            self.rest_charger = True
             if self.running and self.running.get("id") == flow["sid"]:
                 self.running = None
             self.flow = None
@@ -190,8 +198,9 @@ class _VictronMixin:
             healed = self._victron_heal(now_epoch, energy_kwh, typical_kwh)
             return self._victron_external(status) or healed
         # a car plugged in: a new session; planned ones it overlaps go - the
-        # first one's plan is taken over when it's one somebody set or one
-        # predicted from the plug-in log (as of 2026.10.29)
+        # first one's plan is taken over, whether somebody set it or it's
+        # predicted (from the plug-in log or the charging energy - as of
+        # 2026.10.31); without one ESS Manager doesn't start anything
         hour = _floor_hour(now_epoch)
         expected = None
         adopt = None
@@ -203,7 +212,9 @@ class _VictronMixin:
             if start - EARLY <= now_epoch < end:
                 if expected is None:
                     expected = s.get("kwh")
-                if adopt is None and s.get("enabled", True) and (s.get("label") in (ev.LABEL_EDITED, ev.LABEL_MANUAL) or s.get("source") == "log"):
+                # every planned or predicted session counts (as of 2026.10.31;
+                # up to then not the ones predicted from the charging energy)
+                if adopt is None and s.get("enabled", True):
                     adopt = s
                 self.done[s["id"]] = now_epoch
         cars = self.ctx.get("cars") or []
@@ -261,8 +272,8 @@ class _VictronMixin:
         if choice == evc.CHOICE_DEADLINE:
             tz = self.ctx["tz"]
             dl = int(s["deadline"])
-            same = datetime.fromtimestamp(dl, tz).date() == datetime.fromtimestamp(now_epoch, tz).date()
-            flow["day"] = evc.DAY_TODAY if same else evc.DAY_TOMORROW
+            days = (datetime.fromtimestamp(dl, tz).date() - datetime.fromtimestamp(now_epoch, tz).date()).days
+            flow["day"] = {0: evc.DAY_TODAY, 1: evc.DAY_TOMORROW}.get(days, evc.DAY_AFTER)
             flow["deadline"] = dl
         current = s.get("current_a")
         if choice in (evc.CHOICE_ASAP, evc.CHOICE_CALM) and current and min_a < float(current) < max_a:
@@ -367,7 +378,7 @@ class _VictronMixin:
     def _deadline(self, day: Optional[str], hm: tuple[int, int], now_epoch: int) -> int:
         tz = self.ctx["tz"]
         today = datetime.fromtimestamp(now_epoch, tz).date()
-        date = today + timedelta(days=1 if day == evc.DAY_TOMORROW else 0)
+        date = today + timedelta(days=evc.DAY_OFFSET.get(day or evc.DAY_TODAY, 0))
         return int(datetime.combine(date, time(hm[0], hm[1]), tzinfo=tz).timestamp())
 
     def _apply_need(self, need: float, soc: Optional[float], target: Optional[float] = None) -> None:
@@ -399,6 +410,8 @@ class _VictronMixin:
     # -- answers on the phone -------------------------------------------------------------
     def answer(self, token: str, what: str, reply_text: Optional[str], now_epoch: int) -> bool:
         """A tap or reply on the phone. True when something changed."""
+        if self.ctx:
+            self.ctx["now"] = now_epoch
         if what.startswith("m_"):
             return self._answer_morning(token, what, reply_text, now_epoch)
         flow = self.flow
@@ -468,7 +481,7 @@ class _VictronMixin:
     def set_plan(self, fields: dict[str, Any], now_epoch: int) -> None:
         """The plugged-in car's plan in one go, from the EV card (service
         ess_manager.ev_charge_plan): car, choice (asap / calm / deadline),
-        day (today / tomorrow / any) and hour ("HH:MM") for a deadline, and
+        day (today / tomorrow / after / any) and hour ("HH:MM") for a deadline, and
         soc (%) or kwh. What isn't given stays as it was (a SOC or kWh that
         is already known can be left out). The open question on the phone
         is withdrawn; the end time comes as a notification like after an
@@ -495,7 +508,7 @@ class _VictronMixin:
         deadline = flow.get("deadline")
         if choice == evc.CHOICE_DEADLINE:
             if day not in evc.DAYS:
-                raise ValueError("Pick the day: today, tomorrow or doesn't matter")
+                raise ValueError("Pick the day: today, tomorrow, the day after or doesn't matter")
             if day == evc.DAY_ANY:
                 deadline = None
             elif fields.get("hour") is not None or deadline is None or fields.get("day"):
@@ -727,6 +740,7 @@ class EvRuntime(_VictronMixin):
         # deadline, soc}], LOG_DAYS long; log_since = when it started
         self.log: list[dict[str, Any]] = []
         self.log_since: Optional[int] = None
+        self.rest_charger = False
 
     # -- store ---------------------------------------------------------------
     def restore(self, data: Optional[dict[str, Any]]) -> None:
@@ -740,12 +754,13 @@ class EvRuntime(_VictronMixin):
         self.morning = dict(data.get("morning") or {})
         self.log = list(data.get("log") or [])
         self.log_since = data.get("log_since")
+        self.rest_charger = bool(data.get("rest_charger"))
 
     def as_store(self) -> dict[str, Any]:
         return {
             "overrides": self.overrides, "manual": self.manual, "running": self.running, "done": self.done,
             "flow": self.flow, "morning_day": self.morning_day, "morning": self.morning,
-            "log": self.log, "log_since": self.log_since,
+            "log": self.log, "log_since": self.log_since, "rest_charger": self.rest_charger,
         }
 
     # -- card edits ----------------------------------------------------------
@@ -943,7 +958,7 @@ class EvRuntime(_VictronMixin):
 
         self.outbox = []
         if victron is not None:
-            self.ctx = {**victron, "tz": tz, "cars": cars, "min_a": min_a, "max_a": max_a, "phases": phases}
+            self.ctx = {**victron, "tz": tz, "cars": cars, "min_a": min_a, "max_a": max_a, "phases": phases, "now": now_epoch}
         sessions = build()
         if victron is not None:
             changed = self._victron_track(

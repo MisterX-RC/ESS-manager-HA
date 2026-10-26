@@ -475,7 +475,8 @@ sensors empty. Then ESS Manager **drives the charger** and asks on your
 phone what to do. Pick the phones under **Phones to ask on**: the Home
 Assistant Companion app's notify services (`notify.mobile_app_...`) -
 those show buttons and a reply field. Without a phone nothing is asked
-and the charger stays on its own Auto mode.
+and ESS Manager doesn't start the charger (unless a planned or predicted
+session is taken over - see below).
 
 **A car is plugged in** (the charger's Status is anything but "disconnected"): a session
 starts and planned sessions it overlaps are dropped (the first one's energy
@@ -489,8 +490,11 @@ possible**, **Slowly now** or **Full by a time**.
   for a car without a battery size: the kWh to charge - and answers when
   it will be full.
 - **Slowly now**: the same at the minimum current.
-- **Full by a time**: today, tomorrow or "doesn't matter"; for today or
-  tomorrow it asks the hour (typed: `7`, `7:30`, `19u`), then the state of
+- **Full by a time**: today, tomorrow, the day after or "doesn't matter"
+  (as of 2026.10.31 tomorrow and the day after are shown as their day of
+  the week - *Tuesday*, *Wednesday*; that's four buttons: an iPhone shows
+  them all, Android only the first three, so "doesn't matter" is then on
+  the card); for a day it asks the hour (typed: `7`, `7:30`, `19u`), then the state of
   charge. What's needed (to the car's target %) is planned: **the sun
   first** - the charger on its own **Auto** mode, which charges on the
   solar surplus - and whatever the solar forecast can't deliver in time
@@ -510,17 +514,22 @@ possible**, **Slowly now** or **Full by a time**.
   so the grid supplies the car and the battery does what it was going to
   do anyway; the battery forecast leaves that energy out too.
 
-**Until there's an answer** - and when there never is one - the charger
-runs in its **Auto** mode (solar surplus). ESS Manager sends a value to the
+**Until there's an answer** - and when there never is one - ESS Manager
+**doesn't start anything** (as of 2026.10.31; up to then the charger was put
+on its Auto mode), unless the car is plugged in during a planned or
+predicted session: then that plan is taken over and charging starts (see
+*Planned "full by" sessions* below). **Unplugging puts the charger back to
+rest** (Manual mode, charging off - once), so the next car plugged in
+without a plan doesn't charge by itself on what the last session left
+behind. ESS Manager sends a value to the
 charger only when its plan changes (plugging in, a choice, a grid window
 starting or ending, done); what you change on the charger itself in
 between - e.g. starting a charge by hand - is left alone (as of
 2026.10.28). A charge the charger starts **by itself** before there's a
-choice - by hand on the charger, its own auto start or a schedule (charging
-and not on Auto) - counts as "now, at the current it's set to": it goes on,
-the session is forecast at that current, and the card says so; right after
-plugging in the charger gets two minutes for its auto start before it's
-put on Auto. A choice made afterwards takes over. The plugged-in car's
+choice - by hand on the charger, its own auto start, a schedule or its own
+Auto mode - counts as "now, at the current it's set to": it goes on, the
+session is forecast at that current, and the card says so. A choice made
+afterwards takes over. The plugged-in car's
 session can't be removed on the card while the car is plugged in. Once the
 energy is in according to the sums (or the charger says "charged") the
 charger is **left as it is** (as of 2026.10.29; up to then it was switched
@@ -548,13 +557,16 @@ Until then the predictions come from the charging energy, as before.
 (the lowest current that gets it in an hour before its time, sun first, the
 cheapest hours; where the prices for then aren't known yet, a calm charge
 from its start), and the battery forecast leaves its grid part out. **Plugged
-in during a planned session** - one predicted from the log, edited or added
-on the card - its plan is taken over right away, and the phone only asks
+in during a planned session** - one predicted from the log or from the
+charging energy, edited or added on the card - its plan is taken over right
+away, and the phone only asks
 "the planned session is taken over: full by 07:30, 9 kWh. Is that right?" -
 **Yes** keeps it (the end time follows), **Something else** brings the usual
-questions (the plan stays until a new choice). Sessions predicted from the
-charging energy aren't taken over (they only show when it used to charge,
-not what you wanted); those still get the usual question.
+questions (the plan stays until a new choice). As of 2026.10.31 sessions
+predicted from the charging energy are taken over too (up to then they
+weren't); a session counts from two hours before its start to two hours
+after it (or to its end or "full by" time). Nothing planned or predicted
+then: only the question, and the charger isn't started.
 
 **09:00 on a day with a planned session** (predicted or added on the
 card): "A charging session is planned today at 18:00 - still right?"
@@ -565,7 +577,8 @@ which then sets the session's energy.
 every session, one panel). At the top, **Now**: the plugged-in car. Without
 a choice yet, four buttons - **Fast**, **Slow**, **On the sun** (the solar
 surplus only - the charger's Auto mode) and **Full by …** - open the panel:
-for "full by" the day and the time, then sliders for the state of charge
+for "full by" the day (today, tomorrow, the day after - those two by their
+day of the week - or doesn't matter) and the time, then sliders for the state of charge
 now and the target (or the kWh for a car without a battery size), and the
 result, worked out live while you slide: how much from the sun, how much
 from the grid in which windows, the current ESS Manager picks, when it's

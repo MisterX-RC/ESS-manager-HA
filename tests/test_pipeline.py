@@ -4533,9 +4533,10 @@ check("victron: deadline plan - 5 kWh short of the sun is bought in the cheapest
 _pl4 = evc.plan_deadline(_t0, _t0 + 3600, 30.0, [0.0] * 30, _t0, _pr, _ps, 4.14, 11.04)
 check("victron: deadline plan - too little time: every quarter, the rest short",
       len(_pl4["quarters"]) == 4 and _pl4["short_kwh"] == 30.0 - 11.04 and _pl4["end"] is None)
-check("victron: the charger - waiting = Auto, asap = max, calm = min, deadline in a window = manual max, outside = Auto, done = stop",
-      evc.charger_target({"choice": None, "since": 0}, 600, 6, 16)["mode"] == "auto"
+check("victron: the charger - waiting = nothing (2026.10.31), unplugged = rest, asap = max, calm = min, deadline in a window = manual max, outside = Auto, done = stop",
+      evc.charger_target({"choice": None, "since": 0}, 600, 6, 16) is None
       and evc.charger_target({"choice": None, "since": 0}, 60, 6, 16) is None
+      and evc.REST_TARGET == {"mode": "manual", "charge": False, "current": None, "why": "unplugged"}
       and evc.charger_target({"choice": None, "since": 0, "external": True}, 600, 6, 16) is None
       and evc.charger_target({"choice": "asap"}, 0, 6, 16) == {"mode": "manual", "charge": True, "current": 16, "why": "asap"}
       and evc.charger_target({"choice": "calm"}, 0, 6, 16)["current"] == 6
@@ -4576,8 +4577,8 @@ _tok = _vrt.flow["token"]
 check("victron: an old notification's tap does nothing", _vrt.answer("old", "choice=asap", None, int(_vn.timestamp())) is False)
 _vrt.outbox = []
 _vrt.answer(_tok, "choice=deadline", None, int(_vn.timestamp()))
-check("victron: 'full by a time' -> today / tomorrow / doesn't matter",
-      [a["title"] for a in _vrt.outbox[-1]["payload"]["data"]["actions"]] == ["Vandaag", "Morgen", "Maakt niet uit"])
+check("victron: 'full by a time' -> today / tomorrow / the day after (by their day of the week) / doesn't matter (2026.10.31)",
+      [a["title"] for a in _vrt.outbox[-1]["payload"]["data"]["actions"]] == ["Vandaag", "Woensdag", "Donderdag", "Maakt niet uit"])
 _vrt.answer(_tok, "day=tomorrow", None, int(_vn.timestamp()))
 check("victron: then the hour, typed", _vrt.outbox[-1]["payload"]["data"]["actions"][0]["behavior"] == "textInput")
 _vrt.answer(_tok, "hour", "half acht", int(_vn.timestamp()))
@@ -4712,7 +4713,7 @@ check("victron: ... and comes back by itself, running, delivered counted from pl
 
 # started by the charger itself (2026.10.28): "now, at its current" - left alone
 check("victron: charging by itself = charging and not on Auto",
-      evc.charging_by_itself(3500.0, "charging", "manual") and not evc.charging_by_itself(3500.0, "charging", "auto")
+      evc.charging_by_itself(3500.0, "charging", "manual") and evc.charging_by_itself(3500.0, "charging", "auto")
       and not evc.charging_by_itself(0.0, "connected", "manual") and evc.charging_by_itself(None, "start_charging", "scheduled_charge"))
 _vrt7 = ev_runtime.EvRuntime()
 _vrt7.morning_day = "2026-11-03"
@@ -4815,6 +4816,46 @@ _vrtL2 = ev_runtime.EvRuntime()
 _vrtL2.log = _logB
 _vrtL2.update({**_vconf, "predict": True}, _vn, _ams2, 6, [0.0] * 121, 0.0, 0.0, victron=_vin(False))
 check("... and not before (log started just now)", _vrtL2.log_since == int(_vn.timestamp()))
+
+# 2026.10.31: plugged in without an answer - a session predicted from the
+# charging energy is taken over too; nothing planned -> nothing is started;
+# unplugged -> the charger back to rest
+_vrtE = ev_runtime.EvRuntime()
+_vrtE.morning_day = "2026-11-03"
+_vrtE.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_vin(False))
+_hE = int(_vn.replace(minute=0).timestamp())
+_predE = {"id": "h:energy", "start": _hE + 3600, "kwh": 12.0, "mode": "fixed", "current_a": 10, "label": ev.LABEL_HISTORY, "enabled": True, "car": None}
+_vrtE._victron_track([_predE], True, "connected", 500.0, int(_vn.timestamp()), 10.0)
+check("no answer: a session predicted from the charging energy is taken over (10 A, 12 kWh)",
+      _vrtE.flow["adopted"] == "h:energy" and _vrtE.flow["choice"] == "asap" and _vrtE.flow["current_a"] == 10
+      and _vrtE.flow["step"] == "confirm"
+      and evc.charger_target(_vrtE.flow, int(_vn.timestamp()), 6, 16) == {"mode": "manual", "charge": True, "current": 10, "why": "asap"})
+_vrtF = ev_runtime.EvRuntime()
+_vrtF.morning_day = "2026-11-03"
+_vrtF.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_vin(False))
+_vrtF._victron_track([dict(_predE, start=_hE + 6 * 3600)], True, "connected", 500.0, int(_vn.timestamp()), 10.0)
+check("no answer, nothing planned or predicted in reach: nothing is started",
+      _vrtF.flow["choice"] is None and _vrtF.flow.get("adopted") is None
+      and evc.charger_target(_vrtF.flow, int(_vn.timestamp()) + 3600, 6, 16) is None and not _vrtF.rest_charger)
+_vrtF._victron_track([], False, "disconnected", 503.0, int(_vn.timestamp()) + 3600, 10.0)
+check("unplugged: the charger goes back to rest (manual, off), stored",
+      _vrtF.flow is None and _vrtF.rest_charger and _vrtF.as_store()["rest_charger"] is True)
+
+# 2026.10.31: the day after tomorrow, named by its day of the week
+_vrtD = ev_runtime.EvRuntime()
+_vrtD.morning_day = "2026-11-03"
+_vrtD.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_vin(True))
+_tokD = _vrtD.flow["token"]
+_vrtD.answer(_tokD, "choice=deadline", None, int(_vn.timestamp()))
+_vrtD.answer(_tokD, "day=after", None, int(_vn.timestamp()))
+_hourQ = _vrtD.outbox[-1]["payload"]["message"]
+_vrtD.answer(_tokD, "hour", "8", int(_vn.timestamp()))
+check("victron: the day after -> 'hoe laat ... (donderdag)', 8 -> Thu 08:00",
+      "(donderdag)" in _hourQ
+      and _vrtD.flow["deadline"] == int(datetime(2026, 11, 5, 8, 0, tzinfo=_ams2).timestamp()))
+check("weekday names: today / tomorrow on a button and in a sentence",
+      evn.day_name("nl", 0, int(_vn.timestamp()), _ams2) == "vandaag" and evn.day_name("nl", 1, int(_vn.timestamp()), _ams2, True) == "Woensdag"
+      and evn.day_name("en", 2, int(_vn.timestamp()), _ams2) == "Thursday")
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

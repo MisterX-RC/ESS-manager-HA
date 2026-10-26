@@ -15,8 +15,11 @@ the phone what should happen, and drives the charger:
   the house battery is kept out of it: the grid setpoint goes up by what
   the car takes.
 
-Until there's an answer (and when there never is one) the charger runs in
-its Auto mode. The entities come from the Victron GX integration (core
+Until there's an answer (and when there never is one) ESS Manager doesn't
+start anything - unless a planned or predicted session is taken over (as of
+2026.10.31; up to then the charger was put on its Auto mode). A charge the
+charger starts by itself goes on; unplugging puts it back to rest (Manual,
+off). The entities come from the Victron GX integration (core
 since Home Assistant 2026.5), found on the chosen device by their
 translation key.
 """
@@ -49,6 +52,10 @@ VICTRON_REQUIRED = ("status", "power", "energy", "mode", "current", "charge")
 
 MODE_MANUAL = "manual"
 MODE_AUTO = "auto"
+# what the charger is put back to when the car is unplugged (as of 2026.10.31):
+# the next car plugged in without a plan doesn't charge (unless the charger's
+# own auto start starts it)
+REST_TARGET = {"mode": MODE_MANUAL, "charge": False, "current": None, "why": "unplugged"}
 
 # charger Status values that mean no car
 STATUS_DISCONNECTED = "disconnected"
@@ -64,25 +71,27 @@ CHOICES = (CHOICE_ASAP, CHOICE_CALM, CHOICE_DEADLINE, CHOICE_SOLAR)
 DEADLINE_MARGIN = 3600
 DAY_TODAY = "today"
 DAY_TOMORROW = "tomorrow"
+# the day after tomorrow (as of 2026.10.31)
+DAY_AFTER = "after"
 DAY_ANY = "any"
-DAYS = (DAY_TODAY, DAY_TOMORROW, DAY_ANY)
+DAYS = (DAY_TODAY, DAY_TOMORROW, DAY_AFTER, DAY_ANY)
+# days from today
+DAY_OFFSET = {DAY_TODAY: 0, DAY_TOMORROW: 1, DAY_AFTER: 2}
 
 # a grid window is at least this many quarters (no on/off every quarter)
 MIN_WINDOW_UNITS = 2
-# after plugging in the charger gets this long to start by itself (its own
-# auto start) before it's put on Auto (as of 2026.10.28)
-PLUGIN_GRACE = 120
 # the charger counts as charging above this power (W) or with these Status values
 CHARGING_W = 50.0
 STATUS_CHARGING = ("charging", "start_charging")
 
 
 def charging_by_itself(power_w: Optional[float], status: Optional[str], mode: Optional[str]) -> bool:
-    """The charger charges and not on its Auto mode (that's ESS Manager's
-    own waiting state): started on the charger, by its auto start or a
-    schedule - "now, at the current it's set to"."""
-    charging = (power_w or 0.0) > CHARGING_W or status in STATUS_CHARGING
-    return charging and mode not in (None, MODE_AUTO)
+    """The charger charges without a choice: started on the charger, by its
+    auto start, a schedule or its own Auto mode - "now, at the current it's
+    set to". (Up to 2026.10.30 not on Auto: that was ESS Manager's own
+    waiting state; `mode` is kept for the callers.)"""
+    del mode
+    return (power_w or 0.0) > CHARGING_W or status in STATUS_CHARGING
 
 
 # -- answers typed on the phone -------------------------------------------------
@@ -311,8 +320,7 @@ def in_windows(epoch: int, windows: list[list[int]]) -> bool:
 # -- what the charger should do ------------------------------------------------------
 def charger_target(flow: Optional[dict[str, Any]], now_epoch: int, min_a: float, max_a: float) -> Optional[dict[str, Any]]:
     """{mode, charge, current} for the plugged-in car's flow; None = leave
-    the charger alone (no car; full according to the sums; or, without a
-    choice, charging by itself or just plugged in)."""
+    the charger alone (no car; full according to the sums; no choice yet)."""
     if not flow:
         return None
     if flow.get("done"):
@@ -335,11 +343,10 @@ def charger_target(flow: Optional[dict[str, Any]], now_epoch: int, min_a: float,
             return {"mode": MODE_MANUAL, "charge": True, "current": int(plan.get("current_a") or max_a), "why": "grid_window"}
         return {"mode": MODE_AUTO, "charge": True, "current": None, "why": "solar"}
     if choice is None:
-        # started by itself (by hand, auto start, schedule): it goes on as it
-        # is; just plugged in: a moment for the charger's own auto start
-        if flow.get("external") or now_epoch - int(flow.get("since") or 0) < PLUGIN_GRACE:
-            return None
-        return {"mode": MODE_AUTO, "charge": True, "current": None, "why": "waiting"}
+        # no choice and nothing planned to take over: ESS Manager doesn't
+        # start anything (as of 2026.10.31; up to then the charger was put on
+        # its Auto mode) - a charge the charger starts by itself goes on
+        return None
     return {"mode": MODE_AUTO, "charge": True, "current": None, "why": "solar"}
 
 
