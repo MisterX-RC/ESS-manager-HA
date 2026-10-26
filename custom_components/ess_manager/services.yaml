@@ -27,6 +27,11 @@ ev_session_save:
           options:
             - fixed
             - solar
+            - deadline
+    deadline:
+      example: "2026-10-14T07:00:00+02:00"
+      selector:
+        datetime:
     current_a:
       selector:
         number:

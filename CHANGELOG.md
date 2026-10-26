@@ -31,12 +31,26 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   where there's time. When not even the maximum current makes it, it
   charges at the maximum right away and says, in red on the card, how far
   it gets.
+- **Full by the sums no longer stops the charger.** When the energy is in
+  according to the state of charge given (or the charger says "charged"),
+  the charger is left as it is: the car stops by itself when it's really
+  full - the sums can be a bit off.
 - **A charging session is recognised two hours either side** of a planned
   one (was one): a charge up to two hours early or late belongs to it, a
   planned session stays two hours past its start, and predicted sessions
   group charges that start within two hours of each other.
 
 ### Added
+- **The plug-in log** (Victron charger): every connection - car, plugged in
+  and out, kWh, the way of charging, the "full by" time - kept 12 weeks.
+  Once it covers the usage lookback the predictions come from it, per
+  connection: two charge blocks of one "full by" are one session, and a car
+  that usually stays plugged in long becomes a "full by" the usual unplug
+  time.
+- **Planned "full by" sessions** - on the card or predicted from the log -
+  forecast with their own plan. Plugging in during a planned session (from
+  the log, edited or added) takes its plan over right away; the phone only
+  asks whether it's right.
 - **"On the sun" for the plugged-in car** (card and service): the charger
   on its Auto mode, the solar surplus only. The service
   `ess_manager.ev_charge_plan` also takes `target_soc` and, for fast/slow,

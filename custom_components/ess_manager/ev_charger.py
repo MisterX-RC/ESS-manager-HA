@@ -26,6 +26,7 @@ import math
 import re
 from typing import Any, Optional
 
+from . import ev as _ev
 from .ev import power_kw
 
 UNIT = 900
@@ -309,12 +310,16 @@ def in_windows(epoch: int, windows: list[list[int]]) -> bool:
 # -- what the charger should do ------------------------------------------------------
 def charger_target(flow: Optional[dict[str, Any]], now_epoch: int, min_a: float, max_a: float) -> Optional[dict[str, Any]]:
     """{mode, charge, current} for the plugged-in car's flow; None = leave
-    the charger alone (no car; or, without a choice, charging by itself or
-    just plugged in)."""
+    the charger alone (no car; full according to the sums; or, without a
+    choice, charging by itself or just plugged in)."""
     if not flow:
         return None
     if flow.get("done"):
-        return {"mode": MODE_MANUAL, "charge": False, "current": None, "why": "done"}
+        # full according to the sums (or the charger says "charged"): the
+        # charger is left as it is - the car stops by itself when it's really
+        # full, and the sums can be off (as of 2026.10.29; up to then it was
+        # switched off)
+        return None
     choice = flow.get("choice")
     override = flow.get("current_a")
     if choice == CHOICE_ASAP:
@@ -356,3 +361,61 @@ def grid_profile(windows: list[list[int]], hour0_epoch: int, hours: int, now_epo
             left -= take
             a += seg
     return [round(v, 4) for v in out]
+
+
+def planned_full_by(
+    session: dict[str, Any],
+    now_epoch: int,
+    hour0_epoch: int,
+    hours: int,
+    net: list[Optional[float]],
+    prices: list[Optional[float]],
+    price_start_epoch: int,
+    phases: int,
+    min_a: float,
+    max_a: float,
+) -> tuple[list[float], list[float], dict[str, Any]]:
+    """A planned "full by" session (as of 2026.10.29) in the forecast: per
+    hour what it takes (a full-hour value for hour 0) and the part of it in
+    grid windows (the house battery stays out of that), plus {end, kwh,
+    warning, plan}. Planned as for a plugged-in car from its start; where the
+    prices for its time aren't known yet, a calm charge from the start at the
+    lowest current that gets it in an hour before its time."""
+    start = max(int(session["start"]), now_epoch)
+    deadline = int(session.get("deadline") or 0)
+    need = max(float(session.get("kwh") or 0.0), 0.0)
+    zero = [0.0] * hours
+    if need <= 0 or deadline <= start:
+        return zero, zero, {"end": start, "kwh": 0.0, "warning": None, "plan": None}
+    prices_end = price_start_epoch + len(prices) * UNIT
+    if deadline - DEADLINE_MARGIN <= prices_end:
+        plan = plan_full_by(start, deadline, need, net, hour0_epoch, prices, price_start_epoch, phases, min_a, max_a)
+    else:
+        ready = max(deadline - DEADLINE_MARGIN, start + UNIT)
+        amps = int(round(max_a))
+        for a in range(int(round(min_a)), int(round(max_a)) + 1):
+            if power_kw(a, phases) * (ready - start) / 3600 >= need:
+                amps = a
+                break
+        kw = power_kw(amps, phases)
+        end = start + int(need / kw * 3600) if kw > 0 else None
+        reach = min(need, kw * (deadline - start) / 3600)
+        plan = {
+            "windows": [[start - start % UNIT, (end or start) - (end or start) % UNIT + UNIT]] if end else [],
+            "solar_kwh": 0.0, "grid_kwh": round(need, 2), "short_kwh": round(need - reach, 2), "end": end,
+            "current_a": amps, "grid_kw": kw, "tight": need - reach > 0.05, "deadline": deadline,
+            "ready_by": ready, "reach_kwh": round(reach, 2), "estimate": True,
+        }
+    grid = grid_profile(plan["windows"], hour0_epoch, hours, now_epoch, float(plan["grid_kw"]), float(plan["grid_kwh"]))
+    solar, _ = _ev.session_profile(
+        {"start": start, "kwh": plan["solar_kwh"], "mode": _ev.MODE_SOLAR}, now_epoch, hour0_epoch, hours, net,
+        phases, min_a, max_a, int(plan.get("ready_by") or deadline),
+    )
+    total = [round(a + b, 4) for a, b in zip(grid, solar)]
+    info = {
+        "end": plan["end"],
+        "kwh": round(plan["solar_kwh"] + plan["grid_kwh"], 2),
+        "warning": _ev.WARNING_SHORT if plan.get("tight") else None,
+        "plan": plan,
+    }
+    return total, grid, info

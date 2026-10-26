@@ -4541,7 +4541,7 @@ check("victron: the charger - waiting = Auto, asap = max, calm = min, deadline i
       and evc.charger_target({"choice": "calm"}, 0, 6, 16)["current"] == 6
       and evc.charger_target({"choice": "deadline", "need_kwh": 5, "windows": [[0, 900]]}, 100, 6, 16)["why"] == "grid_window"
       and evc.charger_target({"choice": "deadline", "need_kwh": 5, "windows": [[0, 900]]}, 1000, 6, 16)["mode"] == "auto"
-      and evc.charger_target({"done": True, "choice": "asap"}, 0, 6, 16)["charge"] is False
+      and evc.charger_target({"done": True, "choice": "asap"}, 0, 6, 16) is None
       and evc.charger_target(None, 0, 6, 16) is None)
 check("victron: the grid window's energy per hour (11 kW, 02:00-03:00, 10 kWh left)",
       abs(sum(evc.grid_profile(_pl["windows"], _t0, 24, _t0, 11.04, 10.0)) - 10.0) < 1e-6
@@ -4562,7 +4562,7 @@ def _vin(connected, status="connected", notify=True):
             "notify_services": ["mobile_app_x"], "prices": _pr, "price_start": _ps}
 _vn = datetime(2026, 11, 3, 17, 30, tzinfo=_ams2)
 _vrt.morning_day = "2026-11-03"   # (the morning question is tested below)
-_manual = _vrt.save(None, {"start": int(datetime(2026, 11, 3, 18, 0, tzinfo=_ams2).timestamp()), "kwh": 15.0, "mode": "fixed"}, int(_vn.timestamp()))
+_manual = _vrt.save(None, {"start": int(datetime(2026, 11, 3, 18, 0, tzinfo=_ams2).timestamp()), "kwh": 15.0, "mode": "fixed", "enabled": False}, int(_vn.timestamp()))
 _vrt.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_vin(False))
 check("victron: nothing plugged in - no conversation", _vrt.flow is None and _vrt.outbox == [])
 _t, _va = _vrt.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_vin(True))
@@ -4602,8 +4602,8 @@ check("victron: in a window the charger runs manual at the plan's own current, o
       and evc.charger_target(_vrt.flow, _outside, 6, 16)["mode"] == "auto")
 # 24 kWh in: done
 _vrt.update(_vconf, datetime(2026, 11, 4, 4, 0, tzinfo=_ams2), _ams2, 6, [0.0] * 121, 0.0, 524.0, victron=_vin(True))
-check("victron: the energy in -> done (the charger stops)", _vrt.flow["done"] is True
-      and evc.charger_target(_vrt.flow, 0, 6, 16)["charge"] is False)
+check("victron: the energy in -> done by the sums: the charger is left as it is (the car stops itself)", _vrt.flow["done"] is True
+      and evc.charger_target(_vrt.flow, 0, 6, 16) is None)
 _vrt.update(_vconf, datetime(2026, 11, 4, 7, 30, tzinfo=_ams2), _ams2, 6, [0.0] * 121, 0.0, 524.0, victron=_vin(False, "disconnected"))
 check("victron: unplugged - the session is finished and its notification cleared",
       _vrt.flow is None and _vrt.outbox[-1]["payload"]["message"] == "clear_notification")
@@ -4760,6 +4760,61 @@ check("card plan: the card's current (10 A) and target (90 %) - 30 kWh, the sess
 _vrt9.set_plan({"choice": "solar"}, int(_vn.timestamp()))
 check("card plan: solar needs no new SOC; the current override goes", _vrt9.flow["choice"] == "solar" and _vrt9.flow["current_a"] is None
       and evc.charger_target(_vrt9.flow, 0, 6, 16)["mode"] == "auto")
+
+# step 2 (2026.10.29): a planned session's plan is taken over at plug-in; the plug-in log; predictions per connection
+_vrtA = ev_runtime.EvRuntime()
+_vrtA.morning_day = "2026-11-03"
+_dlA = int(datetime(2026, 11, 4, 7, 0, tzinfo=_ams2).timestamp())
+_mA = _vrtA.save(None, {"start": int(datetime(2026, 11, 3, 18, 0, tzinfo=_ams2).timestamp()), "kwh": 12.0, "mode": "deadline", "deadline": _dlA}, int(_vn.timestamp()))
+_tA, _vaA = _vrtA.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 100.0, victron=_vin(False))
+_planned = [s for s in _vaA["sessions"] if s["id"] == _mA][0]
+check("planned full by: forecast with its own plan (calm current, done an hour early), the grid part apart",
+      _planned["full_by"] is not None and _planned["full_by"]["current_a"] >= 6 and not _planned["full_by"]["tight"]
+      and _planned["deadline"].startswith("2026-11-04T07:00") and abs(sum(_vaA["grid_120h"]) - sum(_tA)) < 0.01 and sum(_tA) > 11.9)
+_vrtA.outbox = []
+_tA2, _vaA2 = _vrtA.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 100.0, victron=_vin(True))
+_qA = _vrtA.outbox[0]["payload"]
+check("plug-in during it: its plan taken over right away (full by 07:00, 12 kWh), the phone only asks whether it's right",
+      _vrtA.flow["choice"] == "deadline" and _vrtA.flow["deadline"] == _dlA and _vrtA.flow["need_kwh"] == 12.0
+      and "overgenomen" in _qA["message"] and "vol om" in _qA["message"]
+      and [a["title"] for a in _qA["data"]["actions"]] == ["Ja", "Anders"] and _vaA2["charger"]["session"]["grid_kwh"] == 12.0)
+_tkA = _vrtA.flow["token"]
+_vrtA.outbox = []
+_vrtA.answer(_tkA, "ok=1", None, int(_vn.timestamp()))
+_vrtA.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 100.0, victron=_vin(True))
+check("'yes' -> the plan stays, the end time comes", _vrtA.flow["step"] is None and "Vol om" in _vrtA.outbox[0]["payload"]["message"])
+_vrtA.answer(_tkA, "change=1", None, int(_vn.timestamp()))
+check("'something else' -> the usual question (the plan stays until a choice)", _vrtA.flow["step"] == "choice" and _vrtA.flow["choice"] == "deadline")
+# unplugged: the connection goes in the log
+_vrtA.update(_vconf, datetime(2026, 11, 4, 7, 20, tzinfo=_ams2), _ams2, 6, [0.0] * 121, 0.0, 112.0, victron=_vin(False, "disconnected"))
+check("the plug-in log: on / off / kWh / choice / deadline / car",
+      len(_vrtA.log) == 1 and _vrtA.log[0]["kwh"] == 12.0 and _vrtA.log[0]["choice"] == "deadline"
+      and _vrtA.log[0]["deadline"] == _dlA and _vrtA.log[0]["car"] == "c1"
+      and _vrtA.log[0]["off"] - _vrtA.log[0]["on"] == int((datetime(2026, 11, 4, 7, 20, tzinfo=_ams2) - _vn).total_seconds())
+      and ev_runtime.EvRuntime().as_store().get("log") == [])
+# predictions per connection: 6 Tuesdays plugged in 18:xx-07:30, two charge blocks each, no choice
+_logB = []
+for _w in range(1, 7):
+    _on = datetime(2026, 11, 3, 18, 10, tzinfo=_ams2) - timedelta(weeks=_w)
+    _logB.append({"car": "c1", "on": int(_on.timestamp()), "off": int((_on + timedelta(hours=13, minutes=20)).timestamp()), "kwh": 9.0, "choice": None, "deadline": None})
+_conn = ev.detect_connections(_logB, [datetime(2026, 11, 3, tzinfo=_ams2)], 6, 3, 6, 16, _ams2)
+check("from the log: one session per connection - a long stay becomes 'full by' the usual unplug time (07:30)",
+      len(_conn) == 1 and _conn[0]["mode"] == "deadline" and _conn[0]["kwh"] == 9.0 and _conn[0]["source"] == "log"
+      and datetime.fromtimestamp(_conn[0]["deadline"], _ams2).strftime("%d %H:%M") == "04 07:30"
+      and datetime.fromtimestamp(_conn[0]["start"], _ams2).hour == 18)
+_logC = [dict(c, choice="calm", off=c["on"] + 3 * 3600) for c in _logB]
+_conn2 = ev.detect_connections(_logC, [datetime(2026, 11, 3, tzinfo=_ams2)], 6, 3, 6, 16, _ams2)
+check("from the log: the way chosen most often (slow)", _conn2[0]["mode"] == "fixed" and _conn2[0]["current_a"] == 6)
+_vrtL = ev_runtime.EvRuntime()
+_vrtL.morning_day = "2026-11-03"
+_vrtL.log = _logB
+_vrtL.log_since = int(_vn.timestamp()) - 7 * 7 * 86400
+_tL, _vaL = _vrtL.update({**_vconf, "predict": True}, _vn, _ams2, 6, [0.0] * 121, 0.0, 0.0, victron=_vin(False))
+check("with six weeks of log the predictions come from it", any(s["id"].startswith("h:2026-11-03T18") and s["source"] == "log" for s in _vaL["sessions"]))
+_vrtL2 = ev_runtime.EvRuntime()
+_vrtL2.log = _logB
+_vrtL2.update({**_vconf, "predict": True}, _vn, _ams2, 6, [0.0] * 121, 0.0, 0.0, victron=_vin(False))
+check("... and not before (log started just now)", _vrtL2.log_since == int(_vn.timestamp()))
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

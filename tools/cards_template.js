@@ -104,7 +104,9 @@ const I18N = {
     ev_chip_solar: "on the sun", ev_chip_by: (t) => `full by ${t}`, ev_chip_done: "done", ev_chip_fixed: (a) => `fixed · ${a} A`,
     ev_wait_text: "Until you choose, the charger charges on the solar surplus (Auto). The same question is on your phone.",
     ev_ext_text: "The charger started by itself and charges at its own current - ESS Manager leaves it alone until you choose.",
-    ev_done_text: "Done - the charger is stopped. Unplug the car to end the session.",
+    ev_done_text: "Full according to the sums - the charger stays as it is, the car stops by itself when it's really full. Unplug the car to end the session.",
+    ev_r_by_fixed: (amps, kw, a, b) => `${amps} A · ${kw} · planned to be done by ${a} (an hour before ${b})`, ev_r_estimate: "prices for then not known yet: estimated as a calm charge",
+    ev_st_full: (c) => `${c} · full by the sums`,
     ev_how_q: "How do you want to charge?", ev_how: "How", ev_h_asap: "Fast", ev_h_calm: "Slow", ev_h_solar: "On the sun", ev_h_by: "Full by",
     ev_h_solar_sub: "solar surplus only", ev_h_by_sub: "sun first, rest cheapest",
     ev_when_full: "Full when", ev_d_today: "Today", ev_d_tomorrow: "Tomorrow", ev_d_any: "Doesn't matter", ev_full_at: "Full at",
@@ -284,7 +286,9 @@ const I18N = {
     ev_chip_solar: "op zon", ev_chip_by: (t) => `vol om ${t}`, ev_chip_done: "klaar", ev_chip_fixed: (a) => `vast · ${a} A`,
     ev_wait_text: "Tot je kiest laadt de lader op zon-overschot (Auto). Dezelfde vraag staat op je telefoon.",
     ev_ext_text: "De lader is zelf begonnen en laadt op zijn eigen stroom - ESS Manager laat hem met rust tot je kiest.",
-    ev_done_text: "Klaar - de lader staat stil. Koppel de auto los om de sessie af te sluiten.",
+    ev_done_text: "Vol volgens de berekening - de lader blijft zoals hij staat, de auto stopt zelf als hij echt vol is. Koppel de auto los om de sessie af te sluiten.",
+    ev_r_by_fixed: (amps, kw, a, b) => `${amps} A · ${kw} · gepland klaar om ${a} (een uur voor ${b})`, ev_r_estimate: "prijzen voor dan nog niet bekend: geschat als rustige lading",
+    ev_st_full: (c) => `${c} · vol volgens berekening`,
     ev_how_q: "Hoe wil je laden?", ev_how: "Hoe", ev_h_asap: "Snel", ev_h_calm: "Rustig", ev_h_solar: "Op zon", ev_h_by: "Vol om",
     ev_h_solar_sub: "alleen zon-overschot", ev_h_by_sub: "zon eerst, rest goedkoopst",
     ev_when_full: "Wanneer vol", ev_d_today: "Vandaag", ev_d_tomorrow: "Morgen", ev_d_any: "Maakt niet uit", ev_full_at: "Vol om",
@@ -2403,11 +2407,13 @@ class EssManagerEvCard extends EssChartCard {
 
   // The session's way of charging: asap / calm / solar (planned sessions keep a fixed current)
   _howOf(ev, s) {
+    if (s.mode === "deadline") return "deadline";
     if (s.mode === "solar") return "solar";
     return Number(s.current_a) <= Number(ev.min_current) ? "calm" : "asap";
   }
 
   _howText(ev, s) {
+    if (s.mode === "deadline") return this._t("ev_chip_by")(s.deadline ? this._when(Date.parse(s.deadline)) : "—");
     if (s.mode === "solar") return this._t("ev_chip_solar");
     const a = Math.round(Number(s.current_a) || ev.max_current);
     if (a <= ev.min_current) return this._t("ev_chip_calm")(a);
@@ -2621,7 +2627,7 @@ class EssManagerEvCard extends EssChartCard {
     if (!cs) {
       head = `<span class="dot"></span><div class="nuname">${esc(this._t("ev_st_running"))}${charging ? ` · ${esc(this._kw(ev.power_w / 1000))}` : ""}</div>`;
     } else {
-      const title = cs.done ? this._t("ev_st_done")(name) : charging ? this._t("ev_st_charging")(name, this._kw(ev.power_w / 1000)) : this._t("ev_st_plugged")(name);
+      const title = cs.done ? this._t(charging ? "ev_st_charging" : "ev_st_full")(name, this._kw(ev.power_w / 1000)) : charging ? this._t("ev_st_charging")(name, this._kw(ev.power_w / 1000)) : this._t("ev_st_plugged")(name);
       head = `${charging && !cs.done ? `<span class="dot"></span>` : EV_ICON.car("var(--ev)")}<div class="nuname">${esc(title)}</div>`;
       if (cs.done) chip = `<span class="chip">${esc(this._t("ev_chip_done"))}</span>`;
       else if (!cs.choice && cs.external) chip = `<span class="chip ext">${esc(this._t("ev_chip_ext"))}</span>`;
@@ -2639,7 +2645,7 @@ class EssManagerEvCard extends EssChartCard {
       out += this._socLine(ev, s, car);
       return out + `<div class="actions"><span class="grow"></span><button type="button" class="btn" data-open="${esc(s.id)}">${esc(this._t("ev_edit_btn"))}</button></div></div>`;
     }
-    if (cs.done) return out + `<div class="nutext">${esc(this._t("ev_done_text"))}</div></div>`;
+    if (cs.done) return out + `<div class="nutext">${esc(this._t("ev_done_text"))}</div><div class="actions"><span class="grow"></span><button type="button" class="btn" data-act="plan-open">${esc(this._t("ev_change"))}</button></div></div>`;
     if (!cs.choice) {
       out += `<div class="nutext">${esc(this._t(cs.external ? "ev_ext_text" : "ev_wait_text"))}</div>`;
       out += `<div class="nuq">${esc(this._t("ev_how_q"))}</div><div class="choices">`;
@@ -2738,8 +2744,23 @@ class EssManagerEvCard extends EssChartCard {
       current_a: Number(s.current_a) || ev.max_current,
       enabled: s.enabled !== false,
       delivered: Number(s.delivered_kwh) || 0,
+      dl: s.deadline ? this._hhmm(Date.parse(s.deadline)) : "07:00",
     };
     this._error = null;
+  }
+
+  _hhmm(ms) {
+    const [h, m] = formats(this._hass).clock(ms);
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }
+
+  // a planned "full by": the first time `e.dl` after its start
+  _editDeadline(e) {
+    const [h, m] = String(e.dl || "07:00").split(":").map((v) => Number(v) || 0);
+    const start = this._startMs(e);
+    let t = this._at(e.day, h, m);
+    if (t <= start) t = this._at(nextMidnight(this._hass, e.day), h, m);
+    return t;
   }
 
   _openNew(ev) {
@@ -2761,6 +2782,7 @@ class EssManagerEvCard extends EssChartCard {
       current_a: ev.max_current,
       enabled: true,
       delivered: 0,
+      dl: "07:00",
     };
     this._error = null;
   }
@@ -2790,6 +2812,24 @@ class EssManagerEvCard extends EssChartCard {
     const begin = Math.max(this._startMs(e), now);
     if (need <= 1e-9) return { end: begin, warning: null, got: 0, need };
     const phases = ev.phases || 3;
+    if (e.how === "deadline") {
+      const deadline = this._editDeadline(e);
+      const prices = this._prices();
+      const priceStart = localMidnight(this._hass, now);
+      const net = ev.house_net_120h || [];
+      const hour0 = Math.floor(now / HOUR_MS) * HOUR_MS;
+      if (deadline - HOUR_MS <= priceStart + prices.length * UNIT_MS) {
+        const plan = evPlanFullBy(begin, deadline, need, net, hour0, prices, priceStart, phases, ev.min_current, ev.max_current, HOUR_MS);
+        return { ...plan, got: need - plan.short, need, by: true };
+      }
+      // prices not known yet: a calm charge from the start
+      const ready = Math.max(deadline - HOUR_MS, begin + UNIT_MS);
+      let amps = ev.max_current;
+      for (let a = ev.min_current; a <= ev.max_current; a++) if ((evPower(a, phases) * (ready - begin)) / HOUR_MS >= need) { amps = a; break; }
+      const kw = evPower(amps, phases);
+      const reach = Math.min(need, (kw * (deadline - begin)) / HOUR_MS);
+      return { end: begin + (need / kw) * HOUR_MS, amps, kw, readyBy: ready, deadline, tight: need - reach > 0.05, reach, got: need, need, by: true, estimate: true };
+    }
     if (e.how !== "solar") {
       const kw = evPower(this._editAmps(ev, e), phases);
       return { end: begin + (need / kw) * HOUR_MS, warning: null, got: need, need };
@@ -2821,6 +2861,13 @@ class EssManagerEvCard extends EssChartCard {
   _result(ev, e) {
     const p = this._preview(ev, e);
     const kwh = this._editKwh(ev, e);
+    if (e.how === "deadline") {
+      if (p.tight) {
+        return `<div class="result bad">${EV_ICON.warn("#ff7b72")}<div style="display:flex;flex-direction:column;gap:4px"><b style="color:#ffb4ad">${esc(this._t("ev_r_tight_t")(this._when(p.deadline)))}</b><span>${esc(this._t("ev_r_tight")(this._kwh(p.need), `${ev.max_current} A`, this._kwh(p.reach), this._when(p.end)))}</span></div></div>`;
+      }
+      const note = p.estimate ? `<div class="hint">${esc(this._t("ev_r_estimate"))}</div>` : "";
+      return `<div class="result">${EV_ICON.deadline(EV_GRID)}<div style="display:flex;flex-direction:column;gap:2px"><span>${esc(this._t("ev_r_end"))} <b>${esc(this._when(p.end))}</b> · ${esc(this._t("ev_in_plan")(this._kwh(kwh)))}</span><span class="dim" style="font-size:12px">${esc(this._t("ev_r_by_fixed")(p.amps, this._kw(p.kw), this._time(p.readyBy), this._time(p.deadline)))}</span>${note}</div></div>`;
+    }
     if (e.how === "solar" && p.warning === "no_surplus") return `<div class="result warn">${ICON_CLOCK(EV_WARN)}<div>${esc(this._t("ev_warn_none"))}</div></div>`;
     if (e.how === "solar" && p.warning === "short") return `<div class="result warn">${ICON_CLOCK(EV_WARN)}<div>${esc(this._t("ev_warn_short")(this._kwh(p.got + (e.running ? e.delivered : 0)), this._kwh(kwh)))}</div></div>`;
     const end = p.end != null ? `${e.how === "solar" ? "± " : ""}${this._time(p.end)}` : "—";
@@ -2857,8 +2904,13 @@ class EssManagerEvCard extends EssChartCard {
     }
     out += `<div class="${cars.length ? "grid3" : "grid2"}">${fields}</div>`;
     if (e.running) out += `<div class="note">${esc(this._t("ev_running_note"))}</div>`;
-    out += `<div class="fldgrp"><span class="lab">${esc(this._t("ev_how"))}</span>${this._seg("data-eh", [["asap", this._t("ev_h_asap")], ["calm", this._t("ev_h_calm")], ["solar", this._t("ev_h_solar")]], e.how, 3)}</div>`;
-    if (e.how === "solar") {
+    const hows = [["asap", this._t("ev_h_asap")], ["calm", this._t("ev_h_calm")], ["solar", this._t("ev_h_solar")]];
+    // "full by" needs a charger ESS Manager drives (the Victron charger)
+    if (ev.charger && !e.running) hows.push(["deadline", this._t("ev_h_by")]);
+    out += `<div class="fldgrp"><span class="lab">${esc(this._t("ev_how"))}</span>${this._seg("data-eh", hows, e.how, hows.length)}</div>`;
+    if (e.how === "deadline") {
+      out += `<label class="fld">${esc(this._t("ev_full_at"))}<input type="time" data-et="dl" value="${esc(e.dl || "07:00")}"></label>`;
+    } else if (e.how === "solar") {
       out += `<div class="hint">${esc(this._t("ev_r_solar_hint")(`${ev.min_current} A`, `${ev.max_current} A`))}</div>`;
     } else if (e.running) {
       const a = this._editAmps(ev, e);
@@ -2910,7 +2962,8 @@ class EssManagerEvCard extends EssChartCard {
     const chip = { history: "ev_label_history", edited: "ev_label_edited", manual: "ev_label_manual" }[s.label] || "ev_label_manual";
     const how = this._howOf(ev, s);
     let warn = "";
-    if (s.warning === "no_surplus") warn = `<div class="ev-warn">${esc(this._t("ev_warn_none"))}</div>`;
+    if (s.mode === "deadline" && s.warning === "short") warn = `<div class="ev-warn" style="color:#ff7b72">${esc(this._t("ev_r_tight_t")(s.deadline ? this._when(Date.parse(s.deadline)) : "—"))}</div>`;
+    else if (s.warning === "no_surplus") warn = `<div class="ev-warn">${esc(this._t("ev_warn_none"))}</div>`;
     else if (s.warning === "short") warn = `<div class="ev-warn">${esc(this._t("ev_warn_short")(this._kwh(s.charged_kwh), this._kwh(s.kwh)))}</div>`;
     return `
       <div class="${cls}">
@@ -3144,6 +3197,16 @@ class EssManagerEvCard extends EssChartCard {
         this._rerender();
       })
     );
+    root.querySelectorAll('input[data-et="dl"]').forEach((el) => {
+      const apply = () => {
+        if (el.value) {
+          e.dl = el.value;
+          this._live(ev);
+        }
+      };
+      el.addEventListener("input", apply);
+      el.addEventListener("change", apply);
+    });
     root.querySelectorAll("input[data-s]").forEach((el) => {
       const key = el.getAttribute("data-s");
       sliding(el, (v) => {
@@ -3188,11 +3251,12 @@ class EssManagerEvCard extends EssChartCard {
     const e = this._edit;
     const car = this._car(ev, e.car);
     const data = {
-      mode: e.how === "solar" ? "solar" : "fixed",
+      mode: e.how === "solar" ? "solar" : e.how === "deadline" ? "deadline" : "fixed",
       current_a: this._editAmps(ev, e),
       car: e.car || null,
       enabled: e.enabled,
     };
+    if (e.how === "deadline") data.deadline = new Date(this._editDeadline(e)).toISOString();
     if (e.id) data.id = e.id;
     if (!e.running) data.start = new Date(this._startMs(e)).toISOString();
     if (car && car.capacity_kwh) {

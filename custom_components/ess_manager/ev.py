@@ -39,6 +39,12 @@ START_GRACE = 2 * HOUR
 
 MODE_FIXED = "fixed"
 MODE_SOLAR = "solar"
+# (as of 2026.10.29, Victron charger) full by `deadline` (epoch): sun first, the
+# rest in the cheapest quarters, at the lowest current that fits
+MODE_DEADLINE = "deadline"
+MODES = (MODE_FIXED, MODE_SOLAR, MODE_DEADLINE)
+# the plug-in log (Victron charger) is kept this long
+LOG_DAYS = 84
 LABEL_HISTORY = "history"
 LABEL_EDITED = "edited"
 LABEL_MANUAL = "manual"
@@ -181,6 +187,103 @@ def detect_sessions(
                     "weeks": len(weeks),
                 }
             )
+    out.sort(key=lambda s: s["start"])
+    return out
+
+
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    n = len(ordered)
+    return ordered[n // 2] if n % 2 else (ordered[n // 2 - 1] + ordered[n // 2]) / 2
+
+
+def detect_connections(
+    log: list[dict[str, Any]],
+    days: list[datetime],
+    lookback_weeks: int,
+    phases: int,
+    min_a: float,
+    max_a: float,
+    tz: tzinfo,
+) -> list[dict[str, Any]]:
+    """Predicted sessions from the plug-in log (Victron charger, as of
+    2026.10.29) instead of the charging energy: one session per time the
+    car was plugged in, so two charge blocks in one connection (a "full by"
+    split by the prices) are one session. For each day, the connections of
+    the same weekday 1..lookback_weeks back are grouped by plug-in hour
+    (within two hours of each other); a group in more than half the weeks
+    becomes a session at its most common hour, with the average energy and
+    the most common car. Its way of charging is the one chosen most often;
+    "full by" - also without a choice when the car stays plugged in well
+    over twice as long as charging takes - with as time the usual one
+    (the times chosen, else the usual unplug time), counted from the
+    plug-in."""
+    out: list[dict[str, Any]] = []
+    need = lookback_weeks / 2.0
+    p_max = power_kw(max_a, phases)
+    for day in days:
+        found: list[dict[str, Any]] = []
+        for week in range(1, lookback_weeks + 1):
+            past = day - timedelta(weeks=week)
+            start = _local_epoch(past, 0, tz)
+            end = int(datetime.combine(past.date() + timedelta(days=1), time(0), tzinfo=tz).timestamp())
+            for c in log:
+                if start <= int(c.get("on", 0)) < end and c.get("off"):
+                    found.append({**c, "week": week, "hour": datetime.fromtimestamp(int(c["on"]), tz).hour})
+        found.sort(key=lambda r: (r["hour"], r["week"]))
+        groups: list[list[dict[str, Any]]] = []
+        for c in found:
+            if groups and c["hour"] - groups[-1][0]["hour"] <= 2:
+                groups[-1].append(c)
+            else:
+                groups.append([c])
+        for group in groups:
+            weeks = sorted({c["week"] for c in group})
+            if len(weeks) <= need:
+                continue
+            hours = [c["hour"] for c in group]
+            hour = max(sorted(set(hours)), key=hours.count)
+            kwh = sum(float(c.get("kwh") or 0.0) for c in group) / len(weeks)
+            cars = [c.get("car") for c in group if c.get("car")]
+            car = max(sorted(set(cars)), key=cars.count) if cars else None
+            choices = [c.get("choice") for c in group if c.get("choice")]
+            choice = max(sorted(set(choices)), key=choices.count) if choices else None
+            stay = _median([int(c["off"]) - int(c["on"]) for c in group])
+            start_epoch = _local_epoch(day, hour, tz)
+            session = {
+                "id": "h:" + session_key(start_epoch, tz),
+                "key": session_key(start_epoch, tz),
+                "start": start_epoch,
+                "kwh": round(kwh, 2),
+                "mode": MODE_FIXED,
+                "current_a": int(max_a),
+                "car": car,
+                "start_soc": None,
+                "target_soc": None,
+                "enabled": True,
+                "label": LABEL_HISTORY,
+                "solar_history": False,
+                "weeks": len(weeks),
+                "source": "log",
+                "deadline": None,
+            }
+            long_stay = p_max > 0 and stay >= 3 * HOUR and kwh / p_max * HOUR * 2 < stay
+            if choice == "deadline" or (choice is None and long_stay):
+                # the usual time of day (counted from the plug-in day's midnight)
+                def from_midnight(c: dict[str, Any], key: str) -> int:
+                    on_day = datetime.fromtimestamp(int(c["on"]), tz)
+                    return int(c[key]) - _local_epoch(on_day, 0, tz)
+
+                offsets = [from_midnight(c, "deadline") for c in group if c.get("choice") == "deadline" and c.get("deadline")]
+                if not offsets:
+                    offsets = [from_midnight(c, "off") for c in group]
+                dl = _local_epoch(day, 0, tz) + int(_median(offsets))
+                session.update({"mode": MODE_DEADLINE, "current_a": None, "deadline": dl - dl % 900})
+            elif choice == "solar":
+                session.update({"mode": MODE_SOLAR, "current_a": None})
+            elif choice == "calm":
+                session["current_a"] = int(min_a)
+            out.append(session)
     out.sort(key=lambda s: s["start"])
     return out
 

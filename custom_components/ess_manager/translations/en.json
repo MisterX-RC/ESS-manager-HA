@@ -449,7 +449,7 @@
         },
         "mode": {
           "name": "Mode",
-          "description": "fixed: a fixed charging current; solar: only the solar surplus after the house."
+          "description": "fixed: a fixed charging current; solar: only the solar surplus after the house; deadline: full by `deadline` (Victron charger) - sun first, the rest in the cheapest hours, at the lowest current that fits."
         },
         "current_a": {
           "name": "Charging current",
@@ -470,6 +470,10 @@
         "enabled": {
           "name": "Counted",
           "description": "Whether the session counts in the planning."
+        },
+        "deadline": {
+          "name": "Full by",
+          "description": "For mode deadline: the time the car should be full."
         }
       }
     },

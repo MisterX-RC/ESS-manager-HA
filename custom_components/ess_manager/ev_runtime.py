@@ -29,7 +29,7 @@ KEEP = 2 * 24 * ev.HOUR
 MORNING_HOUR = 9
 
 # The fields the card may set on a session.
-EDIT_FIELDS = ("start", "kwh", "mode", "current_a", "car", "start_soc", "target_soc", "enabled")
+EDIT_FIELDS = ("start", "kwh", "mode", "current_a", "car", "start_soc", "target_soc", "enabled", "deadline")
 
 
 def _floor_hour(epoch: int) -> int:
@@ -48,8 +48,10 @@ def _clean_edit(fields: dict[str, Any]) -> dict[str, Any]:
             value = max(float(value), 0.0)
             if key in ("start_soc", "target_soc"):
                 value = min(value, 100.0)
-        elif key == "mode" and value not in (ev.MODE_FIXED, ev.MODE_SOLAR):
+        elif key == "mode" and value not in ev.MODES:
             continue
+        elif key == "deadline" and value is not None:
+            value = int(value) - int(value) % 900
         elif key == "enabled":
             value = bool(value)
         out[key] = value
@@ -126,10 +128,25 @@ class _VictronMixin:
         elif step in ("hour", "hour_past"):
             flow["step"] = "hour"
             self._send(self._t(step, day=self._t(flow.get("day") or evc.DAY_TODAY).lower()), evn.reply(entry, token, "hour", lg, "ph_hour"))
+        elif step == "confirm":
+            car = self._car(flow.get("car"))
+            what = self._plan_words()
+            need = flow.get("need_kwh")
+            self._send(self._t("adopted", car=car["name"] if car else self._t("title"), plan=what,
+                               kwh=f"{float(need):g}" if need is not None else "?"),
+                       evn.buttons(entry, token, [("ok=1", self._t("yes")), ("change=1", self._t("other"))]))
         elif step == "soc":
             self._send(prefix + self._t("soc"), evn.reply(entry, token, "soc", lg, "ph_soc"))
         elif step == "kwh":
             self._send(prefix + self._t("kwh"), evn.reply(entry, token, "kwh", lg, "ph_kwh"))
+
+    def _plan_words(self) -> str:
+        flow = self.flow or {}
+        choice = flow.get("choice")
+        lg, tz = self.ctx["language"], self.ctx["tz"]
+        if choice == evc.CHOICE_DEADLINE:
+            return self._t("w_deadline", t=evn.clock(flow.get("deadline"), tz, int(flow.get("since") or 0), lg))
+        return self._t({evc.CHOICE_SOLAR: "w_solar", evc.CHOICE_CALM: "w_calm"}.get(choice, "w_asap"))
 
     def _ask_amount(self) -> None:
         car = self._car((self.flow or {}).get("car"))
@@ -141,6 +158,19 @@ class _VictronMixin:
         questions; unplugged ends it. True when the session list changed."""
         flow = self.flow
         if flow and not connected:
+            # the plug-in log (as of 2026.10.29): what this connection was
+            start = flow.get("energy_start")
+            last = energy_kwh if energy_kwh is not None else flow.get("last_energy")
+            self.log.append({
+                "car": flow.get("car"),
+                "on": int(flow.get("since") or now_epoch),
+                "off": now_epoch,
+                "kwh": round(max(float(last) - float(start), 0.0), 2) if start is not None and last is not None else 0.0,
+                "choice": flow.get("choice"),
+                "deadline": flow.get("deadline") if flow.get("choice") == evc.CHOICE_DEADLINE else None,
+                "soc": flow.get("soc"),
+            })
+            self.log = [c for c in self.log if now_epoch - int(c.get("on", 0)) < ev.LOG_DAYS * 86400]
             self.done[flow["sid"]] = now_epoch
             if self.running and self.running.get("id") == flow["sid"]:
                 self.running = None
@@ -155,17 +185,22 @@ class _VictronMixin:
                 flow["done"] = True
             healed = self._victron_heal(now_epoch, energy_kwh, typical_kwh)
             return self._victron_external(status) or healed
-        # a car plugged in: a new session; planned ones it overlaps go
+        # a car plugged in: a new session; planned ones it overlaps go - the
+        # first one's plan is taken over when it's one somebody set or one
+        # predicted from the plug-in log (as of 2026.10.29)
         hour = _floor_hour(now_epoch)
         expected = None
-        for s in sessions:
+        adopt = None
+        for s in sorted(sessions, key=lambda x: abs(int(x["start"]) - now_epoch)):
             if s.get("running"):
                 continue
             start = int(s["start"])
-            end = max(int(s.get("end") or 0), start + ev.START_GRACE)
+            end = max(int(s.get("end") or 0), start + ev.START_GRACE, int(s.get("deadline") or 0))
             if start - EARLY <= now_epoch < end:
                 if expected is None:
                     expected = s.get("kwh")
+                if adopt is None and s.get("enabled", True) and (s.get("label") in (ev.LABEL_EDITED, ev.LABEL_MANUAL) or s.get("source") == "log"):
+                    adopt = s
                 self.done[s["id"]] = now_epoch
         cars = self.ctx.get("cars") or []
         sid = "m:" + uuid.uuid4().hex[:10]
@@ -191,12 +226,52 @@ class _VictronMixin:
             "windows": [], "quarters": [], "applied": {},
             "plan": None, "done": False, "announce": False,
         }
+        if adopt is not None and (adopt.get("car") or len(cars) <= 1):
+            self._adopt(adopt, now_epoch)
+            return True
         self._victron_external(status)
         if len(cars) > 1:
             self._ask("car")
         else:
             self._ask("choice")
         return True
+
+    def _adopt(self, s: dict[str, Any], now_epoch: int) -> None:
+        """Take over a planned session's plan at plug-in (as of 2026.10.29):
+        it's active right away, and the phone only asks whether it's right."""
+        flow = self.flow
+        assert flow is not None
+        if s.get("car"):
+            self._apply_car(self._car(s["car"]) or {"id": s["car"]})
+        mode = s.get("mode")
+        min_a, max_a = float(self.ctx.get("min_a") or 6), float(self.ctx.get("max_a") or 16)
+        if mode == ev.MODE_DEADLINE and s.get("deadline") and int(s["deadline"]) > now_epoch:
+            choice = evc.CHOICE_DEADLINE
+        elif mode == ev.MODE_SOLAR:
+            choice = evc.CHOICE_SOLAR
+        elif float(s.get("current_a") or max_a) <= min_a:
+            choice = evc.CHOICE_CALM
+        else:
+            choice = evc.CHOICE_ASAP
+        self._apply_choice(choice)
+        if choice == evc.CHOICE_DEADLINE:
+            tz = self.ctx["tz"]
+            dl = int(s["deadline"])
+            same = datetime.fromtimestamp(dl, tz).date() == datetime.fromtimestamp(now_epoch, tz).date()
+            flow["day"] = evc.DAY_TODAY if same else evc.DAY_TOMORROW
+            flow["deadline"] = dl
+        current = s.get("current_a")
+        if choice in (evc.CHOICE_ASAP, evc.CHOICE_CALM) and current and min_a < float(current) < max_a:
+            flow["current_a"] = int(current)
+            session = self._session(flow["sid"])
+            if session is not None:
+                session["current_a"] = int(current)
+        kwh = float(s.get("kwh") or 0.0)
+        if kwh > 0:
+            self._apply_need(kwh, s.get("start_soc"), s.get("target_soc"))
+        flow["adopted"] = s["id"]
+        flow["announce"] = False
+        self._ask("confirm")
 
     def _victron_external(self, status: Optional[str]) -> bool:
         """Without a choice yet: the charger charging by itself (started on
@@ -326,6 +401,13 @@ class _VictronMixin:
         if not flow or token != flow.get("token"):
             return False
         key, _, value = what.partition("=")
+        if key == "ok":
+            flow["step"] = None
+            flow["announce"] = True
+            return True
+        if key == "change":
+            self._ask("car" if len(self.ctx.get("cars") or []) > 1 else "choice")
+            return True
         if key == "car":
             car = self._car(value) if value else evc.match_car(reply_text, self.ctx.get("cars") or [])
             if car is None:
@@ -637,6 +719,10 @@ class EvRuntime(_VictronMixin):
         self.morning: dict[str, dict[str, Any]] = {}
         self.outbox: list[dict[str, Any]] = []
         self.ctx: dict[str, Any] = {}
+        # the plug-in log (as of 2026.10.29): [{car, on, off, kwh, choice,
+        # deadline, soc}], LOG_DAYS long; log_since = when it started
+        self.log: list[dict[str, Any]] = []
+        self.log_since: Optional[int] = None
 
     # -- store ---------------------------------------------------------------
     def restore(self, data: Optional[dict[str, Any]]) -> None:
@@ -648,11 +734,14 @@ class EvRuntime(_VictronMixin):
         self.flow = data.get("flow") or None
         self.morning_day = data.get("morning_day")
         self.morning = dict(data.get("morning") or {})
+        self.log = list(data.get("log") or [])
+        self.log_since = data.get("log_since")
 
     def as_store(self) -> dict[str, Any]:
         return {
             "overrides": self.overrides, "manual": self.manual, "running": self.running, "done": self.done,
             "flow": self.flow, "morning_day": self.morning_day, "morning": self.morning,
+            "log": self.log, "log_since": self.log_since,
         }
 
     # -- card edits ----------------------------------------------------------
@@ -677,6 +766,7 @@ class EvRuntime(_VictronMixin):
                     "start_soc": edit.get("start_soc"),
                     "target_soc": edit.get("target_soc"),
                     "enabled": edit.get("enabled", True),
+                    "deadline": edit.get("deadline"),
                 }
             )
             return session_id
@@ -827,7 +917,13 @@ class EvRuntime(_VictronMixin):
 
         self._prune(now_epoch)
         predicted: list[dict[str, Any]] = []
-        if predict and self.history:
+        if victron is not None and self.log_since is None:
+            self.log_since = now_epoch
+        from_log = victron is not None and self.log_since is not None and now_epoch - int(self.log_since) >= lookback_weeks * 7 * 86400
+        if predict and from_log:
+            # (as of 2026.10.29) per connection, from the plug-in log
+            predicted = ev.detect_connections(self.log, midnights, lookback_weeks, phases, min_a, max_a, tz)
+        elif predict and self.history:
             predicted = ev.detect_sessions(
                 self.history[0], self.history[1], midnights, lookback_weeks, phases, min_a, max_a, tz
             )
@@ -872,6 +968,14 @@ class EvRuntime(_VictronMixin):
             if flow and s["id"] == flow["sid"] and (flow.get("plan") or flow.get("done")):
                 part, grid_part, info = self._flow_profile(s, now_epoch, hour0, hours, net_left, phases, min_a, max_a, delivered)
                 grid_total = [round(a + b, 4) for a, b in zip(grid_total, grid_part)]
+            elif s.get("mode") == ev.MODE_DEADLINE and victron is not None and not s.get("running"):
+                # a planned "full by" (as of 2026.10.29)
+                part, grid_part, pinfo = evc.planned_full_by(
+                    s, now_epoch, hour0, hours, net_left, self.ctx.get("prices") or [], int(self.ctx.get("price_start") or 0),
+                    phases, min_a, max_a,
+                )
+                grid_total = [round(a + b, 4) for a, b in zip(grid_total, grid_part)]
+                info = [{**s, "end": pinfo["end"], "charged_kwh": pinfo["kwh"], "warning": pinfo["warning"], "full_by": pinfo["plan"]}]
             else:
                 part, info = ev.ev_forecast([s], now_epoch, hour0, hours, net_left, phases, min_a, max_a, tz, delivered)
             if s.get("enabled", True):
@@ -905,6 +1009,15 @@ class EvRuntime(_VictronMixin):
                 "enabled": bool(s.get("enabled", True)),
                 "label": s.get("label"),
                 "solar_history": bool(s.get("solar_history")) and s.get("mode") == ev.MODE_SOLAR,
+                # (as of 2026.10.29) "full by" and where a prediction comes from
+                "deadline": iso(s.get("deadline")) if s.get("deadline") else None,
+                "source": s.get("source"),
+                "full_by": (
+                    {"current_a": s["full_by"].get("current_a"), "tight": bool(s["full_by"].get("tight")),
+                     "windows": [[iso(a), iso(b)] for a, b in s["full_by"].get("windows") or []],
+                     "estimate": bool(s["full_by"].get("estimate"))}
+                    if s.get("full_by") else None
+                ),
                 "running": bool(s.get("running")),
                 "warning": s.get("warning"),
             }

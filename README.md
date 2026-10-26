@@ -520,10 +520,40 @@ and not on Auto) - counts as "now, at the current it's set to": it goes on,
 the session is forecast at that current, and the card says so; right after
 plugging in the charger gets two minutes for its auto start before it's
 put on Auto. A choice made afterwards takes over. The plugged-in car's
-session can't be removed on the card while the car is plugged in. Once the energy is in (or the
-charger says "charged") it's stopped (Manual, off); unplugging ends the
-session and clears the notification. With direct control's **Automatic
+session can't be removed on the card while the car is plugged in. Once the
+energy is in according to the sums (or the charger says "charged") the
+charger is **left as it is** (as of 2026.10.29; up to then it was switched
+off): the car stops by itself when it's really full, and a state of charge
+or a battery size that's a bit off doesn't leave it short. Unplugging ends
+the session and clears the notification. With direct control's **Automatic
 control** switch off, ESS Manager doesn't touch the charger.
+
+**The plug-in log and the predictions** (as of 2026.10.29). With the Victron
+charger ESS Manager keeps its own log of every time a car was plugged in
+(car, plugged in, unplugged, kWh, the way of charging chosen, the time for
+"full by"), 12 weeks long - the recorder keeps plugged-in states only about
+10 days. Once the log covers your usage lookback (usually 6 weeks), the
+predicted sessions come from it, per connection instead of per charge: a
+"full by" that the prices split into two blocks is one session. A
+connection that comes back on the same weekday around the same time (within
+two hours) in more than half the weeks becomes a session with the average
+energy and the way of charging chosen most often - "full by" the usual time
+(the times chosen, else the usual unplug time), also without a choice when
+the car usually stays plugged in well over twice as long as charging takes.
+Until then the predictions come from the charging energy, as before.
+
+**Planned "full by" sessions.** A planned session can be "full by" as well
+(on the card, or predicted from the log): it's forecast with its own plan
+(the lowest current that gets it in an hour before its time, sun first, the
+cheapest hours; where the prices for then aren't known yet, a calm charge
+from its start), and the battery forecast leaves its grid part out. **Plugged
+in during a planned session** - one predicted from the log, edited or added
+on the card - its plan is taken over right away, and the phone only asks
+"the planned session is taken over: full by 07:30, 9 kWh. Is that right?" -
+**Yes** keeps it (the end time follows), **Something else** brings the usual
+questions (the plan stays until a new choice). Sessions predicted from the
+charging energy aren't taken over (they only show when it used to charge,
+not what you wanted); those still get the usual question.
 
 **09:00 on a day with a planned session** (predicted or added on the
 card): "A charging session is planned today at 18:00 - still right?"

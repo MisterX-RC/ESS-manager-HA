@@ -14,7 +14,7 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN, SERVICE_EV_CHARGE_PLAN, SERVICE_EV_SESSION_REMOVE, SERVICE_EV_SESSION_SAVE
 from .ev_charger import CHOICES, DAYS
-from .ev import MODE_FIXED, MODE_SOLAR
+from .ev import MODE_DEADLINE, MODE_FIXED, MODE_SOLAR
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,7 +26,8 @@ SAVE_SCHEMA = vol.Schema(
         vol.Optional("id"): vol.Any(None, cv.string),
         vol.Optional("start"): cv.datetime,
         vol.Optional("kwh"): vol.All(vol.Coerce(float), vol.Range(min=0, max=500)),
-        vol.Optional("mode"): vol.In([MODE_FIXED, MODE_SOLAR]),
+        vol.Optional("mode"): vol.In([MODE_FIXED, MODE_SOLAR, MODE_DEADLINE]),
+        vol.Optional("deadline"): vol.Any(None, cv.datetime),
         vol.Optional("current_a"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
         vol.Optional("car"): vol.Any(None, cv.string),
         vol.Optional("start_soc"): _NUMBER,
@@ -81,6 +82,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
         fields = {k: v for k, v in call.data.items() if k not in ("entity_id", "id")}
         if "start" in fields:
             fields["start"] = int(fields["start"].timestamp())
+        if fields.get("deadline") is not None:
+            fields["deadline"] = int(fields["deadline"].timestamp())
         try:
             session_id = coordinator.ev.save(call.data.get("id"), fields, int(coordinator.now().timestamp()))
         except KeyError as err:
