@@ -4857,6 +4857,14 @@ check("weekday names: today / tomorrow on a button and in a sentence",
       evn.day_name("nl", 0, int(_vn.timestamp()), _ams2) == "vandaag" and evn.day_name("nl", 1, int(_vn.timestamp()), _ams2, True) == "Woensdag"
       and evn.day_name("en", 2, int(_vn.timestamp()), _ams2) == "Thursday")
 
+# 2026.10.32: trimming what's no longer needed keeps the cheapest result - up
+# to then whole blocks went first, so a cheap short block could be dropped
+# while expensive quarters added to lengthen another block stayed
+_tr_price = [0.05, 0.22, 0.22, 0.15, 0.3, 0.08, 0.05, 0.22]
+_tr = plans._schedule_charge([(8, 4.0, False)], [1.0] * 8, _tr_price, _tr_price, 0, 8, 1.0, 1.0, 2, [], 0, 100.0)
+check("charge blocks: the cheap blocks are kept, not the expensive lengthening (0.05+0.22 and 0.08+0.05, not 0.05+0.22+0.22+0.15)",
+      _tr == [0, 1, 5, 6])
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

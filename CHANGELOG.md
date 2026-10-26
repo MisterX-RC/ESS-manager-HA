@@ -15,6 +15,18 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ## [2026.10.32] - 2026-10-26
 
 ### Fixed
+- **Charge planning: the cheapest quarters are no longer dropped when
+  trimming.** A block shorter than the Minimum charge duration is
+  lengthened into its neighbours, which can add more than needed; the
+  surplus was then removed whole blocks first, most expensive first - so
+  a cheap short block could go while the expensive quarters added to
+  lengthen another block stayed. Live: Tuesday 10:45 at EUR 0.01 (the
+  cheapest quarter of the day) was dropped and the charge started at
+  11:15. Now the surplus is removed in three ways (as before; the most
+  expensive piece per kWh first; the piece saving the most money first)
+  and the cheapest result is kept: in that case 10:30-13:30 in one block
+  and the evening block shorter, EUR 2.84 instead of 3.40 for the same
+  28 kWh. (In 30,000 random test plans: 2,400 cheaper, 1 a fraction of a cent dearer on a tie, the rest the same.)
 - **EV card: a planned "full by" session gets its own day.** Adding or
   editing a planned session with "Full by" only had a time: the day was
   always the first one after the plug-in time, so it couldn't be chosen.

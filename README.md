@@ -140,7 +140,11 @@ for when) and the charts draw them all. After a block the rest is planned
 again from the real battery level. A part that's only needed after the last
 known price waits until the next prices are in (they're published around
 13:00, well before). A charge also only goes where the battery has room
-for it (under 100% at every later hour) as long as it can.
+for it (under 100% at every later hour) as long as it can. Making a block
+long enough can add more than needed; what's then left over is dropped in
+the way that leaves the cheapest plan (as of 2026.10.32 - up to then whole
+blocks went first, so a cheap short block could go while dearer quarters
+added to lengthen another block stayed).
 
 **Selling in the priciest quarters too** (as of 2026.10.10). A sale isn't
 one window either: it goes into the priciest quarters before the moment

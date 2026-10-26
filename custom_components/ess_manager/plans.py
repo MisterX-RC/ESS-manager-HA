@@ -319,28 +319,57 @@ def _schedule_charge(
     def still_met(units: set[int]) -> bool:
         return all(delivered_before(units, d) >= need - 1e-6 for d, need in met)
 
-    # whole blocks no requirement needs any more (most expensive first)
-    for run in sorted(runs(chosen), key=lambda r: -sum(cost(u) if rates[u] > 1e-6 else 1e9 for u in r) / len(r)):
-        if still_met(chosen - set(run)):
-            for u in run:
-                chosen.discard(u)
-                for h in range(hour_of(u), len(added)):
-                    added[h] -= rates[u]
+    def unit_cost(u: int) -> float:
+        return cost(u) if rates[u] > 1e-6 else 1e9
 
-    trimmed = True
-    while trimmed:
-        trimmed = False
-        edges = []
-        for run in runs(chosen):
+    def paid(u: int) -> float:
+        # what a quarter costs in money (bought minus sent straight back)
+        rate = rates[u]
+        waste = max(import_per_unit - rate / ce, 0.0)
+        price_sell = sell[u] if u < len(sell) else buy[u]
+        return buy[u] * import_per_unit - price_sell * waste
+
+    def pieces(units: set[int], whole: bool) -> list[list[int]]:
+        out: list[list[int]] = []
+        for run in runs(units):
             if len(run) > min_block_units:
-                edges += [run[0], run[-1]]
-        for u in sorted(set(edges), key=lambda u: -(cost(u) if rates[u] > 1e-6 else 1e9)):
-            if still_met(chosen - {u}):
-                chosen.discard(u)
-                for h in range(hour_of(u), len(added)):
-                    added[h] -= rates[u]
-                trimmed = True
-                break
+                out += [[run[0]], [run[-1]]]
+            if whole:
+                out.append(run)
+        return out
+
+    def trim(units: set[int], rank, whole: bool = True) -> set[int]:
+        units = set(units)
+        while True:
+            for us in sorted(pieces(units, whole), key=rank):
+                if still_met(units - set(us)):
+                    units -= set(us)
+                    break
+            else:
+                return units
+
+    def whole_blocks_first(units: set[int]) -> set[int]:
+        # (the only way up to 2026.10.32) whole blocks, most expensive
+        # first, then the end quarters
+        units = set(units)
+        for run in sorted(runs(units), key=lambda r: -sum(unit_cost(u) for u in r) / len(r)):
+            if still_met(units - set(run)):
+                units -= set(run)
+        return trim(units, lambda us: -unit_cost(us[0]), whole=False)
+
+    # Three ways to drop what no requirement needs any more; the cheapest
+    # result is kept (as of 2026.10.32). Up to then only whole blocks first:
+    # a cheap short block could go while the expensive quarters added to
+    # lengthen other blocks stayed (live: the day's cheapest quarter, 10:45
+    # at 0.01, dropped and 15:45 at 0.23 kept).
+    options = [
+        whole_blocks_first(chosen),
+        # the most expensive piece (per kWh) first
+        trim(chosen, lambda us: -sum(unit_cost(u) for u in us) / len(us)),
+        # the piece that saves the most money first
+        trim(chosen, lambda us: -sum(paid(u) for u in us)),
+    ]
+    chosen = min(options, key=lambda us: (round(sum(paid(u) for u in us), 6), len(runs(us)), len(us)))
     return sorted(chosen)
 
 
