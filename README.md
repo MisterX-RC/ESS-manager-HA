@@ -456,7 +456,7 @@ its day; sessions on the same day share the surplus in start order. When
 there's no surplus that day, or not enough, the card says so.
 
 **Running.** While the power sensor is above 0 (50 W), the session it
-belongs to (started up to an hour early or late) is running: its day and
+belongs to (started up to two hours early or late, as of 2026.10.29) is running: its day and
 start time are fixed, the rest can still change, and what's already charged
 (from the energy sensor) counts. Charging that matches no session becomes a
 manual session from the current hour (with the typical energy - change it
@@ -494,10 +494,14 @@ possible**, **Slowly now** or **Full by a time**.
   first** - the charger on its own **Auto** mode, which charges on the
   solar surplus - and whatever the solar forecast can't deliver in time
   is **bought in the cheapest quarters before the deadline** ("doesn't
-  matter": within the prices known), at the maximum current in Manual mode,
-  in blocks of at least half an hour. The answer says how much comes from
-  the sun, how much is bought when, and when it's full - or how much
-  doesn't fit. The plan is worked out again every cycle (new prices, a
+  matter": within the prices known), in Manual mode, in blocks of at least
+  half an hour. ESS Manager picks the speed itself (as of 2026.10.29): the
+  **lowest current** that still gets it in on time - a calm charge where
+  there's time - and it plans to be done **an hour before** the time given
+  (full by 10:00 = done by 09:00). When even the maximum current doesn't
+  make it, it charges at the maximum right away and says how far it gets
+  (red on the card). The answer says how much comes from the sun, how much
+  is bought when and at what current, and when it's full. The plan is worked out again every cycle (new prices, a
   different solar forecast, what's charged so far); a grid window that's
   running finishes.
 - **During a grid window the house battery stays out of it**: with direct
@@ -526,17 +530,28 @@ card): "A charging session is planned today at 18:00 - still right?"
 **No** removes it; **Yes** asks the expected state of charge (or kWh),
 which then sets the session's energy.
 
-**The same on the EV card.** Under the plugged-in car's session the card
-shows a **Charge plan** panel while no plan has been chosen (and a "Change
-plan" link after): the car (with more than one), the three choices, for a
-deadline the day and the time, and the state of charge now (or the kWh for
-a car without a battery size - once known it may be left empty). **Start**
-sets it all at once; the open question on the phone goes away and the end
-time arrives as a notification, the same as after answering there. A plan
-can be changed this way at any time. The card uses the service
-`ess_manager.ev_charge_plan` (`choice`: asap / calm / deadline, `day`:
-today / tomorrow / any, `hour`: "07:00", `soc` or `kwh`, `car`) - also
-usable in automations.
+**The same on the EV card** (rebuilt in 2026.10.29: one way of charging for
+every session, one panel). At the top, **Now**: the plugged-in car. Without
+a choice yet, four buttons - **Fast**, **Slow**, **On the sun** (the solar
+surplus only - the charger's Auto mode) and **Full by …** - open the panel:
+for "full by" the day and the time, then sliders for the state of charge
+now and the target (or the kWh for a car without a battery size), and the
+result, worked out live while you slide: how much from the sun, how much
+from the grid in which windows, the current ESS Manager picks, when it's
+full and the hour to spare - or, in red, that it doesn't fit and how far it
+gets. **Start** sets it all at once; the open question on the phone goes
+away and the end time arrives as a notification, the same as after
+answering there. With a plan the block shows the progress (state of
+charge), for "full by" a timeline of the grid windows up to the deadline,
+and **Change** opens the panel again - for Fast/Slow with a slider for the
+charging current; the end time follows the slider. Below, **Planned**: the
+predicted and added sessions, each with its way of charging (fast, slow or
+on the sun); tap one to edit it in the same kind of panel (day, plug-in
+time, way of charging, state of charge when plugged in and target). The
+card uses the service `ess_manager.ev_charge_plan` (`choice`: asap / calm /
+solar / deadline, `day`: today / tomorrow / any, `hour`: "07:00", `soc` or
+`kwh`, `target_soc`, `current_a` for asap/calm, `car`) - also usable in
+automations.
 
 The plugged-in car's plan is on the Status sensor's `ev` attribute
 (`charger`: connected, status, and the session - question, choice,

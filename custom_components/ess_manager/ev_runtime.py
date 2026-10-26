@@ -19,8 +19,9 @@ from . import ev, ev_charger as evc, ev_notify as evn
 RUNNING_W = 50.0
 # ... and the session as finished once it has been below it this long.
 STOP_AFTER = 10 * 60
-# A charge that starts up to this long before a session's start belongs to it.
-EARLY = ev.HOUR
+# A charge that starts up to this long before a session's start belongs to it
+# (2 hours as of 2026.10.29).
+EARLY = 2 * ev.HOUR
 # Finished ids, past overrides and past manual sessions are forgotten after:
 KEEP = 2 * 24 * ev.HOUR
 
@@ -271,12 +272,13 @@ class _VictronMixin:
         flow["choice"] = value
         flow["done"] = False
         flow["external"] = False
+        flow["current_a"] = None
         # a choice (again) is a new instruction for the charger, also where
         # it's what was sent before and changed on the charger since
         flow["applied"] = {}
         session = self._session(flow["sid"])
         if session is not None:
-            if value == evc.CHOICE_DEADLINE:
+            if value in (evc.CHOICE_DEADLINE, evc.CHOICE_SOLAR):
                 session.update({"mode": ev.MODE_SOLAR, "current_a": None})
             else:
                 max_a, min_a = self.ctx["max_a"], self.ctx["min_a"]
@@ -289,7 +291,7 @@ class _VictronMixin:
         date = today + timedelta(days=1 if day == evc.DAY_TOMORROW else 0)
         return int(datetime.combine(date, time(hm[0], hm[1]), tzinfo=tz).timestamp())
 
-    def _apply_need(self, need: float, soc: Optional[float]) -> None:
+    def _apply_need(self, need: float, soc: Optional[float], target: Optional[float] = None) -> None:
         flow = self.flow
         assert flow is not None
         car = self._car(flow.get("car"))
@@ -309,8 +311,11 @@ class _VictronMixin:
             before = max(float(last) - float(start), 0.0) if start is not None and last is not None else 0.0
             session["kwh"] = round(need + before, 2)
             session["start_soc"] = None
-            if car and car.get("target_soc") is not None:
+            if target is not None:
+                session["target_soc"] = float(target)
+            elif car and car.get("target_soc") is not None:
                 session["target_soc"] = car["target_soc"]
+        flow["target_soc"] = float(target) if target is not None else (car or {}).get("target_soc")
 
     # -- answers on the phone -------------------------------------------------------------
     def answer(self, token: str, what: str, reply_text: Optional[str], now_epoch: int) -> bool:
@@ -414,20 +419,27 @@ class _VictronMixin:
                 deadline = self._deadline(day, hm, now_epoch)
                 if deadline <= now_epoch:
                     raise ValueError("That time has passed")
+        target = fields.get("target_soc")
+        if target is not None and not 0 <= float(target) <= 100:
+            raise ValueError("The target is 0-100 %")
         need = soc = None
         if fields.get("soc") is not None:
             soc = float(fields["soc"])
             if not 0 <= soc <= 100:
                 raise ValueError("The state of charge is 0-100 %")
-            need = evc.needed_kwh(car, soc)
+            need = evc.needed_kwh(car, soc, target)
             if need is None:
                 raise ValueError("This car has no battery size: give the kWh")
         elif fields.get("kwh") is not None:
             need = float(fields["kwh"])
             if not 0 < need <= 250:
                 raise ValueError("The energy is 0-250 kWh")
-        elif flow.get("need_kwh") is None:
+        elif flow.get("need_kwh") is None and choice != evc.CHOICE_SOLAR:
             raise ValueError("Give the car's state of charge" if car and car.get("capacity_kwh") else "Give the kWh to charge")
+        amps = fields.get("current_a")
+        if amps is not None:
+            lo, hi = float(self.ctx.get("min_a") or 6), float(self.ctx.get("max_a") or 16)
+            amps = int(round(min(max(float(amps), lo), hi)))
         # all checked: apply
         if car is not None:
             self._apply_car(car)
@@ -435,12 +447,28 @@ class _VictronMixin:
         flow["day"] = day if choice == evc.CHOICE_DEADLINE else None
         flow["deadline"] = deadline if choice == evc.CHOICE_DEADLINE else None
         if need is not None:
-            self._apply_need(need, soc)
+            self._apply_need(need, soc, target)
+        if amps is not None and choice in (evc.CHOICE_ASAP, evc.CHOICE_CALM):
+            flow["current_a"] = amps
+            session = self._session(flow["sid"])
+            if session is not None:
+                session["current_a"] = amps
         flow["step"] = None
         flow["announce"] = True
         # the phone's buttons go stale; its open question goes away
         flow["token"] = _token()
         self._clear()
+
+    def _soc_now(self) -> Optional[float]:
+        """The car's state of charge now: the one given plus what went in since."""
+        flow = self.flow or {}
+        car = self._car(flow.get("car"))
+        cap = (car or {}).get("capacity_kwh")
+        if flow.get("soc") is None or not cap:
+            return None
+        start, last = flow.get("energy_at_need"), flow.get("last_energy")
+        got = max(float(last) - float(start), 0.0) if start is not None and last is not None else 0.0
+        return round(min(float(flow["soc"]) + got / float(cap) * 100.0, 100.0), 1)
 
     def need_left(self) -> Optional[float]:
         flow = self.flow or {}
@@ -472,8 +500,13 @@ class _VictronMixin:
             for a, b in flow.get("windows") or []:
                 if a <= now_epoch < b:
                     keep = list(range(quarter, b, evc.UNIT))
-            plan = evc.plan_deadline(now_epoch, deadline, left, house_net, hour0, prices, price_start, p_min, p_max, keep)
-            plan["deadline"] = deadline
+            # its own speed, done an hour early (as of 2026.10.29); "doesn't
+            # matter" has no time to keep a margin to
+            margin = 0 if flow.get("deadline") is None else evc.DEADLINE_MARGIN
+            plan = evc.plan_full_by(
+                now_epoch, deadline, left, house_net, hour0, prices, price_start, phases, min_a, max_a,
+                keep, ((flow.get("plan") or {}).get("current_a") if keep else None), margin,
+            )
             flow["windows"] = plan["windows"]
             flow["quarters"] = plan["quarters"]
         else:
@@ -486,20 +519,28 @@ class _VictronMixin:
         need = flow.get("need_kwh") or 0.0
         choice = flow.get("choice")
         if choice in (evc.CHOICE_ASAP, evc.CHOICE_CALM):
-            kw = p_max if choice == evc.CHOICE_ASAP else p_min
+            amps = flow.get("current_a") or (max_a if choice == evc.CHOICE_ASAP else min_a)
+            kw = ev.power_kw(amps, phases)
             end = now_epoch + int((left or 0.0) / kw * 3600) if kw > 0 else None
             self._send(self._t("plan_" + choice, kw=f"{kw:g}", kwh=f"{need:g}", end=evn.clock(end, tz, now_epoch, lg)))
+        elif choice == evc.CHOICE_SOLAR:
+            self._send(self._t("plan_solar", kwh=f"{need:g}"))
         elif plan is not None:
             windows = evn.windows_text(plan["windows"], tz, now_epoch, lg)
-            if plan["short_kwh"] > 0.05:
-                self._send(self._t("plan_short", deadline=evn.clock(plan["deadline"], tz, now_epoch, lg), kwh=f"{need:g}",
-                                   short=f"{plan['short_kwh']:g}", windows=windows))
+            if plan.get("tight"):
+                car = self._car(flow.get("car"))
+                cap = (car or {}).get("capacity_kwh")
+                reach = ""
+                if cap and flow.get("soc") is not None:
+                    reach = f" (± {round(float(flow['soc']) + plan['reach_kwh'] / float(cap) * 100):.0f}%)"
+                self._send(self._t("plan_tight", deadline=evn.clock(plan["deadline"], tz, now_epoch, lg), kwh=f"{need:g}",
+                                   reach=f"{plan['reach_kwh']:g}", pct=reach, end=evn.clock(plan["end"], tz, now_epoch, lg)))
             elif flow.get("deadline") is None:
                 self._send(self._t("plan_any", kwh=f"{need:g}", windows=windows, end=evn.clock(plan["end"], tz, now_epoch, lg)))
             else:
                 self._send(self._t("plan_deadline", deadline=evn.clock(plan["deadline"], tz, now_epoch, lg), kwh=f"{need:g}",
                                    solar=f"{plan['solar_kwh']:g}", grid=f"{plan['grid_kwh']:g}", windows=windows,
-                                   end=evn.clock(plan["end"], tz, now_epoch, lg)))
+                                   amps=plan["current_a"], end=evn.clock(plan["end"], tz, now_epoch, lg)))
 
     # -- the morning question ---------------------------------------------------------------
     def _victron_morning(self, sessions: list[dict[str, Any]], now: datetime, now_epoch: int) -> None:
@@ -917,9 +958,9 @@ class EvRuntime(_VictronMixin):
         if flow.get("done") or not flow.get("plan"):
             return zero, zero, [{**s, "end": now_epoch, "charged_kwh": round(got, 2), "warning": None}]
         plan = flow["plan"]
-        p_max = ev.power_kw(max_a, phases)
+        p_grid = float(plan.get("grid_kw") or ev.power_kw(max_a, phases))
         left = self.need_left() or 0.0
-        grid = evc.grid_profile(plan["windows"], hour0, hours, now_epoch, p_max, min(plan["grid_kwh"], left))
+        grid = evc.grid_profile(plan["windows"], hour0, hours, now_epoch, p_grid, min(plan["grid_kwh"], left))
         solar, _ = ev.session_profile(
             {"start": now_epoch, "kwh": plan["solar_kwh"], "mode": ev.MODE_SOLAR}, now_epoch, hour0, hours, net,
             phases, min_a, max_a, int(plan["deadline"]),
@@ -960,6 +1001,15 @@ class EvRuntime(_VictronMixin):
                 "grid_kwh": plan.get("grid_kwh"),
                 "short_kwh": plan.get("short_kwh"),
                 "end": iso(plan.get("end")),
+                # (as of 2026.10.29) for the card
+                "since": iso(flow.get("since")),
+                "current_a": flow.get("current_a"),
+                "target_soc": flow.get("target_soc"),
+                "soc_now": self._soc_now(),
+                "plan_current_a": plan.get("current_a"),
+                "ready_by": iso(plan.get("ready_by")),
+                "tight": bool(plan.get("tight")),
+                "reach_kwh": plan.get("reach_kwh"),
             }
         return out
 

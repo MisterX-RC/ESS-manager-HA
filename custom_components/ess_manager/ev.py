@@ -32,8 +32,10 @@ CHARGING_KWH = 0.3
 # A historical session counts as a solar session when at least this share of
 # its energy fits in the solar surplus of those hours.
 SOLAR_SHARE = 0.8
-# A session whose start has passed without the car charging is kept this long.
-START_GRACE = HOUR
+# A session whose start has passed without the car charging is kept this long
+# (and a charge this long after a session's start still belongs to it; 2 hours
+# as of 2026.10.29, 1 up to then).
+START_GRACE = 2 * HOUR
 
 MODE_FIXED = "fixed"
 MODE_SOLAR = "solar"
@@ -123,7 +125,7 @@ def detect_sessions(
     `ev`: the car's energy per hour (hour start epoch -> kWh); `surplus`:
     solar minus the house without the car per hour (None: unknown). For
     each day, the same weekday 1..lookback_weeks back: charging runs are
-    grouped by start hour (within an hour of each other), and a group that
+    grouped by start hour (within two hours of each other, as of 2026.10.29), and a group that
     occurs in more than half of the lookback weeks becomes a session - at
     its most common start hour, with the average energy of the weeks it
     occurred in, charging at the typical full hour (the median peak hour),
@@ -145,7 +147,7 @@ def detect_sessions(
         found.sort(key=lambda r: (r["hour"], r["week"]))
         groups: list[list[dict[str, Any]]] = []
         for run in found:
-            if groups and run["hour"] - groups[-1][0]["hour"] <= 1:
+            if groups and run["hour"] - groups[-1][0]["hour"] <= 2:
                 groups[-1].append(run)
             else:
                 groups.append([run])

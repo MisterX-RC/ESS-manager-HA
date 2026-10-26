@@ -3306,8 +3306,8 @@ check("ev: with one car every session is that car's (in %)", all(s["car"] == "c1
 _lst2 = ev.build_sessions(_pred, {}, [], [_car, {"id": "c2", "name": "Werkauto", "capacity_kwh": 52, "target_soc": 90}],
                           _now, _now + 5 * 86400)
 check("ev: with two cars a historical session has no car (kWh only)", all(s["car"] is None and s["start_soc"] is None for s in _lst2))
-_late = int(datetime(2026, 10, 12, 19, 30, tzinfo=_tz).timestamp())
-check("ev: a session more than an hour past its start without charging is gone",
+_late = int(datetime(2026, 10, 12, 20, 30, tzinfo=_tz).timestamp())
+check("ev: a session more than two hours past its start without charging is gone",
       not any(s["key"] == "2026-10-12T18" for s in ev.build_sessions(_pred, {}, [], [], _late, _late + 86400)))
 check("ev: ...unless it's running",
       any(s.get("key") == "2026-10-12T18" and s["running"]
@@ -4596,9 +4596,10 @@ check("victron: SOC 40 % -> 24 kWh, planned in the cheapest quarters before 07:0
 check("victron: the grid window's energy is reported apart (the house battery stays out of it)",
       _va2["grid_120h"] == _t2 and sum(_t2[1:]) > 0)
 _win = _vrt.flow["windows"][0]
-check("victron: in a window the charger runs manual at the max, outside on Auto",
-      evc.charger_target(_vrt.flow, _win[0] + 60, 6, 16)["why"] == "grid_window"
-      and evc.charger_target(_vrt.flow, int(datetime(2026, 11, 3, 20, 0, tzinfo=_ams2).timestamp()), 6, 16)["mode"] == "auto")
+_outside = next(t for t in range(int(_vn.timestamp()), _dl, 900) if not evc.in_windows(t, _vrt.flow["windows"]))
+check("victron: in a window the charger runs manual at the plan's own current, outside on Auto",
+      evc.charger_target(_vrt.flow, _win[0] + 60, 6, 16) == {"mode": "manual", "charge": True, "current": _vrt.flow["plan"]["current_a"], "why": "grid_window"}
+      and evc.charger_target(_vrt.flow, _outside, 6, 16)["mode"] == "auto")
 # 24 kWh in: done
 _vrt.update(_vconf, datetime(2026, 11, 4, 4, 0, tzinfo=_ams2), _ams2, 6, [0.0] * 121, 0.0, 524.0, victron=_vin(True))
 check("victron: the energy in -> done (the charger stops)", _vrt.flow["done"] is True
@@ -4730,6 +4731,35 @@ _vrt8.morning_day = "2026-11-03"
 _vrt8.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 10.0, victron=_vin7(True, "connected", 0.0, "manual"))
 _vrt8.update(_vconf, _vn + timedelta(minutes=1), _ams2, 6, [0.0] * 121, 3000.0, 10.0, victron=_vin7(True, "charging", 3000.0, "manual"))
 check("victron: ... also when it starts a minute after plugging in (its auto start)", _vrt8.flow["external"])
+
+# full by: its own speed, an hour early, tight (2026.10.29)
+_fb = evc.plan_full_by(_t0, _dl, 10.0, [0.0] * 30, _t0, _pr, _ps, 3, 6, 16)
+check("full by: 10 kWh by 07:00 from 18:00 -> done by 06:00 at the lowest current that fits (6 A), calm",
+      _fb["current_a"] == 6 and not _fb["tight"] and _fb["short_kwh"] == 0.0
+      and _fb["ready_by"] == _dl - 3600 and _fb["end"] <= _dl - 3600 and abs(_fb["grid_kw"] - 4.14) < 1e-9)
+_fb2 = evc.plan_full_by(_t0, _t0 + 4 * 3600, 30.0, [0.0] * 30, _t0, _pr, _ps, 3, 6, 16)
+check("full by: 30 kWh in 4 hours (done in 3) -> a higher current: 15 A (10.35 kW x 3 h)",
+      not _fb2["tight"] and _fb2["current_a"] >= 15 and _fb2["short_kwh"] == 0.0)
+_fb3 = evc.plan_full_by(_t0, _t0 + 2 * 3600, 30.0, [0.0] * 30, _t0, _pr, _ps, 3, 6, 16)
+check("full by: 30 kWh in 2 hours -> tight: right away at the max, what's in by then, the end after the deadline",
+      _fb3["tight"] and _fb3["current_a"] == 16 and abs(_fb3["reach_kwh"] - 22.08) < 0.01
+      and _fb3["end"] > _t0 + 2 * 3600 and evc.in_windows(_t0 + 60, _fb3["windows"]))
+check("victron: solar choice -> the charger on Auto; a current set on the card counts for asap/calm",
+      evc.charger_target({"choice": "solar"}, 0, 6, 16)["mode"] == "auto"
+      and evc.charger_target({"choice": "asap", "current_a": 10}, 0, 6, 16)["current"] == 10)
+_vrt9 = ev_runtime.EvRuntime()
+_vrt9.morning_day = "2026-11-03"
+_vrt9.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 10.0, victron=_vin(True))
+_vrt9.set_plan({"choice": "asap", "soc": 40, "target_soc": 90, "current_a": 10}, int(_vn.timestamp()))
+_t9, _va9 = _vrt9.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 10.0, victron=_vin(True))
+_cs9 = _va9["charger"]["session"]
+check("card plan: the card's current (10 A) and target (90 %) - 30 kWh, the session at 10 A, the attribute for the card",
+      _vrt9.flow["need_kwh"] == 30.0 and _cs9["current_a"] == 10 and _cs9["target_soc"] == 90.0
+      and _va9["sessions"][0]["current_a"] == 10 and _cs9["soc_now"] == 40.0
+      and evc.charger_target(_vrt9.flow, 0, 6, 16)["current"] == 10)
+_vrt9.set_plan({"choice": "solar"}, int(_vn.timestamp()))
+check("card plan: solar needs no new SOC; the current override goes", _vrt9.flow["choice"] == "solar" and _vrt9.flow["current_a"] is None
+      and evc.charger_target(_vrt9.flow, 0, 6, 16)["mode"] == "auto")
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

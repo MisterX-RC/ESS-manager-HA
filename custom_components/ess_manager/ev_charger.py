@@ -26,6 +26,8 @@ import math
 import re
 from typing import Any, Optional
 
+from .ev import power_kw
+
 UNIT = 900
 
 # Victron GX translation keys (= victron_mqtt short ids) of an EV charging station
@@ -53,7 +55,11 @@ STATUS_CHARGED = "charged"
 CHOICE_ASAP = "asap"
 CHOICE_CALM = "calm"
 CHOICE_DEADLINE = "deadline"
-CHOICES = (CHOICE_ASAP, CHOICE_CALM, CHOICE_DEADLINE)
+# (as of 2026.10.29, from the card) the solar surplus only: the charger's Auto mode
+CHOICE_SOLAR = "solar"
+CHOICES = (CHOICE_ASAP, CHOICE_CALM, CHOICE_DEADLINE, CHOICE_SOLAR)
+# "full by" is planned to be done this long before the time given (as of 2026.10.29)
+DEADLINE_MARGIN = 3600
 DAY_TODAY = "today"
 DAY_TOMORROW = "tomorrow"
 DAY_ANY = "any"
@@ -126,12 +132,13 @@ def match_car(text: Any, cars: list[dict[str, Any]]) -> Optional[dict[str, Any]]
     return start[0] if len(start) == 1 else None
 
 
-def needed_kwh(car: Optional[dict[str, Any]], soc: float) -> Optional[float]:
-    """What a car at `soc` % needs to its target, None without a battery size."""
+def needed_kwh(car: Optional[dict[str, Any]], soc: float, target: Optional[float] = None) -> Optional[float]:
+    """What a car at `soc` % needs to its target (the car's, or `target`),
+    None without a battery size."""
     cap = (car or {}).get("capacity_kwh")
     if not cap:
         return None
-    target = float((car or {}).get("target_soc") or 80)
+    target = float(target if target is not None else ((car or {}).get("target_soc") or 80))
     return round(max(target - float(soc), 0.0) / 100.0 * float(cap), 2)
 
 
@@ -147,6 +154,7 @@ def plan_deadline(
     p_min_kw: float,
     p_max_kw: float,
     keep: Optional[list[int]] = None,
+    grid_kw: Optional[float] = None,
 ) -> dict[str, Any]:
     """Where a charge that has to be done by `deadline_epoch` gets its
     `need_kwh`: solar first (per quarter what the surplus `net` - kWh per
@@ -155,6 +163,8 @@ def plan_deadline(
     does), the rest in the cheapest quarters before the deadline that have a
     price (`prices` per quarter from `price_start_epoch`), at the max power.
     `keep`: quarters (start epochs) of a grid window that is running - kept.
+    `grid_kw` (as of 2026.10.29): the power of the grid quarters (default
+    the max) - the sun keeps its own range up to the max.
 
     Returns {"windows": [[start, end], ...] (merged, epochs), "quarters":
     [start epochs], "solar_kwh", "grid_kwh", "short_kwh" (what doesn't fit
@@ -178,18 +188,18 @@ def plan_deadline(
         i = (q - price_start_epoch) // UNIT
         return prices[i] if 0 <= i < len(prices) else None
 
-    grid_q = p_max_kw / 4
+    grid_q = (grid_kw if grid_kw is not None else p_max_kw) / 4
     chosen: set[int] = {q for q in (keep or []) if q in quarters}
-
-    def total() -> float:
-        return sum(grid_q * frac(q) if q in chosen else solar(q) for q in quarters)
+    sun = {q: solar(q) for q in quarters}
+    total = sum(grid_q * frac(q) if q in chosen else sun[q] for q in quarters)
 
     candidates = sorted((q for q in quarters if price(q) is not None and frac(q) > 0), key=lambda q: (price(q), q))
     for q in candidates:
-        if total() >= need - 1e-9:
+        if total >= need - 1e-9:
             break
         if q not in chosen:
             chosen.add(q)
+            total += grid_q * frac(q) - sun[q]
     # no lone quarters: a quarter on its own takes its cheaper neighbour
     for q in sorted(chosen):
         run = [q]
@@ -205,7 +215,7 @@ def plan_deadline(
     end = None
     solar_kwh = grid_kwh = cost = 0.0
     for q in quarters:
-        e = grid_q * frac(q) if q in chosen else solar(q)
+        e = grid_q * frac(q) if q in chosen else sun[q]
         if e <= 0:
             continue
         take = min(e, max(need - got, 0.0))
@@ -239,6 +249,59 @@ def plan_deadline(
     }
 
 
+def plan_full_by(
+    now_epoch: int,
+    deadline_epoch: int,
+    need_kwh: float,
+    net: list[Optional[float]],
+    hour0_epoch: int,
+    prices: list[Optional[float]],
+    price_start_epoch: int,
+    phases: int,
+    min_a: float,
+    max_a: float,
+    keep: Optional[list[int]] = None,
+    keep_a: Optional[int] = None,
+    margin: int = DEADLINE_MARGIN,
+) -> dict[str, Any]:
+    """"Full by" with its own speed (as of 2026.10.29): planned to be done
+    `margin` before the deadline, at the LOWEST current that still gets
+    `need_kwh` in by then (sun first, the rest in the cheapest quarters) -
+    a calm charge where there's time. `keep`/`keep_a`: a running grid window
+    and its current stay. When even the max current doesn't make it, it's
+    `tight`: charge at the max right away (the end is then later than the
+    deadline, `reach_kwh` = what's in by the deadline). Adds `current_a`,
+    `grid_kw`, `deadline`, `ready_by`, `tight`, `reach_kwh` to plan_deadline's
+    dict."""
+    ready_by = max(deadline_epoch - margin, now_epoch)
+    p_min, p_max = power_kw(min_a, phases), power_kw(max_a, phases)
+    lo, hi = int(round(min_a)), int(round(max_a))
+    if keep and keep_a:
+        lo = max(lo, min(int(keep_a), hi))
+    plan = None
+    for amps in range(lo, hi + 1):
+        kw = power_kw(amps, phases)
+        trial = plan_deadline(now_epoch, ready_by, need_kwh, net, hour0_epoch, prices, price_start_epoch, p_min, p_max, keep, kw)
+        if trial["short_kwh"] <= 0.05:
+            plan = {**trial, "current_a": amps, "grid_kw": kw, "tight": False}
+            break
+    if plan is None:
+        # not even at the max: right away at the max, as much as fits
+        quarters = list(range(now_epoch - now_epoch % UNIT, max(deadline_epoch, now_epoch), UNIT))
+        reach = min(p_max * max(deadline_epoch - now_epoch, 0) / 3600, max(need_kwh, 0.0))
+        end = now_epoch + int(max(need_kwh, 0.0) / p_max * 3600) if p_max > 0 else None
+        windows = [[now_epoch - now_epoch % UNIT, end - end % UNIT + UNIT]] if end else []
+        plan = {
+            "windows": windows, "quarters": quarters, "solar_kwh": 0.0, "grid_kwh": round(max(need_kwh, 0.0), 2),
+            "short_kwh": round(max(need_kwh - reach, 0.0), 2), "end": end, "cost": 0.0,
+            "current_a": hi, "grid_kw": p_max, "tight": True,
+        }
+    plan["deadline"] = deadline_epoch
+    plan["ready_by"] = ready_by
+    plan["reach_kwh"] = round(max(need_kwh, 0.0) - plan["short_kwh"], 2)
+    return plan
+
+
 def in_windows(epoch: int, windows: list[list[int]]) -> bool:
     return any(a <= epoch < b for a, b in windows or [])
 
@@ -253,13 +316,17 @@ def charger_target(flow: Optional[dict[str, Any]], now_epoch: int, min_a: float,
     if flow.get("done"):
         return {"mode": MODE_MANUAL, "charge": False, "current": None, "why": "done"}
     choice = flow.get("choice")
+    override = flow.get("current_a")
     if choice == CHOICE_ASAP:
-        return {"mode": MODE_MANUAL, "charge": True, "current": int(max_a), "why": "asap"}
+        return {"mode": MODE_MANUAL, "charge": True, "current": int(override or max_a), "why": "asap"}
     if choice == CHOICE_CALM:
-        return {"mode": MODE_MANUAL, "charge": True, "current": int(min_a), "why": "calm"}
+        return {"mode": MODE_MANUAL, "charge": True, "current": int(override or min_a), "why": "calm"}
+    if choice == CHOICE_SOLAR:
+        return {"mode": MODE_AUTO, "charge": True, "current": None, "why": "solar"}
     if choice == CHOICE_DEADLINE and flow.get("need_kwh") is not None:
+        plan = flow.get("plan") or {}
         if in_windows(now_epoch, flow.get("windows") or []):
-            return {"mode": MODE_MANUAL, "charge": True, "current": int(max_a), "why": "grid_window"}
+            return {"mode": MODE_MANUAL, "charge": True, "current": int(plan.get("current_a") or max_a), "why": "grid_window"}
         return {"mode": MODE_AUTO, "charge": True, "current": None, "why": "solar"}
     if choice is None:
         # started by itself (by hand, auto start, schedule): it goes on as it

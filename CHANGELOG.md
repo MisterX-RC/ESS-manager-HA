@@ -12,6 +12,36 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.29] - 2026-10-26
+
+### Changed
+- **A new EV card** (replaces the old one, same card type - nothing to
+  change on the dashboards). One way of charging for every session - fast,
+  slow, on the sun, full by - and one panel to choose or edit it, instead
+  of a session editor and a separate charge plan that overlapped. "Now"
+  shows the plugged-in car: the four choices as buttons, then its progress
+  and plan (a timeline of the grid windows for "full by") and "Change",
+  which for fast/slow has a slider for the charging current - the end time
+  follows it. "Planned" lists the predicted and added sessions, each opened
+  in the same kind of panel. The result of a choice is worked out in the
+  card while you slide.
+- **"Full by" picks its own speed and keeps an hour to spare.** It plans to
+  be done an hour before the time given, at the lowest current that still
+  gets it in (sun first, the rest in the cheapest quarters) - a calm charge
+  where there's time. When not even the maximum current makes it, it
+  charges at the maximum right away and says, in red on the card, how far
+  it gets.
+- **A charging session is recognised two hours either side** of a planned
+  one (was one): a charge up to two hours early or late belongs to it, a
+  planned session stays two hours past its start, and predicted sessions
+  group charges that start within two hours of each other.
+
+### Added
+- **"On the sun" for the plugged-in car** (card and service): the charger
+  on its Auto mode, the solar surplus only. The service
+  `ess_manager.ev_charge_plan` also takes `target_soc` and, for fast/slow,
+  `current_a`.
+
 ## [2026.10.28] - 2026-10-26
 
 ### Fixed

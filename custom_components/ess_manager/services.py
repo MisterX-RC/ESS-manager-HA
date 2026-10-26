@@ -46,6 +46,8 @@ PLAN_SCHEMA = vol.Schema(
         vol.Optional("hour"): vol.Any(None, cv.string),
         vol.Optional("soc"): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=100))),
         vol.Optional("kwh"): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=250))),
+        vol.Optional("target_soc"): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=100))),
+        vol.Optional("current_a"): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=100))),
     }
 )
 
