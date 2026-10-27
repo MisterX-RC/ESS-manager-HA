@@ -12,6 +12,20 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.36] - 2026-10-27
+
+### Added
+- **A charge efficiency per car** (%, default 90), on the cars page of the
+  settings. It's what reaches the car's battery of the energy the charger
+  delivers: the energy a state of charge needs is divided by it, so the
+  plan, the forecast and the card count what comes from the house battery
+  or the grid (40 -> 80% of 60 kWh = 24 kWh into the car = 26.7 kWh at
+  90%). Cars set up before have 90% too. The state-of-charge correction
+  learned from finished charges is now measured on top of it.
+- **Change a car** on the cars page: pick one to change its battery size,
+  target or charge efficiency (up to now a car could only be added or
+  removed).
+
 ## [2026.10.35] - 2026-10-27
 
 ### Added

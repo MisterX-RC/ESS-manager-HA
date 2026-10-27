@@ -337,11 +337,14 @@ class _VictronMixin:
         if car_id is None:
             return
         planned = float(flow["need_raw"])
-        used, why = ev.soc_sample_used(self.soc_samples, car_id, planned, actual)
+        efficiency = ev.car_efficiency(self._car(car_id))
+        used, why = ev.soc_sample_used(self.soc_samples, car_id, planned, actual, efficiency)
         self.soc_samples.append({
             "car": car_id, "at": now_epoch, "soc": flow.get("soc"), "target": flow.get("target_soc"),
-            "planned": round(planned, 2), "actual": round(actual, 2),
-            "ratio": round(actual / planned, 3) if planned > 0 else None,
+            # planned: into the battery by the state of charge; actual: what the
+            # charger delivered; ratio: the correction on top of the efficiency
+            "planned": round(planned, 2), "actual": round(actual, 2), "efficiency": round(efficiency * 100, 1),
+            "ratio": round(actual * efficiency / planned, 3) if planned > 0 else None,
             "how": how, "used": used, "why": why,
         })
         self.soc_samples = self.soc_samples[-ev.SOC_SAMPLES_KEEP:]
@@ -1013,7 +1016,7 @@ class EvRuntime(_VictronMixin):
         # each car with its state-of-charge correction (as of 2026.10.35)
         cars = []
         for c in conf.get("cars") or []:
-            factor, used = ev.soc_factor(self.soc_samples, c.get("id"))
+            factor, used = ev.soc_factor(self.soc_samples, c.get("id"), ev.car_efficiency(c))
             cars.append({**c, "kwh_factor": factor, "kwh_factor_sessions": used})
         predict = bool(conf.get("predict", True))
         now_epoch = int(now.timestamp())
@@ -1180,6 +1183,7 @@ class EvRuntime(_VictronMixin):
                     "capacity_kwh": c.get("capacity_kwh"),
                     "target_soc": c.get("target_soc"),
                     "kwh_factor": c.get("kwh_factor", 1.0),
+                    "efficiency": round(ev.car_efficiency(c) * 100, 1),
                     "kwh_factor_sessions": c.get("kwh_factor_sessions", 0),
                 }
                 for c in cars

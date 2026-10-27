@@ -75,7 +75,7 @@ const I18N = {
     ev_hist_legend: "solar session from history: depends on the sun · tap to make it a fixed session",
     ev_waits: "waits for the plugged-in car - counts once it's done", ev_waits_until: (t) => `waits for the plugged-in car - counts from ${t}`,
     ev_corr: "State-of-charge correction", ev_corr_n: (n) => `${n} charge${n === 1 ? "" : "s"}`, ev_corr_wait: (n, m) => `${n} of ${m} charges measured`,
-    ev_corr_tip: "What really went into the car against what its state of charge said, on charges it finished while plugged in - the state-of-charge sums are multiplied by this",
+    ev_corr_tip: "What really went into the car against what its state of charge and charge efficiency said, on charges it finished while plugged in - the state-of-charge sums are multiplied by this, on top of the charge efficiency",
     ev_add: "Add manual session", ev_label_history: "average", ev_label_edited: "edited", ev_label_manual: "manual",
     ev_mode_solar_hist: "solar surplus (history)", ev_mode_solar: "solar surplus", ev_charging_now: "charging now",
     ev_vc_waiting: "waiting for the answer on the phone · ESS Manager leaves the charger alone", ev_vc_asap: "as fast as possible",
@@ -261,7 +261,7 @@ const I18N = {
     ev_hist_legend: "zon-sessie volgens de historie: hangt van de zon af · tik om er een vaste sessie van te maken",
     ev_waits: "wacht op de aangesloten auto - telt mee als die klaar is", ev_waits_until: (t) => `wacht op de aangesloten auto - telt mee vanaf ${t}`,
     ev_corr: "Laadstandcorrectie", ev_corr_n: (n) => `${n} laadbeurt${n === 1 ? "" : "en"}`, ev_corr_wait: (n, m) => `${n} van ${m} laadbeurten gemeten`,
-    ev_corr_tip: "Wat er werkelijk in de auto ging tegenover wat de laadstand zei, gemeten op laadbeurten die de auto afmaakte terwijl hij aangesloten was - de laadstandsommen worden hiermee vermenigvuldigd",
+    ev_corr_tip: "Wat er werkelijk in de auto ging tegenover wat de laadstand en het laadrendement zeiden, gemeten op laadbeurten die de auto afmaakte terwijl hij aangesloten was - de laadstandsommen worden hiermee vermenigvuldigd, bovenop het laadrendement",
     ev_add: "Handmatige sessie toevoegen", ev_label_history: "gemiddelde", ev_label_edited: "aangepast", ev_label_manual: "handmatig",
     ev_mode_solar_hist: "zon-overschot (historie)", ev_mode_solar: "zon-overschot", ev_charging_now: "laadt nu",
     ev_vc_waiting: "wacht op het antwoord op de telefoon · ESS Manager laat de lader met rust", ev_vc_asap: "zo snel mogelijk",
@@ -2251,13 +2251,15 @@ const ICON_LOCK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" s
 const ICON_CLOCK = (c) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex-shrink:0"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>`;
 const ICON_PLUS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
 
-// "Full by" planned in the card itself (as of 2026.10.29) - the same rules as
-// The energy (kWh) per 100% of a car's state of charge: its battery size times
+// The energy (kWh) the charger delivers per 100% of a car's state of charge:
+// its battery size divided by its charge efficiency (as of 2026.10.36) times
 // its state-of-charge correction (as of 2026.10.35, from finished charges)
 function evCap(car) {
-  return (Number(car && car.capacity_kwh) || 0) * (Number(car && car.kwh_factor) || 1);
+  const eff = Math.min(Math.max(Number(car && car.efficiency) || 90, 10), 100) / 100;
+  return ((Number(car && car.capacity_kwh) || 0) * (Number(car && car.kwh_factor) || 1)) / eff;
 }
 
+// "Full by" planned in the card itself (as of 2026.10.29) - the same rules as
 // ev_charger.plan_deadline / plan_full_by, so the panel shows the result live
 // while you slide: sun first (from the charger's min power up to its max),
 // the rest in the cheapest priced quarters, no lone quarters.

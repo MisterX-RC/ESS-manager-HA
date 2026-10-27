@@ -61,17 +61,31 @@ SOC_SAMPLE_RANGE = (0.6, 1.6)
 SOC_OUTLIER = 0.25
 
 
-def soc_long_term(samples: list[dict[str, Any]], car_id: Any) -> Optional[float]:
-    """A car's long-term ratio (all its used samples), None below
-    SOC_FACTOR_MIN_SESSIONS."""
+# a car without its own charge efficiency (%, as of 2026.10.36; the setting's default)
+CHARGE_EFFICIENCY = 90.0
+
+
+def car_efficiency(car: Optional[dict[str, Any]]) -> float:
+    """A car's charge efficiency (0-1): what reaches its battery of the energy
+    the charger delivers (as of 2026.10.36)."""
+    eff = (car or {}).get("efficiency")
+    eff = float(eff) if eff else CHARGE_EFFICIENCY
+    return min(max(eff, 10.0), 100.0) / 100.0
+
+
+def soc_long_term(samples: list[dict[str, Any]], car_id: Any, efficiency: float = 1.0) -> Optional[float]:
+    """A car's long-term correction (all its used samples), None below
+    SOC_FACTOR_MIN_SESSIONS. As of 2026.10.36 on top of its charge efficiency:
+    the samples' "planned" is what the state of charge says goes into the
+    battery, so the correction is energy charged x efficiency / planned."""
     used = [x for x in samples if x.get("car") == car_id and x.get("used")]
     if len(used) < SOC_FACTOR_MIN_SESSIONS:
         return None
     planned = sum(float(x["planned"]) for x in used)
-    return sum(float(x["actual"]) for x in used) / planned if planned > 0 else None
+    return sum(float(x["actual"]) for x in used) * efficiency / planned if planned > 0 else None
 
 
-def soc_factor(samples: list[dict[str, Any]], car_id: Any) -> tuple[float, int]:
+def soc_factor(samples: list[dict[str, Any]], car_id: Any, efficiency: float = 1.0) -> tuple[float, int]:
     """(factor, used samples of this car): what the energy from a state of
     charge is multiplied by - the energy really charged over the energy
     planned in the car's last SOC_FACTOR_SESSIONS used samples, 1.0 below
@@ -83,12 +97,15 @@ def soc_factor(samples: list[dict[str, Any]], car_id: Any) -> tuple[float, int]:
     planned = sum(float(x["planned"]) for x in recent)
     if planned <= 0:
         return 1.0, len(used)
-    factor = sum(float(x["actual"]) for x in recent) / planned
+    # (on top of the charge efficiency, as of 2026.10.36: see soc_long_term)
+    factor = sum(float(x["actual"]) for x in recent) * efficiency / planned
     lo, hi = SOC_FACTOR_RANGE
     return round(min(max(factor, lo), hi), 3), len(used)
 
 
-def soc_sample_used(samples: list[dict[str, Any]], car_id: Any, planned: float, actual: float) -> tuple[bool, Optional[str]]:
+def soc_sample_used(
+    samples: list[dict[str, Any]], car_id: Any, planned: float, actual: float, efficiency: float = 1.0
+) -> tuple[bool, Optional[str]]:
     """Whether a new sample counts, and why not: too small, or too far off -
     from the car's long-term average once there is one (SOC_OUTLIER), from
     SOC_SAMPLE_RANGE before that. A sample that far off is most likely a
@@ -96,8 +113,8 @@ def soc_sample_used(samples: list[dict[str, Any]], car_id: Any, planned: float, 
     its target in ESS Manager."""
     if planned < SOC_SAMPLE_MIN_KWH:
         return False, "small"
-    ratio = actual / planned
-    average = soc_long_term(samples, car_id)
+    ratio = actual * efficiency / planned
+    average = soc_long_term(samples, car_id, efficiency)
     if average is not None:
         if abs(ratio - average) > SOC_OUTLIER * average:
             return False, "outlier"
@@ -107,12 +124,14 @@ def soc_sample_used(samples: list[dict[str, Any]], car_id: Any, planned: float, 
 
 
 def charge_capacity(car: Optional[dict[str, Any]]) -> Optional[float]:
-    """The energy (kWh) per 100% of the car's state of charge: its battery
-    size times its correction factor (`kwh_factor`, as of 2026.10.35)."""
+    """The energy (kWh) the charger delivers per 100% of the car's state of
+    charge - what comes from the house battery or the grid: its battery size
+    divided by its charge efficiency (as of 2026.10.36) times its correction
+    factor (`kwh_factor`, as of 2026.10.35)."""
     cap = (car or {}).get("capacity_kwh")
     if not cap:
         return None
-    return float(cap) * float((car or {}).get("kwh_factor") or 1.0)
+    return float(cap) * float((car or {}).get("kwh_factor") or 1.0) / car_efficiency(car)
 
 
 LABEL_HISTORY = "history"

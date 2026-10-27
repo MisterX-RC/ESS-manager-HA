@@ -93,6 +93,7 @@ from .const import (
     DEFAULT_EV_MIN_CURRENT,
     DEFAULT_EV_PHASES,
     DEFAULT_EV_PREDICT,
+    DEFAULT_EV_CHARGE_EFFICIENCY,
     DEFAULT_EV_TARGET_SOC,
     EV_MAX_CURRENT_LIMIT,
     CONF_FULL_CHARGE_TARGET_VOLTAGE,
@@ -499,6 +500,8 @@ EV_CAR_REMOVE = "ev_car_remove"
 EV_CAR_NAME = "ev_car_name"
 EV_CAR_CAPACITY = "ev_car_capacity_kwh"
 EV_CAR_TARGET = "ev_car_target_soc"
+EV_CAR_EFFICIENCY = "ev_car_efficiency"   # (as of 2026.10.36)
+EV_CAR_EDIT = "ev_car_edit"               # a car to change (as of 2026.10.36)
 EV_CAR_ADD_ANOTHER = "ev_car_add_another"
 
 
@@ -574,22 +577,36 @@ def _ev_cars_schema(cars: list[dict[str, Any]]) -> vol.Schema:
     another" shows the page again."""
     fields: dict[Any, Any] = {}
     if cars:
+        options = [selector.SelectOptionDict(value=c["id"], label=c["name"]) for c in cars]
+        # change a car (battery, target, charge efficiency - as of 2026.10.36)
+        fields[vol.Optional(EV_CAR_EDIT)] = selector.SelectSelector(
+            selector.SelectSelectorConfig(options=options, mode=selector.SelectSelectorMode.DROPDOWN)
+        )
         fields[vol.Optional(EV_CAR_REMOVE, default=[])] = selector.SelectSelector(
-            selector.SelectSelectorConfig(
-                options=[selector.SelectOptionDict(value=c["id"], label=c["name"]) for c in cars],
-                multiple=True,
-                mode=selector.SelectSelectorMode.LIST,
-            )
+            selector.SelectSelectorConfig(options=options, multiple=True, mode=selector.SelectSelectorMode.LIST)
         )
     fields.update(
         {
             vol.Optional(EV_CAR_NAME): selector.TextSelector(),
             vol.Optional(EV_CAR_CAPACITY): _number(1, 250, 0.1, "kWh"),
             vol.Required(EV_CAR_TARGET, default=DEFAULT_EV_TARGET_SOC): _number(10, 100, 1, "%"),
+            vol.Required(EV_CAR_EFFICIENCY, default=DEFAULT_EV_CHARGE_EFFICIENCY): _number(50, 100, 1, "%"),
             vol.Required(EV_CAR_ADD_ANOTHER, default=False): selector.BooleanSelector(),
         }
     )
     return vol.Schema(fields)
+
+
+def _ev_car_edit_schema(car: dict[str, Any]) -> vol.Schema:
+    """One car's battery size, target and charge efficiency (as of 2026.10.36)."""
+    capacity = car.get("capacity_kwh")
+    return vol.Schema(
+        {
+            vol.Optional(EV_CAR_CAPACITY, description={"suggested_value": capacity} if capacity else None): _number(1, 250, 0.1, "kWh"),
+            vol.Required(EV_CAR_TARGET, default=car.get("target_soc") or DEFAULT_EV_TARGET_SOC): _number(10, 100, 1, "%"),
+            vol.Required(EV_CAR_EFFICIENCY, default=car.get("efficiency") or DEFAULT_EV_CHARGE_EFFICIENCY): _number(50, 100, 1, "%"),
+        }
+    )
 
 
 def _cars_text(cars: list[dict[str, Any]]) -> str:
@@ -598,7 +615,8 @@ def _cars_text(cars: list[dict[str, Any]]) -> str:
     lines = []
     for c in cars:
         battery = f"{c['capacity_kwh']:g} kWh, target {c['target_soc']:g}%" if c.get("capacity_kwh") else "no battery size (kWh only)"
-        lines.append(f"- {c['name']}: {battery}")
+        eff = c.get("efficiency") or DEFAULT_EV_CHARGE_EFFICIENCY
+        lines.append(f"- {c['name']}: {battery}, charge efficiency {float(eff):g}%")
     return "\n".join(lines)
 
 
@@ -900,10 +918,15 @@ class _EssManagerSteps:
                             "name": name,
                             "capacity_kwh": float(capacity) if capacity else None,
                             "target_soc": float(user_input.get(EV_CAR_TARGET, DEFAULT_EV_TARGET_SOC)),
+                            "efficiency": float(user_input.get(EV_CAR_EFFICIENCY, DEFAULT_EV_CHARGE_EFFICIENCY)),
                         }
                     )
             if not errors:
                 self._data[CONF_EV_CARS] = cars
+                edit = user_input.get(EV_CAR_EDIT)
+                if edit and edit not in remove and any(c["id"] == edit for c in cars):
+                    self._edit_car = edit
+                    return await self.async_step_ev_car_edit()
                 if user_input.get(EV_CAR_ADD_ANOTHER):
                     return self.async_show_form(
                         step_id="ev_cars",
@@ -916,6 +939,28 @@ class _EssManagerSteps:
             data_schema=_ev_cars_schema(cars),
             errors=errors,
             description_placeholders={"cars": _cars_text(cars)},
+        )
+
+    async def async_step_ev_car_edit(self, user_input: dict[str, Any] | None = None):
+        """Change one car (as of 2026.10.36), then back to the cars page."""
+        cars = [dict(c) for c in self._data.get(CONF_EV_CARS, self._defaults().get(CONF_EV_CARS) or [])]
+        car = next((c for c in cars if c["id"] == getattr(self, "_edit_car", None)), None)
+        if car is None:
+            return await self.async_step_ev_cars()
+        if user_input is not None:
+            capacity = user_input.get(EV_CAR_CAPACITY)
+            car.update({
+                "capacity_kwh": float(capacity) if capacity else None,
+                "target_soc": float(user_input.get(EV_CAR_TARGET, DEFAULT_EV_TARGET_SOC)),
+                "efficiency": float(user_input.get(EV_CAR_EFFICIENCY, DEFAULT_EV_CHARGE_EFFICIENCY)),
+            })
+            self._data[CONF_EV_CARS] = cars
+            self._edit_car = None
+            return self.async_show_form(
+                step_id="ev_cars", data_schema=_ev_cars_schema(cars), description_placeholders={"cars": _cars_text(cars)}
+            )
+        return self.async_show_form(
+            step_id="ev_car_edit", data_schema=_ev_car_edit_schema(car), description_placeholders={"car": car["name"]}
         )
 
     async def _async_after_ev(self):

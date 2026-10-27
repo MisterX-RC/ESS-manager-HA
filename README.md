@@ -440,8 +440,14 @@ charges from the home battery**); two pages follow:
   current** (default 6 and 16 A, up to 75 A), the **phases** (1 or 3, at
   230 V per phase - 16 A on 3 phases is 11.0 kW) and **Predict sessions
   from history**.
-- **The cars**: a name, optionally the battery size (kWh) and the usual
-  target (%). Add as many as you like ("Add another car"), or remove them.
+- **The cars**: a name, optionally the battery size (kWh), the usual
+  target (%) and *(as of 2026.10.36)* the **charge efficiency** (%,
+  default 90): what reaches the car's battery of the energy the charger
+  delivers. The energy a state of charge needs is divided by it, so the
+  plan counts what comes from the house battery or the grid (40 -> 80% of
+  60 kWh = 24 kWh into the car = 26.7 kWh at 90%). Add as many cars as you
+  like ("Add another car"), remove them, or pick one under **Change a
+  car** to change its battery size, target or charge efficiency.
 
 **Household usage without the car.** The charger's energy is always taken
 out of the household usage history (also with prediction off), so the
@@ -574,7 +580,8 @@ of a session you set on the card - not a predicted one) that the car
 minutes. The energy that went in since the state of charge was given,
 against what the state of charge said was needed, is one sample. From
 three samples on, the energy charged over the energy planned in the car's
-last ten samples is its **correction factor** (kept between 0.7 and 1.5),
+last ten samples - on top of its charge efficiency (as of 2026.10.36) - is
+its **correction factor** (kept between 0.7 and 1.5),
 and every state-of-charge sum for that car is multiplied by it - the
 energy a session needs, when it's full, "full by", the forecast. A sample
 under 3 kWh doesn't count, nor one that's far off: more than 25% from the

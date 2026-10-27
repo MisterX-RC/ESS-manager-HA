@@ -3298,7 +3298,7 @@ check("ev: power from current - 16 A on 3 phases is 11.04 kW, 6 A on 1 phase 1.3
       ev.power_kw(16, 3) == 11.04 and ev.power_kw(6, 1) == 1.38)
 
 # a car with a battery: the session in %, the start SOC worked back from the target
-_car = {"id": "c1", "name": "Gezinsauto", "capacity_kwh": 60, "target_soc": 80}
+_car = {"id": "c1", "name": "Gezinsauto", "capacity_kwh": 60, "target_soc": 80, "efficiency": 100}
 _s = ev.apply_car({"id": "x", "start": 0, "kwh": 10.2}, _car)
 check("ev: 10.2 kWh on a 60 kWh car with target 80% starts at 63%", _s["start_soc"] == 63 and _s["target_soc"] == 80)
 _s2 = ev.apply_car({"id": "x", "start": 0, "kwh": 10.2, "start_soc": 30, "target_soc": 80}, _car)
@@ -3312,7 +3312,7 @@ _lst = ev.build_sessions(_pred, {"h:2026-10-12T18": {"current_a": 16, "enabled":
 check("ev: an override marks the session 'edited', a manual one 'manual', sorted by start",
       [s["label"] for s in _lst] == ["edited", "manual", "history"] and _lst[0]["current_a"] == 16)
 check("ev: with one car every session is that car's (in %)", all(s["car"] == "c1" and s["start_soc"] is not None for s in _lst))
-_lst2 = ev.build_sessions(_pred, {}, [], [_car, {"id": "c2", "name": "Werkauto", "capacity_kwh": 52, "target_soc": 90}],
+_lst2 = ev.build_sessions(_pred, {}, [], [_car, {"id": "c2", "name": "Werkauto", "capacity_kwh": 52, "target_soc": 90, "efficiency": 100}],
                           _now, _now + 5 * 86400)
 check("ev: with two cars a historical session has no car (kWh only)", all(s["car"] is None and s["start_soc"] is None for s in _lst2))
 _late = int(datetime(2026, 10, 12, 20, 30, tzinfo=_tz).timestamp())
@@ -4523,7 +4523,7 @@ check("victron: typed answers - SOC, kWh, hour, car",
       and evc.match_car("2", [{"name": "A"}, {"name": "Tiguan"}])["name"] == "Tiguan"
       and evc.match_car("tig", [{"name": "A"}, {"name": "Tiguan"}])["name"] == "Tiguan")
 check("victron: what a car needs - 60 kWh, 40 -> 80 % = 24 kWh",
-      evc.needed_kwh({"capacity_kwh": 60, "target_soc": 80}, 40) == 24.0 and evc.needed_kwh({"capacity_kwh": None}, 40) is None)
+      evc.needed_kwh({"capacity_kwh": 60, "target_soc": 80, "efficiency": 100}, 40) == 24.0 and evc.needed_kwh({"capacity_kwh": None}, 40) is None)
 # deadline plan: 11 kW, 10 kWh, no sun, quarters 8-11 cheapest
 _t0 = int(datetime(2026, 11, 3, 18, 0, tzinfo=_ams2).timestamp())
 _ps = int(datetime(2026, 11, 3, 0, 0, tzinfo=_ams2).timestamp())
@@ -4572,7 +4572,7 @@ check("victron: action ids round-trip", evn.parse_action(evn.action_id("E1", "to
 
 # the conversation
 _vrt = ev_runtime.EvRuntime()
-_vcar = {"id": "c1", "name": "Tiguan", "capacity_kwh": 60.0, "target_soc": 80}
+_vcar = {"id": "c1", "name": "Tiguan", "capacity_kwh": 60.0, "target_soc": 80, "efficiency": 100}
 _vconf = {"phases": 3, "min_current": 6, "max_current": 16, "predict": False, "cars": [_vcar]}
 def _vin(connected, status="connected", notify=True):
     return {"connected": connected, "status": status, "entry_id": "E1", "language": "nl", "notify": notify,
@@ -5037,6 +5037,22 @@ check("waiting session: not dropped two hours past its start while the car is st
 _wt3, _wa3 = _wrt.update(_wconf, _wn.replace(hour=15, minute=20), _ams2, 6, [0.0] * 121, 0.0, 518.0, victron=_wv(False, "disconnected"))
 check("waiting session: at unplugging it starts then (15:00), so the next car plugged in takes it over",
       [x["start"][11:16] for x in _wa3["sessions"] if x["id"] == _wid] == ["15:00"] and not _wa3["sessions"][0]["waits"])
+
+# 2026.10.36: a car's charge efficiency (default 90 %): the energy the charger
+# delivers (from the house battery or the grid) for what goes into the battery
+_ecar = {"id": "c1", "name": "Tiguan", "capacity_kwh": 60.0, "target_soc": 80}
+check("charge efficiency: default 90 % - 40 -> 80 % of 60 kWh = 24 kWh into the battery, 26.67 kWh from the charger",
+      ev.car_efficiency(_ecar) == 0.9 and evc.needed_kwh(_ecar, 40) == 26.67
+      and abs(ev.charge_capacity(_ecar) - 66.667) < 0.01)
+check("charge efficiency: per car (85 %: 28.24 kWh), and the correction comes on top of it (x1.05 at 90 %: 28 kWh)",
+      evc.needed_kwh({**_ecar, "efficiency": 85}, 40) == 28.24 and evc.needed_kwh({**_ecar, "kwh_factor": 1.05}, 40) == 28.0)
+_es = [{"car": "c1", "planned": 24.0, "actual": 27.0, "used": True}] * 3
+check("charge efficiency: the correction is measured on top of it (27 kWh in for 24 into the battery at 90 %: x1.013)",
+      abs(ev.soc_factor(_es, "c1", 0.9)[0] - 1.0125) < 0.001 and ev.soc_factor(_es, "c1", 1.0) == (1.125, 3)
+      and abs(ev.charge_capacity({**_ecar, "kwh_factor": 1.0125}) * 0.4 - 27.0) < 0.01)
+check("charge efficiency: a sample's deviation is judged on top of it too (26.67 kWh at 90 % = exactly as planned)",
+      ev.soc_sample_used(_es, "c1", 24.0, 26.67, 0.9) == (True, None) and ev.soc_sample_used([], "c1", 24.0, 40.0, 0.9) == (True, None)
+      and ev.soc_sample_used([], "c1", 24.0, 44.0, 0.9) == (False, "outlier"))
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

@@ -89,13 +89,19 @@
       },
       "ev_cars": {
         "title": "Electric car - cars",
-        "description": "Your cars. With a battery size, a session is shown in % and its start SOC is worked back from the target (you can change it on the card). With one car, every session is that car's; with more cars, a predicted session has no car (kWh only) until you pick one on the card.\n\nCurrent cars:\n\n{cars}\n\nFill in a name to add a car; tick \"Add another\" to add more.",
+        "description": "Your cars. With a battery size, a session is shown in % and its start SOC is worked back from the target (you can change it on the card). With one car, every session is that car's; with more cars, a predicted session has no car (kWh only) until you pick one on the card.\n\nCurrent cars:\n\n{cars}\n\nPick a car under \"Change a car\" to change it, fill in a name to add one; tick \"Add another\" to add more.",
         "data": {
           "ev_car_remove": "Remove",
           "ev_car_name": "Name of a new car (optional)",
           "ev_car_capacity_kwh": "Its battery size (kWh, optional)",
           "ev_car_target_soc": "Its usual target (%)",
-          "ev_car_add_another": "Add another car after this one"
+          "ev_car_add_another": "Add another car after this one",
+          "ev_car_efficiency": "Its charge efficiency (%)",
+          "ev_car_edit": "Change a car (optional)"
+        },
+        "data_description": {
+          "ev_car_efficiency": "What reaches the car's battery of the energy the charger delivers - the energy a state of charge needs is divided by it, so the plan counts what comes from the house battery or the grid. Typical for AC charging: 85-92%.",
+          "ev_car_edit": "Pick a car to change its battery size, target or charge efficiency on the next page."
         }
       },
       "hp_meter": {
@@ -175,6 +181,15 @@
           "floor_slab_entity": "A sensor in the screed between two pipes. Used instead of the room temperature as the floor's reference once most running hours have it - the model is learned again by itself.",
           "floor_cool_switch_entity": "While the heat pump cools, floor control leaves it completely alone - its heat demand is then the cooling's. The return setpoint goes back to its old value once, and nothing is learned.",
           "floor_cool_climate_entity": "Counts as cooling while this thermostat calls for cooling (its action is 'cooling') - that comes before your cooling automation turns heat demand on, so there's no moment floor control could take the cooling's heat demand for heating. Left on 'cool' and idle it doesn't count."
+        }
+      },
+      "ev_car_edit": {
+        "title": "Electric car - {car}",
+        "description": "The battery size, usual target and charge efficiency of {car}. The charge efficiency is what reaches the battery of the energy the charger delivers: the energy a state of charge needs is divided by it, so the plan counts what comes from the house battery or the grid. The state-of-charge correction learned from finished charges comes on top of it.",
+        "data": {
+          "ev_car_capacity_kwh": "Battery size (kWh, optional)",
+          "ev_car_target_soc": "Usual target (%)",
+          "ev_car_efficiency": "Charge efficiency (%)"
         }
       }
     },
@@ -286,13 +301,19 @@
       },
       "ev_cars": {
         "title": "Electric car - cars",
-        "description": "Your cars. With a battery size, a session is shown in % and its start SOC is worked back from the target (you can change it on the card). With one car, every session is that car's; with more cars, a predicted session has no car (kWh only) until you pick one on the card.\n\nCurrent cars:\n\n{cars}\n\nFill in a name to add a car; tick \"Add another\" to add more.",
+        "description": "Your cars. With a battery size, a session is shown in % and its start SOC is worked back from the target (you can change it on the card). With one car, every session is that car's; with more cars, a predicted session has no car (kWh only) until you pick one on the card.\n\nCurrent cars:\n\n{cars}\n\nPick a car under \"Change a car\" to change it, fill in a name to add one; tick \"Add another\" to add more.",
         "data": {
           "ev_car_remove": "Remove",
           "ev_car_name": "Name of a new car (optional)",
           "ev_car_capacity_kwh": "Its battery size (kWh, optional)",
           "ev_car_target_soc": "Its usual target (%)",
-          "ev_car_add_another": "Add another car after this one"
+          "ev_car_add_another": "Add another car after this one",
+          "ev_car_efficiency": "Its charge efficiency (%)",
+          "ev_car_edit": "Change a car (optional)"
+        },
+        "data_description": {
+          "ev_car_efficiency": "What reaches the car's battery of the energy the charger delivers - the energy a state of charge needs is divided by it, so the plan counts what comes from the house battery or the grid. Typical for AC charging: 85-92%.",
+          "ev_car_edit": "Pick a car to change its battery size, target or charge efficiency on the next page."
         }
       },
       "hp_meter": {
@@ -372,6 +393,15 @@
           "floor_slab_entity": "A sensor in the screed between two pipes. Used instead of the room temperature as the floor's reference once most running hours have it - the model is learned again by itself.",
           "floor_cool_switch_entity": "While the heat pump cools, floor control leaves it completely alone - its heat demand is then the cooling's. The return setpoint goes back to its old value once, and nothing is learned.",
           "floor_cool_climate_entity": "Counts as cooling while this thermostat calls for cooling (its action is 'cooling') - that comes before your cooling automation turns heat demand on, so there's no moment floor control could take the cooling's heat demand for heating. Left on 'cool' and idle it doesn't count."
+        }
+      },
+      "ev_car_edit": {
+        "title": "Electric car - {car}",
+        "description": "The battery size, usual target and charge efficiency of {car}. The charge efficiency is what reaches the battery of the energy the charger delivers: the energy a state of charge needs is divided by it, so the plan counts what comes from the house battery or the grid. The state-of-charge correction learned from finished charges comes on top of it.",
+        "data": {
+          "ev_car_capacity_kwh": "Battery size (kWh, optional)",
+          "ev_car_target_soc": "Usual target (%)",
+          "ev_car_efficiency": "Charge efficiency (%)"
         }
       }
     },

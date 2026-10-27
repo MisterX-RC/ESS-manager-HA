@@ -185,6 +185,10 @@ EV_MAX_CURRENT_LIMIT = 75
 DEFAULT_EV_PHASES = 3
 DEFAULT_EV_PREDICT = True
 DEFAULT_EV_TARGET_SOC = 80
+# a car's charge efficiency (%, as of 2026.10.36): what reaches its battery of
+# the energy the charger delivers - the energy a state of charge needs is
+# divided by it (a car without one: this)
+DEFAULT_EV_CHARGE_EFFICIENCY = 90
 # how many local days of sessions the card shows (today + 4)
 EV_DAYS = 5
 # Heat pump model (as of 2026.10.16) - see heatpump.py. The heat pump's
