@@ -73,6 +73,8 @@ const I18N = {
     ev_off: "The electric car is switched off - switch it on in the integration's Configure (price plans page).",
     ev_none: "No charging sessions predicted for the coming days.", ev_none_manual: "No charging sessions yet - add one below.",
     ev_hist_legend: "solar session from history: depends on the sun \u00b7 tap to make it a fixed session",
+    ev_corr: "State-of-charge correction", ev_corr_n: (n) => `${n} charge${n === 1 ? "" : "s"}`, ev_corr_wait: (n, m) => `${n} of ${m} charges measured`,
+    ev_corr_tip: "What really went into the car against what its state of charge said, on charges it finished while plugged in - the state-of-charge sums are multiplied by this",
     ev_add: "Add manual session", ev_label_history: "average", ev_label_edited: "edited", ev_label_manual: "manual",
     ev_mode_solar_hist: "solar surplus (history)", ev_mode_solar: "solar surplus", ev_charging_now: "charging now",
     ev_vc_waiting: "waiting for the answer on the phone \u00b7 ESS Manager leaves the charger alone", ev_vc_asap: "as fast as possible",
@@ -256,6 +258,8 @@ const I18N = {
     ev_off: "De elektrische auto staat uit - zet hem aan bij Configureren van de integratie (pagina prijsplannen).",
     ev_none: "Geen laadsessies voorspeld voor de komende dagen.", ev_none_manual: "Nog geen laadsessies - voeg er hieronder een toe.",
     ev_hist_legend: "zon-sessie volgens de historie: hangt van de zon af \u00b7 tik om er een vaste sessie van te maken",
+    ev_corr: "Laadstandcorrectie", ev_corr_n: (n) => `${n} laadbeurt${n === 1 ? "" : "en"}`, ev_corr_wait: (n, m) => `${n} van ${m} laadbeurten gemeten`,
+    ev_corr_tip: "Wat er werkelijk in de auto ging tegenover wat de laadstand zei, gemeten op laadbeurten die de auto afmaakte terwijl hij aangesloten was - de laadstandsommen worden hiermee vermenigvuldigd",
     ev_add: "Handmatige sessie toevoegen", ev_label_history: "gemiddelde", ev_label_edited: "aangepast", ev_label_manual: "handmatig",
     ev_mode_solar_hist: "zon-overschot (historie)", ev_mode_solar: "zon-overschot", ev_charging_now: "laadt nu",
     ev_vc_waiting: "wacht op het antwoord op de telefoon \u00b7 ESS Manager laat de lader met rust", ev_vc_asap: "zo snel mogelijk",
@@ -2246,6 +2250,12 @@ const ICON_CLOCK = (c) => `<svg width="18" height="18" viewBox="0 0 24 24" fill=
 const ICON_PLUS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>';
 
 // "Full by" planned in the card itself (as of 2026.10.29) - the same rules as
+// The energy (kWh) per 100% of a car's state of charge: its battery size times
+// its state-of-charge correction (as of 2026.10.35, from finished charges)
+function evCap(car) {
+  return (Number(car && car.capacity_kwh) || 0) * (Number(car && car.kwh_factor) || 1);
+}
+
 // ev_charger.plan_deadline / plan_full_by, so the panel shows the result live
 // while you slide: sun first (from the charger's min power up to its max),
 // the rest in the cheapest priced quarters, no lone quarters.
@@ -2466,7 +2476,7 @@ class EssManagerEvCard extends EssChartCard {
 
   _planNeed(ev, p) {
     const car = this._car(ev, p.car);
-    if (car && car.capacity_kwh) return Math.max(((p.target - p.soc) / 100) * car.capacity_kwh, 0);
+    if (car && car.capacity_kwh) return Math.max(((p.target - p.soc) / 100) * evCap(car), 0);
     return Math.max(Number(p.kwh) || 0, 0);
   }
 
@@ -2545,7 +2555,7 @@ class EssManagerEvCard extends EssChartCard {
     if (r.tight) {
       const car = this._car(ev, p.car);
       let reach = this._kwh(r.reach);
-      if (car && car.capacity_kwh) reach += ` (\u00b1 ${Math.round(p.soc + (r.reach / car.capacity_kwh) * 100)}%)`;
+      if (car && car.capacity_kwh) reach += ` (\u00b1 ${Math.round(p.soc + (r.reach / evCap(car)) * 100)}%)`;
       return `<div class="result bad">${EV_ICON.warn("#ff7b72")}<div style="display:flex;flex-direction:column;gap:4px"><b style="color:#ffb4ad">${esc(this._t("ev_r_tight_t")(this._when(r.deadline)))}</b><span>${esc(this._t("ev_r_tight")(this._kwh(r.need), `${ev.max_current} A \u00b7 ${this._kw(evPower(ev.max_current, phases))}`, reach, this._when(r.end)))}</span></div></div>`;
     }
     const by = r.any ? this._when(r.readyBy) : this._time(r.readyBy);
@@ -2792,7 +2802,7 @@ class EssManagerEvCard extends EssChartCard {
       hour: formats(this._hass).clock(next)[0],
       car: car ? car.id : "",
       kwh: 10,
-      start_soc: car && car.capacity_kwh ? Math.max(target - Math.round((10 / car.capacity_kwh) * 100), 0) : null,
+      start_soc: car && car.capacity_kwh ? Math.max(target - Math.round((10 / evCap(car)) * 100), 0) : null,
       target_soc: target,
       how: "asap",
       current_a: ev.max_current,
@@ -2811,7 +2821,7 @@ class EssManagerEvCard extends EssChartCard {
   _editKwh(ev, e) {
     const car = this._car(ev, e.car);
     if (car && car.capacity_kwh && e.start_soc != null && e.target_soc != null) {
-      return Math.max(((e.target_soc - e.start_soc) / 100) * car.capacity_kwh, 0);
+      return Math.max(((e.target_soc - e.start_soc) / 100) * evCap(car), 0);
     }
     return Math.max(Number(e.kwh) || 0, 0);
   }
@@ -2949,7 +2959,7 @@ class EssManagerEvCard extends EssChartCard {
         </div>`;
     }
     if (car && car.capacity_kwh) {
-      if (e.start_soc == null) e.start_soc = Math.max((e.target_soc || 80) - Math.round((e.kwh / car.capacity_kwh) * 100), 0);
+      if (e.start_soc == null) e.start_soc = Math.max((e.target_soc || 80) - Math.round((e.kwh / evCap(car)) * 100), 0);
       if (e.target_soc == null) e.target_soc = Number(car.target_soc) || 80;
       out += `<div class="grid2">
         ${this._slider("start_soc", this._t(e.running ? "ev_start_soc" : "ev_soc_plug"), e.start_soc, 0, 100, 1, `${Math.round(e.start_soc)}%`, "var(--secondary-text-color,#9b9b9b)")}
@@ -3058,6 +3068,16 @@ class EssManagerEvCard extends EssChartCard {
     if (planned.some((s) => s.solar_history)) html += `<div class="legend-hist"><span></span>${esc(this._t("ev_hist_legend"))}</div>`;
     if (this._edit && !this._edit.id) html += `<div class="ev-edit"><div class="head"><span>${esc(this._t("ev_new"))}</span></div>${this._editPanel(ev)}</div>`;
     else html += `<button type="button" class="ev-add" data-act="add">${ICON_PLUS}${esc(this._t("ev_plan_add"))}</button>`;
+    // the state-of-charge correction per car (as of 2026.10.35): measured on
+    // finished charges, applied from three on
+    const corr = cars
+      .filter((c) => Number(c.kwh_factor_sessions) > 0)
+      .map((c) => {
+        const n = Number(c.kwh_factor_sessions);
+        const who = cars.length > 1 ? `${c.name} ` : "";
+        return n >= 3 ? `${who}\u00d7${this._num(Number(c.kwh_factor) || 1, 2)} (${this._t("ev_corr_n")(n)})` : `${who}${this._t("ev_corr_wait")(n, 3)}`;
+      });
+    if (corr.length) html += `<div class="dim" style="font-size:12px" title="${esc(this._t("ev_corr_tip"))}">${esc(this._t("ev_corr"))}: ${esc(corr.join(" \u00b7 "))}</div>`;
     if (setCardContent(this, css, html)) this._wire(ev);
   }
 
@@ -3217,7 +3237,7 @@ class EssManagerEvCard extends EssChartCard {
           const car = this._car(ev, e.car);
           if (car && car.capacity_kwh) {
             e.target_soc = e.target_soc != null ? e.target_soc : Number(car.target_soc) || 80;
-            e.start_soc = Math.max(e.target_soc - Math.round((e.kwh / car.capacity_kwh) * 100), 0);
+            e.start_soc = Math.max(e.target_soc - Math.round((e.kwh / evCap(car)) * 100), 0);
           } else e.start_soc = null;
         } else if (f === "day") {
           // the "full by" day moves along with the start day

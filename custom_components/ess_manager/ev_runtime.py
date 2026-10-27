@@ -22,6 +22,9 @@ STOP_AFTER = 10 * 60
 # A charge that starts up to this long before a session's start belongs to it
 # (2 hours as of 2026.10.29).
 EARLY = 2 * ev.HOUR
+# switched on (Manual, on) but nothing going in this long while still plugged
+# in = the car is full, for the state-of-charge correction (as of 2026.10.35)
+SOC_IDLE = 15 * 60
 # Finished ids, past overrides and past manual sessions are forgotten after:
 KEEP = 2 * 24 * ev.HOUR
 
@@ -195,6 +198,7 @@ class _VictronMixin:
             flow["last_energy"] = energy_kwh
             if status == evc.STATUS_CHARGED and flow.get("choice") is not None:
                 flow["done"] = True
+            self._victron_sample(status, now_epoch)
             healed = self._victron_heal(now_epoch, energy_kwh, typical_kwh)
             return self._victron_external(status) or healed
         # a car plugged in: a new session; planned ones it overlaps go - the
@@ -283,10 +287,57 @@ class _VictronMixin:
                 session["current_a"] = int(current)
         kwh = float(s.get("kwh") or 0.0)
         if kwh > 0:
-            self._apply_need(kwh, s.get("start_soc"), s.get("target_soc"))
+            # a start SOC you set on the card counts for the correction; a
+            # predicted one doesn't (as of 2026.10.35)
+            self._apply_need(kwh, s.get("start_soc"), s.get("target_soc"),
+                             measured=s.get("label") in (ev.LABEL_EDITED, ev.LABEL_MANUAL))
         flow["adopted"] = s["id"]
         flow["announce"] = False
         self._ask("confirm")
+
+    def _victron_sample(self, status: Optional[str], now_epoch: int) -> None:
+        """The state-of-charge correction (as of 2026.10.35): a charge with a
+        state of charge you gave that the car finishes while still plugged
+        in - the charger says "charged", or it's switched on (Manual, on) but
+        nothing has gone in for SOC_IDLE seconds - is a sample: the energy
+        that went in since the state of charge was given against what it
+        said was needed."""
+        flow = self.flow
+        if not flow or flow.get("need_raw") is None or flow.get("sampled") or flow.get("choice") is None:
+            return
+        start, last = flow.get("energy_at_need"), flow.get("last_energy")
+        if start is None or last is None:
+            return
+        actual = max(float(last) - float(start), 0.0)
+        how = None
+        if status == evc.STATUS_CHARGED:
+            how = "charged"
+        else:
+            applied = flow.get("applied") or {}
+            switched_on = applied.get("charge") is True and applied.get("mode") == evc.MODE_MANUAL
+            idle = (self.ctx.get("power_w") or 0.0) <= evc.CHARGING_W and status not in evc.STATUS_CHARGING
+            if switched_on and idle and actual > 0.5:
+                if flow.get("idle_since") is None:
+                    flow["idle_since"] = now_epoch
+                elif now_epoch - int(flow["idle_since"]) >= SOC_IDLE:
+                    how = "idle"
+            else:
+                flow["idle_since"] = None
+        if how is None:
+            return
+        flow["sampled"] = True
+        car_id = flow.get("car") or ((self.ctx.get("cars") or [{}])[0].get("id") if len(self.ctx.get("cars") or []) == 1 else None)
+        if car_id is None:
+            return
+        planned = float(flow["need_raw"])
+        used, why = ev.soc_sample_used(self.soc_samples, car_id, planned, actual)
+        self.soc_samples.append({
+            "car": car_id, "at": now_epoch, "soc": flow.get("soc"), "target": flow.get("target_soc"),
+            "planned": round(planned, 2), "actual": round(actual, 2),
+            "ratio": round(actual / planned, 3) if planned > 0 else None,
+            "how": how, "used": used, "why": why,
+        })
+        self.soc_samples = self.soc_samples[-ev.SOC_SAMPLES_KEEP:]
 
     def _victron_external(self, status: Optional[str]) -> bool:
         """Without a choice yet: the charger charging by itself (started on
@@ -381,7 +432,7 @@ class _VictronMixin:
         date = today + timedelta(days=evc.DAY_OFFSET.get(day or evc.DAY_TODAY, 0))
         return int(datetime.combine(date, time(hm[0], hm[1]), tzinfo=tz).timestamp())
 
-    def _apply_need(self, need: float, soc: Optional[float], target: Optional[float] = None) -> None:
+    def _apply_need(self, need: float, soc: Optional[float], target: Optional[float] = None, measured: Optional[bool] = None) -> None:
         flow = self.flow
         assert flow is not None
         car = self._car(flow.get("car"))
@@ -389,6 +440,17 @@ class _VictronMixin:
         flow["soc"] = soc
         flow["need_kwh"] = need
         flow["energy_at_need"] = flow.get("last_energy")
+        # what the state of charge you gave says without the correction - the
+        # sample's "planned" once the car is full (as of 2026.10.35); only for
+        # a state of charge you gave, not for typed kWh
+        cap = (car or {}).get("capacity_kwh")
+        to = float(target) if target is not None else (car or {}).get("target_soc")
+        if (soc is not None if measured is None else measured) and soc is not None and cap and to is not None:
+            flow["need_raw"] = round(max(float(to) - float(soc), 0.0) / 100.0 * float(cap), 3)
+        else:
+            flow["need_raw"] = None
+        flow["sampled"] = False
+        flow["idle_since"] = None
         flow["announce"] = True
         flow["done"] = need <= 0
         session = self._session(flow["sid"])
@@ -562,7 +624,7 @@ class _VictronMixin:
         """The car's state of charge now: the one given plus what went in since."""
         flow = self.flow or {}
         car = self._car(flow.get("car"))
-        cap = (car or {}).get("capacity_kwh")
+        cap = ev.charge_capacity(car)  # with the correction factor (as of 2026.10.35)
         if flow.get("soc") is None or not cap:
             return None
         start, last = flow.get("energy_at_need"), flow.get("last_energy")
@@ -628,7 +690,7 @@ class _VictronMixin:
             windows = evn.windows_text(plan["windows"], tz, now_epoch, lg)
             if plan.get("tight"):
                 car = self._car(flow.get("car"))
-                cap = (car or {}).get("capacity_kwh")
+                cap = ev.charge_capacity(car)
                 reach = ""
                 if cap and flow.get("soc") is not None:
                     reach = f" (± {round(float(flow['soc']) + plan['reach_kwh'] / float(cap) * 100):.0f}%)"
@@ -741,6 +803,9 @@ class EvRuntime(_VictronMixin):
         self.log: list[dict[str, Any]] = []
         self.log_since: Optional[int] = None
         self.rest_charger = False
+        # the state-of-charge correction (as of 2026.10.35): [{car, at, soc,
+        # target, planned, actual, ratio, how, used, why}], see ev.soc_factor
+        self.soc_samples: list[dict[str, Any]] = []
 
     # -- store ---------------------------------------------------------------
     def restore(self, data: Optional[dict[str, Any]]) -> None:
@@ -755,12 +820,14 @@ class EvRuntime(_VictronMixin):
         self.log = list(data.get("log") or [])
         self.log_since = data.get("log_since")
         self.rest_charger = bool(data.get("rest_charger"))
+        self.soc_samples = list(data.get("soc_samples") or [])
 
     def as_store(self) -> dict[str, Any]:
         return {
             "overrides": self.overrides, "manual": self.manual, "running": self.running, "done": self.done,
             "flow": self.flow, "morning_day": self.morning_day, "morning": self.morning,
             "log": self.log, "log_since": self.log_since, "rest_charger": self.rest_charger,
+            "soc_samples": self.soc_samples,
         }
 
     # -- card edits ----------------------------------------------------------
@@ -925,7 +992,11 @@ class EvRuntime(_VictronMixin):
         max_a = float(conf.get("max_current") or 16)
         if max_a < min_a:
             max_a = min_a
-        cars = list(conf.get("cars") or [])
+        # each car with its state-of-charge correction (as of 2026.10.35)
+        cars = []
+        for c in conf.get("cars") or []:
+            factor, used = ev.soc_factor(self.soc_samples, c.get("id"))
+            cars.append({**c, "kwh_factor": factor, "kwh_factor_sessions": used})
         predict = bool(conf.get("predict", True))
         now_epoch = int(now.timestamp())
         hour0 = _floor_hour(now_epoch)
@@ -1060,9 +1131,13 @@ class EvRuntime(_VictronMixin):
                     "name": c.get("name"),
                     "capacity_kwh": c.get("capacity_kwh"),
                     "target_soc": c.get("target_soc"),
+                    "kwh_factor": c.get("kwh_factor", 1.0),
+                    "kwh_factor_sessions": c.get("kwh_factor_sessions", 0),
                 }
                 for c in cars
             ],
+            # the last samples of the state-of-charge correction (as of 2026.10.35)
+            "soc_samples": self.soc_samples[-10:],
             "phases": phases,
             "min_current": int(min_a),
             "max_current": int(max_a),

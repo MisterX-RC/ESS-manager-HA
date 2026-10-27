@@ -45,6 +45,76 @@ MODE_DEADLINE = "deadline"
 MODES = (MODE_FIXED, MODE_SOLAR, MODE_DEADLINE)
 # the plug-in log (Victron charger) is kept this long
 LOG_DAYS = 84
+# -- the state-of-charge correction per car (as of 2026.10.35) ------------------
+# Every charge with a state of charge you gave that the car finishes while
+# still plugged in is a sample: the energy that really went in against what
+# the state of charge and the target said. Over the last sessions that gives
+# a factor per car the state-of-charge sums are multiplied by.
+SOC_SAMPLES_KEEP = 30         # samples kept (all cars)
+SOC_FACTOR_SESSIONS = 10      # the factor: the last this many used samples of a car
+SOC_FACTOR_MIN_SESSIONS = 3   # ... and only from this many on
+SOC_FACTOR_RANGE = (0.7, 1.5)
+SOC_SAMPLE_MIN_KWH = 3.0      # less planned than this: too inaccurate to count
+# before there's a long-term average a sample counts within this range; after
+# that within SOC_OUTLIER of the car's long-term average (all its used samples)
+SOC_SAMPLE_RANGE = (0.6, 1.6)
+SOC_OUTLIER = 0.25
+
+
+def soc_long_term(samples: list[dict[str, Any]], car_id: Any) -> Optional[float]:
+    """A car's long-term ratio (all its used samples), None below
+    SOC_FACTOR_MIN_SESSIONS."""
+    used = [x for x in samples if x.get("car") == car_id and x.get("used")]
+    if len(used) < SOC_FACTOR_MIN_SESSIONS:
+        return None
+    planned = sum(float(x["planned"]) for x in used)
+    return sum(float(x["actual"]) for x in used) / planned if planned > 0 else None
+
+
+def soc_factor(samples: list[dict[str, Any]], car_id: Any) -> tuple[float, int]:
+    """(factor, used samples of this car): what the energy from a state of
+    charge is multiplied by - the energy really charged over the energy
+    planned in the car's last SOC_FACTOR_SESSIONS used samples, 1.0 below
+    SOC_FACTOR_MIN_SESSIONS, kept within SOC_FACTOR_RANGE."""
+    used = [x for x in samples if x.get("car") == car_id and x.get("used")]
+    recent = used[-SOC_FACTOR_SESSIONS:]
+    if len(recent) < SOC_FACTOR_MIN_SESSIONS:
+        return 1.0, len(used)
+    planned = sum(float(x["planned"]) for x in recent)
+    if planned <= 0:
+        return 1.0, len(used)
+    factor = sum(float(x["actual"]) for x in recent) / planned
+    lo, hi = SOC_FACTOR_RANGE
+    return round(min(max(factor, lo), hi), 3), len(used)
+
+
+def soc_sample_used(samples: list[dict[str, Any]], car_id: Any, planned: float, actual: float) -> tuple[bool, Optional[str]]:
+    """Whether a new sample counts, and why not: too small, or too far off -
+    from the car's long-term average once there is one (SOC_OUTLIER), from
+    SOC_SAMPLE_RANGE before that. A sample that far off is most likely a
+    state of charge typed wrong or the car stopping at another limit than
+    its target in ESS Manager."""
+    if planned < SOC_SAMPLE_MIN_KWH:
+        return False, "small"
+    ratio = actual / planned
+    average = soc_long_term(samples, car_id)
+    if average is not None:
+        if abs(ratio - average) > SOC_OUTLIER * average:
+            return False, "outlier"
+    elif not SOC_SAMPLE_RANGE[0] <= ratio <= SOC_SAMPLE_RANGE[1]:
+        return False, "outlier"
+    return True, None
+
+
+def charge_capacity(car: Optional[dict[str, Any]]) -> Optional[float]:
+    """The energy (kWh) per 100% of the car's state of charge: its battery
+    size times its correction factor (`kwh_factor`, as of 2026.10.35)."""
+    cap = (car or {}).get("capacity_kwh")
+    if not cap:
+        return None
+    return float(cap) * float((car or {}).get("kwh_factor") or 1.0)
+
+
 LABEL_HISTORY = "history"
 LABEL_EDITED = "edited"
 LABEL_MANUAL = "manual"
@@ -293,7 +363,7 @@ def apply_car(session: dict[str, Any], car: Optional[dict[str, Any]]) -> dict[st
     follows the start and target SOC (the start SOC worked back from the
     target when only the energy is known)."""
     s = dict(session)
-    cap = (car or {}).get("capacity_kwh")
+    cap = charge_capacity(car)
     if not car or not cap:
         s["start_soc"] = None if not car else s.get("start_soc")
         return s

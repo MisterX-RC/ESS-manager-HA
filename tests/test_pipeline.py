@@ -4945,6 +4945,72 @@ for _rf_floor in (1.5, None):
           _rf_p["active"] and min(b["start_unit"] for b in _rf_p["blocks"]) >= 144
           and _rf_p["blocks"] == _rf(None, 1.5)["blocks"])
 
+# 2026.10.35: the state-of-charge correction per car, from finished charges
+_sc = [{"car": "c1", "planned": 10.0, "actual": 11.0, "used": True} for _ in range(2)]
+check("soc correction: below three used samples the factor is 1.0",
+      ev.soc_factor(_sc, "c1") == (1.0, 2) and ev.soc_long_term(_sc, "c1") is None)
+_sc3 = _sc + [{"car": "c1", "planned": 20.0, "actual": 23.0, "used": True}, {"car": "c2", "planned": 10.0, "actual": 5.0, "used": True},
+              {"car": "c1", "planned": 10.0, "actual": 30.0, "used": False}]
+check("soc correction: from three on the energy charged over the energy planned (45 / 40), per car, unused samples left out",
+      ev.soc_factor(_sc3, "c1") == (1.125, 3) and ev.soc_factor(_sc3, "c2") == (1.0, 1))
+check("soc correction: kept within 0.7-1.5, over the last ten used samples",
+      ev.soc_factor([{"car": "c1", "planned": 10.0, "actual": 20.0, "used": True}] * 3, "c1")[0] == 1.5
+      and ev.soc_factor([{"car": "c1", "planned": 10.0, "actual": 20.0, "used": True}] * 5
+                        + [{"car": "c1", "planned": 10.0, "actual": 11.0, "used": True}] * 10, "c1") == (1.1, 15))
+check("soc correction: a new sample counts when it isn't too small or too far off (before a long-term average: 0.6-1.6)",
+      ev.soc_sample_used([], "c1", 10.0, 11.0) == (True, None) and ev.soc_sample_used([], "c1", 2.0, 2.2) == (False, "small")
+      and ev.soc_sample_used([], "c1", 10.0, 17.0) == (False, "outlier"))
+check("soc correction: once there's a long-term average a sample more than 25% off it doesn't count (avg 1.125: 1.45 out, 1.3 in)",
+      ev.soc_sample_used(_sc3, "c1", 10.0, 14.5) == (False, "outlier") and ev.soc_sample_used(_sc3, "c1", 10.0, 13.0) == (True, None))
+check("soc correction: the energy from a state of charge follows the factor (60 kWh x 1.1, 40 -> 80 %: 26.4 kWh)",
+      evc.needed_kwh({**_vcar, "kwh_factor": 1.1}, 40) == 26.4 and evc.needed_kwh(_vcar, 40) == 24.0
+      and ev.charge_capacity({**_vcar, "kwh_factor": 1.1}) == 66.0 and ev.charge_capacity({"capacity_kwh": None}) is None
+      and ev.apply_car({"kwh": 0, "start_soc": 40, "target_soc": 80}, {**_vcar, "kwh_factor": 1.1})["kwh"] == 26.4)
+# the runtime: SOC 40 given, the car finishes (the charger says "charged") with 26 kWh in -> a sample
+_vrtS = ev_runtime.EvRuntime()
+_vrtS.morning_day = "2026-11-03"
+_vS = lambda c, st="connected", pw=0.0: {**_vin(c, st), "power_w": pw}
+_vrtS.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_vS(True))
+_tokS = _vrtS.flow["token"]
+_vrtS.answer(_tokS, "choice=asap", None, int(_vn.timestamp()))
+_vrtS.answer(_tokS, "soc", "40", int(_vn.timestamp()))
+check("soc correction: the state of charge given keeps what it said without the correction (24 kWh)",
+      _vrtS.flow["need_raw"] == 24.0 and _vrtS.flow["need_kwh"] == 24.0)
+_vrtS.flow["applied"] = {"mode": "manual", "charge": True, "current": 16}
+_vrtS.update(_vconf, _vn + timedelta(hours=2), _ams2, 6, [0.0] * 121, 0.0, 513.0, victron=_vS(True, "charging", 11000.0))
+check("soc correction: no sample while it's still charging", _vrtS.soc_samples == [])
+_vrtS.update(_vconf, _vn + timedelta(hours=3), _ams2, 6, [0.0] * 121, 0.0, 526.0, victron=_vS(True, "charged"))
+check("soc correction: the charger says 'charged' -> a sample: 26 kWh in against 24 planned",
+      len(_vrtS.soc_samples) == 1 and _vrtS.soc_samples[0]["actual"] == 26.0 and _vrtS.soc_samples[0]["planned"] == 24.0
+      and _vrtS.soc_samples[0]["used"] and _vrtS.soc_samples[0]["how"] == "charged" and _vrtS.flow["sampled"])
+_vrtS.update(_vconf, _vn + timedelta(hours=4), _ams2, 6, [0.0] * 121, 0.0, 526.0, victron=_vS(True, "charged"))
+check("soc correction: one sample per charge", len(_vrtS.soc_samples) == 1)
+# switched on but nothing going in for a quarter of an hour = full too
+_vrtI = ev_runtime.EvRuntime()
+_vrtI.morning_day = "2026-11-03"
+_vrtI.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_vS(True))
+_tokI = _vrtI.flow["token"]
+_vrtI.answer(_tokI, "choice=asap", None, int(_vn.timestamp()))
+_vrtI.answer(_tokI, "soc", "60", int(_vn.timestamp()))
+_vrtI.flow["applied"] = {"mode": "manual", "charge": True, "current": 16}
+_vrtI.update(_vconf, _vn + timedelta(hours=1), _ams2, 6, [0.0] * 121, 0.0, 512.5, victron=_vS(True, "connected", 0.0))
+_vrtI.update(_vconf, _vn + timedelta(hours=1, minutes=10), _ams2, 6, [0.0] * 121, 0.0, 512.5, victron=_vS(True, "connected", 0.0))
+check("soc correction: switched on, nothing going in - not yet after 10 minutes", _vrtI.soc_samples == [])
+_vrtI.update(_vconf, _vn + timedelta(hours=1, minutes=16), _ams2, 6, [0.0] * 121, 0.0, 512.5, victron=_vS(True, "connected", 0.0))
+check("soc correction: ... after 15 minutes it's a sample (12.5 kWh in against 12 planned)",
+      len(_vrtI.soc_samples) == 1 and _vrtI.soc_samples[0]["how"] == "idle" and _vrtI.soc_samples[0]["actual"] == 12.5)
+# with three samples the factor is used for the next state of charge
+_vrtF = ev_runtime.EvRuntime()
+_vrtF.morning_day = "2026-11-03"
+_vrtF.soc_samples = [{"car": "c1", "planned": 20.0, "actual": 22.0, "used": True}] * 3
+_tF, _aF = _vrtF.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_vS(True))
+_vrtF.answer(_vrtF.flow["token"], "choice=asap", None, int(_vn.timestamp()))
+_vrtF.answer(_vrtF.flow["token"], "soc", "40", int(_vn.timestamp()))
+check("soc correction: three samples at 1.1 -> SOC 40 needs 26.4 kWh (the sample keeps 24), and the card gets the factor",
+      _vrtF.flow["need_kwh"] == 26.4 and _vrtF.flow["need_raw"] == 24.0
+      and _aF["cars"][0]["kwh_factor"] == 1.1 and _aF["cars"][0]["kwh_factor_sessions"] == 3
+      and _vrtF.as_store()["soc_samples"] == _vrtF.soc_samples)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

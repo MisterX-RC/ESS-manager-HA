@@ -556,6 +556,27 @@ or a battery size that's a bit off doesn't leave it short. Unplugging ends
 the session and clears the notification. With direct control's **Automatic
 control** switch off, ESS Manager doesn't touch the charger.
 
+**State-of-charge correction** *(as of 2026.10.35)*. What really goes into
+the car rarely matches the state-of-charge sum exactly (charging losses, a
+battery size or state of charge that's a bit off). So every charge with a
+state of charge **you gave** (on the phone, on the card, or the start SOC
+of a session you set on the card - not a predicted one) that the car
+**finishes while still plugged in** is measured: the charger says
+"charged", or it's switched on (Manual, on) but nothing has gone in for 15
+minutes. The energy that went in since the state of charge was given,
+against what the state of charge said was needed, is one sample. From
+three samples on, the energy charged over the energy planned in the car's
+last ten samples is its **correction factor** (kept between 0.7 and 1.5),
+and every state-of-charge sum for that car is multiplied by it - the
+energy a session needs, when it's full, "full by", the forecast. A sample
+under 3 kWh doesn't count, nor one that's far off: more than 25% from the
+car's long-term average once there is one (all its samples), outside
+0.6-1.6 before that - most likely a state of charge typed wrong, or the car
+stopping at another limit than its target in ESS Manager (so set the
+target in ESS Manager to the car's own charge limit). The EV card shows
+the factor per car ("State-of-charge correction: x1.08 (5 charges)"), the
+diagnostics the last samples.
+
 **The plug-in log and the predictions** (as of 2026.10.29). With the Victron
 charger ESS Manager keeps its own log of every time a car was plugged in
 (car, plugged in, unplugged, kWh, the way of charging chosen, the time for

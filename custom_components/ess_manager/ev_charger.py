@@ -146,7 +146,7 @@ def match_car(text: Any, cars: list[dict[str, Any]]) -> Optional[dict[str, Any]]
 def needed_kwh(car: Optional[dict[str, Any]], soc: float, target: Optional[float] = None) -> Optional[float]:
     """What a car at `soc` % needs to its target (the car's, or `target`),
     None without a battery size."""
-    cap = (car or {}).get("capacity_kwh")
+    cap = _ev.charge_capacity(car)  # with the car's correction factor (as of 2026.10.35)
     if not cap:
         return None
     target = float(target if target is not None else ((car or {}).get("target_soc") or 80))

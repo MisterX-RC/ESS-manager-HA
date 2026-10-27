@@ -12,6 +12,21 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.35] - 2026-10-27
+
+### Added
+- **Victron EV charger: a state-of-charge correction per car, learned from
+  finished charges.** A charge with a state of charge you gave that the car
+  finishes while still plugged in (the charger says "charged", or it's
+  switched on but nothing has gone in for 15 minutes) compares the energy
+  that really went in with what the state of charge said. From three such
+  charges on, the energy charged over the energy planned in the car's last
+  ten is its correction factor (0.7-1.5), and every state-of-charge sum for
+  that car uses it (energy needed, end time, "full by", forecast, the
+  card's sliders). Charges under 3 kWh don't count, nor ones more than 25%
+  off the car's long-term average (outside 0.6-1.6 before there is one).
+  The EV card shows the factor per car, the diagnostics the last samples.
+
 ## [2026.10.34] - 2026-10-27
 
 ### Fixed
