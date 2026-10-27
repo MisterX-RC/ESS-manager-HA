@@ -12,6 +12,23 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.34] - 2026-10-27
+
+### Fixed
+- **The rest of a charge in blocks no longer forces an early block for a
+  dip that only reaches into the Safety buffer.** After the first block of
+  a charge in several blocks, dips count from min SOC + Safety buffer until
+  its last block (so the rest isn't dropped). A dip that only went into the
+  buffer - live: 0.2 kWh into it at 08:00 the next morning, still well
+  above min SOC - had to be bought before it, which with the minimum
+  charge duration became a 3.5 kWh block at 05:15 (EUR 0.08) while the
+  same afternoon's charge was at EUR 0.05. Now only what keeps the dip at
+  min SOC itself is due before the dip; the buffer part comes with the next
+  charge, in its cheaper quarters, before the end of the known prices - and
+  isn't bought at all when it doesn't fit under 100% there (e.g. the sun
+  fills the battery after it anyway). Live case: 13.15 kWh for EUR 0.71
+  instead of 0.78, the 05:15 block gone.
+
 ## [2026.10.33] - 2026-10-26
 
 ### Fixed

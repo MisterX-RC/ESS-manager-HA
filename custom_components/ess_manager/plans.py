@@ -1266,10 +1266,30 @@ def compute_low_charge_plan(
         # under 100% goes in now, in the cheapest quarters
         total_kwh, later = _later_dips(forecast, dip_end, level, None, max(target_kwh, envelope), 0.0, hour0_unit)
         requirements += later
-        units = _schedule_charge(
-            requirements, charge_rates, buy, all_price, cur_unit, len(buy), charge_speed_kw / 4,
-            charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
-        )
+
+        def schedule(reqs: list[tuple[int, float, bool]]) -> list[int]:
+            return _schedule_charge(
+                reqs, charge_rates, buy, all_price, cur_unit, len(buy), charge_speed_kw / 4,
+                charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
+            )
+
+        if follow_up:
+            # the rest of a charge in blocks (follow-up, as of 2026.10.34):
+            # only what keeps the dip at the threshold itself is due before
+            # each hour; the Safety buffer on top comes with the next charge,
+            # in its cheaper quarters, by the end of the known prices - and
+            # only where it fits under 100%: when it doesn't (the sun fills the
+            # battery after it anyway), it isn't bought at all
+            relaxed: list[tuple[int, float, bool]] = []
+            env = 0.0
+            for h in range(hour_index, dip_end):
+                env = max(env, low_threshold_kwh - forecast[h])
+                if env > 0:
+                    relaxed.append((hour0_unit + 4 * (h + 1), round(env, 4), True))
+            relaxed.append((hour0_unit + 4 * len(forecast), max(target_kwh, envelope), False))
+            units = schedule(relaxed + later)
+        else:
+            units = schedule(requirements)
         blocks = _charge_blocks(units, charge_rates, total_kwh, forecast, battery_now_kwh, cur_unit, hour0_unit,
                                 upper_limit_kwh)
         if not blocks:
@@ -1508,10 +1528,31 @@ def _soft_low_charge(
                 forecast, dip_end, band_top_level, floor_kwh, target_kwh, need_hard, hour0_unit,
             )
             requirements += later
-            units = _schedule_charge(
-                requirements, charge_rates, buy, all_price, cur_unit, len(buy), charge_speed_kw / 4,
-                charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
-            )
+
+            def schedule(reqs: list[tuple[int, float, bool]]) -> list[int]:
+                return _schedule_charge(
+                    reqs, charge_rates, buy, all_price, cur_unit, len(buy), charge_speed_kw / 4,
+                    charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
+                )
+
+            if follow_up:
+                # the rest of a charge in blocks (follow-up, as of 2026.10.34):
+                # only what keeps the dip at the deficit minimum itself is due
+                # by its lowest point; the Safety buffer on top comes with the
+                # next charge, in its cheaper quarters, by the end of the known
+                # prices - and only where it fits under 100%: when it doesn't
+                # (the sun fills the battery after it anyway), it isn't bought.
+                # Up to then all of it was due by the dip: 0.2 kWh into the
+                # buffer the next morning forced a 3.5 kWh block before it,
+                # dearer than the charge the same afternoon.
+                relaxed = [r for r in requirements if r[2] and r not in later]
+                strict_kwh = min(target_kwh, max(low_threshold_kwh - dip_min, 0.0))
+                if strict_kwh > 1e-6:
+                    relaxed.append((hour0_unit + 4 * (bottom + 1), round(strict_kwh, 4), False))
+                relaxed.append((hour0_unit + 4 * n, target_kwh, False))
+                units = schedule(relaxed + later)
+            else:
+                units = schedule(requirements)
             blocks = _charge_blocks(units, charge_rates, total_kwh, forecast, battery_now_kwh, cur_unit, hour0_unit,
                                     upper_limit_kwh)
             if not blocks:

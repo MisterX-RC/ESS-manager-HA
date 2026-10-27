@@ -3477,9 +3477,14 @@ check("follow-up: while the first block runs the plan gets follow_up_until = the
       _fu2["follow_up_until"] == int(datetime(2026, 10, 14, 3, 30).timestamp()) and _fu2["start_unit"] == 84)
 # after the first block: 12.75 kWh, the dip's lowest point now 9.0 - not under the threshold any more
 _fu3 = _fu(datetime(2026, 10, 13, 21, 30), 12.75, _fu_net[1:], _fu2, 86)
-check("follow-up: the second block stays (1.0 kWh at 03:00, up to threshold + buffer), not rounded up to the minimum",
-      _fu3["active"] and _fu3["start_unit"] == 108 and _fu3["target_kwh"] == 1.0 and _fu3.get("follow_up")
-      and _fu3["follow_up_until"] == _fu2["follow_up_until"])
+# (2026.10.34: the buffer part comes with the next charge where it fits under
+# 100% - here the next day's sun fills the battery, so it isn't bought; up to
+# then the second block stayed: 1.0 kWh at 03:00)
+check("follow-up: a dip only into the buffer that doesn't fit later (the sun fills the battery the next day) isn't bought (2026.10.34)",
+      not _fu3["active"] and _fu3["follow_up_until"] == _fu2["follow_up_until"])
+_fu3b = _fu(datetime(2026, 10, 13, 21, 30), 12.25, _fu_net[1:], _fu2, 86)
+check("follow-up: what keeps the dip at the threshold itself (8.5 -> 9) is still bought before it, at 03:00",
+      _fu3b["active"] and _fu3b["start_unit"] == 108 and _fu3b.get("follow_up"))
 check("follow-up: without it the second block was dropped (the old behaviour)",
       not _fu(datetime(2026, 10, 13, 21, 30), 12.75, _fu_net[1:], {**_fu2, "follow_up_until": None}, 86)["active"])
 check("follow-up: the marker is carried while nothing is needed, and ends at its time",
@@ -4915,6 +4920,30 @@ check("card: a scheduled full charge shows this session (1.6 kWh -> 6 kWh = 40%)
 _fs_card4 = display.card_plans(_fs_full3, {"active": False}, {"active": False}, {**_fs_low, "start_unit": 10, "end_unit": 12, "target_kwh": 1.0,
                                "effective_charge_per_unit": 0.4}, {"active": False}, 10, _fs_now, 3.7, 15.0)["buy"]
 check("card: a low charge that starts before the scheduled full charge is the one shown", _fs_card4["source"] == "low_charge")
+
+# 2026.10.34: the rest of a charge in blocks (follow-up) - a dip that only
+# reaches into the Safety buffer comes with the next charge when that fits,
+# instead of forcing a block of its own before it
+_rf_now = datetime(2026, 10, 26, 23, 0)
+_rf_price = [0.30] * 192
+for _u in (116, 117, 118, 119):
+    _rf_price[_u] = 0.08          # 05:00-06:00
+for _u in range(144, 168):
+    _rf_price[_u] = 0.05          # 12:00-18:00
+# 12.2 kWh, into the buffer (9 + 3) overnight down to 11.2 at 08:00, the sun lifts it, below 9 again from 18:00
+_rf_net = [-0.1] * 10 + [0.5] * 4 + [-0.1] * 2 + [-1.0] * 30 + [0.0] * 40
+def _rf(prev, floor):
+    fc = forecasting.build_battery_forecast(_rf_net, 12.2, _rf_now, 7.0, 7.0, 1.0, 1.0)
+    rates = forecasting.grid_charge_rates(_rf_net, _rf_now, 7.0, 7.0, 192, 1.0, 1.0)
+    return plans.compute_low_charge_plan(prev, 92, fc, _rf_now, 7.0, 9.0, 2.0, 30.0, [0.5] * 121, _rf_price, 48, 12.2,
+                                         high_threshold_kwh=31.5, charge_rates=rates, charge_buffer_kwh=3.0,
+                                         min_charge_units=2, floor_kwh=floor)
+_rf_follow = {"active": False, "follow_up_until": int(_rf_now.timestamp()) + 1800}
+for _rf_floor in (1.5, None):
+    _rf_p = _rf(_rf_follow, _rf_floor)
+    check(f"follow-up (floor {_rf_floor}): the buffer dip at 08:00 comes with the midday charge - no block before it",
+          _rf_p["active"] and min(b["start_unit"] for b in _rf_p["blocks"]) >= 144
+          and _rf_p["blocks"] == _rf(None, 1.5)["blocks"])
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
