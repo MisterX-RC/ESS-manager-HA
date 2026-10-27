@@ -5011,6 +5011,33 @@ check("soc correction: three samples at 1.1 -> SOC 40 needs 26.4 kWh (the sample
       and _aF["cars"][0]["kwh_factor"] == 1.1 and _aF["cars"][0]["kwh_factor_sessions"] == 3
       and _vrtF.as_store()["soc_samples"] == _vrtF.soc_samples)
 
+# 2026.10.36: a session added while a car is plugged in, starting before it's
+# done, waits for it - it stays on the card and counts only from its end on
+_wn = datetime(2026, 10, 27, 10, 5, tzinfo=_ams2)
+_wconf = {"phases": 1, "min_current": 6, "max_current": 16, "predict": False, "cars": [_vcar]}
+_wv = lambda c, st="connected", pw=0.0: {**_vin(c, st), "power_w": pw}
+_wrt = ev_runtime.EvRuntime()
+_wrt.morning_day = "2026-10-27"
+_wrt.update(_wconf, _wn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_wv(True))
+_wrt.answer(_wrt.flow["token"], "choice=asap", None, int(_wn.timestamp()))
+_wrt.answer(_wrt.flow["token"], "soc", "50", int(_wn.timestamp()))   # 18 kWh at 3.68 kW: until about 15:00
+_wt0, _wa0 = _wrt.update(_wconf, _wn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_wv(True, "charging", 3600.0))
+_wid = _wrt.save(None, {"start": int(_wn.replace(hour=12, minute=0).timestamp()), "kwh": 10.0, "mode": "fixed", "current_a": 16,
+                        "car": "c1"}, int(_wn.timestamp()))
+_wt1, _wa1 = _wrt.update(_wconf, _wn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_wv(True, "charging", 3600.0))
+_wfl = next(x for x in _wa1["sessions"] if x["running"])
+_wnew = next(x for x in _wa1["sessions"] if x["id"] == _wid)
+check("waiting session: shown at its own start (12:00), counts from the plugged-in car's end on, never on top of it",
+      _wnew["waits"] and _wnew["start"].endswith("12:00:00+01:00") and _wnew["waits_until"] == _wfl["end"]
+      and max(_wt1) <= 3.69 and abs(sum(_wt1) - sum(_wt0) - 10.0) < 0.05)
+_wt2, _wa2 = _wrt.update(_wconf, _wn.replace(hour=14, minute=30), _ams2, 6, [0.0] * 121, 0.0, 515.6,
+                         victron=_wv(True, "charging", 3600.0))
+check("waiting session: not dropped two hours past its start while the car is still plugged in",
+      any(x["id"] == _wid and x["waits"] for x in _wa2["sessions"]))
+_wt3, _wa3 = _wrt.update(_wconf, _wn.replace(hour=15, minute=20), _ams2, 6, [0.0] * 121, 0.0, 518.0, victron=_wv(False, "disconnected"))
+check("waiting session: at unplugging it starts then (15:00), so the next car plugged in takes it over",
+      [x["start"][11:16] for x in _wa3["sessions"] if x["id"] == _wid] == ["15:00"] and not _wa3["sessions"][0]["waits"])
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

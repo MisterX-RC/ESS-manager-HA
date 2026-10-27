@@ -27,6 +27,16 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   off the car's long-term average (outside 0.6-1.6 before there is one).
   The EV card shows the factor per car, the diagnostics the last samples.
 
+### Fixed
+- **A session added while a car is plugged in no longer counts on top of
+  it.** One charger, one car at a time: a session that starts before the
+  plugged-in car is done now waits for it - it stays on the card ("waits for
+  the plugged-in car - counts from 15:15") and counts in the forecast only
+  from that car's end on. Up to now it was counted on top of the running
+  charge (the house forecast saw twice the car's power) and dropped two
+  hours past its start. It now stays while the car is plugged in, and when
+  the car is unplugged it starts then, so the next car takes it over.
+
 ## [2026.10.34] - 2026-10-27
 
 ### Fixed

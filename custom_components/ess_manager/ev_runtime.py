@@ -185,6 +185,13 @@ class _VictronMixin:
             })
             self.log = [c for c in self.log if now_epoch - int(c.get("on", 0)) < ev.LOG_DAYS * 86400]
             self.done[flow["sid"]] = now_epoch
+            # sessions you added while it was plugged in that waited for it
+            # start when it's unplugged (as of 2026.10.36), so the next car
+            # plugged in takes them over
+            keep_from = self._keep_from()
+            for m in self.manual:
+                if m["id"] != flow["sid"] and keep_from is not None and keep_from <= int(m["start"]) < off:
+                    m["start"] = _floor_hour(off)
             # the charger back to rest (manual, off): see ev_charger.REST_TARGET
             self.rest_charger = True
             if self.running and self.running.get("id") == flow["sid"]:
@@ -882,12 +889,23 @@ class EvRuntime(_VictronMixin):
             self.running = None
 
     # -- every cycle ---------------------------------------------------------
+    def _keep_from(self) -> Optional[int]:
+        """While a car is plugged in (as of 2026.10.36): the hour it was
+        plugged in - sessions you added from then on wait for it (they stay
+        past their start, and count only after it, see update)."""
+        flow = self.flow
+        if not flow or flow.get("since") is None:
+            return None
+        return _floor_hour(int(flow["since"]))
+
     def _prune(self, now_epoch: int) -> None:
         self.done = {k: v for k, v in self.done.items() if now_epoch - v < KEEP}
         running_id = (self.running or {}).get("id")
+        keep_from = self._keep_from()
         self.manual = [
             s for s in self.manual
             if s["id"] == running_id or s["id"] in self.done or int(s["start"]) + ev.START_GRACE > now_epoch
+            or (keep_from is not None and int(s["start"]) >= keep_from)
         ]
         keep = {}
         for sid, o in self.overrides.items():
@@ -1025,6 +1043,7 @@ class EvRuntime(_VictronMixin):
             return ev.build_sessions(
                 predicted, self.overrides, self.manual, cars, now_epoch, end_epoch,
                 running_id=(self.running or {}).get("id"), done=set(self.done),
+                keep_from=self._keep_from() if victron is not None else None,
             )
 
         self.outbox = []
@@ -1054,7 +1073,25 @@ class EvRuntime(_VictronMixin):
         net_left = list(house_net)
         out: list[dict[str, Any]] = []
         flow = self.flow if victron is not None else None
+        # While a car is plugged in (as of 2026.10.36) the other sessions that
+        # start before it's done wait for it: they stay on the card, and count
+        # only from its end on (one charger, one car at a time) - up to then a
+        # session added for 12:00 while a car charged until 15:15 was counted
+        # on top of it, and dropped at 14:00. Its session goes first.
+        if flow:
+            sessions = sorted(sessions, key=lambda x: (x["id"] != flow["sid"], x["start"]))
+        flow_end: Optional[int] = None
+        flow_seen = False
         for s in sessions:
+            waits = flow_seen and s["id"] != (flow or {}).get("sid") and (flow_end is None or int(s["start"]) < flow_end)
+            if waits:
+                original = s
+                if flow_end is None:
+                    # its end isn't known yet: not counted at all for now
+                    part = [0.0] * hours
+                    out.append({**s, "end": None, "charged_kwh": 0.0, "waits_until": None, "waits": True})
+                    continue
+                s = {**s, "start": flow_end}
             if flow and s["id"] == flow["sid"] and (flow.get("plan") or flow.get("done")):
                 part, grid_part, info = self._flow_profile(s, now_epoch, hour0, hours, net_left, phases, min_a, max_a, delivered)
                 grid_total = [round(a + b, 4) for a, b in zip(grid_total, grid_part)]
@@ -1068,10 +1105,17 @@ class EvRuntime(_VictronMixin):
                 info = [{**s, "end": pinfo["end"], "charged_kwh": pinfo["kwh"], "warning": pinfo["warning"], "full_by": pinfo["plan"]}]
             else:
                 part, info = ev.ev_forecast([s], now_epoch, hour0, hours, net_left, phases, min_a, max_a, tz, delivered)
+            if waits:
+                # shown at its own start, with when it counts from
+                info = [{**i, "start": original["start"], "waits_until": flow_end, "waits": True} for i in info]
+            if flow and s["id"] == flow["sid"]:
+                flow_seen = True
+                flow_end = next((int(i["end"]) for i in info if i.get("end") is not None), None)
             if s.get("enabled", True):
                 total = [round(a + b, 4) for a, b in zip(total, part)]
                 net_left = [round(n - p, 4) for n, p in zip(net_left, part)]
             out.extend(info)
+        out.sort(key=lambda x: x["start"])
         self.last_sessions = out
 
         car_names = {c.get("id"): c.get("name") for c in cars}
@@ -1110,6 +1154,10 @@ class EvRuntime(_VictronMixin):
                 ),
                 "running": bool(s.get("running")),
                 "warning": s.get("warning"),
+                # (as of 2026.10.36) waits for the plugged-in car: counts from
+                # waits_until on (None: its end isn't known yet)
+                "waits": bool(s.get("waits")),
+                "waits_until": iso(s.get("waits_until")) if s.get("waits_until") else None,
             }
             original = by_pred.get(s["id"])
             if original is not None and s.get("label") == ev.LABEL_EDITED:

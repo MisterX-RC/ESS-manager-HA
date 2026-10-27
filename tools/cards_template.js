@@ -73,6 +73,7 @@ const I18N = {
     ev_off: "The electric car is switched off - switch it on in the integration's Configure (price plans page).",
     ev_none: "No charging sessions predicted for the coming days.", ev_none_manual: "No charging sessions yet - add one below.",
     ev_hist_legend: "solar session from history: depends on the sun · tap to make it a fixed session",
+    ev_waits: "waits for the plugged-in car - counts once it's done", ev_waits_until: (t) => `waits for the plugged-in car - counts from ${t}`,
     ev_corr: "State-of-charge correction", ev_corr_n: (n) => `${n} charge${n === 1 ? "" : "s"}`, ev_corr_wait: (n, m) => `${n} of ${m} charges measured`,
     ev_corr_tip: "What really went into the car against what its state of charge said, on charges it finished while plugged in - the state-of-charge sums are multiplied by this",
     ev_add: "Add manual session", ev_label_history: "average", ev_label_edited: "edited", ev_label_manual: "manual",
@@ -258,6 +259,7 @@ const I18N = {
     ev_off: "De elektrische auto staat uit - zet hem aan bij Configureren van de integratie (pagina prijsplannen).",
     ev_none: "Geen laadsessies voorspeld voor de komende dagen.", ev_none_manual: "Nog geen laadsessies - voeg er hieronder een toe.",
     ev_hist_legend: "zon-sessie volgens de historie: hangt van de zon af · tik om er een vaste sessie van te maken",
+    ev_waits: "wacht op de aangesloten auto - telt mee als die klaar is", ev_waits_until: (t) => `wacht op de aangesloten auto - telt mee vanaf ${t}`,
     ev_corr: "Laadstandcorrectie", ev_corr_n: (n) => `${n} laadbeurt${n === 1 ? "" : "en"}`, ev_corr_wait: (n, m) => `${n} van ${m} laadbeurten gemeten`,
     ev_corr_tip: "Wat er werkelijk in de auto ging tegenover wat de laadstand zei, gemeten op laadbeurten die de auto afmaakte terwijl hij aangesloten was - de laadstandsommen worden hiermee vermenigvuldigd",
     ev_add: "Handmatige sessie toevoegen", ev_label_history: "gemiddelde", ev_label_edited: "aangepast", ev_label_manual: "handmatig",
@@ -3002,6 +3004,8 @@ class EssManagerEvCard extends EssChartCard {
     if (s.mode === "deadline" && s.warning === "short") warn = `<div class="ev-warn" style="color:#ff7b72">${esc(this._t("ev_r_tight_t")(s.deadline ? this._when(Date.parse(s.deadline)) : "—"))}</div>`;
     else if (s.warning === "no_surplus") warn = `<div class="ev-warn">${esc(this._t("ev_warn_none"))}</div>`;
     else if (s.warning === "short") warn = `<div class="ev-warn">${esc(this._t("ev_warn_short")(this._kwh(s.charged_kwh), this._kwh(s.kwh)))}</div>`;
+    // (as of 2026.10.36) waits for the plugged-in car: counts only after it
+    if (s.waits) warn = `<div class="ev-warn" style="color:var(--secondary-text-color,#a0a0a0)">${esc(s.waits_until ? this._t("ev_waits_until")(this._when(Date.parse(s.waits_until))) : this._t("ev_waits"))}</div>` + warn;
     return `
       <div class="${cls}">
         <button type="button" class="ev-main" data-open="${esc(s.id)}" aria-label="${esc(this._t("ev_edit_aria"))} ${esc(this._day(start))} ${esc(this._time(start))}">

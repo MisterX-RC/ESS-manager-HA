@@ -390,11 +390,15 @@ def build_sessions(
     end_epoch: int,
     running_id: Optional[str] = None,
     done: Optional[set[str]] = None,
+    keep_from: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     """The card's session list: predicted sessions with their override (an
     edit: label "edited"), plus the manual ones (label "manual"), sorted by
     start. Gone: finished ones (`done`), ones past their start by more than
     START_GRACE without charging, and ones starting after `end_epoch`.
+    `keep_from` (as of 2026.10.36, while a car is plugged in: the hour it was
+    plugged in): sessions you added from then on stay past their start - they
+    wait for the plugged-in car.
     With exactly one car, every session is that car's."""
     done = done or set()
     by_id = {c.get("id"): c for c in cars}
@@ -412,7 +416,8 @@ def build_sessions(
         if s["id"] in done:
             continue
         running = s["id"] == running_id
-        if not running and (s["start"] + START_GRACE <= now_epoch or s["start"] >= end_epoch):
+        waiting = keep_from is not None and s.get("label") == LABEL_MANUAL and s["start"] >= keep_from
+        if not running and ((s["start"] + START_GRACE <= now_epoch and not waiting) or s["start"] >= end_epoch):
             continue
         car = by_id.get(s.get("car")) if s.get("car") else only
         s = apply_car({**s, "car": car.get("id") if car else None}, car)

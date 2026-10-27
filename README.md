@@ -556,6 +556,14 @@ or a battery size that's a bit off doesn't leave it short. Unplugging ends
 the session and clears the notification. With direct control's **Automatic
 control** switch off, ESS Manager doesn't touch the charger.
 
+**A session added while a car is plugged in** *(as of 2026.10.35)* that
+starts before that car is done waits for it: it stays on the card ("waits
+for the plugged-in car - counts from 15:15"), and counts in the forecast
+only from the plugged-in car's end on - one charger, one car at a time (up
+to then it was counted on top of it, and dropped two hours past its
+start). It isn't dropped while the car stays plugged in, and when the car
+is unplugged it starts then, so the next car plugged in takes it over.
+
 **State-of-charge correction** *(as of 2026.10.35)*. What really goes into
 the car rarely matches the state-of-charge sum exactly (charging losses, a
 battery size or state of charge that's a bit off). So every charge with a
