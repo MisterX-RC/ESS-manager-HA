@@ -112,9 +112,13 @@ class AccuracyRuntime:
         # usage: the last days, measured against the plain average and the method in use
         show = bt["per_day"]
         usage_pairs = [(d[acc.METHOD_AVERAGE], d["actual"]) for d in show]
-        chosen_pairs = [(d[self.method], d["actual"]) for d in show]
+        # a day without the chosen method (level: too little history before it) shows the average
+        chosen_pairs = [(d.get(self.method, d[acc.METHOD_AVERAGE]), d["actual"]) for d in show]
         usage = {
-            "per_day": [{"d": d["d"], "actual": d["actual"], "forecast": d[self.method], "average": d[acc.METHOD_AVERAGE]} for d in show],
+            "per_day": [
+                {"d": d["d"], "actual": d["actual"], "forecast": d.get(self.method, d[acc.METHOD_AVERAGE]), "average": d[acc.METHOD_AVERAGE]}
+                for d in show
+            ],
             "actual_avg": round(sum(a for _, a in usage_pairs) / len(usage_pairs), 2) if usage_pairs else None,
             "forecast_avg": round(sum(p for p, _ in usage_pairs) / len(usage_pairs), 2) if usage_pairs else None,
             **{k: v for k, v in acc._stats(usage_pairs).items()},

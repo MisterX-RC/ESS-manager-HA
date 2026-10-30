@@ -4257,6 +4257,23 @@ check("forecast check: with steady usage the plain average stays",
       accuracy.backtest(_flat, _days_all[84:140], 6)["chosen"] == "average")
 check("forecast check: too few days -> the average stays",
       accuracy.backtest(_step, _days_all[130:140], 6)["chosen"] == "average")
+# a short history (2026.10.38): only ~3 weeks of statistics - the average days still show,
+# the level method skips the days it cannot make and is never chosen on them
+_young_start = _days_all[119][1][0]
+_young = {e: v for e, v in _step.items() if e >= _young_start}
+_bt_y = accuracy.backtest(_young, _days_all[84:140], 6)
+check("forecast check: a short history still shows the average days, level stays out",
+      _bt_y["test_days"] > 0 and len(_bt_y["per_day"]) > 0 and _bt_y["chosen"] == "average"
+      and _bt_y["methods"]["level"]["days"] == 0 and all("level" not in r and "average" in r for r in _bt_y["per_day"]))
+# level only on the later days: counted on its own days, chosen only with MIN_TEST_DAYS of them
+_mid_start = _days_all[96][1][0]
+_mid = {e: v for e, v in _step.items() if e >= _mid_start}
+_bt_m = accuracy.backtest(_mid, _days_all[84:140], 6)
+check("forecast check: level counts on its own days, the average on all of them",
+      _bt_m["methods"]["average"]["days"] > _bt_m["methods"]["level"]["days"] > 0)
+_bt_m2 = accuracy.backtest(_mid, _days_all[126:140], 6)
+check("forecast check: fewer than 14 level days -> no level choice",
+      _bt_m2["methods"]["level"]["days"] < accuracy.MIN_TEST_DAYS and _bt_m2["chosen"] != "level")
 _w = accuracy.week_weights("weighted", 6)
 check("forecast check: recent weeks weigh more", _w == [6.0, 5.0, 4.0, 3.0, 2.0, 1.0] and accuracy.week_weights("average", 6) is None)
 # the usage forecast with weights: week 1 = 2 kWh, weeks 2..3 = 1 kWh -> (2*3 + 1*2 + 1*1) / 6

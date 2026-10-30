@@ -176,32 +176,50 @@ def backtest(
 ) -> dict[str, Any]:
     """Every method on every complete day of `days` ([(iso date, hour
     epochs)], oldest first): the daily error per method, which one to use,
-    and the last SHOW_DAYS days for the card."""
+    and the last SHOW_DAYS days for the card.
+
+    A day counts as soon as it is measured completely and the plain average
+    can be made for it; a method that cannot be made that day (the level
+    method needs LEVEL_COVERAGE of the L weeks before it) only skips that
+    day for itself. Another method is chosen only with at least
+    MIN_TEST_DAYS days of its own, compared with the average on the days
+    both have."""
     pairs: dict[str, list[tuple[float, float]]] = {m: [] for m in METHODS}
-    per_day: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for iso, hours in days:
         actual_hours = [series.get(e) for e in hours]
         if any(v is None for v in actual_hours):
             continue
+        forecasts = {m: method_forecast(series, hours, lookback_weeks, m) for m in METHODS}
+        if forecasts[METHOD_AVERAGE] is None:
+            continue
         actual = sum(actual_hours)
         row: dict[str, Any] = {"d": iso, "actual": round(actual, 2)}
-        forecasts = {m: method_forecast(series, hours, lookback_weeks, m) for m in METHODS}
-        if any(f is None for f in forecasts.values()):
-            continue
         for m, f in forecasts.items():
+            if f is None:
+                continue
             total = sum(f)
             pairs[m].append((total, actual))
             row[m] = round(total, 2)
-        per_day.append(row)
+        rows.append(row)
     stats = {m: _stats(pairs[m]) for m in METHODS}
     chosen = METHOD_AVERAGE
     n = len(pairs[METHOD_AVERAGE])
-    base = stats[METHOD_AVERAGE]["mae"]
-    if n >= MIN_TEST_DAYS and base:
-        best = min(METHODS, key=lambda m: stats[m]["mae"] if stats[m]["mae"] is not None else math.inf)
-        if best != METHOD_AVERAGE and stats[best]["mae"] <= base * (1 - BETTER_BY):
-            chosen = best
-    return {"methods": stats, "chosen": chosen, "test_days": n, "per_day": per_day[-SHOW_DAYS:]}
+    if n >= MIN_TEST_DAYS and stats[METHOD_AVERAGE]["mae"]:
+        best_gain = BETTER_BY
+        for m in METHODS:
+            if m == METHOD_AVERAGE or stats[m]["days"] < MIN_TEST_DAYS:
+                continue
+            common = [r for r in rows if m in r]
+            base = sum(abs(r[METHOD_AVERAGE] - r["actual"]) for r in common)
+            own = sum(abs(r[m] - r["actual"]) for r in common)
+            if base <= 0:
+                continue
+            gain = 1 - own / base
+            if gain >= best_gain:
+                best_gain = gain
+                chosen = m
+    return {"methods": stats, "chosen": chosen, "test_days": n, "per_day": rows[-SHOW_DAYS:]}
 
 
 # -- the Safety buffer -------------------------------------------------------------

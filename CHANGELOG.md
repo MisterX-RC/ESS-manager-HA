@@ -12,6 +12,21 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.38] - 2026-10-30
+
+### Fixed
+- **Forecast check: no usage days with a young history.** A test day was
+  dropped completely as soon as one of the three methods couldn't be made
+  for it - and the level method needs 90 % of the 6 lookback weeks before
+  the day complete in the statistics. With less than about 6 weeks of
+  history (a new installation, or a battery or meter added to the Energy
+  dashboard recently) every day fell out, so the card showed solar but no
+  usage at all. Now a day counts as soon as the plain average can be made
+  (the weighted one comes along); the level method is counted on its own
+  days and is only chosen with at least 14 of them, compared with the
+  average on the days both have. Nothing changes once the history is long
+  enough.
+
 ## [2026.10.37] - 2026-10-30
 
 ### Added

@@ -985,6 +985,16 @@ which have their own forecasts) are tested on the last 8 weeks:
 The best one is used for the planning, but only when it beat the plain
 average by at least 5 % (daily error) over at least 14 complete days.
 
+*(as of 2026.10.38)* A day counts as soon as it's measured completely and
+the plain average can be made for it (one week of history is enough). The
+level method needs 90 % of the lookback weeks before the day complete in
+the statistics (with 6 weeks: about 6 weeks); on days where it can't be
+made it just sits that day out. It's only chosen with at least 14 days of
+its own, compared with the average on the days both have. So with a young
+history (a new installation, a battery or meter added recently to the
+Energy dashboard) the usage days show up after about a week, and the
+level method joins in later.
+
 **Solar.** The forecast sensors keep no history, so each day's forecast is
 stored at the day's first cycle and compared once the production is
 measured (the solar production in the Energy dashboard). It takes a couple
