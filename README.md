@@ -624,8 +624,23 @@ then: only the question, and the charger isn't started.
 
 **09:00 on a day with a planned session** (predicted or added on the
 card): "A charging session is planned today at 18:00 - still right?"
-**No** removes it; **Yes** asks the expected state of charge (or kWh),
-which then sets the session's energy.
+**No** switches it off (as of 2026.10.37 it stays on the card with its
+tick off; up to then it was removed); **Yes** asks the expected state of
+charge (or kWh), which then sets the session's energy. As of 2026.10.37
+this question also comes without the Victron charger (energy and power
+sensors only), on the phones picked under **Phones to ask on**.
+
+**When a session starts and ends** *(as of 2026.10.37)*. Right after
+plugging in, the Victron charger passes "waiting for start" and sometimes
+even "charged" before it really charges. A session only really starts
+when the Status is **charging and power goes in** - until then it's
+"plugged in", and a "charged" doesn't end it (up to then that ended a
+planned session before it began). Unplugged without ever charging, it
+wasn't a session: nothing goes into the plug-in log and the planned
+sessions it took over come back. A finished session stays on the card
+as **completed**, with the energy that went in, for **6 hours** after the
+car is unplugged (Victron) or after the charging stopped (sensors only);
+up to then it was gone right away.
 
 **The same on the EV card** (rebuilt in 2026.10.29: one way of charging for
 every session, one panel). At the top, **Now**: the plugged-in car. Without

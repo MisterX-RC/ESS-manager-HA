@@ -76,7 +76,7 @@ const I18N = {
     ev_waits: "waits for the plugged-in car - counts once it's done", ev_waits_until: (t) => `waits for the plugged-in car - counts from ${t}`,
     ev_corr: "State-of-charge correction", ev_corr_n: (n) => `${n} charge${n === 1 ? "" : "s"}`, ev_corr_wait: (n, m) => `${n} of ${m} charges measured`,
     ev_corr_tip: "What really went into the car against what its state of charge and charge efficiency said, on charges it finished while plugged in - the state-of-charge sums are multiplied by this, on top of the charge efficiency",
-    ev_add: "Add manual session", ev_label_history: "average", ev_label_edited: "edited", ev_label_manual: "manual",
+    ev_add: "Add manual session", ev_label_history: "average", ev_label_edited: "edited", ev_label_manual: "manual", ev_label_done: "completed",
     ev_mode_solar_hist: "solar surplus (history)", ev_mode_solar: "solar surplus", ev_charging_now: "charging now",
     ev_vc_waiting: "waiting for the answer on the phone \u00b7 ESS Manager leaves the charger alone", ev_vc_asap: "as fast as possible",
     ev_vc_external: "started on the charger itself \u00b7 charging now at its current, left alone",
@@ -262,7 +262,7 @@ const I18N = {
     ev_waits: "wacht op de aangesloten auto - telt mee als die klaar is", ev_waits_until: (t) => `wacht op de aangesloten auto - telt mee vanaf ${t}`,
     ev_corr: "Laadstandcorrectie", ev_corr_n: (n) => `${n} laadbeurt${n === 1 ? "" : "en"}`, ev_corr_wait: (n, m) => `${n} van ${m} laadbeurten gemeten`,
     ev_corr_tip: "Wat er werkelijk in de auto ging tegenover wat de laadstand en het laadrendement zeiden, gemeten op laadbeurten die de auto afmaakte terwijl hij aangesloten was - de laadstandsommen worden hiermee vermenigvuldigd, bovenop het laadrendement",
-    ev_add: "Handmatige sessie toevoegen", ev_label_history: "gemiddelde", ev_label_edited: "aangepast", ev_label_manual: "handmatig",
+    ev_add: "Handmatige sessie toevoegen", ev_label_history: "gemiddelde", ev_label_edited: "aangepast", ev_label_manual: "handmatig", ev_label_done: "voltooid",
     ev_mode_solar_hist: "zon-overschot (historie)", ev_mode_solar: "zon-overschot", ev_charging_now: "laadt nu",
     ev_vc_waiting: "wacht op het antwoord op de telefoon \u00b7 ESS Manager laat de lader met rust", ev_vc_asap: "zo snel mogelijk",
     ev_vc_external: "door de lader zelf gestart \u00b7 laadt nu op zijn eigen stroom, ESS Manager laat hem met rust",
@@ -2149,6 +2149,8 @@ const EV_CSS = `
   .ev-list { display: flex; flex-direction: column; gap: 6px; }
   .ev-row { display: flex; align-items: center; gap: 4px; padding: 8px 4px 8px 12px; border-radius: 10px; background: rgba(127,127,127,.12); }
   .ev-row.off { opacity: .55; }
+  .ev-row.done { opacity: .75; }
+  .ev-row.done .chip.done { background: rgba(111,207,151,.2); color: #6fcf97; }
   .ev-row.hist { outline: 2px solid ${EV_HIST_BORDER}; outline-offset: -2px; }
   .ev-row.sel { outline: 2px solid var(--ev); outline-offset: -2px; background: color-mix(in srgb, var(--ev) 14%, transparent); }
   .ev-row.run { outline: 2px solid var(--ev); outline-offset: -2px; background: color-mix(in srgb, var(--ev) 14%, transparent); }
@@ -2993,6 +2995,7 @@ class EssManagerEvCard extends EssChartCard {
   }
 
   _row(ev, s) {
+    if (s.completed) return this._doneRow(ev, s);
     const start = Date.parse(s.start);
     const end = s.end ? Date.parse(s.end) : null;
     const car = this._car(ev, s.car);
@@ -3020,6 +3023,24 @@ class EssManagerEvCard extends EssChartCard {
           ${warn}
         </button>
         <label class="ev-check"><input type="checkbox" data-toggle="${esc(s.id)}" ${s.enabled ? "checked" : ""} aria-label="${esc(this._t("ev_count"))}"></label>
+      </div>`;
+  }
+
+  // A finished session (as of 2026.10.37): shown for 6 hours after the car was
+  // unplugged (Victron) or the charging stopped, with what went in - not editable
+  _doneRow(ev, s) {
+    const start = Date.parse(s.start);
+    const end = s.end ? Date.parse(s.end) : null;
+    const car = this._car(ev, s.car);
+    return `
+      <div class="ev-row done">
+        <div class="ev-main" style="cursor:default">
+          <div class="ev-line"><div class="ev-when">${esc(this._day(start))} \u00b7 ${esc(this._time(start))} \u2192 ${esc(end ? this._time(end) : "\u2014")}</div><div class="ev-kwh">+${esc(this._kwh(s.charged_kwh != null ? s.charged_kwh : s.kwh))}</div></div>
+          <div class="ev-meta">
+            <span class="chip strong done">${esc(this._t("ev_label_done"))}</span>
+            ${car ? `<span class="car">${esc(car.name)}</span>` : ""}
+          </div>
+        </div>
       </div>`;
   }
 

@@ -12,6 +12,32 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.37] - 2026-10-30
+
+### Added
+- **The 09:00 question also without the Victron charger.** With only energy
+  and power sensors, the phones picked under "Phones to ask on" now also get
+  "A charging session is planned today at 18:00 - still right?".
+- **A finished session stays on the card as "completed"**, with the energy
+  that went in, for 6 hours after the car is unplugged (Victron charger) or
+  after the charging stopped (sensors only). Up to now it was gone right
+  away.
+
+### Changed
+- **"No" on the 09:00 question switches the session off** instead of
+  removing it: it stays on the card with its tick off.
+
+### Fixed
+- **Victron EV charger: a session only starts when the car really charges.**
+  Right after plugging in the charger passes "waiting for start" and
+  sometimes "charged" before it starts charging - that "charged" ended a
+  planned session it had just taken over. Now a session starts when the
+  Status is "charging" and power goes in; until then it's plugged in, and
+  "charged" doesn't end it. Unplugged without ever charging it wasn't a
+  session: no plug-in log entry, and the planned sessions it took over come
+  back. The state-of-charge correction only measures charges that really
+  started.
+
 ## [2026.10.36] - 2026-10-27
 
 ### Added

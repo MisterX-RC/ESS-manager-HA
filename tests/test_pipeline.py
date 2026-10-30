@@ -3430,9 +3430,12 @@ check("ev runtime: a running session keeps its start (the target can change: 30 
       and abs(sum(_tot5[1:]) + _tot5[0] * 0.5 - (20.0 + 5.0)) < 0.05)  # + the 5 kWh manual session
 _rt.update(_conf1, datetime(2026, 10, 12, 19, 0, tzinfo=_tz), _tz, 6, [0.0] * 121, 0.0, 120.0)
 _tot6, _a6 = _rt.update(_conf1, datetime(2026, 10, 12, 19, 11, tzinfo=_tz), _tz, 6, [0.0] * 121, 0.0, 120.0)
-check("ev runtime: 10 minutes without power -> the session is done and gone",
+check("ev runtime: 10 minutes without power -> the session is done, on the card as completed with what went in (2026.10.37)",
       _rt.running is None and "h:2026-10-12T18" in _rt.done
-      and not any(s["id"] == "h:2026-10-12T18" for s in _a6["sessions"]))
+      and [(s["completed"], s["charged_kwh"], s["running"]) for s in _a6["sessions"] if s["id"] == "h:2026-10-12T18"] == [(True, 20.0, False)])
+_tot6b, _a6b = _rt.update(_conf1, datetime(2026, 10, 13, 1, 1, tzinfo=_tz), _tz, 6, [0.0] * 121, 0.0, 120.0)
+check("ev runtime: ... until 6 hours after the charging stopped (19:00 -> gone at 01:00)",
+      not any(s["id"] == "h:2026-10-12T18" for s in _a6b["sessions"]) and "h:2026-10-12T18" not in _rt.finished)
 _rt2 = ev_runtime.EvRuntime()
 _tot7, _a7 = _rt2.update({**_conf1, "predict": False}, _n1, _tz, 6, [0.0] * 121, 3000.0, 50.0)
 check("ev runtime: prediction off -> empty list; a charge without a session becomes a manual running session",
@@ -4665,7 +4668,8 @@ _ms4 = _vrt4.save(None, {"start": int(datetime(2026, 11, 3, 18, 0, tzinfo=_ams2)
 _vrt4.update(_vconf, _m9, _ams2, 6, [0.0] * 121, 0.0, 0.0, victron=_vin(False))
 _vrt4.answer(_vrt4.morning[_ms4]["token"], f"m_no={_ms4}", None, int(_m9.timestamp()))
 _t4, _va4 = _vrt4.update(_vconf, _m9, _ams2, 6, [0.0] * 121, 0.0, 0.0, victron=_vin(False))
-check("victron: no -> the session is removed", _va4["sessions"] == [])
+check("victron: no -> the session is switched off, it stays on the card (2026.10.37)",
+      [(x["id"], x["enabled"]) for x in _va4["sessions"]] == [(_ms4, False)])
 check("victron: the store round-trips the conversation",
       ev_runtime.EvRuntime().as_store() != _vrt2.as_store() and _vrt2.as_store()["flow"]["choice"] == "asap")
 
@@ -4802,6 +4806,8 @@ _vrtA.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 100.0, victron=_vin(True))
 check("'yes' -> the plan stays, the end time comes", _vrtA.flow["step"] is None and "Vol om" in _vrtA.outbox[0]["payload"]["message"])
 _vrtA.answer(_tkA, "change=1", None, int(_vn.timestamp()))
 check("'something else' -> the usual question (the plan stays until a choice)", _vrtA.flow["step"] == "choice" and _vrtA.flow["choice"] == "deadline")
+# it really charges (2026.10.37: only then is it a session) ...
+_vrtA.update(_vconf, _vn + timedelta(minutes=30), _ams2, 6, [0.0] * 121, 0.0, 101.0, victron={**_vin(True, "charging"), "power_w": 7000.0})
 # unplugged: the connection goes in the log
 _vrtA.update(_vconf, datetime(2026, 11, 4, 7, 20, tzinfo=_ams2), _ams2, 6, [0.0] * 121, 0.0, 112.0, victron=_vin(False, "disconnected"))
 check("the plug-in log: on / off / kWh / choice / deadline / car",
@@ -4993,6 +4999,7 @@ _tokI = _vrtI.flow["token"]
 _vrtI.answer(_tokI, "choice=asap", None, int(_vn.timestamp()))
 _vrtI.answer(_tokI, "soc", "60", int(_vn.timestamp()))
 _vrtI.flow["applied"] = {"mode": "manual", "charge": True, "current": 16}
+_vrtI.update(_vconf, _vn + timedelta(minutes=30), _ams2, 6, [0.0] * 121, 0.0, 506.0, victron=_vS(True, "charging", 3600.0))
 _vrtI.update(_vconf, _vn + timedelta(hours=1), _ams2, 6, [0.0] * 121, 0.0, 512.5, victron=_vS(True, "connected", 0.0))
 _vrtI.update(_vconf, _vn + timedelta(hours=1, minutes=10), _ams2, 6, [0.0] * 121, 0.0, 512.5, victron=_vS(True, "connected", 0.0))
 check("soc correction: switched on, nothing going in - not yet after 10 minutes", _vrtI.soc_samples == [])
@@ -5053,6 +5060,53 @@ check("charge efficiency: the correction is measured on top of it (27 kWh in for
 check("charge efficiency: a sample's deviation is judged on top of it too (26.67 kWh at 90 % = exactly as planned)",
       ev.soc_sample_used(_es, "c1", 24.0, 26.67, 0.9) == (True, None) and ev.soc_sample_used([], "c1", 24.0, 40.0, 0.9) == (True, None)
       and ev.soc_sample_used([], "c1", 24.0, 44.0, 0.9) == (False, "outlier"))
+
+# 2026.10.37: the Victron charger - a session really starts at "charging" with
+# power; a "charged" before that doesn't end it; unplugged without charging it
+# wasn't a session; a finished one stays "completed" 6 hours after unplugging
+_gn = datetime(2026, 10, 28, 17, 59, tzinfo=_ams2)
+_grt = ev_runtime.EvRuntime()
+_grt.morning_day = "2026-10-28"
+_gplan = _grt.save(None, {"start": int(_gn.replace(hour=18, minute=0).timestamp()), "kwh": 6.0, "mode": "fixed", "current_a": 16,
+                          "car": "c1"}, int(_gn.timestamp()))
+_gv = lambda st, pw=0.0, c=True: {**_vin(c, st), "power_w": pw}
+_grt.update(_wconf, _gn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_gv("waiting_for_start"))
+check("plugged in during a planned session: taken over, not charging yet",
+      _grt.flow["adopted"] == _gplan and not _grt.flow["charging_seen"] and _grt.flow["choice"] == "asap")
+_grt.update(_wconf, _gn + timedelta(minutes=1), _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_gv("charged"))
+check("the charger passes 'charged' right after plugging in: the session doesn't end", not _grt.flow["done"])
+_grt.update(_wconf, _gn + timedelta(minutes=8), _ams2, 6, [0.0] * 121, 0.0, 500.2, victron=_gv("charging", 3600.0))
+check("'charging' with power: now it really charges", _grt.flow["charging_seen"] == int((_gn + timedelta(minutes=8)).timestamp()))
+_grt.update(_wconf, _gn + timedelta(hours=2), _ams2, 6, [0.0] * 121, 0.0, 506.0, victron=_gv("charged"))
+check("... and 'charged' after that ends it", _grt.flow["done"])
+_gt, _ga = _grt.update(_wconf, _gn + timedelta(hours=3), _ams2, 6, [0.0] * 121, 0.0, 506.0, victron=_gv("disconnected", c=False))
+_gdone = [x for x in _ga["sessions"] if x.get("completed")]
+check("unplugged: on the card as completed with what went in (6 kWh), nothing of it in the forecast",
+      len(_gdone) == 1 and _gdone[0]["charged_kwh"] == 6.0 and not _gdone[0]["running"] and sum(_gt) == 0.0 and len(_grt.log) == 1)
+_gt2, _ga2 = _grt.update(_wconf, _gn + timedelta(hours=9, minutes=1), _ams2, 6, [0.0] * 121, 0.0, 506.0, victron=_gv("disconnected", c=False))
+check("... until 6 hours after unplugging", not any(x.get("completed") for x in _ga2["sessions"]))
+# plugged in, never charged, unplugged: no session after all, the planned one is back
+_hrt = ev_runtime.EvRuntime()
+_hrt.morning_day = "2026-10-28"
+_hplan = _hrt.save(None, {"start": int(_gn.replace(hour=19, minute=0).timestamp()), "kwh": 6.0, "mode": "fixed", "current_a": 16,
+                          "car": "c1"}, int(_gn.timestamp()))
+_hrt.update(_wconf, _gn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_gv("waiting_for_start"))
+_hsid = _hrt.flow["sid"]
+_ht, _ha = _hrt.update(_wconf, _gn + timedelta(minutes=5), _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_gv("disconnected", c=False))
+check("unplugged without ever charging: no session, no log entry, the planned 19:00 session is back",
+      [x["id"] for x in _ha["sessions"]] == [_hplan] and _hrt.log == [] and not any(m["id"] == _hsid for m in _hrt.manual))
+# without the Victron charger: the 09:00 question too; "no" switches the session off
+_srt = ev_runtime.EvRuntime()
+_sm = _srt.save(None, {"start": int(datetime(2026, 11, 3, 18, 0, tzinfo=_ams2).timestamp()), "kwh": 10.0, "mode": "fixed"},
+                int(_m9.timestamp()))
+_snot = {"entry_id": "E1", "language": "nl", "notify": True, "notify_services": ["mobile_app_x"]}
+_srt.update(_vconf, _m9, _ams2, 6, [0.0] * 121, 0.0, 0.0, notify=_snot)
+check("without the Victron charger: the 09:00 question about today's session",
+      len(_srt.outbox) == 1 and "18:00" in _srt.outbox[0]["payload"]["message"] and _sm in _srt.morning)
+_srt.answer(_srt.morning[_sm]["token"], f"m_no={_sm}", None, int(_m9.timestamp()))
+_st, _sa = _srt.update(_vconf, _m9, _ams2, 6, [0.0] * 121, 0.0, 0.0, notify=_snot)
+check("... 'no' switches it off: on the card, tick off, not in the forecast",
+      [(x["id"], x["enabled"]) for x in _sa["sessions"]] == [(_sm, False)] and sum(_st) == 0.0)
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

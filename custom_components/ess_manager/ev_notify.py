@@ -63,7 +63,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "no": "No",
         "morning_soc": "Charging at {time}: what will the car's state of charge be (%)?",
         "morning_kwh": "Charging at {time}: how much energy (kWh) should go in?",
-        "morning_removed": "The session at {time} is removed.",
+        "morning_removed": "The session at {time} is switched off (it stays on the card).",
         "morning_set": "Session at {time}: {kwh} kWh.",
     },
     "nl": {
@@ -111,7 +111,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "no": "Nee",
         "morning_soc": "Laden om {time}: wat wordt de laadstand van de auto (%)?",
         "morning_kwh": "Laden om {time}: hoeveel energie (kWh) moet erin?",
-        "morning_removed": "De sessie van {time} is verwijderd.",
+        "morning_removed": "De sessie van {time} is uitgeschakeld (hij blijft op de kaart staan).",
         "morning_set": "Sessie van {time}: {kwh} kWh.",
     },
 }

@@ -85,6 +85,9 @@
           "ev_max_current": "Maximum charging current (A)",
           "ev_phases": "Phases the charger uses (230 V per phase)",
           "ev_predict": "Predict sessions from history"
+        },
+        "data_description": {
+          "ev_notify_services": "The Home Assistant Companion app's notify services. With the Victron charger: the questions when a car is plugged in. Either way (as of 2026.10.37): at 09:00 the question whether a session planned for today is still right - No switches it off (it stays on the card), Yes asks the state of charge."
         }
       },
       "ev_cars": {
@@ -297,6 +300,9 @@
           "ev_max_current": "Maximum charging current (A)",
           "ev_phases": "Phases the charger uses (230 V per phase)",
           "ev_predict": "Predict sessions from history"
+        },
+        "data_description": {
+          "ev_notify_services": "The Home Assistant Companion app's notify services. With the Victron charger: the questions when a car is plugged in. Either way (as of 2026.10.37): at 09:00 the question whether a session planned for today is still right - No switches it off (it stays on the card), Yes asks the state of charge."
         }
       },
       "ev_cars": {

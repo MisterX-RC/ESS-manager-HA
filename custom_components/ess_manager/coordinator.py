@@ -586,6 +586,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "price_start": int(units.local_midnight(now).timestamp()),
         }
 
+    def _ev_notify_ctx(self, conf: dict[str, Any]) -> dict[str, Any]:
+        """The phones to ask on without the Victron charger (as of 2026.10.37):
+        only the 09:00 question about today's sessions."""
+        notify = [s for s in (conf.get(CONF_EV_NOTIFY) or []) if self.hass.services.has_service("notify", s)]
+        return {"entry_id": self.entry.entry_id, "language": evn.lang(self.hass.config.language),
+                "notify": bool(notify), "notify_services": notify}
+
     def _ev_grid_offset_kw(self, victron: dict[str, Any], ents: dict[str, str], now: datetime) -> float:
         """What the car takes now (kW) when it's in a grid window, else 0."""
         flow = self.ev.flow
@@ -2076,6 +2083,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _state_in_unit(self.hass, conf.get(CONF_EV_ENERGY_ENTITY), ("Wh",), 0.001),
                 EV_DAYS,
                 victron=ev_victron,
+                # without the Victron charger: the phones for the 09:00 question (as of 2026.10.37)
+                notify=None if ev_victron is not None else self._ev_notify_ctx(conf),
             )
             # the car's grid windows (Victron charger) don't come out of the
             # house battery: the grid setpoint covers them

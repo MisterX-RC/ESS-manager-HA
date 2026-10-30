@@ -167,18 +167,35 @@ class _VictronMixin:
         questions; unplugged ends it. True when the session list changed."""
         flow = self.flow
         if flow and not connected:
-            # the plug-in log (as of 2026.10.29): what this connection was
             start = flow.get("energy_start")
             last = energy_kwh if energy_kwh is not None else flow.get("last_energy")
             # unplugged when the charger's Status went to "disconnected"
             off = int(self.ctx.get("status_since") or now_epoch)
             if not int(flow.get("since") or 0) < off <= now_epoch:
                 off = now_epoch
+            if not flow.get("charging_seen"):
+                # unplugged without ever really charging (as of 2026.10.37):
+                # no session after all - the planned sessions it took over come
+                # back, nothing goes into the log
+                for sid in flow.get("covered") or []:
+                    self.done.pop(sid, None)
+                self.manual = [m for m in self.manual if m["id"] != flow["sid"]]
+                self.rest_charger = True
+                if self.running and self.running.get("id") == flow["sid"]:
+                    self.running = None
+                self.flow = None
+                self._clear()
+                return True
+            kwh_in = round(max(float(last) - float(start), 0.0), 2) if start is not None and last is not None else 0.0
+            # a finished session stays on the card as "completed" for 6 hours
+            # after unplugging (as of 2026.10.37; up to then it was gone at once)
+            self.finished[flow["sid"]] = {"at": off, "kwh": kwh_in}
+            # the plug-in log (as of 2026.10.29): what this connection was
             self.log.append({
                 "car": flow.get("car"),
                 "on": int(flow.get("since") or now_epoch),
                 "off": off,
-                "kwh": round(max(float(last) - float(start), 0.0), 2) if start is not None and last is not None else 0.0,
+                "kwh": kwh_in,
                 "choice": flow.get("choice"),
                 "deadline": flow.get("deadline") if flow.get("choice") == evc.CHOICE_DEADLINE else None,
                 "soc": flow.get("soc"),
@@ -203,7 +220,14 @@ class _VictronMixin:
             if flow is None:
                 return False
             flow["last_energy"] = energy_kwh
-            if status == evc.STATUS_CHARGED and flow.get("choice") is not None:
+            # the session only really starts when the charger says "charging"
+            # and power goes in (as of 2026.10.37): after plugging in the
+            # charger passes "waiting for start" and even "charged" first -
+            # that "charged" ended the session before it began
+            if status == evc.STATUS_CHARGING_NOW and (self.ctx.get("power_w") or 0.0) > evc.CHARGING_W:
+                if not flow.get("charging_seen"):
+                    flow["charging_seen"] = now_epoch
+            if status == evc.STATUS_CHARGED and flow.get("choice") is not None and flow.get("charging_seen"):
                 flow["done"] = True
             self._victron_sample(status, now_epoch)
             healed = self._victron_heal(now_epoch, energy_kwh, typical_kwh)
@@ -215,6 +239,7 @@ class _VictronMixin:
         hour = _floor_hour(now_epoch)
         expected = None
         adopt = None
+        covered: list[str] = []
         for s in sorted(sessions, key=lambda x: abs(int(x["start"]) - now_epoch)):
             if s.get("running"):
                 continue
@@ -228,6 +253,7 @@ class _VictronMixin:
                 if adopt is None and s.get("enabled", True):
                     adopt = s
                 self.done[s["id"]] = now_epoch
+                covered.append(s["id"])
         cars = self.ctx.get("cars") or []
         sid = "m:" + uuid.uuid4().hex[:10]
         self.manual.append({
@@ -251,7 +277,12 @@ class _VictronMixin:
             "energy_at_need": energy_kwh, "last_energy": energy_kwh, "energy_start": energy_kwh,
             "windows": [], "quarters": [], "applied": {},
             "plan": None, "done": False, "announce": False,
+            # the sessions it took over / dropped at plug-in (back when it's
+            # unplugged without charging) and since when it really charges
+            "covered": covered, "charging_seen": None,
         }
+        if status == evc.STATUS_CHARGING_NOW and (self.ctx.get("power_w") or 0.0) > evc.CHARGING_W:
+            self.flow["charging_seen"] = now_epoch  # charging the moment it's seen plugged in
         if adopt is not None and (adopt.get("car") or len(cars) <= 1):
             self._adopt(adopt, now_epoch)
             return True
@@ -312,6 +343,8 @@ class _VictronMixin:
         flow = self.flow
         if not flow or flow.get("need_raw") is None or flow.get("sampled") or flow.get("choice") is None:
             return
+        if not flow.get("charging_seen"):
+            return  # (as of 2026.10.37) a "charged" before it really charged isn't full
         start, last = flow.get("energy_at_need"), flow.get("last_energy")
         if start is None or last is None:
             return
@@ -726,7 +759,7 @@ class _VictronMixin:
         lg = self.ctx["language"]
         for s in sessions:
             start = int(s["start"])
-            if s.get("running") or s["id"] == flow_sid or not s.get("enabled", True) or start <= now_epoch:
+            if s.get("running") or s.get("completed") or s["id"] == flow_sid or not s.get("enabled", True) or start <= now_epoch:
                 continue
             if datetime.fromtimestamp(start, tz).date() != local.date():
                 continue
@@ -748,10 +781,12 @@ class _VictronMixin:
         session = next((s for s in self.last_sessions if s["id"] == sid), None)  # type: ignore[attr-defined]
         car = self._car((session or {}).get("car"))
         if key == "m_no":
-            if sid.startswith("h:"):
-                self.done[sid] = now_epoch
-            else:
-                self.manual = [s for s in self.manual if s["id"] != sid]
+            # switched off, not removed (as of 2026.10.37): it stays on the
+            # card with its tick off, so it can be switched on again
+            try:
+                self.save(sid, {"enabled": False}, now_epoch)  # type: ignore[attr-defined]
+            except KeyError:
+                return False
             self.morning.pop(sid, None)
             self._send(self._t("morning_removed", time=when), sid=sid)
             return True
@@ -816,6 +851,8 @@ class EvRuntime(_VictronMixin):
         # the state-of-charge correction (as of 2026.10.35): [{car, at, soc,
         # target, planned, actual, ratio, how, used, why}], see ev.soc_factor
         self.soc_samples: list[dict[str, Any]] = []
+        # finished sessions shown as "completed" (as of 2026.10.37): {id: {at, kwh}}
+        self.finished: dict[str, dict[str, Any]] = {}
 
     # -- store ---------------------------------------------------------------
     def restore(self, data: Optional[dict[str, Any]]) -> None:
@@ -831,13 +868,14 @@ class EvRuntime(_VictronMixin):
         self.log_since = data.get("log_since")
         self.rest_charger = bool(data.get("rest_charger"))
         self.soc_samples = list(data.get("soc_samples") or [])
+        self.finished = dict(data.get("finished") or {})
 
     def as_store(self) -> dict[str, Any]:
         return {
             "overrides": self.overrides, "manual": self.manual, "running": self.running, "done": self.done,
             "flow": self.flow, "morning_day": self.morning_day, "morning": self.morning,
             "log": self.log, "log_since": self.log_since, "rest_charger": self.rest_charger,
-            "soc_samples": self.soc_samples,
+            "soc_samples": self.soc_samples, "finished": self.finished,
         }
 
     # -- card edits ----------------------------------------------------------
@@ -903,6 +941,7 @@ class EvRuntime(_VictronMixin):
 
     def _prune(self, now_epoch: int) -> None:
         self.done = {k: v for k, v in self.done.items() if now_epoch - v < KEEP}
+        self.finished = {k: v for k, v in self.finished.items() if now_epoch < int(v.get("at", 0)) + ev.FINISHED_SHOW}
         running_id = (self.running or {}).get("id")
         keep_from = self._keep_from()
         self.manual = [
@@ -949,6 +988,11 @@ class EvRuntime(_VictronMixin):
                 return False
             if now_epoch - int(self.running["low_since"]) >= STOP_AFTER:
                 self.done[self.running["id"]] = now_epoch
+                # stays on the card as "completed" for 6 hours after the
+                # charging stopped (as of 2026.10.37)
+                start = self.running.get("energy_start")
+                kwh_in = round(max(float(energy_kwh) - float(start), 0.0), 2) if start is not None and energy_kwh is not None else 0.0
+                self.finished[self.running["id"]] = {"at": int(self.running["low_since"]), "kwh": kwh_in}
                 self.running = None
                 return True
             return False
@@ -998,6 +1042,7 @@ class EvRuntime(_VictronMixin):
         energy_kwh: Optional[float],
         days: int = 5,
         victron: Optional[dict[str, Any]] = None,
+        notify: Optional[dict[str, Any]] = None,
     ) -> tuple[list[float], dict[str, Any]]:
         """This cycle's EV forecast per hour (hour 0 = the current hour, a
         full-hour value) and the Status sensor's `ev` attribute.
@@ -1007,7 +1052,9 @@ class EvRuntime(_VictronMixin):
         prices, price_start} - plugging in starts a session and the
         questions on the phone (`outbox`), see _VictronMixin; the
         attribute's `grid_120h` is the car's energy in its grid windows
-        (the house battery stays out of it)."""
+        (the house battery stays out of it). `notify` (without the Victron
+        charger, as of 2026.10.37): {entry_id, language, notify,
+        notify_services} - for the 09:00 question about today's sessions."""
         phases = int(conf.get("phases") or 3)
         min_a = float(conf.get("min_current") or 6)
         max_a = float(conf.get("max_current") or 16)
@@ -1047,11 +1094,15 @@ class EvRuntime(_VictronMixin):
                 predicted, self.overrides, self.manual, cars, now_epoch, end_epoch,
                 running_id=(self.running or {}).get("id"), done=set(self.done),
                 keep_from=self._keep_from() if victron is not None else None,
+                finished=self.finished,
             )
 
         self.outbox = []
         if victron is not None:
             self.ctx = {**victron, "tz": tz, "cars": cars, "min_a": min_a, "max_a": max_a, "phases": phases, "now": now_epoch}
+        elif notify is not None:
+            # without the Victron charger only the morning question (as of 2026.10.37)
+            self.ctx = {**notify, "tz": tz, "cars": cars, "min_a": min_a, "max_a": max_a, "phases": phases, "now": now_epoch}
         sessions = build()
         if victron is not None:
             changed = self._victron_track(
@@ -1063,6 +1114,8 @@ class EvRuntime(_VictronMixin):
             sessions = build()
         if victron is not None:
             self._victron_plan(now_epoch, hour0, house_net, phases, min_a, max_a)
+            self._victron_morning(sessions, now, now_epoch)
+        elif notify is not None:
             self._victron_morning(sessions, now, now_epoch)
 
         delivered: dict[str, float] = {}
@@ -1086,6 +1139,10 @@ class EvRuntime(_VictronMixin):
         flow_end: Optional[int] = None
         flow_seen = False
         for s in sessions:
+            if s.get("completed"):
+                # finished (as of 2026.10.37): on the card, nothing ahead
+                out.append(s)
+                continue
             waits = flow_seen and s["id"] != (flow or {}).get("sid") and (flow_end is None or int(s["start"]) < flow_end)
             if waits:
                 original = s
@@ -1160,6 +1217,8 @@ class EvRuntime(_VictronMixin):
                 # (as of 2026.10.36) waits for the plugged-in car: counts from
                 # waits_until on (None: its end isn't known yet)
                 "waits": bool(s.get("waits")),
+                # (as of 2026.10.37) finished: shown for 6 hours, charged_kwh = what went in
+                "completed": bool(s.get("completed")),
                 "waits_until": iso(s.get("waits_until")) if s.get("waits_until") else None,
             }
             original = by_pred.get(s["id"])

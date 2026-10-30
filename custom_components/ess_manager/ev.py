@@ -134,6 +134,10 @@ def charge_capacity(car: Optional[dict[str, Any]]) -> Optional[float]:
     return float(cap) * float((car or {}).get("kwh_factor") or 1.0) / car_efficiency(car)
 
 
+# a finished session stays on the card this long (as of 2026.10.37): after the
+# car is unplugged (Victron charger), after the charging stopped (sensors)
+FINISHED_SHOW = 6 * HOUR
+
 LABEL_HISTORY = "history"
 LABEL_EDITED = "edited"
 LABEL_MANUAL = "manual"
@@ -410,6 +414,7 @@ def build_sessions(
     running_id: Optional[str] = None,
     done: Optional[set[str]] = None,
     keep_from: Optional[int] = None,
+    finished: Optional[dict[str, dict[str, Any]]] = None,
 ) -> list[dict[str, Any]]:
     """The card's session list: predicted sessions with their override (an
     edit: label "edited"), plus the manual ones (label "manual"), sorted by
@@ -417,7 +422,9 @@ def build_sessions(
     START_GRACE without charging, and ones starting after `end_epoch`.
     `keep_from` (as of 2026.10.36, while a car is plugged in: the hour it was
     plugged in): sessions you added from then on stay past their start - they
-    wait for the plugged-in car.
+    wait for the plugged-in car. `finished` (as of 2026.10.37): a finished
+    session ({id: {at, kwh}}) stays on the card as "completed" (FINISHED_SHOW
+    after `at`), with the energy that went in.
     With exactly one car, every session is that car's."""
     done = done or set()
     by_id = {c.get("id"): c for c in cars}
@@ -431,7 +438,16 @@ def build_sessions(
         candidates.append(s)
     for s in manual:
         candidates.append({**s, "label": LABEL_MANUAL})
+    finished = finished or {}
     for s in candidates:
+        fin = finished.get(s["id"])
+        if fin is not None and now_epoch < int(fin["at"]) + FINISHED_SHOW:
+            car = by_id.get(s.get("car")) if s.get("car") else only
+            s = apply_car({**s, "car": car.get("id") if car else None}, car)
+            s.update({"running": False, "completed": True, "end": int(fin["at"]),
+                      "charged_kwh": round(float(fin.get("kwh") or 0.0), 2)})
+            out.append(s)
+            continue
         if s["id"] in done:
             continue
         running = s["id"] == running_id

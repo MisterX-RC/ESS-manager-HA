@@ -60,6 +60,10 @@ REST_TARGET = {"mode": MODE_MANUAL, "charge": False, "current": None, "why": "un
 # charger Status values that mean no car
 STATUS_DISCONNECTED = "disconnected"
 STATUS_CHARGED = "charged"
+# really charging (as of 2026.10.37): this Status and power going in - only
+# then has a session started; "charged" before that (the charger passes it
+# right after plugging in) doesn't end it
+STATUS_CHARGING_NOW = "charging"
 
 CHOICE_ASAP = "asap"
 CHOICE_CALM = "calm"
