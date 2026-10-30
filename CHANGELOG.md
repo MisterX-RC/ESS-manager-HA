@@ -12,6 +12,17 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.39] - 2026-10-30
+
+### Added
+- **Maximum return setpoint for floor control.** A new number **Floor
+  control maximum return setpoint** (20-35 degC in steps of 0.5, default
+  35, also on the Floor tab of the heat pump card; hidden while floor
+  control isn't set up). The return setpoint floor control writes never
+  goes above it - not for more power, not for the comfort safety net
+  ("never below the setpoint it had before"), and not for the old setpoint
+  it hands back when it stops. For a floor whose pipes take less, like PVC.
+
 ## [2026.10.38] - 2026-10-30
 
 ### Changed

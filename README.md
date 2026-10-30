@@ -859,7 +859,12 @@ becomes
   proportion to the mean water temperature above the room (or above the
   screed, with a floor sensor). How much - kW per °C - ESS Manager learns
   from the supply and return temperatures, the room and the heat pump's
-  thermal power. Little heat needed: a low setpoint and a better COP;
+  thermal power. Little heat needed: a low setpoint and a better COP.
+  It stays within 20-35 °C and the setpoint entity's own range, and never
+  above the number **Floor control maximum return setpoint** (as of
+  2026.10.39, default 35 °C, also on the Floor tab of the heat pump card) -
+  for a floor whose pipes take less, like PVC. That also goes for the old
+  setpoint it hands back when it stops;
 - **heat demand** on/off: on when the heat owed (planned minus delivered)
   is worth a run, off once it's in - at least 45 minutes on and 20 off for
   the compressor, and always on more than 1 °C too cold / off more than

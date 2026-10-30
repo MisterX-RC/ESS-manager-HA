@@ -70,6 +70,8 @@ from .const import (
     FLOOR_REQUIRED,
     CONF_HP_HOURLY_ENABLED,
     HP_STEERING_PLAN,
+    FLOOR_PLAN,
+    NUM_FLOOR_MAX_RETURN,
     NUM_HP_DAY_TEMP,
     NUM_HP_NIGHT_TEMP,
     NUM_HP_BUFFER_DELTA,
@@ -391,6 +393,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         conf = {**self.entry.data, **self.entry.options}
         if plan == HP_STEERING_PLAN:
             return bool(conf.get(CONF_HP_ENABLED) and conf.get(CONF_HP_HOURLY_ENABLED) and conf.get(CONF_HP_BUFFER_ENABLED))
+        if plan == FLOOR_PLAN:
+            return self.floor_configured(conf)
         return bool(conf.get(plan, PLAN_ENABLED_DEFAULTS[plan]))
 
     def invalidate_usage_forecast(self) -> None:
@@ -1095,7 +1099,15 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         domain = entity_id.split(".", 1)[0]
         await self.hass.services.async_call(domain, "turn_on" if on else "turn_off", {"entity_id": entity_id}, blocking=True)
 
+    def floor_max_return(self) -> float:
+        """The highest return setpoint floor control may write (the number
+        Floor control maximum return setpoint, as of 2026.10.38)."""
+        lo, hi = fc.SP_LIMITS
+        return min(max(self.get_number(NUM_FLOOR_MAX_RETURN, hi), lo), hi)
+
     async def _async_floor_setpoint(self, entity_id: str, value: float) -> None:
+        # never above the maximum - also when handing the old setpoint back
+        value = min(value, self.floor_max_return())
         domain = entity_id.split(".", 1)[0]
         await self.hass.services.async_call(domain, "set_value", {"entity_id": entity_id, "value": value}, blocking=True)
 
@@ -1237,6 +1249,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # the room lagging behind: more power (full at 1.2 degC too cold)
         p_sp = fc.comfort_power(p_sp, indoor, setpoint, p_min, p_max)
         lo, hi = fc.SP_LIMITS
+        hi = self.floor_max_return()
         if sp_state is not None:
             lo = max(lo, _float_or(sp_state.attributes.get("min"), lo))
             hi = min(hi, _float_or(sp_state.attributes.get("max"), hi))
@@ -1246,7 +1259,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # a COMFORT_BAND too cold: never below the setpoint the heat pump had before
         if (sp_planned is not None and floor.baseline_sp is not None and indoor is not None and setpoint is not None
                 and setpoint - indoor >= fc.COMFORT_BAND):
-            sp_planned = max(sp_planned, floor.baseline_sp)
+            sp_planned = min(max(sp_planned, floor.baseline_sp), hi)
 
         # stage changes
         if stage in (fc.MODE_SETPOINT, fc.MODE_FULL) and prev == fc.MODE_WATCH:
@@ -1305,6 +1318,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "next": nxt,
             "recent": recent,
             "select": self.floor_mode_entity_id,
+            "max_return": getattr(self._numbers.get(NUM_FLOOR_MAX_RETURN), "entity_id", None),
+            "max_return_c": hi,
         }
 
     async def _async_set_climate(self, entity_id: str, temperature: float) -> None:

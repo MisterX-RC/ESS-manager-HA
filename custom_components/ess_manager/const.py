@@ -239,6 +239,7 @@ FLOOR_REQUIRED = (
 )
 DEFAULT_HP_BUFFER_ENABLED = False
 HP_STEERING_PLAN = "hp_steering"  # pseudo plan key: heat pump + both steps on
+FLOOR_PLAN = "floor_control"  # pseudo plan key: floor control set up (as of 2026.10.38)
 DEFAULT_HP_ENABLED = False
 HP_METER_SEPARATE = "separate"
 HP_METER_TOTAL = "total"
@@ -366,6 +367,9 @@ NUM_HP_NIGHT_TEMP = "hp_night_temperature"
 NUM_HP_BUFFER_DELTA = "hp_buffer_delta"
 NUM_HP_DAY_FROM = "hp_day_from"
 NUM_HP_NIGHT_FROM = "hp_night_from"
+# floor control (as of 2026.10.38): the highest return setpoint it may write
+# (a PVC floor pipe, say) - within the built-in 20..35 degC
+NUM_FLOOR_MAX_RETURN = "floor_max_return"
 
 # (key, name, icon, min, max, step, unit, default_fn(config_entry.data))
 # default_fn takes the config entry's `data` dict and returns the seed value
@@ -570,6 +574,7 @@ NUMBER_DEFINITIONS = [
     (NUM_HP_BUFFER_DELTA, "Heat pump buffer range", "mdi:thermometer-plus", 0, 3, 0.5, "\u00b0C", lambda data: 1.0),
     (NUM_HP_DAY_FROM, "Heat pump day from", "mdi:clock-start", 0, 23, 1, "h", lambda data: 7),
     (NUM_HP_NIGHT_FROM, "Heat pump night from", "mdi:clock-end", 0, 23, 1, "h", lambda data: 22),
+    (NUM_FLOOR_MAX_RETURN, "Floor control maximum return setpoint", "mdi:thermometer-high", 20, 35, 0.5, "\u00b0C", lambda data: 35.0),
 ]
 
 # ---------------------------------------------------------------------------
@@ -600,6 +605,7 @@ PLAN_ENTITY_KEYS = {
     CONF_HP_ENABLED: ("heat_pump_model",),
     # steering's settings and switch (as of 2026.10.17)
     HP_STEERING_PLAN: (NUM_HP_DAY_TEMP, NUM_HP_NIGHT_TEMP, NUM_HP_BUFFER_DELTA, NUM_HP_DAY_FROM, NUM_HP_NIGHT_FROM, "heat_pump_steering"),
+    FLOOR_PLAN: (NUM_FLOOR_MAX_RETURN,),
     CONF_ENABLE_FULL_CHARGE_PLAN: (
         NUM_FULL_CHARGE_INTERVAL_DAYS,
         NUM_FULL_CHARGE_MAX_HOLD_MINUTES,
@@ -613,6 +619,7 @@ PLAN_ENABLED_DEFAULTS = {
     CONF_ENABLE_FULL_CHARGE_PLAN: DEFAULT_ENABLE_FULL_CHARGE_PLAN,
     CONF_HP_ENABLED: DEFAULT_HP_ENABLED,
     HP_STEERING_PLAN: False,
+    FLOOR_PLAN: False,
 }
 
 

@@ -174,6 +174,7 @@ const I18N = {
     ed_hp_color: "Heat pump", ed_fc_color: "Accent",
     // heat pump card, floor tab (2026.10.23)
     hp_tab_floor: "Floor", fl_mode: "Floor control", fl_mode_watch: "Watch", fl_mode_setpoint: "Return setpoint", fl_mode_full: "Full",
+    fl_max_return: "Max. return setpoint",
     fl_stage_watch: "Watching along: the thermostat switches, ESS Manager learns the floor",
     fl_stage_setpoint: "ESS Manager sets the return setpoint, the thermostat switches heat demand",
     fl_stage_full: "ESS Manager heats the floor: return setpoint and heat demand",
@@ -356,6 +357,7 @@ const I18N = {
     hp_hold_t: "Warmte vasthouden", hp_hold_unit: "per °C binnen", hp_cooling_t: "Afkoelen", hp_cooling_unit: "bij 10 °C verschil, zonder stoken",
     hp_tau: (h) => `tijdconstante ${h} uur`, hp_thermal_learning: "Afkoelsnelheid van het huis nog niet geleerd: daar zijn uren voor nodig waarin de warmtepomp niet stookte (uit de statistieken van de binnensensor, of wat er van de temperatuur van de thermostaat is bijgehouden).",
     ed_hp_color: "Warmtepomp", ed_fc_color: "Accent",
+    fl_max_return: "Max. retoursetpoint",
     hp_tab_floor: "Vloer", fl_mode: "Vloersturing", fl_mode_watch: "Meekijken", fl_mode_setpoint: "Retoursetpoint", fl_mode_full: "Volledig",
     fl_stage_watch: "Meekijken: de thermostaat schakelt, ESS Manager leert de vloer",
     fl_stage_setpoint: "ESS Manager zet het retoursetpoint, de thermostaat schakelt de warmtevraag",
@@ -3575,6 +3577,11 @@ class EssManagerHeatPumpCard extends EssChartCard {
     if (selState) {
       html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><b>${esc(this._t("fl_mode"))}</b></div>
         <div class="hp-tabs" role="group">${["watch", "setpoint", "full"].map((k) => `<button type="button" data-select="${esc(fl.select)}" data-option="${k}" aria-selected="${mode === k}">${esc(this._t("fl_mode_" + k))}</button>`).join("")}</div>`;
+    }
+    // the highest return setpoint floor control may write (2026.10.38)
+    const maxSt = fl.max_return ? this._hass.states[fl.max_return] : null;
+    if (maxSt) {
+      html += `<div class="hp-ctl"><span>${esc(this._t("fl_max_return"))}</span><span class="val"><button type="button" data-step="-1" data-entity="${esc(fl.max_return)}" aria-label="-">−</button><span style="min-width:56px;text-align:center">${esc(this._num(Number(maxSt.state), 1))} °C</span><button type="button" data-step="1" data-entity="${esc(fl.max_return)}" aria-label="+">+</button></span></div>`;
     }
     const waits = [];
     for (const w of fl.waiting || []) {
