@@ -722,7 +722,8 @@ its usage from the weather**); two pages follow:
   above the cooling temperature, with cooling data - from 16 °C at the
   lowest). With the indoor temperature on most cool days the heat loss
   follows indoor - outdoor: the balance temperature belongs to the usual
-  indoor temperature and moves with each day's own, so a degree warmer
+  indoor temperature on the cool days (as of 2026.10.38 - before, a
+  summer-warm house moved it) and moves with each day's own, so a degree warmer
   inside costs the kWh per degree colder; the coming days are forecast with
   the usual indoor temperature of the last heating days, moved by how much
   the thermostat now differs (a holiday at 16 °C). Without it, the wanted
@@ -742,16 +743,22 @@ its usage from the weather**); two pages follow:
   taken out of the household usage history (like the electric car) and the
   model's forecast added; without, the model's difference to the usual
   average is added.
-- **Days left out**: a cool day without heat demand (with a thermostat -
-  a climate entity - as the wanted temperature: it asked for heat less than
-  half an hour that day; its hvac_action, else indoor below wanted; the
-  recorder's last ~10 days on the first start, live after that), a cool day
+- **Days left out**: a cool day without heat demand (heat asked less than
+  half an hour that day; the recorder's last ~10 days on the first start,
+  live after that), a cool day
   on which the house lived on its stored heat
   (with an indoor temperature: it cooled 0.3 °C or more from midnight to
   midnight while the heat pump heated at most 4 hours - typical for autumn,
   out of the summer) says nothing about what such a day needs, and a day far
   off the model is a meter jump: both are left out of the fit. On the
-  Signature tab they're grey rings.
+  Signature tab they're grey rings. *Heat demand* comes from the heat
+  pump's **heat demand switch** when floor control is set up (as of
+  2026.10.38 - the heat pump heats only while it's on, hot water and
+  cooling run outside it, so it works for any heat pump without its own
+  sensors), else from the thermostat (a climate entity as the wanted
+  temperature: its hvac_action, else indoor below wanted). Switching
+  between the two clears the demand hours of the old source once; the
+  recorder's last days refill them.
 - **Falling back**: with fewer than 21 heating days, or heating days in fewer
   than 3 temperature classes of 2.5 °C (3+ days each), a poor fit or no
   weather forecast, the heat pump stays in the household usage as before
@@ -801,7 +808,12 @@ the heat pump page in Configure, as of 2026.10.17:
   temperature follows the outdoor temperature, wind, sun and the heat put
   in - with the floor's delay (its time constant it finds itself) and,
   with the optional **COP sensor**, the COP by the outdoor temperature (so
-  it counts the heat, not only the electricity). It forecasts the indoor
+  it counts the heat, not only the electricity). *(as of 2026.10.38)* Only
+  hours the COP sensor never dropped below 1 count - the heat pump ran the
+  whole hour: a COP sensor reads 0 while the heat pump is off, so the mean
+  of an hour it ran for part of is far too low. With fewer than 48 such
+  hours there's no COP model yet; floor control then uses its measured
+  heat / electricity. It forecasts the indoor
   temperature and the heating per hour for 48 hours, the heat pump emulated
   keeping the house on its usual temperature per hour. **Self-check**: every
   day the newest 14 heating days are played again with their measured
@@ -855,6 +867,12 @@ becomes
   that gives off less than learned: from 0.2 °C too cold the power goes up
   (full at 1.2 °C), and 1 °C too cold the return setpoint never goes below
   the one the heat pump had before.
+
+*(as of 2026.10.38)* Heat counts as the floor's only while the heat demand
+switch is on. With it off the heat pump makes hot water (the circulation
+pump may run too): those minutes aren't learned as running hours, their
+heat isn't counted as delivered to the floor, and they don't enter the
+floor's COP.
 
 **Three stages**, chosen on the heat pump card (tab **Floor**, or the
 select **Floor control**), each only running once the one before has

@@ -79,10 +79,12 @@ async def async_fetch_hourly_means(
     entity_ids: Iterable[str],
     start: datetime,
     end: datetime,
+    field: str = "mean",
 ) -> dict[str, dict[int, float]]:
     """Like async_fetch_hourly_sums, but each hour's MEAN (temperature, wind
     speed) - converted to degC and m/s (as of 2026.10.16, the heat pump
-    model)."""
+    model). `field` "min" / "max" gives that instead (as of 2026.10.38: the
+    COP sensor's minimum - an hour the heat pump ran throughout)."""
     ids = {entity_id for entity_id in entity_ids if entity_id}
     if not ids:
         return {}
@@ -94,13 +96,13 @@ async def async_fetch_hourly_means(
         ids,
         "hour",
         {"temperature": "\u00b0C", "speed": "m/s"},
-        {"mean"},
+        {field},
     )
     result: dict[str, dict[int, float]] = {}
     for entity_id, rows in raw.items():
         series: dict[int, float] = {}
         for row in rows:
-            value = row.get("mean")
+            value = row.get(field)
             if value is None:
                 continue
             row_start = row.get("start")

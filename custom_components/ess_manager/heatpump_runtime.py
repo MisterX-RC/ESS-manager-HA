@@ -53,6 +53,7 @@ class HeatPumpRuntime:
         # thermostat's heat demand hours per day (both as of 2026.10.17)
         self.indoor_hist: dict[str, float] = {}
         self.demand: dict[str, float] = {}
+        self.demand_src = "climate"
         self.setpoints: dict[str, float] = {}
         self._hour: Optional[list[float]] = None
         # the house hour by hour (heatpump_house, as of 2026.10.17): the daily
@@ -80,6 +81,9 @@ class HeatPumpRuntime:
         self.rows_src = data.get("rows_src")
         self.indoor_hist = dict(data.get("indoor_hist") or {})
         self.demand = dict(data.get("demand") or {})
+        # where the heat demand comes from (as of 2026.10.38): "climate" (the
+        # thermostat, also for stores from before) or "switch"
+        self.demand_src = data.get("demand_src") or "climate"
         self.setpoints = dict(data.get("setpoints") or {})
         self.house = data.get("house")
         self.heat_hist = dict(data.get("heat_hist") or {})
@@ -99,6 +103,7 @@ class HeatPumpRuntime:
             "rows_src": self.rows_src,
             "indoor_hist": self.indoor_hist,
             "demand": self.demand,
+            "demand_src": self.demand_src,
             "setpoints": self.setpoints,
             "house": self.house,
             "heat_hist": self.heat_hist,
@@ -146,6 +151,21 @@ class HeatPumpRuntime:
             if r["d"] in days:
                 r["sp"] = days[r["d"]]
         self.dirty = True
+
+    def set_demand_source(self, src: str) -> bool:
+        """Another heat demand source: the demand hours learned from the old
+        one go (journal, kept days, today's live count) - the recorder's last
+        days refill them from the new one."""
+        if src == self.demand_src:
+            return False
+        self.demand_src = src
+        self.demand = {}
+        for r in self.journal:
+            r.pop("dem", None)
+        self.live.pop("dem_n", None)
+        self.live.pop("dem_yes", None)
+        self.dirty = True
+        return True
 
     def set_demand(self, hours: dict[str, float], today: Optional[date] = None) -> None:
         """Heat demand hours per day from the climate entity's history (kept,

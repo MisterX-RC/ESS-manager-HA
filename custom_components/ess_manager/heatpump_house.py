@@ -82,11 +82,19 @@ def _lag(q: dict[int, float], h: int, w: list[float]) -> Optional[float]:
 
 
 # -- COP ------------------------------------------------------------------------
-def fit_cop(cop: dict[int, float], outdoor: dict[int, float], heat: dict[int, float]) -> Optional[dict[str, Any]]:
+def fit_cop(cop: dict[int, float], outdoor: dict[int, float], heat: dict[int, float],
+            cop_min: Optional[dict[int, float]] = None) -> Optional[dict[str, Any]]:
     """COP = c0 + c1 x outdoor from the hours the heat pump heated (the COP
-    sensor's hourly means). None with fewer than MIN_COP_HOURS such hours."""
+    sensor's hourly means). None with fewer than MIN_COP_HOURS such hours.
+
+    With the sensor's hourly minimum (as of 2026.10.38) only hours it never
+    dropped below 1 count - the heat pump ran the whole hour. A COP sensor
+    reads 0 while the heat pump is off, so the mean of an hour it ran for 26
+    minutes is less than half its COP; without enough whole hours there's no
+    COP model (the floor control then uses its measured heat / electricity)."""
     pts = [(outdoor[h], c) for h, c in cop.items()
-           if h in outdoor and heat.get(h, 0.0) > 0.1 and 1.0 < c < 10.0]
+           if h in outdoor and heat.get(h, 0.0) > 0.1 and 1.0 < c < 10.0
+           and (cop_min is None or (cop_min.get(h) or 0.0) >= 1.0)]
     if len(pts) < MIN_COP_HOURS:
         return None
     n = len(pts)
@@ -331,11 +339,12 @@ def learn(
     today: date,
     profile: Optional[list[float]],
     shape: list[float],
+    cop_min: Optional[dict[int, float]] = None,
 ) -> dict[str, Any]:
     """The daily round: the COP model, the house fitted on the hours before
     the newest TEST_DAYS heating days and checked on those (out of sample),
     then fitted again on everything for the forecast. {cop, model, review}."""
-    copm = fit_cop(cop, outdoor, heat) if cop else None
+    copm = fit_cop(cop, outdoor, heat, cop_min) if cop else None
     test_days = []
     d = today - timedelta(days=1)
     while len(test_days) < TEST_DAYS and (today - d).days <= 60:

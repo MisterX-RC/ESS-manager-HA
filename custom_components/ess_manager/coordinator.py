@@ -847,21 +847,53 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             v = (v - 32) / 1.8
         return v
 
+    def _hp_demand_source(self, conf: dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+        """Where the heat demand comes from: the heat pump's heat demand
+        switch of the floor control when that's set up (as of 2026.10.38 -
+        the heat pump heats only while it's on; hot water and cooling run
+        outside it), else the thermostat (a climate entity as the wanted
+        temperature). (entity, "switch" / "climate") or (None, None)."""
+        if conf.get(CONF_HP_ENABLED) and conf.get(CONF_FLOOR_ENABLED) and conf.get(CONF_FLOOR_DEMAND_ENTITY):
+            return conf[CONF_FLOOR_DEMAND_ENTITY], "switch"
+        sp = conf.get(CONF_HP_SETPOINT_ENTITY) or ""
+        if sp.startswith("climate."):
+            return sp, "climate"
+        return None, None
+
+    def _hp_demand_now(self, conf: dict[str, Any]) -> Optional[bool]:
+        entity_id, kind = self._hp_demand_source(conf)
+        st = self.hass.states.get(entity_id) if entity_id else None
+        if st is None:
+            return None
+        if kind == "switch":
+            return heatpump.switch_demand(st.state)
+        return heatpump.climate_demand(st.state, dict(st.attributes))
+
     async def _async_hp_demand(self, conf: dict[str, Any], now: datetime, tz) -> None:
-        """The thermostat's heat demand per day of the last days (the
-        recorder keeps about 10) into the journal: a cool day without demand
-        isn't fitted (2026.10.17). Needs a climate entity as the wanted
-        temperature; from then on it's also recorded live."""
+        """The heat demand per day of the last days (the recorder keeps
+        about 10) into the journal: a cool day without demand isn't fitted
+        (2026.10.17) - from the heat demand switch or the thermostat (see
+        _hp_demand_source); from then on it's also recorded live. The
+        thermostat's wanted and current temperature come along when the
+        wanted temperature is a climate entity."""
+        demand_id, kind = self._hp_demand_source(conf)
+        start = now - timedelta(days=11)
+        midnight = dt_util.start_of_local_day(now)
+        if kind == "switch":
+            sw_states = await async_fetch_state_changes(self.hass, demand_id, start, now)
+            sw_changes = [(int(st.last_updated.timestamp()), heatpump.switch_demand(st.state)) for st in sw_states]
+            hours = heatpump.demand_hours(sw_changes, int(start.timestamp()), int(midnight.timestamp()), tz)
+            if hours:
+                self.hp.set_demand(hours, now.astimezone(tz).date())
         entity_id = conf.get(CONF_HP_SETPOINT_ENTITY) or ""
         if not entity_id.startswith("climate."):
             return
-        start = now - timedelta(days=11)
-        midnight = dt_util.start_of_local_day(now)
         states = await async_fetch_state_changes(self.hass, entity_id, start, now)
-        changes = [(int(st.last_updated.timestamp()), heatpump.climate_demand(st.state, dict(st.attributes))) for st in states]
-        hours = heatpump.demand_hours(changes, int(start.timestamp()), int(midnight.timestamp()), tz)
-        if hours:
-            self.hp.set_demand(hours, now.astimezone(tz).date())
+        if kind == "climate":
+            changes = [(int(st.last_updated.timestamp()), heatpump.climate_demand(st.state, dict(st.attributes))) for st in states]
+            hours = heatpump.demand_hours(changes, int(start.timestamp()), int(midnight.timestamp()), tz)
+            if hours:
+                self.hp.set_demand(hours, now.astimezone(tz).date())
         # its current temperature too, per hour (the indoor temperature
         # without a separate sensor)
         # and its wanted temperature per day
@@ -917,6 +949,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.hp.house = None
             return
         heat_only = heatpump.add_series(*[deltas.get(e, {}) for e in heat]) if heat else {}
+        # the COP sensor's hourly minimum: only hours it ran throughout count (2026.10.38)
+        cop_min = None
+        if cop_id:
+            try:
+                cop_min = (await async_fetch_hourly_means(self.hass, [cop_id], start, end, field="min")).get(cop_id) or {}
+            except Exception as err:  # noqa: BLE001 - no minimum: the COP fit as before
+                _LOGGER.debug("ESS Manager: COP minimum not read: %s", err)
         cool_only = heatpump.add_series(*[deltas.get(e, {}) for e in cool]) if cool else None
         model = self.hp.model
         profile = (heatpump.indoor_profile(self.hp.indoor_days, heatpump.heating_dates(model, self.hp.journal))
@@ -925,6 +964,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             heatpump_house.learn,
             means.get(indoor_id) or {}, means.get(conf.get(CONF_HP_OUTDOOR_ENTITY)) or {}, heat_only, wind, sun,
             cool_only, means.get(cop_id) if cop_id else None, tz, today, profile, heatpump.hourly_shape(self.hp.journal, today),
+            cop_min,
         )
         self.hp.house = {**learned, "day": today.isoformat()}
         rev = learned.get("review") or {}
@@ -1155,6 +1195,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         demand_id = conf[CONF_FLOOR_DEMAND_ENTITY]
         demand_on = self._is_on(demand_id)
         helper_on = self._is_on(conf.get(CONF_FLOOR_HELPER_ENTITY))
+        # the heat pump heats the floor only while its heat demand is on (as
+        # of 2026.10.38): heat outside it is hot water, not the floor's
+        readings["demand"] = demand_on
         floor = self.floor
         floor.refit(now_ts)
         model = floor.model or {}
@@ -1182,7 +1225,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if stage == fc.MODE_FULL and prev != fc.MODE_FULL:
             # start from what the heat pump does now
             floor.ctl.update({"on": bool(demand_on), "since": now_ts, "debt": 0.0})
-        step = fc.control_step(floor.ctl, now_ts, plan_kw or 0.0, readings["p_th"] or 0.0, indoor, setpoint, p_min, p_max)
+        delivered = (readings["p_th"] or 0.0) if demand_on is not False else 0.0
+        step = fc.control_step(floor.ctl, now_ts, plan_kw or 0.0, delivered, indoor, setpoint, p_min, p_max)
 
         # the return setpoint: the target power while running (full), the
         # planned power while the thermostat switches (setpoint stage)
@@ -1278,8 +1322,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.hp.key != key:
             self.hp.reset(key)
             self._hp_backfill_tried_at = None
-        # the thermostat's heat demand and current temperature of the last days:
-        # after a start and daily - before the journal, whose rows use them
+        # the heat demand and the thermostat's current temperature of the last
+        # days: after a start and daily - before the journal, whose rows use
+        # them; again right away when the demand source changed
+        demand_kind = self._hp_demand_source(conf)[1]
+        if demand_kind and self.hp.set_demand_source(demand_kind):
+            self._hp_demand_day = None
         if self._hp_demand_day != today.isoformat():
             self._hp_demand_day = today.isoformat()
             try:
@@ -1346,11 +1394,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif indoor_id:
             st = self.hass.states.get(indoor_id)
             indoor = self._climate_temp(st.attributes.get("current_temperature")) if st else None
-        demand = None
-        sp_entity = conf.get(CONF_HP_SETPOINT_ENTITY) or ""
-        if sp_entity.startswith("climate."):
-            st = self.hass.states.get(sp_entity)
-            demand = heatpump.climate_demand(st.state, dict(st.attributes)) if st else None
+        demand = self._hp_demand_now(conf)
         heat_ids, _ = hp_energy_entities(conf)
         heat_vals = [_state_in_unit(self.hass, e, ("Wh",), 0.001) for e in heat_ids]
         heat_kwh = sum(heat_vals) if heat_vals and all(v is not None for v in heat_vals) else None

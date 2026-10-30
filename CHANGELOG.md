@@ -14,7 +14,34 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.10.38] - 2026-10-30
 
+### Changed
+- **Heat demand from the heat pump's heat demand switch.** With floor
+  control set up, the heat demand per day (a cool day without demand isn't
+  fitted) now comes from its heat demand switch instead of the thermostat's
+  hvac_action: the heat pump heats only while that switch is on - hot water
+  and cooling run outside it - so it works for any heat pump without its
+  own sensors. A live case had 14 of the last 20 days left out, the coldest
+  ones with 3.5-4.8 kWh of heating among them, because the thermostat didn't
+  show its demand. Switching source clears the old demand hours once; the
+  recorder's last ~10 days refill them. Without floor control: the
+  thermostat, as before.
+- **Floor control: hot water isn't the floor's heat.** While the heat
+  demand switch is off the heat pump makes hot water (its circulation pump
+  can run too): those minutes are no longer learned as running hours (the
+  hot supply water spoiled the floor's emission model), their heat isn't
+  counted as delivered to the floor or in the floor's COP.
+
 ### Fixed
+- **COP model far too low.** It was fitted on the COP sensor's hourly mean,
+  and a COP sensor reads 0 while the heat pump is off: an hour it ran for
+  26 minutes at COP 4.3 counted as 1.9 (live: 2.25 at 7 degC). Now only
+  hours the sensor never dropped below 1 (the hourly minimum) count; with
+  fewer than 48 there's no COP model yet and floor control uses its
+  measured heat / electricity.
+- **Indoor reference from the cool days.** The heat loss follows indoor -
+  outdoor around the usual indoor temperature, which was taken over all
+  days - so a summer-warm house set it (live: 24.9 degC). Now the cool days,
+  as the code's own description already said.
 - **Forecast check: no usage days with a young history.** A test day was
   dropped completely as soon as one of the three methods couldn't be made
   for it - and the level method needs 90 % of the 6 lookback weeks before

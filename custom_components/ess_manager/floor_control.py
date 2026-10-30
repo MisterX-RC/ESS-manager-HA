@@ -256,8 +256,11 @@ class FloorRuntime:
     def sample(self, now_ts: float, r: dict[str, Optional[float]], p_target: Optional[float], plan_kw: Optional[float],
                cooling: bool = False) -> None:
         """One cycle's readings (pump %, t_sup, t_ret, t_room, t_slab, p_th kW,
-        sp) into the hour's record; a finished hour into self.records. While
-        the heat pump cools nothing is learned (no running hours, no heat)."""
+        sp, demand) into the hour's record; a finished hour into self.records.
+        While the heat pump cools nothing is learned (no running hours, no
+        heat), and neither while its heat demand is off (as of 2026.10.38:
+        then it makes hot water - the pump can run, the heat isn't the
+        floor's)."""
         hour = int(now_ts // 3600) * 3600
         dt = min(max(now_ts - self.last_ts, 0.0), 300.0) if self.last_ts is not None else 0.0
         self.last_ts = now_ts
@@ -267,9 +270,11 @@ class FloorRuntime:
             self.acc = {"h": hour, "run_s": 0.0, "all_s": 0.0, "th_kwh": 0.0, "plan_kwh": 0.0}
         a = self.acc
         pump = r.get("pump")
-        running = pump is not None and pump >= PUMP_RUNNING_PCT and not cooling
-        if cooling:
+        not_floor = cooling or r.get("demand") is False
+        running = pump is not None and pump >= PUMP_RUNNING_PCT and not not_floor
+        if not_floor:
             r = {**r, "p_th": None}
+        if cooling:
             plan_kw = None
             p_target = None
         if running:

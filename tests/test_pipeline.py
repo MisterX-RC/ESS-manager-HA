@@ -3892,6 +3892,11 @@ check("heat pump: with the indoor temperature the loss follows indoor - outdoor 
       _m_ti["use"]["ti"] and abs(_s_ti["kwh_per_degree_day"] - 0.92) < 0.06 and abs(_s_ti["indoor_ref_c"] - 21.0) < 0.3
       and abs((_s_ti["balance_temp_c"] - (_s_ti["indoor_ref_c"] - 21.0)) - 15.5) <= 0.5)
 _cold_row = {"w": 4.0, "s": 2.0, "ti": 21.0}
+# 2026.10.38: the indoor reference from the cool days - a summer-warm house doesn't set it
+_tij_summer = [dict(r, ti=25.0) if _teff_ti[r["d"]] >= 15.0 else r for r in _tij]
+_s_ti_summer = heatpump.summary(heatpump.fit(_tij_summer, _hp_today))
+check("heat pump: the indoor reference comes from the cool days, not the warm summer house",
+      abs(_s_ti_summer["indoor_ref_c"] - 21.0) < 0.3)
 _warm_row = dict(_cold_row, ti=22.0)
 _d_cost = heatpump.predict_row(_m_ti, _warm_row, 5.0) - heatpump.predict_row(_m_ti, _cold_row, 5.0)
 check("heat pump: a degree warmer inside costs about the kWh per degree (+ wind) on a cold day",
@@ -3958,6 +3963,15 @@ _hcop = _hh.fit_cop(_hc, _ho, _hq)
 check("house hourly: the COP by the outdoor temperature from the COP sensor",
       _hcop is not None and abs(_hcop["c0"] - 3.5) < 0.1 and abs(_hcop["c1"] - 0.08) < 0.01
       and _hh.cop_at(_hcop, 100) == _hh.COP_MAX and _hh.cop_at(None, 5) == 1.0)
+# 2026.10.38: a COP sensor reads 0 while off - an hour it ran for part of has a diluted mean;
+# with the hourly minimum only whole hours count
+_hc_part = {h: (c * 0.45 if i % 2 else c) for i, (h, c) in enumerate(sorted(_hc.items()))}
+_hmin = {h: (0.0 if i % 2 else c) for i, (h, c) in enumerate(sorted(_hc.items()))}
+_hcop_d = _hh.fit_cop(_hc_part, _ho, _hq)
+_hcop_w = _hh.fit_cop(_hc_part, _ho, _hq, _hmin)
+check("house hourly: with the COP minimum the diluted part hours are left out",
+      _hcop_w is not None and abs(_hcop_w["c0"] - 3.5) < 0.15 and _hcop_d is not None and _hcop_d["c0"] < 3.0
+      and _hh.fit_cop(_hc_part, _ho, _hq, {h: 0.0 for h in _hc}) is None)
 _hfit = _hh.fit_house(_hi, _ho, _hq, _hw, _hs, None, _hcop)
 check("house hourly: cooling, heating per kWh of heat (with the floor's delay), wind and sun learned",
       _hfit is not None and abs(_hfit["k"] - 0.02) < 0.003 and abs(_hfit["g"] - 0.12) < 0.015
@@ -4445,6 +4459,28 @@ for m in range(0, 61):
 check("floor: while cooling nothing is learned (no running hours, no heat, no plan)",
       len(_frc.records) == 1 and _frc.records[0]["run_s"] == 0 and _frc.records[0]["th_kwh"] == 0
       and _frc.records[0]["plan_kwh"] == 0 and "p_target" not in _frc.records[0] and "cooling" in fcm.STAGES)
+# 2026.10.38: heat demand off (hot water): the pump runs, but nothing is the floor's - the plan still counts
+_frd = fcm.FloorRuntime()
+for m in range(0, 61):
+    _frd.sample(_h0 + m * 60, {"pump": 80.0, "t_sup": 50.0, "t_ret": 45.0, "t_room": 21.0, "t_slab": None, "p_th": 5.5,
+                               "sp": 26.0, "demand": False}, None, 1.0)
+check("floor: heat demand off (hot water) - no running hours, no heat into the floor, the plan counts",
+      len(_frd.records) == 1 and _frd.records[0]["run_s"] == 0 and _frd.records[0]["th_kwh"] == 0
+      and "t_sup" not in _frd.records[0] and abs(_frd.records[0]["plan_kwh"] - 1.0) < 0.05)
+# the heat demand switch, and switching the demand source clears what the old one gave
+_rtd = heatpump_runtime.HeatPumpRuntime()
+_rtd.merge([{"d": "2026-10-10", "e": 3.0, "t": 9.0}], _hp_today)
+_rtd.set_demand({"2026-10-10": 0.2})
+_rtd_store = _rtd.as_store()
+_rtd2 = heatpump_runtime.HeatPumpRuntime()
+_rtd2.restore({k: v for k, v in _rtd_store.items() if k != "demand_src"})
+check("heat pump: the heat demand switch - on / off / can't tell",
+      heatpump.switch_demand("on") is True and heatpump.switch_demand("off") is False
+      and heatpump.switch_demand("unavailable") is None)
+check("heat pump: a store from before counts as the thermostat; another source clears the demand hours once",
+      _rtd2.demand_src == "climate" and not _rtd2.set_demand_source("climate")
+      and _rtd2.set_demand_source("switch") and _rtd2.demand == {} and "dem" not in _rtd2.journal[0]
+      and not _rtd2.set_demand_source("switch") and _rtd2.as_store()["demand_src"] == "switch")
 # the house model's heat plan for floor control
 _ph = heatpump_runtime.HeatPumpRuntime()
 check("floor: no house model -> no heat plan", _ph.plan_heat(_h0, 20.0, [(5.0, 0.0, 0.0)] * 24, [20.5] * 24, 3.5) is None)

@@ -275,6 +275,16 @@ def no_demand(row: dict[str, Any], teff: float) -> bool:
     return teff < 15.0 and row.get("dem") is not None and row["dem"] < MIN_DEMAND_HOURS
 
 
+def switch_demand(state: Optional[str]) -> Optional[bool]:
+    """The heat pump's heat demand switch (as of 2026.10.38): on = heating
+    asked; anything else than on/off can't tell."""
+    if state == "on":
+        return True
+    if state == "off":
+        return False
+    return None
+
+
 def climate_demand(state: Optional[str], attrs: dict[str, Any]) -> Optional[bool]:
     """Whether a climate entity asks for heat right now: its hvac_action
     (heating / preheating), else indoor below the wanted temperature; None
@@ -392,7 +402,9 @@ def _fit_rows(rows, teffs, today: date, with_cooling: bool) -> Optional[dict[str
     cold = [r for r in rows if teffs[r["d"]] < 15.0]
     share = lambda key: (sum(1 for r in cold if r.get(key) is not None) / len(cold)) if cold else 0.0
     sps = [r["sp"] for r in rows if r.get("sp") is not None]
-    tis = sorted(r["ti"] for r in rows if r.get("ti") is not None)
+    # the reference: the indoor temperature on the cool days (as of
+    # 2026.10.38 - before, all days, so a summer-warm house set it)
+    tis = sorted(r["ti"] for r in cold if r.get("ti") is not None)
     use: dict[str, Any] = {
         "wind": share("w") >= 0.6,
         "sun": share("s") >= 0.6,
