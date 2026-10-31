@@ -132,6 +132,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         "last_update_success": coordinator.last_update_success,
         "last_exception": repr(coordinator.last_exception) if coordinator.last_exception else None,
         "update_interval_seconds": coordinator.update_interval.total_seconds() if coordinator.update_interval else None,
+        # how long a cycle takes (as of 2026.10.43): last, average and max of the last 60
+        "cycle_timing": coordinator.cycle_timing(),
     }
     result["numbers"] = {
         key: _jsonable(getattr(entity, "native_value", None)) for key, entity in sorted(coordinator._numbers.items())

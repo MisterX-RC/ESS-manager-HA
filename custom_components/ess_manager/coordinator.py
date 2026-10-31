@@ -388,6 +388,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # the fast loop (as of 2026.10.41): what the last cycle decided, and when
         self._fast: Optional[dict[str, Any]] = None
         self._loop_ts = 0.0
+        # the duration of the last cycles in ms (as of 2026.10.43)
+        self._cycle_ms: list[float] = []
         self._ev_target: Optional[dict[str, Any]] = None
         # The heat pump model (as of 2026.10.16) - see heatpump_runtime.py.
         self.hp = HeatPumpRuntime()
@@ -2048,6 +2050,24 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- main update ----------------------------------------------------------
     async def _async_update_data(self) -> dict[str, Any]:
+        """One cycle, timed (as of 2026.10.43): the last 60 cycles' duration
+        is in the diagnostics - to see what a cycle costs on, say, a
+        Raspberry Pi."""
+        started = time.perf_counter()
+        try:
+            return await self._async_update_data_inner()
+        finally:
+            self._cycle_ms.append(round((time.perf_counter() - started) * 1000.0, 1))
+            del self._cycle_ms[:-60]
+
+    def cycle_timing(self) -> Optional[dict[str, Any]]:
+        """The last 60 cycles' duration (ms) for the diagnostics."""
+        if not self._cycle_ms:
+            return None
+        ms = self._cycle_ms
+        return {"last_ms": ms[-1], "avg_ms": round(sum(ms) / len(ms), 1), "max_ms": max(ms), "cycles": len(ms)}
+
+    async def _async_update_data_inner(self) -> dict[str, Any]:
         # One cycle at a time: Home Assistant's coordinator runs every
         # refresh (the minute timer, the quarter boundary, a setting changed)
         # under one lock, so the plans in the worker thread never run twice

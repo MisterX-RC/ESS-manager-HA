@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
-from homeassistant.const import EntityCategory
+from homeassistant.const import MATCH_ALL, EntityCategory
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
@@ -189,6 +189,10 @@ class EssManagerStatusSensor(CoordinatorEntity[EssManagerCoordinator], SensorEnt
     _attr_has_entity_name = True
     _attr_name = "Status"
     _attr_icon = "mdi:home-battery"
+    # its attributes (forecasts, plans, prices - ~15 KB, new every minute)
+    # stay out of the recorder (as of 2026.10.43): nothing reads their
+    # history, and on a Raspberry Pi's SD card that's a lot of writing
+    _unrecorded_attributes = frozenset({MATCH_ALL})
 
     def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
         super().__init__(coordinator)
@@ -436,6 +440,8 @@ class EssManagerHeatPumpSensor(CoordinatorEntity[EssManagerCoordinator], SensorE
     _attr_has_entity_name = True
     _attr_name = "Heat pump model"
     _attr_icon = "mdi:heat-pump-outline"
+    # the journal and the model's figures: out of the recorder too (2026.10.43)
+    _unrecorded_attributes = frozenset({MATCH_ALL})
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = ["active", "learning", "summer", "fallback"]

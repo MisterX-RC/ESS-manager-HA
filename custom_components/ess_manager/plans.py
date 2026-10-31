@@ -298,11 +298,12 @@ def _schedule_charge(
     n = min(last_unit, len(rates), len(buy))
     chosen: set[int] = set()
     held: set[int] = set()
-    hrates = hold_rates or []
+    # what the battery would give the house per quarter, as long as the rates
+    hrates = list(hold_rates or [])[: len(rates)] + [0.0] * max(len(rates) - len(hold_rates or []), 0)
     added = [0.0] * len(base)
 
     def hrate(u: int) -> float:
-        return hrates[u] if u < len(hrates) else 0.0
+        return hrates[u]
 
     def hold_cost(u: int) -> float:
         return buy[u] * hold_factor
@@ -316,30 +317,50 @@ def _schedule_charge(
     def hour_of(u: int) -> int:
         return max((u - hour0_unit) // 4, 0)
 
+    # the highest level from each hour on (base + what's planned), kept up
+    # to date on every change (as of 2026.10.43): "does it fit under the cap
+    # in every later hour" is then one comparison instead of a loop over the
+    # hours for each candidate quarter - the bulk of a cycle's time before
+    suffix_max: list[float] = []
+
+    def refresh() -> None:
+        nonlocal suffix_max
+        out = [0.0] * len(base)
+        m = -math.inf
+        for h in range(len(base) - 1, -1, -1):
+            m = max(m, base[h] + added[h])
+            out[h] = m
+        suffix_max = out
+
     def fits(u: int, amount: Optional[float] = None) -> bool:
         a = rates[u] if amount is None else amount
-        later = range(hour_of(u), len(base))
-        return not base or all(base[h] + added[h] + a <= cap_kwh + 0.01 for h in later)
+        h = hour_of(u)
+        return not base or h >= len(base) or suffix_max[h] + a <= cap_kwh + 0.01
+
+    def shift(u: int, amount: float) -> None:
+        for h in range(hour_of(u), len(added)):
+            added[h] += amount
+        if base:
+            refresh()
 
     def take(u: int) -> None:
         chosen.add(u)
-        for h in range(hour_of(u), len(added)):
-            added[h] += rates[u]
+        shift(u, rates[u])
 
     def drop(u: int) -> None:
         chosen.discard(u)
-        for h in range(hour_of(u), len(added)):
-            added[h] -= rates[u]
+        shift(u, -rates[u])
 
     def hold(u: int) -> None:
         held.add(u)
-        for h in range(hour_of(u), len(added)):
-            added[h] += hrate(u)
+        shift(u, hrate(u))
 
     def unhold(u: int) -> None:
         held.discard(u)
-        for h in range(hour_of(u), len(added)):
-            added[h] -= hrate(u)
+        shift(u, -hrate(u))
+
+    if base:
+        refresh()
 
     def delivered_before(units: set[int], deadline: int, holds: Optional[set[int]] = None) -> float:
         hs = held if holds is None else holds
@@ -361,7 +382,10 @@ def _schedule_charge(
             # cheap, the rest when the prices come in (as of 2026.10.40)
             hard = False
             deadline = n
-        while delivered_before(chosen, deadline) < need - 1e-6:
+        # what's in by the deadline, kept up to date as quarters are chosen
+        # (as of 2026.10.43 - summed again on every step before)
+        got = delivered_before(chosen, deadline)
+        while got < need - 1e-6:
             free = [u for u in range(cur_unit, min(deadline, n))
                     if u not in chosen and u not in held and rates[u] > 1e-6]
             # where it fits under 100% (so a long drain is bought bit by bit,
@@ -370,8 +394,8 @@ def _schedule_charge(
             options = [u for u in free if fits(u) and (hard or buy[u] <= soft_max + 1e-9)] or (free if hard else [])
             # the house from the grid instead of the battery (2026.10.41)
             hold_options = [u for u in range(cur_unit, min(deadline, n))
-                            if u not in chosen and u not in held and hrate(u) > 1e-6 and buy[u] <= hold_max + 1e-9
-                            and fits(u, hrate(u)) and (hard or buy[u] <= soft_max + 1e-9)]
+                            if hrates[u] > 1e-6 and u not in chosen and u not in held and buy[u] <= hold_max + 1e-9
+                            and fits(u, hrates[u]) and (hard or buy[u] <= soft_max + 1e-9)] if hold_rates else []
             # a quarter the house is already taken from the grid in can still
             # become a charge: what it adds on top, at what that costs extra
             upgrades = [u for u in held if cur_unit <= u < min(deadline, n) and rates[u] > hrate(u) + 1e-6
@@ -385,13 +409,17 @@ def _schedule_charge(
                 cands += [(round((cost(u) * rates[u] - hold_cost(u) * hrate(u)) / (rates[u] - hrate(u)), 6), 1, 0, u, "up")
                           for u in upgrades]
                 best = min(cands)
+                u = best[3]
                 if best[4] == "hold":
-                    hold(best[3])
+                    hold(u)
+                    got += hrate(u)
                 elif best[4] == "up":
-                    unhold(best[3])
-                    take(best[3])
+                    unhold(u)
+                    take(u)
+                    got += rates[u] - hrate(u)
                 else:
-                    take(best[3])
+                    take(u)
+                    got += rates[u]
                 continue
             if hard:
                 # too late to make it all before the deadline: the rest as

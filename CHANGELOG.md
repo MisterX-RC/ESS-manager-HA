@@ -14,6 +14,23 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.10.43] - 2026-10-31
 
+### Performance (for a Raspberry Pi)
+- **The charge planning about 5x faster** (live data: 242 ms -> 47 ms per
+  cycle on a fast machine, roughly 1-1.5 s -> 0.2-0.3 s on a Pi). Nearly
+  all of it went into "does this still fit under 100% in every later
+  hour", worked out over all the hours for every candidate quarter; now
+  the highest level from each hour on is kept up to date as quarters are
+  chosen, and what's in by a deadline is counted along instead of summed
+  again every step. The plans come out exactly the same (checked on live
+  data and the full test set).
+- **The Status sensor's attributes stay out of the recorder** (and the heat
+  pump model's). They're ~15 KB of forecasts, plans and prices, new every
+  minute; nothing reads their history (the cards only use the history of
+  the battery level and the Battery action, which stay recorded). Less
+  writing to the database - on a Pi's SD card that counts.
+- **What a cycle costs is in the diagnostics:** `coordinator.cycle_timing`
+  - the last, average and longest of the last 60 cycles in ms.
+
 ### Changed
 - **The setpoint follows the entity's own step.** For the house from the
   grid and solar export the setpoint entity's `step` attribute is read
