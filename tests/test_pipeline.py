@@ -37,6 +37,7 @@ display = _load("display")
 ev = _load("ev")
 usage_forecast = _load("usage_forecast")
 transport = _load("transport")
+sensor_watch = _load("sensor_watch")
 
 FAILURES = []
 
@@ -5279,6 +5280,40 @@ def _tr_walk(a, b, path):
             _tr_bad.append(path)
 _tr_walk(_tr_en, _tr_nl, "")
 check("translations: nl.json has the keys and placeholders of en.json", not _tr_bad)
+
+
+# 2026.10.44: sensors that stop updating
+_sw = sensor_watch.SensorWatch()
+check("sensor watch: a sensor that only reports changes is never stale",
+      not _sw.stale("sensor.soc", 1000.0, 1000.0, 5000.0, 600))
+check("sensor watch: reported later than updated - it reports regularly, fresh",
+      not _sw.stale("sensor.soc", 1100.0, 1000.0, 1200.0, 600) and _sw.is_periodic("sensor.soc"))
+check("sensor watch: a regular reporter silent for 11 minutes is stale, a new report ends it",
+      _sw.stale("sensor.soc", 1100.0, 1000.0, 1100.0 + 660, 600)
+      and not _sw.stale("sensor.soc", 1800.0, 1000.0, 1810.0, 600))
+_sw.stale("sensor.p", 10.0, 5.0, 10.0, 120)   # reports regularly
+for _i in range(3):
+    _sw.loop_step("sensor.p", 0.1 * _i, 0.1 * (_i + 1), -800.0, 20.0 + 15 * _i)
+check("sensor watch: 3 steps flat - not yet", not _sw.stuck("sensor.p", -800.0))
+_sw.loop_step("sensor.p", 0.3, 0.4, -800.0, 20.0 + 45)   # no new report: a slow poller, not counted
+check("sensor watch: a step without a new report doesn't count for a regular reporter", not _sw.stuck("sensor.p", -800.0))
+_sw.loop_step("sensor.p", 0.4, 0.5, -800.0, 20.0 + 60)
+_sw.loop_step("sensor.p", 0.5, 0.6, -800.0, 20.0 + 75)
+check("sensor watch: the setpoint moved 4 times, the power exactly the same - stuck", _sw.stuck("sensor.p", -800.0))
+check("sensor watch: stuck until the value changes", not _sw.stuck("sensor.p", -790.0) and not _sw.stuck("sensor.p", -800.0))
+_sw2 = sensor_watch.SensorWatch()
+for _i in range(6):
+    _sw2.loop_step("sensor.q", 0.1 * _i, 0.1 * (_i + 1), 0.0, 1.0)
+for _i in range(6):
+    _sw2.loop_step("sensor.r", 0.5, 0.5, 900.0, 1.0)
+check("sensor watch: not at 0 W (a full battery takes nothing), not when the setpoint holds still",
+      not _sw2.stuck("sensor.q", 0.0) and not _sw2.stuck("sensor.r", 900.0))
+for _i in range(4):
+    _sw2.loop_step("sensor.s", 0.1 * _i, 0.1 * (_i + 1), 900.0, 1.0)
+_sw2_three = _sw2.stuck("sensor.s", 900.0)
+_sw2.loop_step("sensor.s", 0.4, 0.5, 900.0, 1.0)
+check("sensor watch: a sensor that only reports changes - 4 setpoint steps after the first reading without a change",
+      not _sw2_three and _sw2.stuck("sensor.s", 900.0))
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

@@ -484,6 +484,10 @@
     "battery_below_minimum": {
       "title": "ESS Manager: accu komt naar verwachting onder het minimum",
       "description": "**{entry_title}**: zelfs met de plannen zakt de accu naar verwachting rond {time} naar {soc} %, onder het minimum van {minimum} %.\n\nMeestal een lading die niet in te plannen is: de laadsnelheid of de planningshorizon te klein, de laadplannen begrensd door de nachtgrens, of meer verbruik dan de accu en de goedkope uren aankunnen. Kijk op de statuskaart en bij de plannen. Deze melding verdwijnt vanzelf zodra de voorspelling boven het minimum blijft."
+    },
+    "sensor_frozen": {
+      "title": "ESS Manager: een accusensor werkt niet meer bij",
+      "description": "**{entry_title}**: **{entity}** heeft nog een waarde, maar werkt niet meer bij - al een tijd geen nieuwe melding (10 minuten voor het accuniveau, 2 minuten voor het accuvermogen terwijl het setpoint dat volgt), of het accuvermogen bleef precies gelijk terwijl het setpoint een paar keer veranderde. Sturen op een waarde die niet meer klopt kan de accu verkeerd laden of ontladen, dus ESS Manager toont zolang Standby en houdt de accu idle.\n\nControleer de integratie achter de sensor (bijv. de verbinding met de omvormer of de GX). Deze melding verdwijnt vanzelf, en het sturen gaat verder, zodra de sensor weer bijwerkt."
     }
   },
   "services": {

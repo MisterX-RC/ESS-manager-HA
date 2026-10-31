@@ -484,6 +484,10 @@
     "battery_below_minimum": {
       "title": "ESS Manager: battery expected below its minimum",
       "description": "**{entry_title}**: even with the plans, the battery is expected to drop to {soc} % around {time}, below its minimum of {minimum} %.\n\nUsually a charge that can't be planned: the charge speed or the planning horizon too small, the charge plans limited by the night limit, or more usage than the battery and the cheap hours can cover. Check the Status card and the plans. This notice goes away by itself once the forecast stays above the minimum."
+    },
+    "sensor_frozen": {
+      "title": "ESS Manager: a battery sensor stopped updating",
+      "description": "**{entry_title}**: **{entity}** still has a value, but it stopped updating - no new report for a while (10 minutes for the battery level, 2 minutes for the battery's power while the setpoint follows it), or the battery's power stayed exactly the same while the setpoint changed several times. Steering on a value that's no longer true could charge or discharge the battery the wrong way, so ESS Manager shows Standby and keeps the battery idle meanwhile.\n\nCheck the integration behind the sensor (e.g. the connection to the inverter or the GX). This notice goes away by itself, and the steering resumes, as soon as the sensor updates again."
     }
   },
   "services": {

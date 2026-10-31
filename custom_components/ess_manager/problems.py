@@ -14,6 +14,9 @@ Kinds:
   forecast the integration can read - 15 minutes.
 - battery_below_minimum: even with the plans, the battery is expected to
   drop below its minimum within the hours that have prices - 30 minutes.
+- sensor_frozen (as of 2026.10.44): the battery SOC or the battery's power
+  stopped updating while it still has a value (sensor_watch.py) - at once,
+  the check itself waits 10 / 2 minutes.
 """
 from __future__ import annotations
 
@@ -34,6 +37,8 @@ PROBLEM_DELAYS = {
     "input_unavailable": timedelta(minutes=15),
     "solar_unreadable": timedelta(minutes=15),
     "battery_below_minimum": timedelta(minutes=30),
+    # the check itself already waited (sensor_watch.py)
+    "sensor_frozen": timedelta(0),
 }
 PROBLEM_KINDS = tuple(PROBLEM_DELAYS)
 LEARN_MORE = "https://github.com/MisterX-RC/ESS-manager-HA#problem-notices"

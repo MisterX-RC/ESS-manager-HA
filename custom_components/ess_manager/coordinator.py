@@ -33,6 +33,7 @@ from . import heatpump_house
 from . import accuracy
 from .accuracy_runtime import AccuracyRuntime
 from .problems import ProblemTracker, below_minimum
+from . import sensor_watch as sw
 from . import floor_control as fc
 from .const import (
     CONF_BATTERY_SOC_ENTITY,
@@ -263,6 +264,17 @@ def _state_in_unit(hass: HomeAssistant, entity_id: Optional[str], kilo_units: tu
     return value
 
 
+def _report_times(hass: HomeAssistant, entity_id: Optional[str]) -> tuple[Optional[float], Optional[float]]:
+    """(last reported, last updated) of an entity as epoch seconds (as of
+    2026.10.44, for the frozen-sensor check); None without the entity."""
+    state = hass.states.get(entity_id) if entity_id else None
+    if state is None:
+        return None, None
+    updated = state.last_updated.timestamp()
+    reported = getattr(state, "last_reported", None)
+    return (reported.timestamp() if reported is not None else updated), updated
+
+
 def _efficiency(percent: Any) -> float:
     """A 50-100 % efficiency setting as a 0.5-1.0 fraction (anything
     unreadable counts as 100 %, i.e. no losses)."""
@@ -409,6 +421,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.acc = AccuracyRuntime()
         # Problem notices in Settings > Repairs (as of 2026.10.23) - problems.py.
         self.problems = ProblemTracker(hass, entry)
+        # Sensors that stop updating (as of 2026.10.44) - sensor_watch.py.
+        self.watch = sw.SensorWatch()
         # Floor control (as of 2026.10.23) - floor_control.py; the "Floor
         # control" select on the heat pump card sets floor_mode.
         self.floor = fc.FloorRuntime()
@@ -660,7 +674,29 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         discharge_w = power_w if conf.get(CONF_BATTERY_POWER_SIGN) == BATTERY_POWER_DISCHARGE_POSITIVE else -power_w
         value = self._grid_use_kw if self._grid_use_kw is not None else idle_kw
         self._grid_use_kw = self._loop_next(control_settings, value, discharge_w, idle_kw, GRID_USE_MAX_KW)
+        self._watch_loop_step(conf, value, self._grid_use_kw, power_w)
         return self._grid_use_kw
+
+    def _watch_loop_step(self, conf: dict[str, Any], before_kw: float, after_kw: float, power_w: float) -> None:
+        """Tell the frozen-sensor check about a loop step (2026.10.44)."""
+        entity = conf.get(CONF_BATTERY_POWER_ENTITY)
+        self.watch.loop_step(entity, before_kw, after_kw, power_w, _report_times(self.hass, entity)[0])
+
+    def _frozen_sensors(self, conf: dict[str, Any], steering: bool) -> list[str]:
+        """The sensors that stopped updating (as of 2026.10.44): the battery
+        SOC always, the battery's power while the setpoint follows it."""
+        now_ts = dt_util.utcnow().timestamp()
+        frozen = []
+        soc = conf.get(CONF_BATTERY_SOC_ENTITY)
+        if self.watch.stale(soc, *_report_times(self.hass, soc), now_ts, sw.SOC_STALE_S):
+            frozen.append(soc)
+        power = conf.get(CONF_BATTERY_POWER_ENTITY)
+        if steering and power:
+            power_w = _state_in_unit(self.hass, power, ("kW",), 1000.0)
+            stale = self.watch.stale(power, *_report_times(self.hass, power), now_ts, sw.POWER_STALE_S)
+            if self.watch.stuck(power, power_w) or stale:
+                frozen.append(power)
+        return frozen
 
     def _setpoint_step_kw(self, control_settings: ControlSettings) -> Optional[float]:
         """The setpoint entity's own step in kW (as of 2026.10.43): its
@@ -707,6 +743,16 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             power_kw = self._solar_export_setpoint_kw(fast["conf"], settings, fast["export_target_w"])
         self._loop_ts = dt_util.utcnow().timestamp()
+        # the battery's power stopped updating (as of 2026.10.44): idle
+        # until the next cycle, which shows Standby until it lives again
+        frozen = self._frozen_sensors(fast["conf"], True)
+        if frozen:
+            self._fast = None
+            self._grid_use_kw = self._export_kw = None
+            self.watch.leave_loop(fast["conf"].get(CONF_BATTERY_POWER_ENTITY))
+            self.problems.report("sensor_frozen", True, dt_util.now(), {"entity": ", ".join(frozen)})
+            await self.controller.async_apply(settings, control.ACTION_IDLE, 0.0, "Standby")
+            return
         await self.controller.async_apply(settings, fast["action"], power_kw, fast["status"], offset_kw=fast["offset_kw"])
 
     def _solar_export_setpoint_kw(self, conf: dict[str, Any], control_settings: ControlSettings, battery_w: float) -> float:
@@ -725,6 +771,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         charge_w = -power_w if conf.get(CONF_BATTERY_POWER_SIGN) == BATTERY_POWER_DISCHARGE_POSITIVE else power_w
         value = self._export_kw if self._export_kw is not None else idle_kw
         self._export_kw = self._loop_next(control_settings, value, battery_w - charge_w, -GRID_USE_MAX_KW, idle_kw)
+        self._watch_loop_step(conf, value, self._export_kw, power_w)
         return self._export_kw
 
     def _charge_until(self, conf: dict[str, Any], action: str, card_plans: Optional[dict[str, Any]],
@@ -2815,6 +2862,16 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         grid_use = _planned["grid_use"]
         export_expected = _planned["solar_export_expected"]
         system_status = _planned["system_status"]
+        # A sensor that stopped updating (as of 2026.10.44): the battery SOC,
+        # or the battery's power while the setpoint follows it - Standby
+        # (idle) and a notice, until it updates again.
+        frozen = self._frozen_sensors(
+            conf, control_action in (control.ACTION_GRID_USE, control.ACTION_SOLAR_EXPORT))
+        self.problems.report("sensor_frozen", bool(frozen), now, {"entity": ", ".join(frozen)})
+        if frozen:
+            system_status, control_action = "Standby", control.ACTION_IDLE
+        if control_action not in (control.ACTION_GRID_USE, control.ACTION_SOLAR_EXPORT):
+            self.watch.leave_loop(conf.get(CONF_BATTERY_POWER_ENTITY))
         if replan:
             # only what this cycle saw - a change made meanwhile still counts
             self._replan_requested = max(self._replan_requested - replan_seen, 0)

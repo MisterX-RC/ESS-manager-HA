@@ -14,6 +14,21 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.10.44] - 2026-10-31
 
+### A battery sensor that stops updating
+- **Standby instead of steering on a stale value.** An integration that
+  loses its connection often keeps the sensor's last value instead of
+  making it unavailable. Now: the battery SOC with no new report for more
+  than 10 minutes, or the battery's power for more than 2 minutes while
+  the setpoint follows it (House from grid / Solar export), counts as
+  stopped - only for a sensor that's seen reporting the same value again
+  (so it reports regularly; one that only reports changes can stand still
+  for hours). In the 15-second loop also: the setpoint changed 4 times in
+  a row and the battery's power stayed exactly the same (at least 50 W).
+  Meanwhile the Status is **Standby** (direct control idles, and so does an
+  automation that follows the Status) and a notice in Settings > Repairs
+  names the sensor. It resumes by itself as soon as the sensor updates
+  again. In the diagnostics: `coordinator.sensor_watch`.
+
 ### Dutch
 - **The setup and Configure screens in Dutch** (`translations/nl.json`):
   every step, field, help text, option, Problems notice and phone message,

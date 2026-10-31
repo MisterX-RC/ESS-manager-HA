@@ -1513,6 +1513,32 @@ that's briefly gone after a restart doesn't raise one:
 | Planning paused - a sensor has no value | the battery SOC sensor has no number, or the price sensor is unavailable / has no prices for today - nothing is planned and direct control keeps the battery idle | 15 minutes |
 | A solar forecast sensor can't be read | a chosen solar forecast sensor is available but has neither a Solcast `detailedHourly` nor a Helios Forecast `forecast` attribute - it would count as no sun (an attribute that's just empty for now is fine) | 15 minutes |
 | Battery expected below its minimum | even with the plans, the battery is expected to run into a dip below its minimum within the next 24 hours that have prices and lie within the planning horizon - usually a charge that can't be fitted (charge speed, night limit, too little room) | 30 minutes |
+| A battery sensor stopped updating | *(as of 2026.10.44)* the battery SOC, or the battery's power while the setpoint follows it (House from grid / Solar export), still has a value but no longer updates - the Status shows **Standby** and direct control keeps the battery idle until it updates again (see below) | at once (the check itself waits) |
+
+**A sensor that stopped updating.** An integration that loses its
+connection often keeps the sensor's last value instead of making it
+unavailable - and steering on a battery level or power that's no longer
+true can charge or discharge the wrong way. So ESS Manager watches two
+signs:
+
+- *No new report:* the battery SOC for more than 10 minutes, the battery's
+  power for more than 2 minutes while the setpoint follows it. Only for a
+  sensor that reports regularly - one Home Assistant sees reporting the
+  same value again (`last_reported` later than `last_updated`, e.g. the
+  Victron GX integration). A sensor that only reports changes can keep the
+  same value for hours while the battery stands still; for those this sign
+  is skipped.
+- *Flat while steered:* the setpoint changed 4 times in a row (about a
+  minute in the 15-second loop) and the battery's power stayed exactly the
+  same, at least 50 W - a real battery always moves a little. Not at 0 W (a
+  full battery that takes nothing).
+
+Meanwhile the Status is **Standby** - so an automation that follows the
+Status idles too - and with direct control the battery gets the idle
+value. As soon as the sensor reports again (or its value changes) the
+notice goes away and the steering resumes by itself. Which sensors report
+regularly and which are stuck is in the diagnostics under
+`coordinator.sensor_watch`.
 
 What's going on right now (also before it becomes a notice) is in the
 diagnostics download under `problems`. Unloading or removing the

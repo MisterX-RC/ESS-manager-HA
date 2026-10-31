@@ -134,6 +134,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         "update_interval_seconds": coordinator.update_interval.total_seconds() if coordinator.update_interval else None,
         # how long a cycle takes (as of 2026.10.44): last, average and max of the last 60
         "cycle_timing": coordinator.cycle_timing(),
+        # sensors that stopped updating (as of 2026.10.44): which report regularly, which are stuck
+        "sensor_watch": coordinator.watch.as_dict(),
     }
     result["numbers"] = {
         key: _jsonable(getattr(entity, "native_value", None)) for key, entity in sorted(coordinator._numbers.items())
