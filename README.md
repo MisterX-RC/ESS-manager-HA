@@ -161,7 +161,12 @@ Five planning engines, all documented in detail in the code
    battery discharges (minus what it charges), so it settles where the
    battery is at 0 W in a few steps without overshooting - never below the
    idle value, a car or a kettle included, back to idle by itself when the
-   sun comes out (±30 W counts as 0; without a power reading: idle). The forecast keeps that energy in the
+   sun comes out (±30 W counts as 0; without a power reading: idle). *(As of
+   2026.10.43)* the setpoint entity's own `step` is taken into account: a
+   coarse one (say whole kW) gets a dead band of half a step, at least one
+   whole step per correction and values rounded to its step, so it settles
+   on the nearest step instead of jumping between two (the battery then
+   stays within half a step of 0); a fine one (W) works as before. The forecast keeps that energy in the
    battery. The cards show it in purple (as of 2026.10.41): on the price
    chart as blocks labelled "From the grid", on the battery chart the
    forecast line in that colour with a label for stretches of 45 minutes

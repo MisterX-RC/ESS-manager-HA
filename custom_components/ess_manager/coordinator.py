@@ -7,6 +7,7 @@ across Home Assistant restarts.
 from __future__ import annotations
 
 import asyncio
+import math
 import functools
 import time
 from collections import deque
@@ -656,10 +657,36 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return 0.0
         discharge_w = power_w if conf.get(CONF_BATTERY_POWER_SIGN) == BATTERY_POWER_DISCHARGE_POSITIVE else -power_w
         value = self._grid_use_kw if self._grid_use_kw is not None else idle_kw
-        if abs(discharge_w) > GRID_USE_DEADBAND_W:
-            value += LOOP_GAIN * discharge_w / 1000.0
-        self._grid_use_kw = round(min(max(value, idle_kw), GRID_USE_MAX_KW), 3)
+        self._grid_use_kw = self._loop_next(control_settings, value, discharge_w, idle_kw, GRID_USE_MAX_KW)
         return self._grid_use_kw
+
+    def _setpoint_step_kw(self, control_settings: ControlSettings) -> Optional[float]:
+        """The setpoint entity's own step in kW (as of 2026.10.43): its
+        `step` attribute in the control unit (W or kW); None without one."""
+        state = self.hass.states.get(control_settings.target) if control_settings.target else None
+        step = _float_or(state.attributes.get("step"), 0.0) if state is not None else 0.0
+        if not step or step <= 0 or not math.isfinite(step):
+            return None
+        return step / 1000.0 if control_settings.unit == control.UNIT_W else step
+
+    def _loop_next(self, control_settings: ControlSettings, value: float, correction_w: float,
+                   lo_kw: float, hi_kw: float) -> float:
+        """One step of the setpoint following the battery (as of 2026.10.43
+        aware of the entity's step): `correction_w` more (or less) is needed.
+        A deviation within the dead band - GRID_USE_DEADBAND_W, or half a step
+        when that's more - is left; otherwise LOOP_GAIN of it, at least one
+        whole step, rounded to the step. So an entity in whole kW settles on
+        the nearest kW instead of jumping between two."""
+        step = self._setpoint_step_kw(control_settings)
+        band_w = max(GRID_USE_DEADBAND_W, (step or 0.0) * 500.0)
+        if abs(correction_w) > band_w:
+            delta = LOOP_GAIN * correction_w / 1000.0
+            if step and abs(delta) < step:
+                delta = math.copysign(step, delta)
+            value += delta
+            if step:
+                value = round(value / step) * step
+        return round(min(max(value, lo_kw), hi_kw), 3)
 
     async def async_fast_control(self) -> None:
         """The fast loop (as of 2026.10.41, every FAST_LOOP_SECONDS): while
@@ -695,10 +722,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return 0.0
         charge_w = -power_w if conf.get(CONF_BATTERY_POWER_SIGN) == BATTERY_POWER_DISCHARGE_POSITIVE else power_w
         value = self._export_kw if self._export_kw is not None else idle_kw
-        error_w = charge_w - battery_w
-        if abs(error_w) > GRID_USE_DEADBAND_W:
-            value -= LOOP_GAIN * error_w / 1000.0
-        self._export_kw = round(min(max(value, -GRID_USE_MAX_KW), idle_kw), 3)
+        self._export_kw = self._loop_next(control_settings, value, battery_w - charge_w, -GRID_USE_MAX_KW, idle_kw)
         return self._export_kw
 
     def _charge_until(self, conf: dict[str, Any], action: str, card_plans: Optional[dict[str, Any]],

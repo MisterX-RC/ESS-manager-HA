@@ -14,6 +14,16 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.10.43] - 2026-10-31
 
+### Changed
+- **The setpoint follows the entity's own step.** For the house from the
+  grid and solar export the setpoint entity's `step` attribute is read
+  (converted with the control unit): the dead band becomes the larger of
+  30 W and half a step, a correction is at least one whole step, and the
+  value is rounded to the step. A setpoint in whole kW used to jump between
+  two values every 15 seconds (0.47 sent, 0 kept, then 1, then 0 ...); now
+  it settles on the nearest kW (the battery stays within 500 W of its
+  target). A fine step (W) or no step works as before.
+
 ### Removed
 - **Solar export as a label only.** Without the battery's power sensor
   (battery page) Solar export can't be steered, and up to now it still
