@@ -318,7 +318,7 @@ def _schedule_charge(
         return max((u - hour0_unit) // 4, 0)
 
     # the highest level from each hour on (base + what's planned), kept up
-    # to date on every change (as of 2026.10.43): "does it fit under the cap
+    # to date on every change (as of 2026.10.44): "does it fit under the cap
     # in every later hour" is then one comparison instead of a loop over the
     # hours for each candidate quarter - the bulk of a cycle's time before
     suffix_max: list[float] = []
@@ -383,7 +383,7 @@ def _schedule_charge(
             hard = False
             deadline = n
         # what's in by the deadline, kept up to date as quarters are chosen
-        # (as of 2026.10.43 - summed again on every step before)
+        # (as of 2026.10.44 - summed again on every step before)
         got = delivered_before(chosen, deadline)
         while got < need - 1e-6:
             free = [u for u in range(cur_unit, min(deadline, n))

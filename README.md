@@ -1277,7 +1277,7 @@ inverter they'd be left out). A grid charge, a sale and the grid-use
 threshold still count both efficiencies; with a consumption sensor (the
 loads themselves) everything does, as before.
 
-**On a Raspberry Pi** *(as of 2026.10.43)*: a cycle runs once a minute.
+**On a Raspberry Pi** *(as of 2026.10.44)*: a cycle runs once a minute.
 The Status sensor's attributes (~15 KB of forecasts and plans) are kept
 out of the recorder, and the diagnostics show what a cycle costs
 (`coordinator.cycle_timing`: last, average and longest of the last 60, in

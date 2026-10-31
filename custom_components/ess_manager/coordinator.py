@@ -388,7 +388,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # the fast loop (as of 2026.10.41): what the last cycle decided, and when
         self._fast: Optional[dict[str, Any]] = None
         self._loop_ts = 0.0
-        # the duration of the last cycles in ms (as of 2026.10.43)
+        # the duration of the last cycles in ms (as of 2026.10.44)
         self._cycle_ms: list[float] = []
         self._ev_target: Optional[dict[str, Any]] = None
         # The heat pump model (as of 2026.10.16) - see heatpump_runtime.py.
@@ -2050,7 +2050,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- main update ----------------------------------------------------------
     async def _async_update_data(self) -> dict[str, Any]:
-        """One cycle, timed (as of 2026.10.43): the last 60 cycles' duration
+        """One cycle, timed (as of 2026.10.44): the last 60 cycles' duration
         is in the diagnostics - to see what a cycle costs on, say, a
         Raspberry Pi."""
         started = time.perf_counter()

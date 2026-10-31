@@ -12,7 +12,7 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
-## [2026.10.43] - 2026-10-31
+## [2026.10.44] - 2026-10-31
 
 ### Performance (for a Raspberry Pi)
 - **The charge planning about 5x faster** (live data: 242 ms -> 47 ms per
@@ -30,6 +30,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   writing to the database - on a Pi's SD card that counts.
 - **What a cycle costs is in the diagnostics:** `coordinator.cycle_timing`
   - the last, average and longest of the last 60 cycles in ms.
+
+## [2026.10.43] - 2026-10-31
 
 ### Changed
 - **The setpoint follows the entity's own step.** For the house from the

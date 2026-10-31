@@ -190,7 +190,7 @@ class EssManagerStatusSensor(CoordinatorEntity[EssManagerCoordinator], SensorEnt
     _attr_name = "Status"
     _attr_icon = "mdi:home-battery"
     # its attributes (forecasts, plans, prices - ~15 KB, new every minute)
-    # stay out of the recorder (as of 2026.10.43): nothing reads their
+    # stay out of the recorder (as of 2026.10.44): nothing reads their
     # history, and on a Raspberry Pi's SD card that's a lot of writing
     _unrecorded_attributes = frozenset({MATCH_ALL})
 
@@ -440,7 +440,7 @@ class EssManagerHeatPumpSensor(CoordinatorEntity[EssManagerCoordinator], SensorE
     _attr_has_entity_name = True
     _attr_name = "Heat pump model"
     _attr_icon = "mdi:heat-pump-outline"
-    # the journal and the model's figures: out of the recorder too (2026.10.43)
+    # the journal and the model's figures: out of the recorder too (2026.10.44)
     _unrecorded_attributes = frozenset({MATCH_ALL})
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_device_class = SensorDeviceClass.ENUM
