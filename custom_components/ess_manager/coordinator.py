@@ -356,7 +356,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._ev_writes: dict[str, tuple[Any, float]] = {}
         self._ev_error: Optional[str] = None
         self._ev_offset_w = 0.0
-        # a charger without Victron (as of 2026.10.41): until when the house
+        # a charger without Victron (as of 2026.10.40): until when the house
         # battery's running charge goes on (epoch) - the car's energy in it
         # comes from the grid (the setpoint goes up by what the car takes)
         self._ev_charge_until: Optional[float] = None
@@ -602,7 +602,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "notify": bool(notify), "notify_services": notify}
 
     def _ev_charge_offset_kw(self, conf: dict[str, Any], action: str) -> float:
-        """A charger without Victron (as of 2026.10.41): while the house
+        """A charger without Victron (as of 2026.10.40): while the house
         battery charges from the grid, what the car takes now (kW, measured)
         - added to the grid setpoint, so the battery charges at the planned
         speed (also the night speed) instead of feeding the car."""
@@ -618,7 +618,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _charge_until(self, conf: dict[str, Any], action: str, card_plans: Optional[dict[str, Any]],
                       control_settings: ControlSettings) -> Optional[float]:
         """Until when the running grid charge goes on (epoch), for a charger
-        without Victron whose car the setpoint covers meanwhile (2026.10.41);
+        without Victron whose car the setpoint covers meanwhile (2026.10.40);
         None when not charging, or without direct control."""
         if not conf.get(CONF_EV_ENABLED) or conf.get(CONF_EV_CHARGER) == EV_CHARGER_VICTRON:
             return None
@@ -2182,7 +2182,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # house battery: the grid setpoint covers them
             ev_grid = (ev_attribute or {}).get("grid_120h") or [0.0] * len(ev_total)
             if ev_victron is None and self._ev_charge_until and self._ev_charge_until > now.timestamp():
-                # without Victron (as of 2026.10.41): neither does the car's
+                # without Victron (as of 2026.10.40): neither does the car's
                 # energy during the battery's running charge
                 ev_grid = forecasting.ev_in_window(ev_total, now, self._ev_charge_until)
             if any(ev_total):
