@@ -5245,6 +5245,19 @@ check("grid use: the forecast keeps what the house took from the grid",
 _glp_win = display.grid_use_windows(_glp, 80, _glp_now)
 check("grid use: windows for the price chart", _glp_win and _glp_win[0]["start"].startswith("2026-10-31T"))
 
+
+# 2026.10.41: solar export expected, for the charts - the Status rule on the forecast
+_sx_now = datetime(2026, 10, 31, 10, 0)
+_sx_price = [0.2] * 40 + [0.30, 0.29, 0.28, 0.27] + [0.25] * 8 + [0.22] * 44
+_sx_units = plans.solar_export_units([0.5, 1.0, 1.5, -0.2] + [0.0] * 20, 40, _sx_now, 52, _sx_price)
+check("solar export expected: solar left over, full later today, the price above every price until then",
+      _sx_units == [40, 41, 42, 43, 51] and plans.solar_export_units([0.5] * 24, 40, _sx_now, None, _sx_price) == []
+      and plans.solar_export_units([0.5] * 24, 40, _sx_now, None, _sx_price,
+                                   neg={"active": True, "solar_export_start_unit": 44, "solar_export_end_unit": 46}) == [44, 45])
+_sx_win = display.unit_windows(_sx_units, {}, 40, _sx_now)
+check("solar export expected: windows 10:00-11:00 and 12:45-13:00", len(_sx_win) == 2 and _sx_win[0]["start"].startswith("2026-10-31T10:00")
+      and _sx_win[0]["stop"].startswith("2026-10-31T11:00"))
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

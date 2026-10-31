@@ -52,6 +52,7 @@ STATUS_ATTRIBUTES = [
     "solar_surplus",
     # the house from the grid at low prices (as of 2026.10.41)
     "grid_use",
+    "solar_export_expected",
     "negative_price_plan",
     "spike_plan",
     "low_charge_plan",
@@ -407,7 +408,9 @@ class EssManagerBatteryActionSensor(CoordinatorEntity[EssManagerCoordinator], Se
     _attr_name = "Battery action"
     _attr_icon = "mdi:battery-sync"
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = ["idle", "charge", "discharge", "negative_price_charge", "spike_discharge", "balancing"]
+    _attr_options = ["idle", "charge", "discharge", "negative_price_charge", "spike_discharge", "balancing",
+                     # as of 2026.10.41
+                     "grid_use", "solar_export"]
 
     def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
         super().__init__(coordinator)

@@ -162,7 +162,12 @@ Five planning engines, all documented in detail in the code
    battery is at 0 W in a few steps without overshooting - never below the
    idle value, a car or a kettle included, back to idle by itself when the
    sun comes out (±30 W counts as 0; without a power reading: idle). The forecast keeps that energy in the
-   battery, and the price chart shows those quarters in their own colour.
+   battery. The cards show it in purple (as of 2026.10.41): on the price
+   chart as blocks labelled "From the grid", on the battery chart the
+   forecast line in that colour with a label for stretches of 45 minutes
+   or more and a line in the hover tooltip ("House from the grid
+   23:15-08:00 · ~1.2 kWh"); afterwards both charts show when it ran (the
+   Battery action `grid_use`).
    Switched on on the price plans page in Configure. The battery's power
    sensor and its direction are on the battery page (also used by solar
    export); when it's still empty there, a page for it follows the switch.
@@ -1291,7 +1296,13 @@ to the grid - export only, never above the idle value, so nothing is
 bought for it (with less than 1000 W of surplus the battery just takes
 what there is). Before a negative price window the battery is kept at
 0 W instead, so the room stays free. Without the power sensor it stays a
-label (idle), as before. (`Grid usage` - a
+label (idle), as before. The cards show it in orange: where it's
+**expected** - the same rule on the forecast (solar left over, full later
+today, the price above every price until then, plus the negative price
+plan's export window), attribute `solar_export_expected` - as a block
+with a dashed line on the price chart ("Export expected") and in that
+colour on the battery chart's forecast line and tooltip; afterwards when
+it really ran (the Battery action `solar_export`, only when steered). (`Grid usage` - a
 battery within 1 kWh of the low threshold waiting for a planned charge -
 is gone as of 2026.10.41: the house from the grid at low prices is now
 planned, plan 6.)

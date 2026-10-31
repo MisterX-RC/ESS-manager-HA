@@ -2680,6 +2680,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 (h for h, v in enumerate(battery_forecast_adjusted) if v >= upper_limit_kwh - 0.01), None
             )
             full_unit = hour0_unit + full_hour * 4 + 3 if full_hour is not None else None
+            # where solar export is expected (as of 2026.10.41, for the charts)
+            export_expected = display.unit_windows(
+                plans.solar_export_units(net_energy, current_price_unit, now, full_unit, all_price,
+                                         today_units=len(today_price) or 96,
+                                         neg=self._negative_price_plan),
+                {}, current_price_unit, now,
+            )
             system_status, control_action = plans.compute_system_status_and_action(
                 setpoint_w,
                 idle_setpoint_w,
@@ -2742,6 +2749,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "forecast_with_spike": forecast_with_spike,
                 "solar_surplus": solar_surplus,
                 "grid_use": display.grid_use_windows(self._low_charge_plan, current_price_unit, now),
+                "solar_export_expected": export_expected,
                 "system_status": system_status,
             }
 
@@ -2760,6 +2768,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         forecast_with_spike = _planned["forecast_with_spike"]
         solar_surplus = _planned["solar_surplus"]
         grid_use = _planned["grid_use"]
+        export_expected = _planned["solar_export_expected"]
         system_status = _planned["system_status"]
         if replan:
             # only what this cycle saw - a change made meanwhile still counts
@@ -2863,6 +2872,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if control_action == control.ACTION_CHARGE
                 and (self._full_charge_plan or {}).get("active")
                 and (self._full_charge_plan or {}).get("phase") == "holding"
+                # solar export without the battery's power sensor stays a label
+                else control.ACTION_IDLE
+                if control_action == control.ACTION_SOLAR_EXPORT and not conf.get(CONF_BATTERY_POWER_ENTITY)
                 else control_action
             ),
             "card_plans": card_plans,
@@ -2917,6 +2929,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "battery_forecast_adjusted_uncapped": battery_forecast_adjusted_uncapped,
             "solar_surplus": solar_surplus,
             "grid_use": grid_use,
+            "solar_export_expected": export_expected,
             "negative_price_plan": self._negative_price_plan,
             "spike_plan": self._spike_plan,
             "low_charge_plan": self._low_charge_plan,

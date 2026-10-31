@@ -2932,6 +2932,30 @@ def with_grid_use(forecast: list[float], low: dict, cur_unit: int, now: datetime
     return [round(v, 3) for v in out]
 
 
+def solar_export_units(
+    net: list[float], cur_unit: int, now: datetime, full_unit: Optional[int], all_price: list[float],
+    today_units: int = 96, neg: Optional[dict] = None,
+) -> list[int]:
+    """The quarters solar export is expected (as of 2026.10.41, for the
+    charts): the same rule as the Status, on the forecast - solar left over
+    that hour, the battery reaching 100% later today, and the price higher
+    than every price from then until that moment; plus the negative price
+    plan's solar export window. A forecast: the Status decides live."""
+    out: set[int] = set()
+    if neg and neg.get("active"):
+        out.update(range(max(neg.get("solar_export_start_unit", 0), cur_unit), neg.get("solar_export_end_unit", 0)))
+    if full_unit is not None and cur_unit < full_unit < today_units:
+        hour0 = _hour0_start_unit(cur_unit, now)
+        for u in range(cur_unit, full_unit):
+            h = (u - hour0) // 4
+            if h >= len(net) or net[h] is None or net[h] <= 0 or u >= len(all_price):
+                continue
+            ahead = all_price[u + 1 : full_unit + 1]
+            if ahead and all_price[u] > max(ahead):
+                out.add(u)
+    return sorted(out)
+
+
 def compute_system_status(*args, **kwargs) -> str:
     """The Status sensor's state - see compute_system_status_and_action."""
     return compute_system_status_and_action(*args, **kwargs)[0]

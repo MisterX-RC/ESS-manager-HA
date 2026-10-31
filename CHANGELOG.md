@@ -55,6 +55,16 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   the battery's deviation, so a sensor that lags a little doesn't make it
   overshoot; a step right after the minute cycle is skipped.
 
+- **Both on the cards.** The house from the grid in purple, solar export in
+  orange, on both charts: planned / expected ahead (price chart: blocks
+  with a label, the expected export with a dashed line; battery chart: the
+  forecast line in that colour, a label for stretches of 45 minutes or
+  more, a line in the tooltip) and afterwards when they ran (from the
+  Battery action, which now has the states `grid_use` and `solar_export` -
+  the latter only when it's really steered). Expected export: the Status
+  rule on the forecast (attribute `solar_export_expected`). Two new colour
+  options on both cards (House from the grid, Solar export).
+
 ### Removed
 - **The status "Grid usage".** A label only (the setpoint stayed at idle)
   for a battery within 1 kWh of the low threshold while a planned charge

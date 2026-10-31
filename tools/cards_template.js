@@ -52,6 +52,8 @@ const I18N = {
     solar_surplus: "Solar surplus", legend_surplus: "Solar surplus", surplus_full: "battery full", surplus_rate: "more than the battery can take",
     surplus_kwh: (v) => `~${v} kWh to the grid`, ed_surplus_color: "Solar surplus",
     grid_use: "From the grid", legend_grid_use: "House from the grid", ed_grid_color: "House from the grid",
+    plan_export: "Solar export", plan_exported: "Exported", export_expected: "Export expected", legend_export: "Solar export",
+    ed_export_color: "Solar export", tip_grid_use: "House from the grid", tip_export: "Solar export (expected)",
     no_prices: "No prices yet",
     msg_not_found: (e) => `ESS Manager: ${e} not found - choose the installation's "Status" sensor.`,
     msg_not_status: (e) => `ESS Manager: ${e} is not an ESS Manager Status sensor - choose the "Status" sensor.`,
@@ -242,6 +244,8 @@ const I18N = {
     solar_surplus: "Zonoverschot", legend_surplus: "Zonoverschot", surplus_full: "accu vol", surplus_rate: "meer dan de accu kan laden",
     surplus_kwh: (v) => `~${v} kWh naar het net`, ed_surplus_color: "Zonoverschot",
     grid_use: "Uit het net", legend_grid_use: "Huis uit het net", ed_grid_color: "Huis uit het net",
+    plan_export: "Teruglevering", plan_exported: "Teruggeleverd", export_expected: "Teruglevering verwacht", legend_export: "Teruglevering",
+    ed_export_color: "Teruglevering", tip_grid_use: "Huis uit het net", tip_export: "Teruglevering (verwacht)",
     no_prices: "Nog geen prijzen",
     msg_not_found: (e) => `ESS Manager: ${e} niet gevonden - kies de "Status"-sensor van de installatie.`,
     msg_not_status: (e) => `ESS Manager: ${e} is geen ESS Manager Status-sensor - kies de "Status"-sensor.`,
@@ -620,7 +624,27 @@ async function fetchHistory(hass, entityIds, startMs, endMs) {
 }
 
 // What the Battery action sensor's states mean for the charts.
-const ACTION_KIND = { charge: "buy", balancing: "buy", negative_price_charge: "negative", discharge: "sell", spike_discharge: "spike" };
+const ACTION_KIND = {
+  charge: "buy", balancing: "buy", negative_price_charge: "negative", discharge: "sell", spike_discharge: "spike",
+  // as of 2026.10.41
+  grid_use: "grid", solar_export: "export",
+};
+
+// The house from the grid and the expected solar export (as of 2026.10.41):
+// [{side, kind, start, stop, kwh, expected}] - for the battery chart's line
+// and labels.
+function extraWindows(attrs) {
+  const out = [];
+  for (const g of attrs.grid_use || []) {
+    const start = Date.parse(g.start), stop = Date.parse(g.stop);
+    if (stop > start) out.push({ side: "grid", kind: "grid", start, stop, kwh: num(g.kwh) });
+  }
+  for (const e of attrs.solar_export_expected || []) {
+    const start = Date.parse(e.start), stop = Date.parse(e.stop);
+    if (stop > start) out.push({ side: "export", kind: "export", start, stop, expected: true });
+  }
+  return out;
+}
 
 // The upcoming / running Buy and Sell windows (the Status sensor's
 // card_plans, the same the status card shows): [{side, kind, source, start, stop}].
@@ -648,6 +672,8 @@ function planWindows(attrs) {
 }
 
 function planLabel(hass, w) {
+  if (w.kind === "grid") return tr(hass, "grid_use");
+  if (w.kind === "export") return tr(hass, w.past ? "plan_exported" : w.expected ? "export_expected" : "plan_export");
   if (w.past) return tr(hass, w.side === "sell" ? "plan_sold" : "plan_charged");
   if (w.side === "sell") return tr(hass, w.source === "spike" ? "plan_spike" : "plan_sell");
   return tr(hass, { negative_price: "plan_negative", full_charge: "plan_full", spike: "plan_spike" }[w.source] || "plan_buy");
@@ -663,7 +689,7 @@ function pastWindows(actionHistory, endMs) {
     if (!kind || !(stop > t)) return;
     const last = out[out.length - 1];
     if (last && last.kind === kind && Math.abs(last.stop - t) < 1000) last.stop = stop;
-    else out.push({ side: kind === "buy" || kind === "negative" ? "buy" : "sell", kind, start: t, stop, past: true });
+    else out.push({ side: kind === "buy" || kind === "negative" ? "buy" : kind === "grid" || kind === "export" ? kind : "sell", kind, start: t, stop, past: true });
   });
   return out;
 }
@@ -671,7 +697,7 @@ function pastWindows(actionHistory, endMs) {
 // The pill-shaped plan labels in the charts.
 function planPill(hass, w, colors) {
   const color = colors[w.kind];
-  const ic = { sell: "up", spike: "spike", buy: "down", negative: "negative" }[w.kind];
+  const ic = { sell: "up", spike: "spike", buy: "down", negative: "negative", grid: "home", export: "sun" }[w.kind];
   return { color, html: `${icon(ic, color, 12, 2.4)}${esc(planLabel(hass, w))} ${esc(formats(hass).time(w.start))}` };
 }
 
@@ -803,8 +829,10 @@ const BATTERY_DEFAULTS = {
   usage_color: [201, 206, 214],
   sell_color: [255, 107, 107],
   buy_color: [79, 163, 247],
+  grid_color: [167, 120, 230],
+  export_color: [255, 159, 67],
 };
-const BATTERY_COLOR_KEYS = ["soc_color", "solar_color", "usage_color", "sell_color", "buy_color"];
+const BATTERY_COLOR_KEYS = ["soc_color", "solar_color", "usage_color", "sell_color", "buy_color", "grid_color", "export_color"];
 const BATTERY_SCHEMA = (t) => [
   { name: "title", selector: { text: {} } },
   {
@@ -840,7 +868,7 @@ class EssManagerBatteryCard extends EssChartCard {
         title: "ed_title", days: "ed_days", height: "ed_height", show_days: "ed_show_days", show_raw: "ed_show_raw",
         show_solar: "ed_show_solar", show_usage: "ed_show_usage", show_outlook: "ed_show_outlook",
         soc_color: "ed_soc_color", solar_color: "ed_solar_color", usage_color: "ed_usage_color",
-        sell_color: "ed_sell_color", buy_color: "ed_buy_color",
+        sell_color: "ed_sell_color", buy_color: "ed_buy_color", grid_color: "ed_grid_color", export_color: "ed_export_color",
       },
     };
   }
@@ -961,7 +989,7 @@ class EssManagerBatteryCard extends EssChartCard {
       low: cap > 0 ? pct(num(attrs.low_threshold_kwh) || 0) : null,
       high: cap > 0 ? pct(num(attrs.high_threshold_kwh) || 0) : null,
       horizon: now + (num(attrs.planning_horizon_hours) || 0) * HOUR_MS,
-      windows: planWindows(attrs).filter((w) => w.stop > now),
+      windows: planWindows(attrs).concat(extraWindows(attrs)).filter((w) => w.stop > now),
     };
   }
 
@@ -987,7 +1015,8 @@ class EssManagerBatteryCard extends EssChartCard {
     this._m = m;
     this._opt = opt;
 
-    const colors = { normal: opt.soc_color, buy: opt.buy_color, negative: "#2f8cff", sell: opt.sell_color, spike: "#ff4545" };
+    const colors = { normal: opt.soc_color, buy: opt.buy_color, negative: "#2f8cff", sell: opt.sell_color, spike: "#ff4545",
+                     grid: opt.grid_color, export: opt.export_color };
     this._colors = colors;
     const W = width;
     const top = 18;
@@ -1114,6 +1143,8 @@ class EssManagerBatteryCard extends EssChartCard {
     const socAt = (t) => this._interp(t < m.now ? m.hist : m.future, t);
     for (const w of m.windows) {
       if (w.start >= m.T1) continue;
+      // short stretches from the grid / export: the line's colour only (as of 2026.10.41)
+      if ((w.kind === "grid" || w.kind === "export") && w.stop - w.start < 45 * 60000) continue;
       const p = planPill(this._hass, w, colors);
       const t = Math.max(w.start, m.T0);
       const estW = 30 + (planLabel(this._hass, w).length + 6) * 6.2;
@@ -1286,6 +1317,13 @@ class EssManagerBatteryCard extends EssChartCard {
     if (opt.show_solar !== false && sol !== null) html += row(`<span class="dot" style="background:${opt.solar_color}"></span>`, this._t("solar"), kwh(sol));
     if (opt.show_usage !== false && use !== null) html += row(`<span class="dot" style="background:${opt.usage_color}"></span>`, this._t("usage"), kwh(use));
     if (price !== null) html += `<div class="row sep"><span class="k">${esc(this._t("price"))}</span><b>${esc(f.money(price))}</b></div>`;
+    // the house from the grid / solar export expected this hour (as of 2026.10.41)
+    for (const w of (m.windows || []).filter((win) => (win.kind === "grid" || win.kind === "export") && t + HOUR_MS > win.start && t < win.stop)) {
+      const c = w.kind === "grid" ? opt.grid_color : opt.export_color;
+      const extra = w.kind === "grid" && w.kwh ? ` · ~${f.num(w.kwh, 1)} kWh` : "";
+      html += row(`<span class="dot" style="background:${c}"></span>`, this._t(w.kind === "grid" ? "tip_grid_use" : "tip_export"),
+        `${f.time(w.start)}–${f.time(w.stop)}${extra}`);
+    }
     tip.innerHTML = html;
     tip.style.display = "flex";
     const tipW = tip.offsetWidth || 150;
@@ -1316,8 +1354,9 @@ const PRICE_DEFAULTS = {
   buy_color: [79, 163, 247],
   surplus_color: [242, 201, 76],
   grid_color: [167, 120, 230],
+  export_color: [255, 159, 67],
 };
-const PRICE_COLOR_KEYS = ["cheap_color", "mid_color", "high_color", "negative_color", "sell_color", "buy_color", "surplus_color", "grid_color"];
+const PRICE_COLOR_KEYS = ["cheap_color", "mid_color", "high_color", "negative_color", "sell_color", "buy_color", "surplus_color", "grid_color", "export_color"];
 const PRICE_SCHEMA = (t) => [
   { name: "title", selector: { text: {} } },
   {
@@ -1350,7 +1389,7 @@ class EssManagerPriceCard extends EssChartCard {
         title: "ed_title", height: "ed_height", show_extremes: "ed_show_extremes", show_buy_line: "ed_show_buy_line",
         legend: "ed_legend", cheap_color: "ed_cheap_color", mid_color: "ed_mid_color", high_color: "ed_high_color",
         negative_color: "ed_negative_color", sell_color: "ed_sell_color", buy_color: "ed_buy_color",
-        surplus_color: "ed_surplus_color", grid_color: "ed_grid_color",
+        surplus_color: "ed_surplus_color", grid_color: "ed_grid_color", export_color: "ed_export_color",
       },
     };
   }
@@ -1423,7 +1462,8 @@ class EssManagerPriceCard extends EssChartCard {
     const slots = Math.max(n, Math.round((T1 - T0) / unitMs));
     const cur = clamp(Math.floor((now - T0) / unitMs), 0, n - 1);
     const W = width;
-    const colors = { buy: opt.buy_color, negative: opt.buy_color, sell: opt.sell_color, spike: opt.sell_color };
+    const colors = { buy: opt.buy_color, negative: opt.buy_color, sell: opt.sell_color, spike: opt.sell_color,
+                     grid: opt.grid_color, export: opt.export_color };
     const upcoming = planWindows(attrs).filter((w) => w.stop > T0 && w.start < T1);
     const ran = pastWindows(this._hist && this._hist.action, now)
       .filter((w) => w.stop > T0 && !upcoming.some((u) => u.side === w.side && u.start < w.stop && w.start < u.stop));
@@ -1437,9 +1477,13 @@ class EssManagerPriceCard extends EssChartCard {
     const gridUse = (attrs.grid_use || [])
       .map((g) => ({ start: Math.max(Date.parse(g.start), now), stop: Date.parse(g.stop), kwh: num(g.kwh) }))
       .filter((g) => g.stop > g.start && g.stop > T0 && g.start < T1);
+    // solar export expected (as of 2026.10.41) - drawn like the surplus
+    const exportExp = (attrs.solar_export_expected || [])
+      .map((e) => ({ start: Math.max(Date.parse(e.start), now), stop: Date.parse(e.stop), export: true }))
+      .filter((e) => e.stop > e.start && e.stop > T0 && e.start < T1);
     const X0 = 34;
     // room above the plot for the plan labels - only when there are plans
-    const top = windows.length || surplus.length || gridUse.length ? 18 : 8;
+    const top = windows.length || surplus.length || gridUse.length || exportExp.length ? 18 : 8;
     const H = Math.max(clamp(Number(opt.height) || 170, 100, 600) - 18, 60);
     const bottom = top + H;
     const valid = prices.filter((v) => v !== null);
@@ -1548,6 +1592,22 @@ class EssManagerPriceCard extends EssChartCard {
         placed.push([lx - half, lx + half]);
       }
     }
+    // solar export expected: its own colour, dashed at the bottom (a forecast)
+    const ec = opt.export_color;
+    for (const e of exportExp) {
+      const x0 = x(e.start);
+      const x1 = x(Math.min(e.stop, T1));
+      const wd = Math.max(x1 - x0, 2);
+      sunUnder += `<rect x="${r1(x0)}" y="${top - 4}" width="${r1(wd)}" height="${r1(H + 4)}" rx="3" fill="${ec}" fill-opacity="0.10"/>`;
+      sunStreaks += `<line x1="${r1(x0)}" y1="${r1(bottom + 4.5)}" x2="${r1(x0 + wd)}" y2="${r1(bottom + 4.5)}" stroke="${ec}" stroke-width="3" stroke-dasharray="4 3"/>`;
+      const text = `${this._t("export_expected")} ${f.time(e.start)}`;
+      const half = text.length * 3;
+      const lx = clamp((x0 + x1) / 2, X0 + half, W - half);
+      if (!placed.some(([a, b]) => lx - half < b + 6 && lx + half > a - 6)) {
+        labels += `<span class="plabel" style="left:${r1(lx)}px;top:0;color:${tint(ec, 1)}">${esc(text)}</span>`;
+        placed.push([lx - half, lx + half]);
+      }
+    }
     // y axis
     let axis = "";
     for (let v = lo; v <= hi + step / 2; v += step) {
@@ -1613,7 +1673,8 @@ class EssManagerPriceCard extends EssChartCard {
       <span><i style="background:${tint(opt.sell_color, 0.6)}"></i>${esc(this._t("legend_sell"))}</span>
       <span><i style="background:${tint(opt.buy_color, 0.6)}"></i>${esc(this._t("legend_buy"))}</span>
       ${surplus.length ? `<span><i style="background:${tint(sc, 0.6)}"></i>${esc(this._t("legend_surplus"))}</span>` : ""}
-      ${gridUse.length ? `<span><i style="background:${tint(gc, 0.8)}"></i>${esc(this._t("legend_grid_use"))}</span>` : ""}
+      ${gridUse.length || windows.some((w) => w.kind === "grid") ? `<span><i style="background:${tint(gc, 0.8)}"></i>${esc(this._t("legend_grid_use"))}</span>` : ""}
+      ${exportExp.length || windows.some((w) => w.kind === "export") ? `<span><i style="background:${tint(ec, 0.8)}"></i>${esc(this._t("legend_export"))}</span>` : ""}
       ${showBuyLine ? `<span><i style="width:12px;height:0;border-top:1px dashed var(--primary-text-color, #e8e8e8);border-radius:0"></i>${esc(this._t("legend_buy_line"))}</span>` : ""}
     </div>`;
 

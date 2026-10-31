@@ -417,14 +417,9 @@ def card_plans(
     return {"buy": buy, "sell": sell}
 
 
-def grid_use_windows(low: dict, cur_unit: int, now) -> list[dict]:
-    """The quarters the house is taken from the grid (as of 2026.10.41), as
-    windows for the price chart: [{start, stop, kwh}] - runs of grid
-    quarters."""
-    units = sorted(u for u in (low.get("grid_units") or []) if u >= cur_unit)
-    if not units:
-        return []
-    kwh = dict(zip(low.get("grid_units") or [], low.get("grid_unit_kwh") or []))
+def unit_windows(units: list[int], kwh: dict, cur_unit: int, now) -> list[dict]:
+    """Quarters as windows for the charts: [{start, stop, kwh}] - runs."""
+    units = sorted(u for u in units if u >= cur_unit)
     out: list[list] = []
     for u in units:
         if out and u == out[-1][1]:
@@ -437,3 +432,10 @@ def grid_use_windows(low: dict, cur_unit: int, now) -> list[dict]:
          "kwh": round(k, 2)}
         for a, b, k in out
     ]
+
+
+def grid_use_windows(low: dict, cur_unit: int, now) -> list[dict]:
+    """The quarters the house is taken from the grid (as of 2026.10.41), as
+    windows for the charts."""
+    kwh = dict(zip(low.get("grid_units") or [], low.get("grid_unit_kwh") or []))
+    return unit_windows(list(low.get("grid_units") or []), kwh, cur_unit, now)
