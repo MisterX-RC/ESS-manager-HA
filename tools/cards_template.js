@@ -1141,7 +1141,7 @@ class EssManagerBatteryCard extends EssChartCard {
     // the "now" label counts as taken, so a plan label steps around it
     const placed = [{ left: nowRight ? xNow : xNow - 4 - nowW, y: top, w: nowW + 4 }];
     const socAt = (t) => this._interp(t < m.now ? m.hist : m.future, t);
-    // One label per group (as of 2026.10.41): blocks of the same kind less
+    // One label per group (as of 2026.10.42): blocks of the same kind less
     // than three hours apart share the first one's label, with "+n" for the
     // rest (the line keeps each block's colour); a label that would still
     // overlap another one is left out rather than stacked.
