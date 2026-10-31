@@ -2995,6 +2995,9 @@ check("Solar export: never replaces a running action",
       == "Start charge")
 check("Solar export: steered as of 2026.10.41 (the battery at 1 kW, the rest to the grid)",
       plans.compute_system_status_and_action(all_price=_se_lower, full_unit=56, solar_surplus_now=True, **_se_kw)[1] == "solar_export")
+check("Solar export: without the battery's power sensor there's none (2026.10.43: no label-only state) - Standby",
+      plans.compute_system_status_and_action(all_price=_se_lower, full_unit=56, solar_surplus_now=True,
+                                             solar_export=False, **_se_kw) == ("Standby", "idle"))
 
 # 2026.10.3: live report (15 kWh battery, 09:39, 3.9 kWh, deficit minimum 4.5, surplus 0.75): the battery was
 # just under the deficit minimum, the sun lifts it above within the hour - and it started a 6.6 kWh charge

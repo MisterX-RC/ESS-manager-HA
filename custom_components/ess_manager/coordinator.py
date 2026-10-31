@@ -2686,7 +2686,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                          today_units=len(today_price) or 96,
                                          neg=self._negative_price_plan),
                 {}, current_price_unit, now,
-            )
+            ) if conf.get(CONF_BATTERY_POWER_ENTITY) else []
             system_status, control_action = plans.compute_system_status_and_action(
                 setpoint_w,
                 idle_setpoint_w,
@@ -2703,6 +2703,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 all_price,
                 full_unit=full_unit,
                 solar_surplus_now=bool(net_energy) and net_energy[0] > 0,
+                solar_export=bool(conf.get(CONF_BATTERY_POWER_ENTITY)),
                 today_units=len(today_price) or 96,
             )
 
@@ -2872,9 +2873,6 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if control_action == control.ACTION_CHARGE
                 and (self._full_charge_plan or {}).get("active")
                 and (self._full_charge_plan or {}).get("phase") == "holding"
-                # solar export without the battery's power sensor stays a label
-                else control.ACTION_IDLE
-                if control_action == control.ACTION_SOLAR_EXPORT and not conf.get(CONF_BATTERY_POWER_ENTITY)
                 else control_action
             ),
             "card_plans": card_plans,

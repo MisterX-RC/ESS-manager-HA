@@ -1298,8 +1298,9 @@ the battery keeps charging at **1000 W** and the solar above that goes
 to the grid - export only, never above the idle value, so nothing is
 bought for it (with less than 1000 W of surplus the battery just takes
 what there is). Before a negative price window the battery is kept at
-0 W instead, so the room stays free. Without the power sensor it stays a
-label (idle), as before. The cards show it in orange: where it's
+0 W instead, so the room stays free. Without the power sensor there's no
+`Solar export` at all (as of 2026.10.43 - up to then it was a label only):
+the Status says `Standby`. The cards show it in orange: where it's
 **expected** - the same rule on the forecast (solar left over, full later
 today, the price above every price until then, plus the negative price
 plan's export window), attribute `solar_export_expected` - as a block
@@ -1354,8 +1355,7 @@ would share); a Charge speed below it is a gentler charge, which the
 house shares. (Up to 2026.10.26 the setpoint was cut down to the max
 battery speed, and the sales were sized at the full Discharge speed even
 when the battery couldn't deliver it.) Every
-Status that means "do nothing" (`Stop`, `Standby`,
-`Solar export` without the battery's power sensor, `Full charge scheduled`, `Awaiting solar (full charge)`)
+Status that means "do nothing" (`Stop`, `Standby`, `Full charge scheduled`, `Awaiting solar (full charge)`)
 sends your **idle value** exactly as entered (usually 0; some Victron
 systems idle at -30 W). This is the same mapping as
 `dashboard/automation_example.yaml`, with the speeds taken from the

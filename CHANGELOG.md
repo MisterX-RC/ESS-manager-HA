@@ -12,6 +12,15 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.43] - 2026-10-31
+
+### Removed
+- **Solar export as a label only.** Without the battery's power sensor
+  (battery page) Solar export can't be steered, and up to now it still
+  showed as a status with nothing behind it. Now there's no Solar export
+  then: the status is "Standby", the Battery action "idle", and no
+  expected export is drawn on the cards. With the sensor nothing changes.
+
 ## [2026.10.42] - 2026-10-31
 
 ### Changed

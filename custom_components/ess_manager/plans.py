@@ -2978,6 +2978,7 @@ def compute_system_status_and_action(
     full_unit: Optional[int] = None,
     solar_surplus_now: bool = False,
     today_units: int = 96,
+    solar_export: bool = True,
 ) -> tuple[str, str]:
     """The Status (what the dashboard and an external automation see) plus
     the control action behind it (control.ACTION_*), which direct control
@@ -2989,6 +2990,10 @@ def compute_system_status_and_action(
     `full_unit` / `solar_surplus_now` (as of 2026.10.3): the quarter the
     forecast reaches 100% (None if it doesn't) and whether solar exceeds
     usage right now - for "Solar export", see below.
+
+    `solar_export` (as of 2026.10.43): whether solar export can be steered
+    (the battery's power sensor is set). Without it there's no "Solar
+    export" at all - up to then it was a label only: "Standby".
     """
     status, action = _compute_system_status_raw(
         setpoint_w,
@@ -3014,6 +3019,9 @@ def compute_system_status_and_action(
     # charge is being planned around that peak at all. Only replaces a
     # genuine "Standby" (nothing else going on) - never overrides a real
     # in-progress action from another plan.
+    if action == ACTION_SOLAR_EXPORT and not solar_export:
+        # the negative price plan's export window, not steerable: nothing to do
+        return "Standby", ACTION_IDLE
     if status == "Standby" and not full.get("active") and full.get("relying_on_peak_unit") is not None:
         return "Awaiting solar (full charge)", ACTION_IDLE
     # "Solar export" (as of 2026.10.3): with nothing else going on, solar
@@ -3025,7 +3033,8 @@ def compute_system_status_and_action(
     # the low threshold, and compared with the price at the max SOC crossing
     # only.)
     if (
-        status == "Standby"
+        solar_export
+        and status == "Standby"
         and solar_surplus_now
         and full_unit is not None
         and cur_unit < full_unit < today_units
