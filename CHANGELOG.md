@@ -14,6 +14,16 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.10.40] - 2026-10-31
 
+### Added
+- **A charging car doesn't eat the battery's grid charge (charger without
+  Victron).** With direct control, while the house battery charges from
+  the grid the setpoint sent now goes up by what the car takes (its power
+  sensor), like the Victron charger's grid windows already did. Up to now
+  the grid only gave the planned speed: at night (1.5 kW limit) a car
+  taking 3 kW meant the battery was discharging into the car while the
+  status said charging. The battery forecast leaves the car's energy out
+  for the rest of that running charge.
+
 ### Changed
 - **Low charge: what's needed after the known prices is bought now where it
   fits.** Up to now that part waited for the prices to come in, so a

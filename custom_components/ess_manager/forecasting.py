@@ -424,6 +424,23 @@ def night_discharge_plan(
     return plan
 
 
+def ev_in_window(ev_hours: list[float], now: datetime, until_ts: float) -> list[float]:
+    """The car's forecast energy per hour (hour 0 = this one) that falls
+    before `until_ts` - the share of each hour from now on (as of 2026.10.41:
+    a charger without Victron, during the house battery's running grid
+    charge, whose setpoint covers the car)."""
+    hour0 = now.replace(minute=0, second=0, microsecond=0).timestamp()
+    start = now.timestamp()
+    out = []
+    for h, e in enumerate(ev_hours):
+        a = max(hour0 + h * 3600, start)
+        b = min(hour0 + (h + 1) * 3600, until_ts)
+        span = hour0 + (h + 1) * 3600 - max(hour0 + h * 3600, start)
+        share = (b - a) / span if b > a and span > 0 else 0.0
+        out.append(round((e or 0.0) * share, 3))
+    return out
+
+
 def grid_charge_rates(
     net: list[float],
     now: datetime,

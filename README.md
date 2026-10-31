@@ -495,6 +495,13 @@ start time are fixed, the rest can still change, and what's already charged
 manual session from the current hour (with the typical energy - change it
 on the card). Ten minutes without power and the session is done.
 
+**While the house battery charges from the grid** *(as of 2026.10.40,
+without the Victron charger, with direct control)*: the grid setpoint sent
+goes up by what the car takes (the power sensor), so the battery still
+charges at the planned speed - also at the night speed, where a car taking
+more than that would otherwise be fed by the battery. The battery forecast
+leaves the car's energy out for the rest of that running charge.
+
 ### Victron EV charging station
 
 *(As of 2026.10.27.)* Instead of an energy and a power sensor, the charger

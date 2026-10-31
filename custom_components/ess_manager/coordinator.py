@@ -356,6 +356,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._ev_writes: dict[str, tuple[Any, float]] = {}
         self._ev_error: Optional[str] = None
         self._ev_offset_w = 0.0
+        # a charger without Victron (as of 2026.10.41): until when the house
+        # battery's running charge goes on (epoch) - the car's energy in it
+        # comes from the grid (the setpoint goes up by what the car takes)
+        self._ev_charge_until: Optional[float] = None
         self._ev_target: Optional[dict[str, Any]] = None
         # The heat pump model (as of 2026.10.16) - see heatpump_runtime.py.
         self.hp = HeatPumpRuntime()
@@ -596,6 +600,35 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         notify = [s for s in (conf.get(CONF_EV_NOTIFY) or []) if self.hass.services.has_service("notify", s)]
         return {"entry_id": self.entry.entry_id, "language": evn.lang(self.hass.config.language),
                 "notify": bool(notify), "notify_services": notify}
+
+    def _ev_charge_offset_kw(self, conf: dict[str, Any], action: str) -> float:
+        """A charger without Victron (as of 2026.10.41): while the house
+        battery charges from the grid, what the car takes now (kW, measured)
+        - added to the grid setpoint, so the battery charges at the planned
+        speed (also the night speed) instead of feeding the car."""
+        if not conf.get(CONF_EV_ENABLED) or conf.get(CONF_EV_CHARGER) == EV_CHARGER_VICTRON:
+            return 0.0
+        if action not in (control.ACTION_CHARGE, control.ACTION_NEGATIVE_PRICE_CHARGE):
+            return 0.0
+        power_w = _state_in_unit(self.hass, conf.get(CONF_EV_POWER_ENTITY), ("kW",), 1000.0)
+        if not power_w or power_w <= 0:
+            return 0.0
+        return round(power_w / 1000.0, 1)
+
+    def _charge_until(self, conf: dict[str, Any], action: str, card_plans: Optional[dict[str, Any]],
+                      control_settings: ControlSettings) -> Optional[float]:
+        """Until when the running grid charge goes on (epoch), for a charger
+        without Victron whose car the setpoint covers meanwhile (2026.10.41);
+        None when not charging, or without direct control."""
+        if not conf.get(CONF_EV_ENABLED) or conf.get(CONF_EV_CHARGER) == EV_CHARGER_VICTRON:
+            return None
+        if action not in (control.ACTION_CHARGE, control.ACTION_NEGATIVE_PRICE_CHARGE):
+            return None
+        if not (control_settings.active and self.controller.enabled):
+            return None
+        buy = (card_plans or {}).get("buy") or {}
+        stop = dt_util.parse_datetime(buy["stop"]) if buy.get("started") and buy.get("stop") else None
+        return stop.timestamp() if stop else None
 
     def _ev_grid_offset_kw(self, victron: dict[str, Any], ents: dict[str, str], now: datetime) -> float:
         """What the car takes now (kW) when it's in a grid window, else 0."""
@@ -2148,6 +2181,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # the car's grid windows (Victron charger) don't come out of the
             # house battery: the grid setpoint covers them
             ev_grid = (ev_attribute or {}).get("grid_120h") or [0.0] * len(ev_total)
+            if ev_victron is None and self._ev_charge_until and self._ev_charge_until > now.timestamp():
+                # without Victron (as of 2026.10.41): neither does the car's
+                # energy during the battery's running charge
+                ev_grid = forecasting.ev_in_window(ev_total, now, self._ev_charge_until)
             if any(ev_total):
                 usage_forecast = [round(u + e - g, 3) for u, e, g in zip(usage_forecast, ev_total, ev_grid)]
                 net_energy = forecasting.build_net_energy(solar_forecast, usage_forecast)
@@ -2657,11 +2694,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # the Victron charger (as of 2026.10.27): in a grid window of the
         # plugged-in car the grid setpoint goes up by what the car takes, so
         # the house battery stays out of it
-        ev_offset_kw = self._ev_grid_offset_kw(ev_victron, ev_entities, now) if ev_victron else 0.0
+        ev_offset_kw = (self._ev_grid_offset_kw(ev_victron, ev_entities, now) if ev_victron
+                        else self._ev_charge_offset_kw(conf, control_action))
         await self.controller.async_apply(
             control_settings, control_action, control_power_kw, system_status, offset_kw=ev_offset_kw
         )
         self._ev_offset_w = ev_offset_kw * 1000.0 if control_settings.active and self.controller.enabled else 0.0
+        self._ev_charge_until = self._charge_until(conf, control_action, card_plans, control_settings)
         if ev_victron is not None:
             await self._async_ev_charger(conf, ev_entities, now, control_settings)
         await self._async_ev_send()

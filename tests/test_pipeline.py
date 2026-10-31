@@ -5175,6 +5175,13 @@ _st, _sa = _srt.update(_vconf, _m9, _ams2, 6, [0.0] * 121, 0.0, 0.0, notify=_sno
 check("... 'no' switches it off: on the card, tick off, not in the forecast",
       [(x["id"], x["enabled"]) for x in _sa["sessions"]] == [(_sm, False)] and sum(_st) == 0.0)
 
+
+# 2026.10.41: a charger without Victron - the car's energy during the house battery's running grid charge
+# (until 02:30, now 01:15) comes from the grid: this hour's rest fully, the next hour half, then nothing
+_eiw_now = datetime(2026, 10, 31, 1, 15)
+_eiw = forecasting.ev_in_window([3.0, 3.0, 3.0, 0.0], _eiw_now, datetime(2026, 10, 31, 2, 30).timestamp())
+check("ev in the charge window: the rest of this hour, half the next, nothing after", _eiw == [3.0, 1.5, 0.0, 0.0])
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:
