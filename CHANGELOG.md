@@ -65,6 +65,11 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   rule on the forecast (attribute `solar_export_expected`). Two new colour
   options on both cards (House from the grid, Solar export).
 
+- **Battery chart: fewer labels.** Blocks of the same kind less than three
+  hours apart share one label ("Buy 21:30 +2", "From the grid 00:00 +2" -
+  the line keeps every block's colour), and a label that would still
+  overlap another one is left out instead of stacked on top of it.
+
 ### Removed
 - **The status "Grid usage".** A label only (the setpoint stayed at idle)
   for a battery within 1 kWh of the low threshold while a planned charge

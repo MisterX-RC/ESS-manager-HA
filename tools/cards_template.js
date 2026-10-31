@@ -1141,21 +1141,39 @@ class EssManagerBatteryCard extends EssChartCard {
     // the "now" label counts as taken, so a plan label steps around it
     const placed = [{ left: nowRight ? xNow : xNow - 4 - nowW, y: top, w: nowW + 4 }];
     const socAt = (t) => this._interp(t < m.now ? m.hist : m.future, t);
-    for (const w of m.windows) {
+    // One label per group (as of 2026.10.41): blocks of the same kind less
+    // than three hours apart share the first one's label, with "+n" for the
+    // rest (the line keeps each block's colour); a label that would still
+    // overlap another one is left out rather than stacked.
+    const groups = [];
+    for (const w of [...m.windows].sort((a, b) => a.start - b.start)) {
       if (w.start >= m.T1) continue;
-      // short stretches from the grid / export: the line's colour only (as of 2026.10.41)
+      // short stretches from the grid / export: the line's colour only
       if ((w.kind === "grid" || w.kind === "export") && w.stop - w.start < 45 * 60000) continue;
+      const same = groups.slice().reverse().find((g) => g.w.kind === w.kind);
+      if (same && w.start - same.stop < 3 * HOUR_MS) {
+        same.n += 1;
+        same.stop = Math.max(same.stop, w.stop);
+        continue;
+      }
+      groups.push({ w, n: 0, stop: w.stop });
+    }
+    for (const g of groups) {
+      const w = g.w;
       const p = planPill(this._hass, w, colors);
+      const more = g.n ? ` <span style="opacity:.7">+${g.n}</span>` : "";
       const t = Math.max(w.start, m.T0);
-      const estW = 30 + (planLabel(this._hass, w).length + 6) * 6.2;
+      const estW = 30 + (planLabel(this._hass, w).length + 6 + (g.n ? 3 : 0)) * 6.2;
       const left = clamp(x(t) - 6, 0, Math.max(W - estW, 0));
       const v = socAt(t);
       const yLine = ys(clamp(v === null ? 50 : v, 0, 100));
-      let y = yLine - 28 < 0 ? yLine + 10 : yLine - 28;
-      const clash = placed.find((q) => left < q.left + q.w && q.left < left + estW && Math.abs(q.y - y) < 20);
-      if (clash) y = y < yLine ? yLine + 10 : yLine - 28;
+      const above = yLine - 28 < 0 ? yLine + 10 : yLine - 28;
+      const below = above < yLine ? yLine + 10 : yLine - 28;
+      const free = (y) => !placed.some((q) => left < q.left + q.w && q.left < left + estW && Math.abs(q.y - y) < 20);
+      const y = free(above) ? above : free(below) ? below : null;
+      if (y === null) continue;
       placed.push({ left, y, w: estW });
-      pills += `<span class="pill" style="left:${r1(left)}px;top:${r1(clamp(y, 0, bottom - 18))}px;background:${tint(p.color, 0.2)};color:var(--primary-text-color, #e8e8e8)">${p.html}</span>`;
+      pills += `<span class="pill" style="left:${r1(left)}px;top:${r1(clamp(y, 0, bottom - 18))}px;background:${tint(p.color, 0.2)};color:var(--primary-text-color, #e8e8e8)">${p.html}${more}</span>`;
     }
 
     // "planning horizon": just under the max SOC line, unless the "without

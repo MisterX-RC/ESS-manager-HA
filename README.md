@@ -165,7 +165,9 @@ Five planning engines, all documented in detail in the code
    battery. The cards show it in purple (as of 2026.10.41): on the price
    chart as blocks labelled "From the grid", on the battery chart the
    forecast line in that colour with a label for stretches of 45 minutes
-   or more and a line in the hover tooltip ("House from the grid
+   or more (blocks of the same kind less than three hours apart share one
+   label, "+2"; a label that would overlap another is left out) and a line
+   in the hover tooltip ("House from the grid
    23:15-08:00 · ~1.2 kWh"); afterwards both charts show when it ran (the
    Battery action `grid_use`).
    Switched on on the price plans page in Configure. The battery's power
