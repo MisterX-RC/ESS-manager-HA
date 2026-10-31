@@ -64,12 +64,13 @@
       },
       "plans": {
         "title": "Price plans",
-        "description": "Two optional plans that act on the electricity price. Both can be switched on or off later in Configure.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.\n\n**Electric car** - for a car that charges from the home battery: its charging sessions are planned with the rest (see the next pages).\n\n**Heat pump** - forecasts a heat pump's usage from the weather forecast instead of the 6-week average (see the next pages).",
+        "description": "Two optional plans that act on the electricity price. Both can be switched on or off later in Configure.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.\n\n**Electric car** - for a car that charges from the home battery: its charging sessions are planned with the rest (see the next pages).\n\n**Heat pump** - forecasts a heat pump's usage from the weather forecast instead of the 6-week average (see the next pages).\n\n**The house from the grid at low prices** - when the battery would be charged later anyway, taking the house from the grid now is cheaper than from the battery as long as the price now is below the later charge price minus the battery's losses (charge and discharge efficiency). Those quarters are planned together with the charges, only with a solar deficit and never so that the battery would go over 100% later; meanwhile ESS Manager keeps the battery at 0 W with the grid setpoint (direct control).",
         "data": {
           "enable_negative_price_plan": "Enable the negative price plan",
           "enable_spike_plan": "Enable the spike arbitrage plan",
           "ev_enabled": "Electric car that charges from the home battery - its pages follow",
-          "hp_enabled": "Heat pump: forecast its usage from the weather - its pages follow"
+          "hp_enabled": "Heat pump: forecast its usage from the weather - its pages follow",
+          "enable_grid_use_plan": "The house from the grid at low prices instead of from the battery - its page follows"
         }
       },
       "ev": {
@@ -194,6 +195,14 @@
           "ev_car_target_soc": "Usual target (%)",
           "ev_car_efficiency": "Charge efficiency (%)"
         }
+      },
+      "grid_use": {
+        "title": "The house from the grid at low prices",
+        "description": "While the house is taken from the grid, ESS Manager raises the grid setpoint every minute until the battery neither charges nor discharges - solar left over still goes into the battery. For that it needs the battery's power as measured (a power sensor of the battery or the battery monitor, in W or kW).",
+        "data": {
+          "battery_power_entity": "Battery power (sensor)",
+          "battery_power_sign": "Direction of that sensor"
+        }
       }
     },
     "error": {
@@ -215,7 +224,8 @@
       "floor_entities_required": "Choose all floor control entities (only the floor sensor is optional).",
       "floor_helper_same": "The thermostat's helper switch must be another entity than the heat pump's heat demand switch.",
       "ev_victron_device_required": "Pick the Victron EV charging station's device.",
-      "ev_victron_incomplete": "This device doesn't have the entities of a Victron EV charging station (status, power, total energy, mode, charge current setpoint, EV charging) - or some of them are disabled."
+      "ev_victron_incomplete": "This device doesn't have the entities of a Victron EV charging station (status, power, total energy, mode, charge current setpoint, EV charging) - or some of them are disabled.",
+      "battery_power_required": "Pick the battery's power sensor."
     },
     "abort": {
       "already_configured": "An ESS Manager instance with this name already exists."
@@ -279,12 +289,13 @@
       },
       "plans": {
         "title": "Price plans",
-        "description": "Two optional plans that act on the electricity price.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.\n\n**Electric car** - for a car that charges from the home battery: its charging sessions are planned with the rest (see the next pages).\n\n**Heat pump** - forecasts a heat pump's usage from the weather forecast instead of the 6-week average (see the next pages).",
+        "description": "Two optional plans that act on the electricity price.\n\n**Negative price plan** - when the price drops below your negative price threshold (you get paid to take power), it charges the battery as much as it can during that window, and first makes room in the battery beforehand if needed.\n\n**Spike arbitrage plan** - on a day where the difference between the cheapest and the most expensive price is larger than your spike margin, it deliberately charges when power is cheap and sells into the price peak, instead of only keeping the battery between your minimum and maximum SOC.\n\n**Electric car** - for a car that charges from the home battery: its charging sessions are planned with the rest (see the next pages).\n\n**Heat pump** - forecasts a heat pump's usage from the weather forecast instead of the 6-week average (see the next pages).\n\n**The house from the grid at low prices** - when the battery would be charged later anyway, taking the house from the grid now is cheaper than from the battery as long as the price now is below the later charge price minus the battery's losses (charge and discharge efficiency). Those quarters are planned together with the charges, only with a solar deficit and never so that the battery would go over 100% later; meanwhile ESS Manager keeps the battery at 0 W with the grid setpoint (direct control).",
         "data": {
           "enable_negative_price_plan": "Enable the negative price plan",
           "enable_spike_plan": "Enable the spike arbitrage plan",
           "ev_enabled": "Electric car that charges from the home battery - its pages follow",
-          "hp_enabled": "Heat pump: forecast its usage from the weather - its pages follow"
+          "hp_enabled": "Heat pump: forecast its usage from the weather - its pages follow",
+          "enable_grid_use_plan": "The house from the grid at low prices instead of from the battery - its page follows"
         }
       },
       "ev": {
@@ -409,6 +420,14 @@
           "ev_car_target_soc": "Usual target (%)",
           "ev_car_efficiency": "Charge efficiency (%)"
         }
+      },
+      "grid_use": {
+        "title": "The house from the grid at low prices",
+        "description": "While the house is taken from the grid, ESS Manager raises the grid setpoint every minute until the battery neither charges nor discharges - solar left over still goes into the battery. For that it needs the battery's power as measured (a power sensor of the battery or the battery monitor, in W or kW).",
+        "data": {
+          "battery_power_entity": "Battery power (sensor)",
+          "battery_power_sign": "Direction of that sensor"
+        }
       }
     },
     "error": {
@@ -429,7 +448,8 @@
       "floor_entities_required": "Choose all floor control entities (only the floor sensor is optional).",
       "floor_helper_same": "The thermostat's helper switch must be another entity than the heat pump's heat demand switch.",
       "ev_victron_device_required": "Pick the Victron EV charging station's device.",
-      "ev_victron_incomplete": "This device doesn't have the entities of a Victron EV charging station (status, power, total energy, mode, charge current setpoint, EV charging) - or some of them are disabled."
+      "ev_victron_incomplete": "This device doesn't have the entities of a Victron EV charging station (status, power, total energy, mode, charge current setpoint, EV charging) - or some of them are disabled.",
+      "battery_power_required": "Pick the battery's power sensor."
     }
   },
   "issues": {

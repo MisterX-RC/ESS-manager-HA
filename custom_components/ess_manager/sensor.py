@@ -50,6 +50,8 @@ STATUS_ATTRIBUTES = [
     "battery_forecast_adjusted",
     "battery_forecast_adjusted_uncapped",
     "solar_surplus",
+    # the house from the grid at low prices (as of 2026.10.41)
+    "grid_use",
     "negative_price_plan",
     "spike_plan",
     "low_charge_plan",

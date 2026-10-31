@@ -152,6 +152,10 @@ from .const import (
     DECISION_HISTORY_MAX,
     USAGE_SOURCE_CONSUMPTION_SENSOR,
     USAGE_SOURCE_ENERGY_DASHBOARD,
+    CONF_ENABLE_GRID_USE_PLAN,
+    CONF_BATTERY_POWER_ENTITY,
+    CONF_BATTERY_POWER_SIGN,
+    BATTERY_POWER_DISCHARGE_POSITIVE,
 )
 from .controller import ControlSettings, EssController
 from .energy_source import async_get_energy_prefs
@@ -187,6 +191,12 @@ IDLE_TOLERANCE_W = 50.0
 # with "no sun" or "no household usage" could start a wrong charge or sale
 # right away. After this it plans with what there is, as before.
 STARTUP_GRACE = timedelta(minutes=10)
+
+
+# the house from the grid at low prices (as of 2026.10.41): the battery's
+# power within this of 0 W counts as 0; the grid setpoint never goes above
+GRID_USE_DEADBAND_W = 30.0
+GRID_USE_MAX_KW = 25.0
 
 
 def ev_energy_entity(conf: dict[str, Any]) -> Optional[str]:
@@ -360,6 +370,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # battery's running charge goes on (epoch) - the car's energy in it
         # comes from the grid (the setpoint goes up by what the car takes)
         self._ev_charge_until: Optional[float] = None
+        # the house from the grid (as of 2026.10.41): the grid setpoint (kW)
+        # sent last minute while doing so, None otherwise
+        self._grid_use_kw: Optional[float] = None
         self._ev_target: Optional[dict[str, Any]] = None
         # The heat pump model (as of 2026.10.16) - see heatpump_runtime.py.
         self.hp = HeatPumpRuntime()
@@ -614,6 +627,25 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not power_w or power_w <= 0:
             return 0.0
         return round(power_w / 1000.0, 1)
+
+    def _grid_use_setpoint_kw(self, conf: dict[str, Any], control_settings: ControlSettings) -> float:
+        """The house from the grid (as of 2026.10.41): last minute's grid
+        setpoint plus what the battery discharges now (minus what it charges)
+        - so it settles where the battery is at 0 W. Never below the idle
+        value (the battery isn't sold) nor above GRID_USE_MAX_KW; solar left
+        over still charges the battery, the setpoint then drops back to idle.
+        0 (idle) without a battery power reading."""
+        idle_kw = control_settings.idle_power_w / 1000.0
+        power_w = _state_in_unit(self.hass, conf.get(CONF_BATTERY_POWER_ENTITY), ("kW",), 1000.0)
+        if power_w is None:
+            self._grid_use_kw = None
+            return 0.0
+        discharge_w = power_w if conf.get(CONF_BATTERY_POWER_SIGN) == BATTERY_POWER_DISCHARGE_POSITIVE else -power_w
+        value = self._grid_use_kw if self._grid_use_kw is not None else idle_kw
+        if abs(discharge_w) > GRID_USE_DEADBAND_W:
+            value += discharge_w / 1000.0
+        self._grid_use_kw = round(min(max(value, idle_kw), GRID_USE_MAX_KW), 3)
+        return self._grid_use_kw
 
     def _charge_until(self, conf: dict[str, Any], action: str, card_plans: Optional[dict[str, Any]],
                       control_settings: ControlSettings) -> Optional[float]:
@@ -2098,6 +2130,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         discharge_efficiency = _efficiency(
             conf.get(CONF_DISCHARGE_EFFICIENCY_PERCENT, DEFAULT_DISCHARGE_EFFICIENCY_PERCENT)
         )
+        # The house's own solar and usage (as of 2026.10.41): with the Energy
+        # dashboard the usage is worked out from the grid, solar and battery
+        # meters, so the losses are already in it - the forecast takes it as
+        # it is. With a consumption sensor (the loads themselves) they're
+        # added. A grid charge and a sale always count their losses.
+        dashboard = conf.get(CONF_USAGE_SOURCE) == USAGE_SOURCE_ENERGY_DASHBOARD
+        house_ce = 1.0 if dashboard else charge_efficiency
+        house_de = 1.0 if dashboard else discharge_efficiency
         negative_price_charge_speed_kw = self.get_number(NUM_NEGATIVE_PRICE_CHARGE_SPEED_KW, charge_speed_kw * 2)
         spike_discharge_speed_kw = self.get_number(NUM_SPIKE_DISCHARGE_SPEED_KW, discharge_speed_kw * 1.5)
         negative_price_threshold = self.get_number(NUM_NEGATIVE_PRICE_THRESHOLD, -0.20)
@@ -2210,8 +2250,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             now,
             max_battery_charge_speed_kw,
             max_battery_discharge_speed_kw,
-            charge_efficiency=charge_efficiency,
-            discharge_efficiency=discharge_efficiency,
+            charge_efficiency=house_ce,
+            discharge_efficiency=house_de,
         )
 
         # Solar deficit or surplus (as of v0.4.2): does the raw forecast run
@@ -2255,11 +2295,17 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         night_discharge_kw = float(conf.get(CONF_NIGHT_DISCHARGE_SPEED_KW, DEFAULT_NIGHT_DISCHARGE_SPEED_KW)) if night_on else None
         charge_rates = forecasting.grid_charge_rates(
             net_energy, now, charge_speed_kw, max_battery_charge_speed_kw, rate_units,
-            charge_efficiency, discharge_efficiency, night_kw=night_charge_kw,
+            charge_efficiency, discharge_efficiency, night_kw=night_charge_kw, house_efficiency=(house_ce, house_de),
+        )
+        # the house from the grid at low prices (as of 2026.10.41): what the
+        # battery would give the house per quarter - planned with the charges
+        grid_use_rates = (
+            forecasting.grid_use_rates(net_energy, now, rate_units, house_de, max_battery_discharge_speed_kw)
+            if conf.get(CONF_ENABLE_GRID_USE_PLAN) else None
         )
         negative_charge_rates = forecasting.grid_charge_rates(
             net_energy, now, negative_price_charge_speed_kw, max_battery_charge_speed_kw, rate_units,
-            charge_efficiency, discharge_efficiency, night_kw=night_charge_kw,
+            charge_efficiency, discharge_efficiency, night_kw=night_charge_kw, house_efficiency=(house_ce, house_de),
         )
 
         # -- full charge plan ("days since last full" tracking) -----------------
@@ -2488,6 +2534,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # sale keeps (as of 2026.10.4)
                 charge_buffer_kwh=safety_buffer_kwh,
                 min_charge_units=min_charge_units,
+                hold_rates=grid_use_rates,
+                hold_factor=discharge_efficiency,
             )
             # A full charge relying on a future solar peak (either genuinely
             # scheduled to buy up to it, or silently skipped because that peak
@@ -2558,10 +2606,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             battery_forecast_adjusted, spill_full = forecasting.clip_at_capacity(
                 battery_forecast_adjusted_uncapped, battery_now_kwh, upper_limit_kwh
             )
-            eff = charge_efficiency if charge_efficiency > 0 else 1.0
+            eff = house_ce if house_ce > 0 else 1.0
             solar_surplus = forecasting.solar_surplus_windows(
                 [v / eff for v in spill_full],
-                forecasting.rate_spill(net_energy, now, max_battery_charge_speed_kw, charge_efficiency),
+                forecasting.rate_spill(net_energy, now, max_battery_charge_speed_kw, house_ce),
                 now,
             )
 
@@ -2634,6 +2682,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "forecast_with_negative_price": forecast_with_negative_price,
                 "forecast_with_spike": forecast_with_spike,
                 "solar_surplus": solar_surplus,
+                "grid_use": display.grid_use_windows(self._low_charge_plan, current_price_unit, now),
                 "system_status": system_status,
             }
 
@@ -2651,6 +2700,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         forecast_with_negative_price = _planned["forecast_with_negative_price"]
         forecast_with_spike = _planned["forecast_with_spike"]
         solar_surplus = _planned["solar_surplus"]
+        grid_use = _planned["grid_use"]
         system_status = _planned["system_status"]
         if replan:
             # only what this cycle saw - a change made meanwhile still counts
@@ -2691,6 +2741,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             forecasting.night_limit(negative_price_charge_speed_kw, night_charge_kw) if night_now else negative_price_charge_speed_kw,
             forecasting.night_limit(spike_discharge_speed_kw, night_discharge_kw) if night_now else spike_discharge_speed_kw,
         )
+        # the house from the grid at low prices (as of 2026.10.41): the grid
+        # setpoint that keeps the battery at 0 W, worked out every minute
+        if control_action == control.ACTION_GRID_USE:
+            control_power_kw = self._grid_use_setpoint_kw(conf, control_settings)
+        else:
+            self._grid_use_kw = None
         # the Victron charger (as of 2026.10.27): in a grid window of the
         # plugged-in car the grid setpoint goes up by what the car takes, so
         # the house battery stays out of it
@@ -2783,6 +2839,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "battery_forecast_adjusted": battery_forecast_adjusted,
             "battery_forecast_adjusted_uncapped": battery_forecast_adjusted_uncapped,
             "solar_surplus": solar_surplus,
+            "grid_use": grid_use,
             "negative_price_plan": self._negative_price_plan,
             "spike_plan": self._spike_plan,
             "low_charge_plan": self._low_charge_plan,

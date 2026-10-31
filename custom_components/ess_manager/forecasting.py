@@ -450,10 +450,16 @@ def grid_charge_rates(
     charge_efficiency: float = 1.0,
     discharge_efficiency: float = 1.0,
     night_kw: Optional[float] = None,
+    house_efficiency: Optional[tuple[float, float]] = None,
 ) -> list[float]:
     """Per 15-minute unit (index = units from today's midnight, like the
     prices), how much a grid charge at `speed_kw` really adds to the battery
     on top of the forecast (battery side, kWh) - as of 2026.10.4.
+
+    `house_efficiency` (charge, discharge - as of 2026.10.41): the
+    efficiencies the forecast itself uses for the house's solar and usage
+    (1.0 with the Energy dashboard, whose usage already holds the losses);
+    the grid's own part always goes in at `charge_efficiency`.
 
     The battery takes at most `max_charge_kw`. Solar left over after usage
     (`net`, per forecast hour, hour 0 = this one) already charges it, so in a
@@ -470,8 +476,19 @@ def grid_charge_rates(
     # the battery side is (gain)
     speed = max(float(speed_kw or 0.0), 0.0)
 
-    def gain(kw: float) -> float:
-        return min(kw * ce, cap) if kw > 0 else kw / de
+    fce, fde = house_efficiency if house_efficiency else (ce, de)
+    fce = fce if fce > 0 else 1.0
+    fde = fde if fde > 0 else 1.0
+
+    def base(x: float) -> float:
+        return min(x * fce, cap) if x > 0 else x / fde
+
+    def with_grid(s: float, x: float) -> float:
+        if x >= 0:
+            return min(x * fce + s * ce, cap)
+        if s >= -x:
+            return min((s + x) * ce, cap)
+        return (s + x) / fde
 
     night = night_limit(speed, night_kw) if night_kw is not None else None
     hour0 = units.price_unit(now) - now.minute // 15  # real time (as of 2026.10.25)
@@ -480,5 +497,29 @@ def grid_charge_rates(
         h = (u - hour0) // 4
         x = float(net[h]) if h < len(net) and net[h] is not None else 0.0
         s = night if night is not None and unit_is_night(u, now) else speed
-        out[u] = round(max(gain(s + x) - gain(x), 0.0) / 4, 4) if s > 0 else 0.0
+        out[u] = round(max(with_grid(s, x) - base(x), 0.0) / 4, 4) if s > 0 else 0.0
+    return out
+
+
+def grid_use_rates(
+    net: list[float],
+    now: datetime,
+    n_units: int,
+    discharge_efficiency: float = 1.0,
+    max_discharge_kw: Optional[float] = None,
+) -> list[float]:
+    """Per 15-minute unit (index = units from today's midnight), what the
+    battery would give the house that quarter (battery side, kWh) - what
+    taking the house from the grid instead saves it (as of 2026.10.41).
+    0 where solar covers the house (a surplus still goes into the battery).
+    `discharge_efficiency`: the one the forecast uses (1.0 with the Energy
+    dashboard)."""
+    de = discharge_efficiency if discharge_efficiency > 0 else 1.0
+    cap = float(max_discharge_kw) if max_discharge_kw and max_discharge_kw > 0 else float("inf")
+    hour0 = units.price_unit(now) - now.minute // 15
+    out = [0.0] * max(n_units, 0)
+    for u in range(max(hour0, 0), len(out)):
+        h = (u - hour0) // 4
+        x = float(net[h]) if h < len(net) and net[h] is not None else 0.0
+        out[u] = round(min(-x / de, cap) / 4, 4) if x < 0 else 0.0
     return out

@@ -12,6 +12,40 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.41] - 2026-10-31
+
+### Added
+- **The house from the grid at low prices instead of from the battery**
+  (optional, on the price plans page, with the battery's power sensor and
+  its direction on the page after it). Every kWh through the battery loses
+  something (charge x discharge efficiency); with flat prices charging and
+  then using the battery at about the same price only costs money (live:
+  charged 21:30-24:00 at ~0.25 to cover the night at 0.24, 81% round trip).
+  The low charge plan now has two ways to cover a need in the same
+  cheapest-first choice: a charge (price / charge efficiency per kWh into
+  the battery) or taking the house from the grid in a quarter (price x
+  discharge efficiency per kWh kept - no losses). Only below the lowest
+  known price after the losses, only with a charge need (solar deficit),
+  never so the battery would go over 100% later; a quarter is one or the
+  other, and one from the grid can still become a charge when that's
+  cheaper (also to lengthen a short charge block). Short solar gaps (up to
+  an hour) between two such quarters come along - a 15-minute average can
+  hide a peak above the sun. Status **House from grid** (action
+  `grid_use`); with direct control the grid setpoint is worked out every
+  minute from the battery's measured power so it settles at 0 W (never
+  below idle; a car or kettle included; the sun takes it back to idle by
+  itself). The forecast keeps that energy in the battery; the price card
+  shows those quarters in their own colour ("From the grid"), attribute
+  `grid_use` on the Status sensor.
+
+### Changed
+- **Efficiency with the Energy dashboard.** Its usage is worked out from the
+  grid, solar and battery meters, so the inverter's losses are already in
+  it: the forecast now takes the house's solar and usage as they are
+  instead of applying the efficiencies on top again. A grid charge (the
+  grid's own part), a sale and the new threshold still count them. With a
+  consumption sensor nothing changes.
+
 ## [2026.10.40] - 2026-10-31
 
 ### Added

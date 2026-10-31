@@ -51,6 +51,7 @@ const I18N = {
     legend_level: "price level", legend_sell: "Sell planned", legend_buy: "Buy planned", legend_buy_line: "Buy price",
     solar_surplus: "Solar surplus", legend_surplus: "Solar surplus", surplus_full: "battery full", surplus_rate: "more than the battery can take",
     surplus_kwh: (v) => `~${v} kWh to the grid`, ed_surplus_color: "Solar surplus",
+    grid_use: "From the grid", legend_grid_use: "House from the grid", ed_grid_color: "House from the grid",
     no_prices: "No prices yet",
     msg_not_found: (e) => `ESS Manager: ${e} not found - choose the installation's "Status" sensor.`,
     msg_not_status: (e) => `ESS Manager: ${e} is not an ESS Manager Status sensor - choose the "Status" sensor.`,
@@ -240,6 +241,7 @@ const I18N = {
     legend_level: "prijsniveau", legend_sell: "Sell gepland", legend_buy: "Buy gepland", legend_buy_line: "Inkoopprijs",
     solar_surplus: "Zonoverschot", legend_surplus: "Zonoverschot", surplus_full: "accu vol", surplus_rate: "meer dan de accu kan laden",
     surplus_kwh: (v) => `~${v} kWh naar het net`, ed_surplus_color: "Zonoverschot",
+    grid_use: "Uit het net", legend_grid_use: "Huis uit het net", ed_grid_color: "Huis uit het net",
     no_prices: "Nog geen prijzen",
     msg_not_found: (e) => `ESS Manager: ${e} niet gevonden - kies de "Status"-sensor van de installatie.`,
     msg_not_status: (e) => `ESS Manager: ${e} is geen ESS Manager Status-sensor - kies de "Status"-sensor.`,
@@ -1313,8 +1315,9 @@ const PRICE_DEFAULTS = {
   sell_color: [255, 107, 107],
   buy_color: [79, 163, 247],
   surplus_color: [242, 201, 76],
+  grid_color: [167, 120, 230],
 };
-const PRICE_COLOR_KEYS = ["cheap_color", "mid_color", "high_color", "negative_color", "sell_color", "buy_color", "surplus_color"];
+const PRICE_COLOR_KEYS = ["cheap_color", "mid_color", "high_color", "negative_color", "sell_color", "buy_color", "surplus_color", "grid_color"];
 const PRICE_SCHEMA = (t) => [
   { name: "title", selector: { text: {} } },
   {
@@ -1347,7 +1350,7 @@ class EssManagerPriceCard extends EssChartCard {
         title: "ed_title", height: "ed_height", show_extremes: "ed_show_extremes", show_buy_line: "ed_show_buy_line",
         legend: "ed_legend", cheap_color: "ed_cheap_color", mid_color: "ed_mid_color", high_color: "ed_high_color",
         negative_color: "ed_negative_color", sell_color: "ed_sell_color", buy_color: "ed_buy_color",
-        surplus_color: "ed_surplus_color",
+        surplus_color: "ed_surplus_color", grid_color: "ed_grid_color",
       },
     };
   }
@@ -1430,9 +1433,13 @@ class EssManagerPriceCard extends EssChartCard {
     const surplus = (attrs.solar_surplus || [])
       .map((s) => ({ start: Math.max(Date.parse(s.start), now), stop: Date.parse(s.stop), kwh: num(s.kwh), reason: s.reason, surplus: true }))
       .filter((s) => s.stop > s.start && s.stop > T0 && s.start < T1);
+    // the house from the grid at low prices (as of 2026.10.41)
+    const gridUse = (attrs.grid_use || [])
+      .map((g) => ({ start: Math.max(Date.parse(g.start), now), stop: Date.parse(g.stop), kwh: num(g.kwh) }))
+      .filter((g) => g.stop > g.start && g.stop > T0 && g.start < T1);
     const X0 = 34;
     // room above the plot for the plan labels - only when there are plans
-    const top = windows.length || surplus.length ? 18 : 8;
+    const top = windows.length || surplus.length || gridUse.length ? 18 : 8;
     const H = Math.max(clamp(Number(opt.height) || 170, 100, 600) - 18, 60);
     const bottom = top + H;
     const valid = prices.filter((v) => v !== null);
@@ -1525,6 +1532,22 @@ class EssManagerPriceCard extends EssChartCard {
         placed.push([sx - 6, sx + 6]);
       }
     }
+    // the house from the grid: its own colour, labelled where there's room
+    const gc = opt.grid_color;
+    for (const g of gridUse) {
+      const x0 = x(g.start);
+      const x1 = x(Math.min(g.stop, T1));
+      const wd = Math.max(x1 - x0, 2);
+      sunUnder += `<rect x="${r1(x0)}" y="${top - 4}" width="${r1(wd)}" height="${r1(H + 4)}" rx="3" fill="${gc}" fill-opacity="0.10"/>`;
+      sunStreaks += `<rect x="${r1(x0)}" y="${r1(bottom + 3)}" width="${r1(wd)}" height="3" rx="1.5" fill="${gc}" fill-opacity="0.9"/>`;
+      const text = `${this._t("grid_use")} ${f.time(g.start)}`;
+      const half = text.length * 3;
+      const lx = clamp((x0 + x1) / 2, X0 + half, W - half);
+      if (!placed.some(([a, b]) => lx - half < b + 6 && lx + half > a - 6)) {
+        labels += `<span class="plabel" style="left:${r1(lx)}px;top:0;color:${tint(gc, 1)}">${esc(text)}</span>`;
+        placed.push([lx - half, lx + half]);
+      }
+    }
     // y axis
     let axis = "";
     for (let v = lo; v <= hi + step / 2; v += step) {
@@ -1590,6 +1613,7 @@ class EssManagerPriceCard extends EssChartCard {
       <span><i style="background:${tint(opt.sell_color, 0.6)}"></i>${esc(this._t("legend_sell"))}</span>
       <span><i style="background:${tint(opt.buy_color, 0.6)}"></i>${esc(this._t("legend_buy"))}</span>
       ${surplus.length ? `<span><i style="background:${tint(sc, 0.6)}"></i>${esc(this._t("legend_surplus"))}</span>` : ""}
+      ${gridUse.length ? `<span><i style="background:${tint(gc, 0.8)}"></i>${esc(this._t("legend_grid_use"))}</span>` : ""}
       ${showBuyLine ? `<span><i style="width:12px;height:0;border-top:1px dashed var(--primary-text-color, #e8e8e8);border-radius:0"></i>${esc(this._t("legend_buy_line"))}</span>` : ""}
     </div>`;
 

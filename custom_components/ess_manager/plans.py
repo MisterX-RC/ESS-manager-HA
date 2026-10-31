@@ -23,6 +23,7 @@ from .control import (
     ACTION_IDLE,
     ACTION_NEGATIVE_PRICE_CHARGE,
     ACTION_SPIKE_DISCHARGE,
+    ACTION_GRID_USE,
 )
 
 
@@ -254,6 +255,9 @@ def _schedule_charge(
     base: list[float],
     hour0_unit: int,
     cap_kwh: float,
+    hold_rates: Optional[list[float]] = None,
+    hold_factor: float = 1.0,
+    holds_out: Optional[list[int]] = None,
 ) -> list[int]:
     """The cheapest quarters to charge in (as of 2026.10.6), possibly split
     over several blocks, each part of the amount bought before it's needed.
@@ -279,11 +283,28 @@ def _schedule_charge(
     cost per kWh = (bought - sent straight back) / added. Blocks shorter
     than `min_block_units` are lengthened into their cheapest neighbours,
     then quarters no requirement needs any more are trimmed off the ends
-    (never below that length). Returns the chosen units, sorted."""
+    (never below that length). Returns the chosen units, sorted.
+
+    `hold_rates` (as of 2026.10.41, the house from the grid at low prices):
+    per quarter what the battery would give the house (battery side) - a
+    quarter the house is taken from the grid instead "delivers" that much
+    at buy x `hold_factor` (the discharge efficiency) per kWh, against
+    buy / charge efficiency for a charge: both go in the same cheapest-first
+    choice, a quarter is one or the other (a charge covers the house
+    anyway), held quarters have no minimum length. They're put in
+    `holds_out`."""
     ce = charge_efficiency if charge_efficiency > 0 else 1.0
     n = min(last_unit, len(rates), len(buy))
     chosen: set[int] = set()
+    held: set[int] = set()
+    hrates = hold_rates or []
     added = [0.0] * len(base)
+
+    def hrate(u: int) -> float:
+        return hrates[u] if u < len(hrates) else 0.0
+
+    def hold_cost(u: int) -> float:
+        return buy[u] * hold_factor
 
     def cost(u: int) -> float:
         rate = rates[u]
@@ -294,9 +315,10 @@ def _schedule_charge(
     def hour_of(u: int) -> int:
         return max((u - hour0_unit) // 4, 0)
 
-    def fits(u: int) -> bool:
+    def fits(u: int, amount: Optional[float] = None) -> bool:
+        a = rates[u] if amount is None else amount
         later = range(hour_of(u), len(base))
-        return not base or all(base[h] + added[h] + rates[u] <= cap_kwh + 0.01 for h in later)
+        return not base or all(base[h] + added[h] + a <= cap_kwh + 0.01 for h in later)
 
     def take(u: int) -> None:
         chosen.add(u)
@@ -308,13 +330,28 @@ def _schedule_charge(
         for h in range(hour_of(u), len(added)):
             added[h] -= rates[u]
 
-    def delivered_before(units: set[int], deadline: int) -> float:
-        return sum(rates[u] for u in units if u < deadline)
+    def hold(u: int) -> None:
+        held.add(u)
+        for h in range(hour_of(u), len(added)):
+            added[h] += hrate(u)
+
+    def unhold(u: int) -> None:
+        held.discard(u)
+        for h in range(hour_of(u), len(added)):
+            added[h] -= hrate(u)
+
+    def delivered_before(units: set[int], deadline: int, holds: Optional[set[int]] = None) -> float:
+        hs = held if holds is None else holds
+        return sum(rates[u] for u in units if u < deadline) + sum(hrate(u) for u in hs if u < deadline)
 
     # the cheaper part of the known quarters - at most their average buy
     # price: where soft parts may go (2026.10.40)
     known = [buy[u] for u in range(cur_unit, n) if rates[u] > 1e-6]
     soft_max = sum(known) / len(known) if known else math.inf
+    # the house from the grid only below the lowest known price after the
+    # losses of putting energy in and taking it out again (2026.10.41):
+    # above it, a charge at that lowest price would be cheaper
+    hold_max = (min(known) / (ce * hold_factor) if known and hold_factor > 0 else math.inf)
 
     met: list[tuple[int, float, bool]] = []
     for deadline, need, hard in sorted(requirements):
@@ -324,14 +361,36 @@ def _schedule_charge(
             hard = False
             deadline = n
         while delivered_before(chosen, deadline) < need - 1e-6:
-            free = [u for u in range(cur_unit, min(deadline, n)) if u not in chosen and rates[u] > 1e-6]
+            free = [u for u in range(cur_unit, min(deadline, n))
+                    if u not in chosen and u not in held and rates[u] > 1e-6]
             # where it fits under 100% (so a long drain is bought bit by bit,
             # not all at once); a hard need that can't fit anywhere goes in
             # anyway
             options = [u for u in free if fits(u) and (hard or buy[u] <= soft_max + 1e-9)] or (free if hard else [])
-            if options:
-                # equal cost: next to a quarter already taken (fewer blocks)
-                take(min(options, key=lambda u: (round(cost(u), 6), 0 if (u - 1 in chosen or u + 1 in chosen) else 1, u)))
+            # the house from the grid instead of the battery (2026.10.41)
+            hold_options = [u for u in range(cur_unit, min(deadline, n))
+                            if u not in chosen and u not in held and hrate(u) > 1e-6 and buy[u] <= hold_max + 1e-9
+                            and fits(u, hrate(u)) and (hard or buy[u] <= soft_max + 1e-9)]
+            # a quarter the house is already taken from the grid in can still
+            # become a charge: what it adds on top, at what that costs extra
+            upgrades = [u for u in held if cur_unit <= u < min(deadline, n) and rates[u] > hrate(u) + 1e-6
+                        and fits(u, rates[u] - hrate(u)) and (hard or buy[u] <= soft_max + 1e-9)]
+            if options or hold_options or upgrades:
+                # cheapest per kWh into the battery; equal cost: the house
+                # from the grid first (no losses), then next to a quarter
+                # already taken (fewer blocks)
+                cands = [(round(cost(u), 6), 1, 0 if (u - 1 in chosen or u + 1 in chosen) else 1, u, "charge") for u in options]
+                cands += [(round(hold_cost(u), 6), 0, 0, u, "hold") for u in hold_options]
+                cands += [(round((cost(u) * rates[u] - hold_cost(u) * hrate(u)) / (rates[u] - hrate(u)), 6), 1, 0, u, "up")
+                          for u in upgrades]
+                best = min(cands)
+                if best[4] == "hold":
+                    hold(best[3])
+                elif best[4] == "up":
+                    unhold(best[3])
+                    take(best[3])
+                else:
+                    take(best[3])
                 continue
             if hard:
                 # too late to make it all before the deadline: the rest as
@@ -340,7 +399,7 @@ def _schedule_charge(
                 for u in range(cur_unit, n):
                     if short <= 1e-6:
                         break
-                    if u not in chosen and rates[u] > 1e-6:
+                    if u not in chosen and u not in held and rates[u] > 1e-6:
                         take(u)
                         short -= rates[u]
             break
@@ -373,6 +432,8 @@ def _schedule_charge(
         for run in short:
             if not set(run) <= chosen:
                 continue
+            # (a neighbour the house is taken from the grid in becomes part
+            # of the charge, as of 2026.10.41)
             options = [u for u in (run[0] - 1, run[-1] + 1) if cur_unit <= u < n and u not in chosen]
             if not options:
                 continue
@@ -384,6 +445,8 @@ def _schedule_charge(
                 for u in run:
                     drop(u)
             else:
+                if pick in held:
+                    unhold(pick)
                 take(pick)
             grown = True
         if not grown:
@@ -446,6 +509,12 @@ def _schedule_charge(
         trim(chosen, lambda us: -sum(paid(u) for u in us)),
     ]
     chosen = min(options, key=lambda us: (round(sum(paid(u) for u in us), 6), len(runs(us)), len(us)))
+    # held quarters no requirement needs any more go too, the dearest first
+    for u in sorted(held, key=lambda u: -hold_cost(u)):
+        if all(delivered_before(chosen, d, held - {u}) >= need - 1e-6 for d, need, _ in met):
+            held.discard(u)
+    if holds_out is not None:
+        holds_out.extend(sorted(held))
     return sorted(chosen)
 
 
@@ -458,6 +527,7 @@ def _charge_blocks(
     cur_unit: int,
     hour0_unit: int,
     cap_kwh: float,
+    holds: Optional[dict[int, float]] = None,
 ) -> list[dict]:
     """The chosen quarters as blocks: [{start_unit, end_unit, kwh,
     target_level_kwh, rates}] - kwh what the grid adds in the block (the
@@ -477,11 +547,38 @@ def _charge_blocks(
         energy = min(sum(block["rates"]), max(total_kwh - cumulative, 0.0))
         cumulative += energy
         level_end = _level_at(base, battery_now_kwh, cur_unit, hour0_unit, block["end_unit"])
+        # the house from the grid before it (as of 2026.10.41) keeps that much in
+        held = sum(k for u, k in (holds or {}).items() if u < block["end_unit"])
         block["kwh"] = round(energy, 3)
-        block["target_level_kwh"] = round(min(level_end + cumulative, cap_kwh), 3)
+        block["target_level_kwh"] = round(min(level_end + cumulative + held, cap_kwh), 3)
         if energy > 0:
             out.append(block)
     return out
+
+
+# a quarter the forecast has solar covering the house (nothing to save),
+# between two grid quarters at most this many quarters apart, is taken from
+# the grid too (as of 2026.10.41): a 15-minute average can hide a peak above
+# the sun - the battery stays at 0 W meanwhile, a real surplus still goes in
+GRID_USE_GAP_UNITS = 4
+
+
+def _grid_use_fields(holds: list[int], hold_rates: Optional[list[float]]) -> dict:
+    """The plan fields for the quarters the house is taken from the grid
+    (as of 2026.10.41): grid_units, grid_unit_kwh (battery side), grid_kwh.
+    Short solar gaps between them come along at 0 kWh."""
+    if not holds or not hold_rates:
+        return {}
+    units = sorted(holds)
+    filled = list(units)
+    for a, b in zip(units, units[1:]):
+        gap = range(a + 1, b)
+        if 0 < len(gap) <= GRID_USE_GAP_UNITS and all((hold_rates[g] if g < len(hold_rates) else 0.0) <= 1e-6 for g in gap):
+            filled += list(gap)
+    filled.sort()
+    held = set(units)
+    kwh = [round(hold_rates[u], 4) if u in held else 0.0 for u in filled]
+    return {"grid_units": filled, "grid_unit_kwh": kwh, "grid_kwh": round(sum(kwh), 3)}
 
 
 def _blocks_plan(blocks: list[dict], total_kwh: float) -> dict:
@@ -1102,9 +1199,15 @@ def compute_low_charge_plan(
     charge_rates: Optional[list[float]] = None,
     charge_buffer_kwh: float = 0.0,
     min_charge_units: int = 2,
+    hold_rates: Optional[list[float]] = None,
+    hold_factor: float = 1.0,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price).
+
+    `hold_rates` / `hold_factor` (as of 2026.10.41): the house from the grid
+    at low prices instead of from the battery - see _schedule_charge; the
+    quarters chosen are in `grid_units` (also when nothing is charged).
 
     `charge_efficiency` / `discharge_efficiency` (0-1, as of v0.4.3): what
     reaches the battery per kWh charged, and what the battery has to
@@ -1216,6 +1319,7 @@ def compute_low_charge_plan(
             forecast, cur_unit, now, charge_speed_kw, low_threshold_kwh, floor_kwh, minimum_charge_target_kwh,
             upper_limit_kwh, usage, all_price, battery_now_kwh, high_threshold_kwh, buy_price, charge_efficiency,
             discharge_efficiency, peak_kwh, charge_rates, charge_buffer_kwh, min_charge_units, follow_up,
+            hold_rates, hold_factor,
         )
         if soft is not None:
             return _carry(soft)
@@ -1299,10 +1403,14 @@ def compute_low_charge_plan(
         total_kwh, later = _later_dips(forecast, dip_end, level, None, max(target_kwh, envelope), 0.0, hour0_unit)
         requirements += later
 
+        holds: list[int] = []
+
         def schedule(reqs: list[tuple[int, float, bool]]) -> list[int]:
+            holds.clear()
             return _schedule_charge(
                 reqs, charge_rates, buy, all_price, cur_unit, len(buy), charge_speed_kw / 4,
                 charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
+                hold_rates=hold_rates, hold_factor=hold_factor, holds_out=holds,
             )
 
         if follow_up:
@@ -1322,12 +1430,16 @@ def compute_low_charge_plan(
             units = schedule(relaxed + later)
         else:
             units = schedule(requirements)
-        blocks = _charge_blocks(units, charge_rates, total_kwh, forecast, battery_now_kwh, cur_unit, hour0_unit,
-                                upper_limit_kwh)
+        grid = _grid_use_fields(holds, hold_rates)
+        hold_map = dict(zip(grid.get("grid_units", []), grid.get("grid_unit_kwh", [])))
+        blocks = _charge_blocks(units, charge_rates, max(total_kwh - grid.get("grid_kwh", 0.0), 0.0), forecast,
+                                battery_now_kwh, cur_unit, hour0_unit, upper_limit_kwh, holds=hold_map)
         if not blocks:
             # everything needed after the known prices: planned when they come
-            return _carry({"active": False, "breach_unit": breach_unit, "deferred_kwh": round(target_kwh, 3)})
+            # (or met by taking the house from the grid, as of 2026.10.41)
+            return _carry({"active": False, "breach_unit": breach_unit, "deferred_kwh": round(target_kwh, 3), **grid})
         placed = _blocks_plan(blocks, target_kwh)
+        placed.update(grid)
         placed["lowest_kwh"] = round(min(forecast[hour_index:]), 3)
         placed["horizon_target_kwh"] = total_kwh
 
@@ -1397,6 +1509,8 @@ def _soft_low_charge(
     charge_buffer_kwh: float = 0.0,
     min_charge_units: int = 2,
     follow_up: bool = False,
+    hold_rates: Optional[list[float]] = None,
+    hold_factor: float = 1.0,
 ) -> Optional[dict]:
     """compute_low_charge_plan in solar deficit mode (as of v0.5.13), with
     the surplus minimum as the hard floor below the deficit minimum - see
@@ -1561,10 +1675,14 @@ def _soft_low_charge(
             )
             requirements += later
 
+            holds: list[int] = []
+
             def schedule(reqs: list[tuple[int, float, bool]]) -> list[int]:
+                holds.clear()
                 return _schedule_charge(
                     reqs, charge_rates, buy, all_price, cur_unit, len(buy), charge_speed_kw / 4,
                     charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
+                    hold_rates=hold_rates, hold_factor=hold_factor, holds_out=holds,
                 )
 
             if follow_up:
@@ -1585,15 +1703,18 @@ def _soft_low_charge(
                 units = schedule(relaxed + later)
             else:
                 units = schedule(requirements)
-            blocks = _charge_blocks(units, charge_rates, total_kwh, forecast, battery_now_kwh, cur_unit, hour0_unit,
-                                    upper_limit_kwh)
+            grid = _grid_use_fields(holds, hold_rates)
+            hold_map = dict(zip(grid.get("grid_units", []), grid.get("grid_unit_kwh", [])))
+            blocks = _charge_blocks(units, charge_rates, max(total_kwh - grid.get("grid_kwh", 0.0), 0.0), forecast,
+                                    battery_now_kwh, cur_unit, hour0_unit, upper_limit_kwh, holds=hold_map)
             if not blocks:
-                if need_hard > 0:
-                    return {"active": False, "breach_unit": breach_unit, "deferred_kwh": target_kwh}
+                if need_hard > 0 or grid:
+                    return {"active": False, "breach_unit": breach_unit, "deferred_kwh": target_kwh, **grid}
                 if skipped is None:
                     skipped = {"deficit_kwh": round(need_soft, 3), "fits_kwh": 0.0, "dip_min_kwh": round(dip_min, 3)}
                 continue
             plan.update(_blocks_plan(blocks, target_kwh))
+            plan.update(grid)
             plan["lowest_kwh"] = round(min(forecast), 3)
             plan["horizon_target_kwh"] = total_kwh
         return plan
@@ -2326,6 +2447,8 @@ def compose_forecast_adjusted(
     # (as of 2026.10.33) - in the base, so the low charge plan's blocks (made
     # on the same forecast, see with_full_charge) stop where they were planned
     base = with_full_charge(base, full, cur_unit, now)
+    # the house from the grid (as of 2026.10.41): what stays in the battery
+    base = with_grid_use(base, low, cur_unit, now)
     low_levels = high_levels = None
     if battery_now_kwh is not None:
         low_levels = _plan_draw_levels(low, base, cur_unit, hour0_start_unit, battery_now_kwh, charging=True)
@@ -2786,6 +2909,28 @@ def compute_full_charge_plan(
 # ---------------------------------------------------------------------------
 # system_status
 # ---------------------------------------------------------------------------
+def grid_use_now(low: dict, cur_unit: int) -> bool:
+    """Whether the house is taken from the grid this quarter (2026.10.41)."""
+    return cur_unit in (low.get("grid_units") or [])
+
+
+def with_grid_use(forecast: list[float], low: dict, cur_unit: int, now: datetime) -> list[float]:
+    """The forecast with the quarters the house is taken from the grid
+    (2026.10.41): what the battery would have given the house stays in it,
+    from the end of that hour on."""
+    units = low.get("grid_units") or []
+    if not units:
+        return forecast
+    hour0 = _hour0_start_unit(cur_unit, now)
+    out = list(forecast)
+    for u, kwh in zip(units, low.get("grid_unit_kwh") or []):
+        if u < cur_unit:
+            continue
+        for h in range(max((u - hour0) // 4, 0), len(out)):
+            out[h] += kwh
+    return [round(v, 3) for v in out]
+
+
 def compute_system_status(*args, **kwargs) -> str:
     """The Status sensor's state - see compute_system_status_and_action."""
     return compute_system_status_and_action(*args, **kwargs)[0]
@@ -2947,6 +3092,13 @@ def _compute_system_status_raw(
         # dashboard charts (v0.1.31) - just never carried over to this
         # function until now. Falling through (no return here) lets the low
         # charge plan below get its turn instead.
+
+    # the house from the grid at low prices (as of 2026.10.41) - outside a
+    # charge or sale window
+    in_low = low.get("active") and low.get("start_unit", -1) <= cur_unit < low.get("end_unit", -1)
+    in_high = high.get("active") and high.get("start_unit", -1) <= cur_unit < high.get("end_unit", -1)
+    if not in_low and not in_high and grid_use_now(low, cur_unit):
+        return "House from grid", ACTION_GRID_USE
 
     if low.get("active") and (not high.get("active") or low.get("breach_unit", 999999) <= high.get("breach_unit", 999999)):
         if low["start_unit"] <= cur_unit < low["end_unit"]:

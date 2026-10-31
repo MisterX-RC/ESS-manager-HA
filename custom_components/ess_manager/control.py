@@ -22,6 +22,10 @@ ACTION_CHARGE = "charge"
 ACTION_DISCHARGE = "discharge"
 ACTION_NEGATIVE_PRICE_CHARGE = "negative_price_charge"
 ACTION_SPIKE_DISCHARGE = "spike_discharge"
+# the house from the grid at low prices (as of 2026.10.41): the grid
+# setpoint keeps the battery at 0 W - worked out every minute from the
+# battery's measured power (coordinator)
+ACTION_GRID_USE = "grid_use"
 
 ACTIONS = (
     ACTION_IDLE,
@@ -29,6 +33,7 @@ ACTIONS = (
     ACTION_DISCHARGE,
     ACTION_NEGATIVE_PRICE_CHARGE,
     ACTION_SPIKE_DISCHARGE,
+    ACTION_GRID_USE,
 )
 
 UNIT_W = "W"

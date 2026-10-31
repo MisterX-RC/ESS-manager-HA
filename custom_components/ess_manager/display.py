@@ -415,3 +415,25 @@ def card_plans(
         )
         _add_blocks(sell, high, cur_unit, now)
     return {"buy": buy, "sell": sell}
+
+
+def grid_use_windows(low: dict, cur_unit: int, now) -> list[dict]:
+    """The quarters the house is taken from the grid (as of 2026.10.41), as
+    windows for the price chart: [{start, stop, kwh}] - runs of grid
+    quarters."""
+    units = sorted(u for u in (low.get("grid_units") or []) if u >= cur_unit)
+    if not units:
+        return []
+    kwh = dict(zip(low.get("grid_units") or [], low.get("grid_unit_kwh") or []))
+    out: list[list] = []
+    for u in units:
+        if out and u == out[-1][1]:
+            out[-1][1] = u + 1
+            out[-1][2] += kwh.get(u, 0.0)
+        else:
+            out.append([u, u + 1, kwh.get(u, 0.0)])
+    return [
+        {"start": _unit_datetime(now, cur_unit, a).isoformat(), "stop": _unit_datetime(now, cur_unit, b).isoformat(),
+         "kwh": round(k, 2)}
+        for a, b, k in out
+    ]

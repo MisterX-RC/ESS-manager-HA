@@ -5182,6 +5182,69 @@ _eiw_now = datetime(2026, 10, 31, 1, 15)
 _eiw = forecasting.ev_in_window([3.0, 3.0, 3.0, 0.0], _eiw_now, datetime(2026, 10, 31, 2, 30).timestamp())
 check("ev in the charge window: the rest of this hour, half the next, nothing after", _eiw == [3.0, 1.5, 0.0, 0.0])
 
+
+# ---------------------------------------------------------------------------
+# 2026.10.41: the house from the grid at low prices instead of from the battery
+# ---------------------------------------------------------------------------
+_gu_now = datetime(2026, 10, 31, 20, 0)
+_gu_rates = forecasting.grid_use_rates([-0.4, 0.5, -0.2], _gu_now, 96 + 24, 0.9, None)
+check("grid use: what the battery would give the house per quarter, nothing in a solar hour",
+      abs(_gu_rates[80] - 0.4 / 0.9 / 4) < 1e-4 and _gu_rates[84] == 0.0 and abs(_gu_rates[88] - 0.2 / 0.9 / 4) < 1e-4
+      and _gu_rates[79] == 0.0)
+# the Energy dashboard: the house's losses are in its usage - only the grid's own part counts them
+_ce_dash = forecasting.grid_charge_rates([-0.4], _gu_now, 2.0, 5.0, 96, 0.9, 0.9, house_efficiency=(1.0, 1.0))
+_ce_sens = forecasting.grid_charge_rates([-0.4], _gu_now, 2.0, 5.0, 96, 0.9, 0.9)
+check("efficiency: with the Energy dashboard the house part counts as it is, the grid part at the charge efficiency",
+      abs(_ce_dash[80] - ((2.0 - 0.4) * 0.9 + 0.4) / 4) < 1e-4 and abs(_ce_sens[80] - ((2.0 - 0.4) * 0.9 + 0.4 / 0.9) / 4) < 1e-4)
+# the scheduler: the battery would give the house 0.25 kWh a quarter; a charge adds 0.45. In a quarter the house
+# from the grid always beats a charge (no losses); 2.4 kWh needed by unit 8 is more than the house takes (8 x 0.25):
+# the house from the grid where the price is below the lowest one after the losses, charges on top
+_gs_buy = [0.24] * 4 + [0.21] * 2 + [0.26] * 2
+_gs_holds: list = []
+_gs = plans._schedule_charge([(8, 2.4, True)], [0.45] * 8, _gs_buy, _gs_buy, 0, 8, 0.5, 0.9, 1, [], 0, 100.0,
+                             hold_rates=[0.25] * 8, hold_factor=0.9, holds_out=_gs_holds)
+check("grid use: the house from the grid at 0.24, the cheapest quarters charge on top, never both in a quarter; "
+      "0.26 is above 0.21 / (0.9 x 0.9) = 0.259 - not from the grid, charged (needed)",
+      _gs == [4, 5, 6, 7] and _gs_holds == [1, 2, 3])
+_gs_small: list = []
+plans._schedule_charge([(8, 1.0, True)], [0.45] * 8, _gs_buy, _gs_buy, 0, 8, 0.5, 0.9, 1, [], 0, 100.0,
+                       hold_rates=[0.25] * 8, hold_factor=0.9, holds_out=_gs_small)
+check("grid use: a small need - only the house from the grid, in the cheapest quarters, no charge",
+      _gs_small == [0, 1, 4, 5])
+_gs_cap: list = []
+plans._schedule_charge([(8, 1.4, True)], [0.0] * 8, _gs_buy, _gs_buy, 0, 8, 0.5, 0.9, 1, [9.6, 9.6], 0, 10.0,
+                       hold_rates=[0.25] * 8, hold_factor=0.9, holds_out=_gs_cap)
+check("grid use: never so the battery goes over 100 % later (0.4 kWh room: one quarter of 0.25)", len(_gs_cap) == 1)
+_gs_none: list = []
+plans._schedule_charge([], [0.45] * 8, _gs_buy, _gs_buy, 0, 8, 0.5, 0.9, 1, [], 0, 100.0,
+                       hold_rates=[0.25] * 8, hold_factor=0.9, holds_out=_gs_none)
+check("grid use: only with a charge need", _gs_none == [])
+_gf = plans._grid_use_fields([10, 13], [0.25] * 11 + [0.0, 0.0] + [0.25] * 5)
+check("grid use: a short solar gap between two grid quarters comes along (at 0 kWh)",
+      _gf["grid_units"] == [10, 11, 12, 13] and _gf["grid_unit_kwh"] == [0.25, 0.0, 0.0, 0.25] and _gf["grid_kwh"] == 0.5
+      and plans._grid_use_fields([10, 13], [0.25] * 18)["grid_units"] == [10, 13])
+# the low charge plan with it: a battery draining at night, flat prices, cheapest tomorrow 12:00
+_glp_now = datetime(2026, 10, 31, 20, 0)
+_glp_net = [-0.4] * 40
+_glp_fc = forecasting.build_battery_forecast(_glp_net, 6.0, _glp_now, 3.0, 3.0, 1.0, 1.0)
+_glp_price = [0.24] * 96 + [0.24] * 48 + [0.20] * 8 + [0.24] * 40
+_glp_rates = forecasting.grid_charge_rates(_glp_net, _glp_now, 2.0, 3.0, 192, 0.9, 0.9, house_efficiency=(1.0, 1.0))
+_glp_holds = forecasting.grid_use_rates(_glp_net, _glp_now, 192, 1.0, 3.0)
+_glp = plans.compute_low_charge_plan(None, 80, _glp_fc, _glp_now, 2.0, 3.0, 0.5, 10.0, [0.4] * 121, _glp_price, 48, 6.0,
+                                     charge_efficiency=0.9, discharge_efficiency=0.9, charge_rates=_glp_rates,
+                                     min_charge_units=1, hold_rates=_glp_holds, hold_factor=0.9)
+check("grid use: flat prices - the house from the grid tonight, no charge at the same price",
+      len(_glp.get("grid_units", [])) > 0 and min(_glp["grid_units"]) >= 80
+      and all(_glp_price[u] == 0.20 for b in _glp.get("blocks", []) for u in range(b["start_unit"], b["end_unit"])))
+_glp_st = plans.compute_system_status_and_action(0, 0, _glp["grid_units"][0], {"active": False}, {"active": False},
+                                                 {"active": False}, _glp, {"active": False}, 6.0, 3.0, 2.0, 3.0, _glp_price)
+check("grid use: the status says so, with its own action", _glp_st == ("House from grid", "grid_use"))
+_glp_adj = plans.with_grid_use(_glp_fc, _glp, 80, _glp_now)
+check("grid use: the forecast keeps what the house took from the grid",
+      abs(_glp_adj[-1] - _glp_fc[-1] - _glp["grid_kwh"]) < 0.01)
+_glp_win = display.grid_use_windows(_glp, 80, _glp_now)
+check("grid use: windows for the price chart", _glp_win and _glp_win[0]["start"].startswith("2026-10-31T"))
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

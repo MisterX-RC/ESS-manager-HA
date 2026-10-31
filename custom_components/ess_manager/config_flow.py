@@ -39,6 +39,12 @@ from .const import (
     CONF_ENABLE_FULL_CHARGE_PLAN,
     CONF_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN,
+    CONF_ENABLE_GRID_USE_PLAN,
+    DEFAULT_ENABLE_GRID_USE_PLAN,
+    CONF_BATTERY_POWER_ENTITY,
+    CONF_BATTERY_POWER_SIGN,
+    BATTERY_POWER_CHARGE_POSITIVE,
+    BATTERY_POWER_DISCHARGE_POSITIVE,
     CONF_EV_CARS,
     CONF_EV_CHARGER,
     CONF_EV_NOTIFY,
@@ -406,10 +412,36 @@ def _plans_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_ENABLE_SPIKE_PLAN, default=defaults.get(CONF_ENABLE_SPIKE_PLAN, DEFAULT_ENABLE_SPIKE_PLAN)
             ): selector.BooleanSelector(),
+            # the house from the grid at low prices (as of 2026.10.41) - its page follows
+            vol.Required(
+                CONF_ENABLE_GRID_USE_PLAN,
+                default=defaults.get(CONF_ENABLE_GRID_USE_PLAN, DEFAULT_ENABLE_GRID_USE_PLAN),
+            ): selector.BooleanSelector(),
             # the electric car (as of 2026.10.11) - its own pages follow
             vol.Required(CONF_EV_ENABLED, default=defaults.get(CONF_EV_ENABLED, DEFAULT_EV_ENABLED)): selector.BooleanSelector(),
             # the heat pump model (as of 2026.10.16) - its own pages follow
             vol.Required(CONF_HP_ENABLED, default=defaults.get(CONF_HP_ENABLED, DEFAULT_HP_ENABLED)): selector.BooleanSelector(),
+        }
+    )
+
+
+BATTERY_POWER_SIGN_OPTIONS = [
+    selector.SelectOptionDict(value=BATTERY_POWER_CHARGE_POSITIVE, label="Positive = the battery charges, negative = it discharges"),
+    selector.SelectOptionDict(value=BATTERY_POWER_DISCHARGE_POSITIVE, label="Positive = the battery discharges, negative = it charges"),
+]
+
+
+def _grid_use_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """The house from the grid at low prices (as of 2026.10.41): the
+    battery's power, measured, and its direction."""
+    return vol.Schema(
+        {
+            vol.Optional(CONF_BATTERY_POWER_ENTITY, default=defaults.get(CONF_BATTERY_POWER_ENTITY)): _optional_entity_selector(),
+            vol.Required(
+                CONF_BATTERY_POWER_SIGN, default=defaults.get(CONF_BATTERY_POWER_SIGN) or BATTERY_POWER_CHARGE_POSITIVE
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=BATTERY_POWER_SIGN_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+            ),
         }
     )
 
@@ -722,6 +754,7 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
         CONF_DAYS_SINCE_FULL_CHARGE_ENTITY,
         CONF_EV_ENERGY_ENTITY,
         CONF_EV_POWER_ENTITY,
+        CONF_BATTERY_POWER_ENTITY,
         CONF_HP_TOTAL_ENTITY,
         CONF_HP_OUTDOOR_ENTITY,
         CONF_HP_WEATHER_ENTITY,
@@ -861,10 +894,30 @@ class _EssManagerSteps:
     async def async_step_plans(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
             self._data.update(user_input)
-            if user_input.get(CONF_EV_ENABLED):
-                return await self.async_step_ev()
-            return await self._async_after_ev()
+            if user_input.get(CONF_ENABLE_GRID_USE_PLAN):
+                return await self.async_step_grid_use()
+            return await self._async_after_grid_use()
         return self.async_show_form(step_id="plans", data_schema=_plans_schema(self._defaults()))
+
+    async def _async_after_grid_use(self):
+        if self._data.get(CONF_EV_ENABLED):
+            return await self.async_step_ev()
+        return await self._async_after_ev()
+
+    async def async_step_grid_use(self, user_input: dict[str, Any] | None = None):
+        """The house from the grid at low prices (as of 2026.10.41): the
+        battery's measured power, needed to keep the battery at 0."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            cleaned = _clean(user_input)
+            if not cleaned.get(CONF_BATTERY_POWER_ENTITY):
+                errors["base"] = "battery_power_required"
+            else:
+                self._data.update(cleaned)
+                return await self._async_after_grid_use()
+        return self.async_show_form(
+            step_id="grid_use", data_schema=_grid_use_schema({**self._defaults(), **self._data}), errors=errors
+        )
 
     async def async_step_ev(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}

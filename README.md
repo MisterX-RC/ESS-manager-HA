@@ -132,6 +132,38 @@ Five planning engines, all documented in detail in the code
 5. **Negative price plan** - when the price goes low enough that charging
    pays you outright, buys as much as your hardware can take in that
    window, clearing room beforehand if needed.
+6. **The house from the grid at low prices** *(optional, as of 2026.10.41)*
+   - every kWh put into the battery and taken out again loses something
+   (charge x discharge efficiency, e.g. 90% x 90% = 81%). With flat prices
+   that means charging and then using the battery at about the same price
+   only costs money. With this plan on, the low charge plan has two ways
+   to cover a need: a **charge** (costs the price / charge efficiency per
+   kWh into the battery) or **taking the house from the grid** in a quarter
+   instead of from the battery (costs the price x discharge efficiency per
+   kWh that stays in the battery - no losses). Both go in the same
+   cheapest-first choice, so on a flat day it's: the house from the grid,
+   then a charge in the really cheapest stretch, then the grid again while
+   the price is still low enough. Rules: the house only comes from the grid
+   **below the lowest known price after the losses** (lowest price /
+   (charge x discharge efficiency): with 0.21 and 81%, up to 0.26); only
+   when there **is** a charge need (a solar deficit - with enough sun in the
+   planning window nothing is taken from the grid); never so the battery
+   would go **over 100%** later (a peak of 97% in 4 hours leaves 3% to take
+   from the grid, in the cheapest quarters); a quarter is a charge or from
+   the grid, not both (a charge covers the house anyway), and a quarter from
+   the grid can still become a charge when that's cheaper. Solar left over
+   still goes into the battery. A short solar gap (up to an hour) between
+   two such quarters comes along: a 15-minute forecast average can hide a
+   peak above the sun. Meanwhile the Status is **House from grid** and, with
+   direct control, the grid setpoint is worked out **every minute** from
+   the battery's measured power: last minute's setpoint plus what the
+   battery discharges (minus what it charges), so it settles where the
+   battery is at 0 W - never below the idle value, a car or a kettle
+   included, back to idle by itself when the sun comes out (±30 W counts as
+   0; without a power reading: idle). The forecast keeps that energy in the
+   battery, and the price chart shows those quarters in their own colour.
+   Switched on on the price plans page in Configure, with the battery's
+   power sensor and its direction on the page after it.
 
 **When plans move and when they're fixed.** Every plan is worked out again
 every cycle (once a minute) from the live battery level and forecast, so a window
@@ -1219,12 +1251,20 @@ efficiency, 2.0 kWh of solar or grid power puts 1.8 kWh into the battery;
 at 90% discharge efficiency, 0.5 kWh of usage (or of a sale) takes
 0.5 / 0.9 = 0.56 kWh out of it. Charge and sale windows are sized for what
 actually reaches or leaves the battery; the setpoint that's sent stays the
-configured (grid-side) speed.
+configured (grid-side) speed. *(As of 2026.10.41)* with the **Energy
+dashboard** as the usage source, the house's own solar and usage are taken
+as they are: that usage is worked out from the grid, solar and battery
+meters, so the losses are already in it (this needs battery meters on the
+DC side, like a battery monitor - with meters on the AC side of the
+inverter they'd be left out). A grid charge, a sale and the grid-use
+threshold still count both efficiencies; with a consumption sensor (the
+loads themselves) everything does, as before.
 
 ## Wiring it to your inverter
 
 The integration produces a `Status` sensor whose state is one of `Standby`,
 `Start charge`, `Actief` (engaged), `Start discharge`, `Stop`, `Grid usage`,
+`House from grid` (as of 2026.10.41 - see plan 6),
 `Solar export`, `Start negative price charge`,
 `Negative price charge`, `Start spike discharge`, `Spike discharge`,
 `Full charge scheduled`, `Awaiting solar (full charge)` - see

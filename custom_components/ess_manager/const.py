@@ -154,6 +154,12 @@ DEFAULT_USAGE_LOOKBACK_WEEKS = 6
 
 CONF_ENABLE_FULL_CHARGE_PLAN = "enable_full_charge_plan"
 CONF_ENABLE_SPIKE_PLAN = "enable_spike_plan"
+# the house from the grid at low prices instead of from the battery (as of 2026.10.41)
+CONF_ENABLE_GRID_USE_PLAN = "enable_grid_use_plan"
+CONF_BATTERY_POWER_ENTITY = "battery_power_entity"
+CONF_BATTERY_POWER_SIGN = "battery_power_sign"
+BATTERY_POWER_CHARGE_POSITIVE = "charge_positive"
+BATTERY_POWER_DISCHARGE_POSITIVE = "discharge_positive"
 CONF_ENABLE_NEGATIVE_PRICE_PLAN = "enable_negative_price_plan"
 
 # Electric car charging from the home battery (as of 2026.10.11) - see ev.py.
@@ -332,6 +338,7 @@ DEFAULT_MAX_SOC_PERCENT = 110.0
 DEFAULT_FULL_CHARGE_TARGET_VOLTAGE = 55.2
 DEFAULT_ENABLE_FULL_CHARGE_PLAN = False
 DEFAULT_ENABLE_SPIKE_PLAN = True
+DEFAULT_ENABLE_GRID_USE_PLAN = False
 DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN = True
 
 # ---------------------------------------------------------------------------
@@ -616,6 +623,7 @@ PLAN_ENTITY_KEYS = {
 PLAN_ENABLED_DEFAULTS = {
     CONF_ENABLE_NEGATIVE_PRICE_PLAN: DEFAULT_ENABLE_NEGATIVE_PRICE_PLAN,
     CONF_ENABLE_SPIKE_PLAN: DEFAULT_ENABLE_SPIKE_PLAN,
+    CONF_ENABLE_GRID_USE_PLAN: DEFAULT_ENABLE_GRID_USE_PLAN,
     CONF_ENABLE_FULL_CHARGE_PLAN: DEFAULT_ENABLE_FULL_CHARGE_PLAN,
     CONF_HP_ENABLED: DEFAULT_HP_ENABLED,
     HP_STEERING_PLAN: False,
