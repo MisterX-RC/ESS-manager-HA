@@ -38,6 +38,15 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   shows those quarters in their own colour ("From the grid"), attribute
   `grid_use` on the Status sensor.
 
+### Removed
+- **The status "Grid usage".** A label only (the setpoint stayed at idle)
+  for a battery within 1 kWh of the low threshold while a planned charge
+  was still ahead - meant for waiting on a cheaper valley instead of buying
+  now. That's now planned properly (the house from the grid at low prices,
+  "House from grid"), so in that situation the status is simply "Standby".
+  An automation that listens for "Grid usage" can drop it (it's gone from
+  `dashboard/automation_example.yaml` too).
+
 ### Changed
 - **Efficiency with the Energy dashboard.** Its usage is worked out from the
   grid, solar and battery meters, so the inverter's losses are already in

@@ -3028,7 +3028,6 @@ def _compute_system_status_raw(
     all_price: list[float],
 ) -> tuple[str, str]:
     is_idle = abs(setpoint_w - idle_setpoint_w) < 50
-    near_low_limit = (battery_now_kwh - low_threshold_kwh) <= 1
     charge_engaged_at = charge_speed_kw * 1000 * 0.5
     discharge_engaged_at = discharge_speed_kw * 1000 * 0.5
 
@@ -3113,8 +3112,10 @@ def _compute_system_status_raw(
             return ("Actief" if setpoint_w >= charge_engaged_at else "Start charge"), ACTION_CHARGE
         if cur_unit >= low["end_unit"] and not is_idle:
             return "Stop", ACTION_IDLE
-        if cur_unit < low["start_unit"] and near_low_limit:
-            return "Grid usage", ACTION_IDLE
+        # (up to 2026.10.41 "Grid usage" here: a label for a battery within
+        # 1 kWh of the low threshold waiting for a planned charge - gone now
+        # that the house from the grid at low prices is planned, see
+        # grid_use_now)
         return "Standby", ACTION_IDLE
 
     if high.get("active"):

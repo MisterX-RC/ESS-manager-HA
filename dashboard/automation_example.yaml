@@ -27,7 +27,6 @@ triggers:
     to:
       - Stop
       - Standby
-      - Grid usage
       - Solar export
       - unknown
     id: Idle

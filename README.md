@@ -1265,7 +1265,7 @@ loads themselves) everything does, as before.
 ## Wiring it to your inverter
 
 The integration produces a `Status` sensor whose state is one of `Standby`,
-`Start charge`, `Actief` (engaged), `Start discharge`, `Stop`, `Grid usage`,
+`Start charge`, `Actief` (engaged), `Start discharge`, `Stop`,
 `House from grid` (as of 2026.10.41 - see plan 6),
 `Solar export`, `Start negative price charge`,
 `Negative price charge`, `Start spike discharge`, `Spike discharge`,
@@ -1277,13 +1277,14 @@ ceiling on its own, so nothing is being bought - it's the visible version of
 what would otherwise be an indistinguishable `Standby` while
 `full_charge_plan.relying_on_peak_unit` is quietly set (see
 `high_discharge_plan.suppressed_by_full_charge`, which is also active
-during this same wait). `Solar export` and `Grid usage` are labels only
-(the setpoint stays at idle): `Solar export` means there's solar left over
-now, the battery is forecast to reach 100% later today, and the price now
-is higher than every price until then - exporting now pays more than
-storing (and in a negative price plan, solar going to the grid before the
-negative window); `Grid usage` means a charge is planned and the
-battery is within 1 kWh of the low threshold, waiting for that window.
+during this same wait). `Solar export` is a label only (the setpoint stays
+at idle): there's solar left over now, the battery is forecast to reach
+100% later today, and the price now is higher than every price until then
+- exporting now pays more than storing (and in a negative price plan,
+solar going to the grid before the negative window). (`Grid usage` - a
+battery within 1 kWh of the low threshold waiting for a planned charge -
+is gone as of 2026.10.41: the house from the grid at low prices is now
+planned, plan 6.)
 Unless you switch on "Direct control" (below), it
 does **not** write to any inverter or battery control entity itself, since
 every make/model exposes a different control surface (an `input_number`, a
@@ -1329,7 +1330,7 @@ would share); a Charge speed below it is a gentler charge, which the
 house shares. (Up to 2026.10.26 the setpoint was cut down to the max
 battery speed, and the sales were sized at the full Discharge speed even
 when the battery couldn't deliver it.) Every
-Status that means "do nothing" (`Stop`, `Standby`, `Grid usage`,
+Status that means "do nothing" (`Stop`, `Standby`,
 `Solar export`, `Full charge scheduled`, `Awaiting solar (full charge)`)
 sends your **idle value** exactly as entered (usually 0; some Victron
 systems idle at -30 W). This is the same mapping as
