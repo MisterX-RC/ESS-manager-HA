@@ -14,6 +14,15 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.10.44] - 2026-10-31
 
+### Tests
+- **Regression tests on real situations, kept off GitHub.** Moments from
+  real installations (prices, forecasts, battery level and settings only -
+  no entity ids, names or location) are replayed as a full cycle and
+  compared with what the cycle decided before: status, action, setpoint,
+  every plan and the battery forecasts. They live in `tests/private/`,
+  which is in `.gitignore` - a safety net for the coming refactoring, where
+  nothing may change.
+
 ### A battery sensor that stops updating
 - **Standby instead of steering on a stale value.** An integration that
   loses its connection often keeps the sensor's last value instead of

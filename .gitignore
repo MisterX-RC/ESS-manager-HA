@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .DS_Store
 .last_synced_zip
+tests/private/
