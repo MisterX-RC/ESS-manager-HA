@@ -26,6 +26,10 @@ ACTION_SPIKE_DISCHARGE = "spike_discharge"
 # setpoint keeps the battery at 0 W - worked out every minute from the
 # battery's measured power (coordinator)
 ACTION_GRID_USE = "grid_use"
+# solar export (as of 2026.10.41): the grid setpoint keeps the battery at a
+# set charge power and sends the rest of the solar to the grid - never
+# buying for it (coordinator)
+ACTION_SOLAR_EXPORT = "solar_export"
 
 ACTIONS = (
     ACTION_IDLE,
@@ -34,6 +38,7 @@ ACTIONS = (
     ACTION_NEGATIVE_PRICE_CHARGE,
     ACTION_SPIKE_DISCHARGE,
     ACTION_GRID_USE,
+    ACTION_SOLAR_EXPORT,
 )
 
 UNIT_W = "W"

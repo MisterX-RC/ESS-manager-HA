@@ -197,6 +197,9 @@ STARTUP_GRACE = timedelta(minutes=10)
 # power within this of 0 W counts as 0; the grid setpoint never goes above
 GRID_USE_DEADBAND_W = 30.0
 GRID_USE_MAX_KW = 25.0
+# solar export (as of 2026.10.41): the battery keeps charging at this, the
+# solar above it goes to the grid
+SOLAR_EXPORT_BATTERY_W = 1000.0
 
 
 def ev_energy_entity(conf: dict[str, Any]) -> Optional[str]:
@@ -373,6 +376,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # the house from the grid (as of 2026.10.41): the grid setpoint (kW)
         # sent last minute while doing so, None otherwise
         self._grid_use_kw: Optional[float] = None
+        # solar export (as of 2026.10.41): the same, for the export setpoint
+        self._export_kw: Optional[float] = None
         self._ev_target: Optional[dict[str, Any]] = None
         # The heat pump model (as of 2026.10.16) - see heatpump_runtime.py.
         self.hp = HeatPumpRuntime()
@@ -646,6 +651,27 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             value += discharge_w / 1000.0
         self._grid_use_kw = round(min(max(value, idle_kw), GRID_USE_MAX_KW), 3)
         return self._grid_use_kw
+
+    def _solar_export_setpoint_kw(self, conf: dict[str, Any], control_settings: ControlSettings, battery_w: float) -> float:
+        """Solar export (as of 2026.10.41): last minute's grid setpoint minus
+        what the battery charges above `battery_w` (plus what it's short), so
+        it settles where the battery charges at `battery_w` and the rest of
+        the solar goes to the grid. Never above the idle value - nothing is
+        bought for it: with less solar than that the battery simply takes
+        what there is - nor below -GRID_USE_MAX_KW. 0 (idle) without a
+        battery power reading."""
+        idle_kw = control_settings.idle_power_w / 1000.0
+        power_w = _state_in_unit(self.hass, conf.get(CONF_BATTERY_POWER_ENTITY), ("kW",), 1000.0)
+        if power_w is None:
+            self._export_kw = None
+            return 0.0
+        charge_w = -power_w if conf.get(CONF_BATTERY_POWER_SIGN) == BATTERY_POWER_DISCHARGE_POSITIVE else power_w
+        value = self._export_kw if self._export_kw is not None else idle_kw
+        error_w = charge_w - battery_w
+        if abs(error_w) > GRID_USE_DEADBAND_W:
+            value -= error_w / 1000.0
+        self._export_kw = round(min(max(value, -GRID_USE_MAX_KW), idle_kw), 3)
+        return self._export_kw
 
     def _charge_until(self, conf: dict[str, Any], action: str, card_plans: Optional[dict[str, Any]],
                       control_settings: ControlSettings) -> Optional[float]:
@@ -2095,6 +2121,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # With direct control, "idle" is whatever idle value is sent (e.g.
         # -30 W), so the Status's idle check uses that instead of 0 W.
         idle_setpoint_w = control_settings.idle_power_w if control_settings.active else IDLE_SETPOINT_W
+        # while the setpoint follows the battery's power (the house from the
+        # grid, solar export - as of 2026.10.41) the battery itself isn't
+        # being charged or sold: for the Status that counts as idle
+        if self._grid_use_kw is not None or self._export_kw is not None:
+            setpoint_w = idle_setpoint_w
         voltage_diff = self._get_voltage_diff(conf)
         # Third full-charge confirmation leg - the battery pack's own
         # measured voltage, checked against the adjustable target-voltage
@@ -2747,6 +2778,15 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             control_power_kw = self._grid_use_setpoint_kw(conf, control_settings)
         else:
             self._grid_use_kw = None
+        # solar export (as of 2026.10.41): the battery keeps charging at
+        # SOLAR_EXPORT_BATTERY_W (before a negative price window: 0 W, the
+        # room stays free), the rest of the solar goes to the grid
+        if control_action == control.ACTION_SOLAR_EXPORT:
+            neg = self._negative_price_plan or {}
+            room = bool(neg.get("active")) and neg.get("solar_export_start_unit", -1) <= current_price_unit < neg.get("solar_export_end_unit", -1)
+            control_power_kw = self._solar_export_setpoint_kw(conf, control_settings, 0.0 if room else SOLAR_EXPORT_BATTERY_W)
+        else:
+            self._export_kw = None
         # the Victron charger (as of 2026.10.27): in a grid window of the
         # plugged-in car the grid setpoint goes up by what the car takes, so
         # the house battery stays out of it

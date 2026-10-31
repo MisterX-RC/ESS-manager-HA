@@ -56,7 +56,9 @@
           "discharge_efficiency_percent": "Discharge efficiency (%) - what comes out of the inverter per kWh taken from the battery. At 90%, 0.5 kWh of usage takes 0.56 kWh out of the battery. 100 = no losses",
           "min_soc_percent": "Minimum SOC - solar deficit (%) - the reserve kept when the grid is needed to refill the battery; a separate, lower minimum for solar surplus is set on its number entity after setup",
           "max_soc_percent": "Maximum SOC (%) - can exceed 100% to allow deliberate solar overshoot before discharging",
-          "night_limit_enabled": "Limit the charge/discharge speed at night (22:00-07:00)"
+          "night_limit_enabled": "Limit the charge/discharge speed at night (22:00-07:00)",
+          "battery_power_entity": "Battery power (sensor, optional) - for the house from the grid and solar export",
+          "battery_power_sign": "Direction of that sensor"
         },
         "data_description": {
           "night_limit_enabled": "On: the next page asks for a night charge and discharge speed. Between 22:00 and 07:00 those limit every other speed - normal, negative-price, spike and full charge - in the plans and in the setpoint sent: a speed above the night speed is lowered to it, a lower one stays."
@@ -198,7 +200,7 @@
       },
       "grid_use": {
         "title": "The house from the grid at low prices",
-        "description": "While the house is taken from the grid, ESS Manager raises the grid setpoint every minute until the battery neither charges nor discharges - solar left over still goes into the battery. For that it needs the battery's power as measured (a power sensor of the battery or the battery monitor, in W or kW).",
+        "description": "While the house is taken from the grid, ESS Manager raises the grid setpoint every minute until the battery neither charges nor discharges - solar left over still goes into the battery. For that it needs the battery's power as measured (a power sensor of the battery or the battery monitor, in W or kW). It can also be set on the battery page.",
         "data": {
           "battery_power_entity": "Battery power (sensor)",
           "battery_power_sign": "Direction of that sensor"
@@ -281,7 +283,9 @@
           "max_battery_discharge_speed_kw": "Max battery discharge speed (physical limit, used by the battery energy forecast - usage above this is assumed drawn from the grid instead)",
           "charge_efficiency_percent": "Charge efficiency (%) - what reaches the battery per kWh charged (inverter and battery losses). At 90%, 2.0 kWh of solar or grid power puts 1.8 kWh into the battery. 100 = no losses",
           "discharge_efficiency_percent": "Discharge efficiency (%) - what comes out of the inverter per kWh taken from the battery. At 90%, 0.5 kWh of usage takes 0.56 kWh out of the battery. 100 = no losses",
-          "night_limit_enabled": "Limit the charge/discharge speed at night (22:00-07:00)"
+          "night_limit_enabled": "Limit the charge/discharge speed at night (22:00-07:00)",
+          "battery_power_entity": "Battery power (sensor, optional) - for the house from the grid and solar export",
+          "battery_power_sign": "Direction of that sensor"
         },
         "data_description": {
           "night_limit_enabled": "On: the next page asks for a night charge and discharge speed. Between 22:00 and 07:00 those limit every other speed - normal, negative-price, spike and full charge - in the plans and in the setpoint sent: a speed above the night speed is lowered to it, a lower one stays."
@@ -423,7 +427,7 @@
       },
       "grid_use": {
         "title": "The house from the grid at low prices",
-        "description": "While the house is taken from the grid, ESS Manager raises the grid setpoint every minute until the battery neither charges nor discharges - solar left over still goes into the battery. For that it needs the battery's power as measured (a power sensor of the battery or the battery monitor, in W or kW).",
+        "description": "While the house is taken from the grid, ESS Manager raises the grid setpoint every minute until the battery neither charges nor discharges - solar left over still goes into the battery. For that it needs the battery's power as measured (a power sensor of the battery or the battery monitor, in W or kW). It can also be set on the battery page.",
         "data": {
           "battery_power_entity": "Battery power (sensor)",
           "battery_power_sign": "Direction of that sensor"

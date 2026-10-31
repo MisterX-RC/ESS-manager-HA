@@ -38,6 +38,16 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   shows those quarters in their own colour ("From the grid"), attribute
   `grid_use` on the Status sensor.
 
+- **Solar export is steered.** Up to now a label only. With direct control
+  and the battery's power sensor (now on the battery page, used by the
+  house from the grid too) the grid setpoint is worked out every minute so
+  the battery keeps charging at 1000 W and the solar above that goes to the
+  grid - export only, never above the idle value, nothing is bought for it.
+  Before a negative price window (that plan's solar export) the battery is
+  kept at 0 W, so the room stays free. Action `solar_export`; without the
+  power sensor it stays idle. While either loop runs the setpoint counts as
+  idle for the Status.
+
 ### Removed
 - **The status "Grid usage".** A label only (the setpoint stayed at idle)
   for a battery within 1 kWh of the low threshold while a planned charge

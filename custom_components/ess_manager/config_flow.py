@@ -174,6 +174,12 @@ CONTROL_UNIT_OPTIONS = [
     selector.SelectOptionDict(value=UNIT_KW, label="kW"),
 ]
 
+BATTERY_POWER_SIGN_OPTIONS = [
+    selector.SelectOptionDict(value=BATTERY_POWER_CHARGE_POSITIVE, label="Positive = the battery charges, negative = it discharges"),
+    selector.SelectOptionDict(value=BATTERY_POWER_DISCHARGE_POSITIVE, label="Positive = the battery discharges, negative = it charges"),
+]
+
+
 CONTROL_SIGN_OPTIONS = [
     selector.SelectOptionDict(
         value=SIGN_CHARGE_POSITIVE,
@@ -369,6 +375,15 @@ def _system_schema(defaults: dict[str, Any], seed_values: bool) -> vol.Schema:
             vol.Required(
                 CONF_NIGHT_LIMIT_ENABLED, default=defaults.get(CONF_NIGHT_LIMIT_ENABLED, DEFAULT_NIGHT_LIMIT_ENABLED)
             ): selector.BooleanSelector(),
+            # the battery's measured power (as of 2026.10.41): for the house
+            # from the grid and for solar export, which keep the battery at
+            # a set power with the grid setpoint
+            vol.Optional(CONF_BATTERY_POWER_ENTITY, default=defaults.get(CONF_BATTERY_POWER_ENTITY)): _optional_entity_selector(),
+            vol.Required(
+                CONF_BATTERY_POWER_SIGN, default=defaults.get(CONF_BATTERY_POWER_SIGN) or BATTERY_POWER_CHARGE_POSITIVE
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=BATTERY_POWER_SIGN_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+            ),
         }
     )
     if seed_values:
@@ -423,12 +438,6 @@ def _plans_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(CONF_HP_ENABLED, default=defaults.get(CONF_HP_ENABLED, DEFAULT_HP_ENABLED)): selector.BooleanSelector(),
         }
     )
-
-
-BATTERY_POWER_SIGN_OPTIONS = [
-    selector.SelectOptionDict(value=BATTERY_POWER_CHARGE_POSITIVE, label="Positive = the battery charges, negative = it discharges"),
-    selector.SelectOptionDict(value=BATTERY_POWER_DISCHARGE_POSITIVE, label="Positive = the battery discharges, negative = it charges"),
-]
 
 
 def _grid_use_schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -875,7 +884,7 @@ class _EssManagerSteps:
 
     async def async_step_system(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
-            self._data.update(user_input)
+            self._data.update(_clean(user_input))
             if user_input.get(CONF_NIGHT_LIMIT_ENABLED):
                 return await self.async_step_night_limit()
             return await self.async_step_plans()
@@ -894,7 +903,9 @@ class _EssManagerSteps:
     async def async_step_plans(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
             self._data.update(user_input)
-            if user_input.get(CONF_ENABLE_GRID_USE_PLAN):
+            # the battery's power is on the battery page; asked here only
+            # when it's still missing
+            if user_input.get(CONF_ENABLE_GRID_USE_PLAN) and not {**self._defaults(), **self._data}.get(CONF_BATTERY_POWER_ENTITY):
                 return await self.async_step_grid_use()
             return await self._async_after_grid_use()
         return self.async_show_form(step_id="plans", data_schema=_plans_schema(self._defaults()))

@@ -2211,7 +2211,7 @@ NEG = {
 }
 check("action: negative price charge", _status_action(cur_unit=41, neg=NEG)[1] == "negative_price_charge")
 check("action: negative plan's pre-discharge is a normal discharge", _status_action(cur_unit=30, neg=NEG)[1] == "discharge")
-check("action: negative plan's solar export is idle", _status_action(cur_unit=35, neg=NEG) == ("Solar export", "idle"))
+check("action: negative plan's solar export is steered (2026.10.41)", _status_action(cur_unit=35, neg=NEG) == ("Solar export", "solar_export"))
 SPIKE = {"active": True, "charge_start_unit": 10, "charge_end_unit": 12, "discharge_start_unit": 70, "discharge_end_unit": 72}
 check("action: spike charge leg is a normal charge", _status_action(cur_unit=11, spike=SPIKE)[1] == "charge")
 check("action: spike discharge", _status_action(cur_unit=70, spike=SPIKE) == ("Start spike discharge", "spike_discharge"))
@@ -2993,8 +2993,8 @@ check("Solar export: never replaces a running action",
       plans.compute_system_status(all_price=_se_lower, full_unit=56, solar_surplus_now=True,
                                   **{**_se_kw, "low": {"active": True, "start_unit": 39, "end_unit": 42, "breach_unit": 50}})
       == "Start charge")
-check("Solar export: is a label only (idle)",
-      plans.compute_system_status_and_action(all_price=_se_lower, full_unit=56, solar_surplus_now=True, **_se_kw)[1] == "idle")
+check("Solar export: steered as of 2026.10.41 (the battery at 1 kW, the rest to the grid)",
+      plans.compute_system_status_and_action(all_price=_se_lower, full_unit=56, solar_surplus_now=True, **_se_kw)[1] == "solar_export")
 
 # 2026.10.3: live report (15 kWh battery, 09:39, 3.9 kWh, deficit minimum 4.5, surplus 0.75): the battery was
 # just under the deficit minimum, the sun lifts it above within the hour - and it started a 6.6 kWh charge

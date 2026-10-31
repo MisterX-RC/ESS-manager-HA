@@ -162,8 +162,9 @@ Five planning engines, all documented in detail in the code
    included, back to idle by itself when the sun comes out (±30 W counts as
    0; without a power reading: idle). The forecast keeps that energy in the
    battery, and the price chart shows those quarters in their own colour.
-   Switched on on the price plans page in Configure, with the battery's
-   power sensor and its direction on the page after it.
+   Switched on on the price plans page in Configure. The battery's power
+   sensor and its direction are on the battery page (also used by solar
+   export); when it's still empty there, a page for it follows the switch.
 
 **When plans move and when they're fixed.** Every plan is worked out again
 every cycle (once a minute) from the live battery level and forecast, so a window
@@ -1277,11 +1278,18 @@ ceiling on its own, so nothing is being bought - it's the visible version of
 what would otherwise be an indistinguishable `Standby` while
 `full_charge_plan.relying_on_peak_unit` is quietly set (see
 `high_discharge_plan.suppressed_by_full_charge`, which is also active
-during this same wait). `Solar export` is a label only (the setpoint stays
-at idle): there's solar left over now, the battery is forecast to reach
-100% later today, and the price now is higher than every price until then
-- exporting now pays more than storing (and in a negative price plan,
-solar going to the grid before the negative window). (`Grid usage` - a
+during this same wait). `Solar export`: there's solar left over now, the
+battery is forecast to reach 100% later today, and the price now is higher
+than every price until then - exporting now pays more than storing (and in
+a negative price plan, solar going to the grid before the negative window).
+*(As of 2026.10.41)* with direct control and the battery's power sensor
+(battery page) it's steered: the grid setpoint is worked out every minute
+so the battery keeps charging at **1000 W** and the solar above that goes
+to the grid - export only, never above the idle value, so nothing is
+bought for it (with less than 1000 W of surplus the battery just takes
+what there is). Before a negative price window the battery is kept at
+0 W instead, so the room stays free. Without the power sensor it stays a
+label (idle), as before. (`Grid usage` - a
 battery within 1 kWh of the low threshold waiting for a planned charge -
 is gone as of 2026.10.41: the house from the grid at low prices is now
 planned, plan 6.)
@@ -1331,7 +1339,7 @@ house shares. (Up to 2026.10.26 the setpoint was cut down to the max
 battery speed, and the sales were sized at the full Discharge speed even
 when the battery couldn't deliver it.) Every
 Status that means "do nothing" (`Stop`, `Standby`,
-`Solar export`, `Full charge scheduled`, `Awaiting solar (full charge)`)
+`Solar export` without the battery's power sensor, `Full charge scheduled`, `Awaiting solar (full charge)`)
 sends your **idle value** exactly as entered (usually 0; some Victron
 systems idle at -30 W). This is the same mapping as
 `dashboard/automation_example.yaml`, with the speeds taken from the

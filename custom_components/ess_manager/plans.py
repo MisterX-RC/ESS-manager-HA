@@ -24,6 +24,7 @@ from .control import (
     ACTION_NEGATIVE_PRICE_CHARGE,
     ACTION_SPIKE_DISCHARGE,
     ACTION_GRID_USE,
+    ACTION_SOLAR_EXPORT,
 )
 
 
@@ -3008,7 +3009,9 @@ def compute_system_status_and_action(
         ahead = all_price[cur_unit + 1 : full_unit + 1]
         price_now = all_price[cur_unit] if cur_unit < len(all_price) else None
         if ahead and price_now is not None and price_now > max(ahead):
-            return "Solar export", ACTION_IDLE
+            # (as of 2026.10.41 steered: the battery keeps charging at
+            # SOLAR_EXPORT_BATTERY_W, the rest goes to the grid)
+            return "Solar export", ACTION_SOLAR_EXPORT
     return status, action
 
 
@@ -3070,7 +3073,8 @@ def _compute_system_status_raw(
         if neg["discharge_start_unit"] <= cur_unit < neg["discharge_end_unit"]:
             return ("Actief" if setpoint_w <= -discharge_engaged_at else "Start discharge"), ACTION_DISCHARGE
         if neg["solar_export_start_unit"] <= cur_unit < neg["solar_export_end_unit"]:
-            return "Solar export", ACTION_IDLE
+            # (as of 2026.10.41 steered: the battery kept out of it, room for the negative window)
+            return "Solar export", ACTION_SOLAR_EXPORT
         return "Standby", ACTION_IDLE
 
     if spike.get("active"):
