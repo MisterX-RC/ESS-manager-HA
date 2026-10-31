@@ -1168,7 +1168,9 @@ The setup wizard walks through these pages:
 4. **Battery and system** - capacity, normal charge/discharge speed, max
    battery charge/discharge speed, charge/discharge efficiency, min/max SOC.
 5. **Price plans** - a short explanation of the negative price and spike
-   arbitrage plans, with a switch for each.
+   arbitrage plans, with a switch for each (and, as of 2026.10.41, one for
+   the house from the grid at low prices - its page with the battery's
+   power sensor follows).
 6. **Battery control** - whether ESS Manager sends the setpoint itself
    (see "Direct control"). "Status sensor only" is the default.
 7. **Battery control - target** - only when direct control is chosen: the
