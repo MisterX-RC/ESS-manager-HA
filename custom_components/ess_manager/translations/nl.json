@@ -1,0 +1,589 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ESS Manager - sensoren",
+        "description": "Stap 1: de sensoren die ESS Manager leest, waar de verbruiksvoorspelling vandaan komt, en of vol laden en balanceren wordt gebruikt. Alles behalve de naam is later aan te passen via Configureren.",
+        "data": {
+          "name": "Naam",
+          "battery_soc_entity": "Laadstandsensor van de accu (%)",
+          "price_entity": "Stroomprijssensor (Nordpool-stijl, met kwartierprijzen voor vandaag/morgen)",
+          "solar_forecast_entities": "Zonnevoorspelling(en): Solcast (attribuut detailedHourly - voeg zoveel dagsensoren toe als nodig voor je horizon) of Helios Forecast (de sensor Power now van elke Helios-installatie - meerdere worden opgeteld, bijv. één per dakvlak)",
+          "grid_setpoint_entity": "Net-/omvormer-setpoint (optioneel) - een sensor, number of input_number met het huidige opgedragen vermogen (W of kW, volgens de eenheid). Voor Start of Actief in de status; met directe sturing van een number-entiteit mag het leeg blijven",
+          "grid_setpoint_sign": "Richting van het net-/omvormer-setpoint (alleen als er hierboven een gekozen is)",
+          "usage_source": "Bron voor de verbruiksvoorspelling - de volgende pagina stelt die in",
+          "enable_full_charge_plan": "Periodiek vol laden en balanceren aan (laadt met een interval tot 100% en houdt dat even vast zodat het BMS de cellen kan balanceren) - de sensoren volgen op de volgende pagina"
+        }
+      },
+      "usage_energy_dashboard": {
+        "title": "Huisverbruik uit het Energiedashboard",
+        "description": "De net-, zon- en accustatistieken komen rechtstreeks uit je Home Assistant Energiedashboard (Instellingen > Dashboards > Energie) en lopen daar automatisch mee - pas ze daar aan, niet hier. Nu gevonden:\n\n{detected}\n\nDe voorspelling per uur is het huisverbruik op hetzelfde uur en dezelfde weekdag (zon + netafname + accu ontladen - teruglevering - accu laden), gemiddeld over het gekozen aantal weken.",
+        "data": {
+          "usage_lookback_weeks": "Hoeveel weken terug middelen (zelfde uur, zelfde weekdag)"
+        }
+      },
+      "usage_consumption": {
+        "title": "Sensor huisverbruik",
+        "description": "Kies hier één of meer sensoren die het totale verbruik van je huis al meten (oplopend, kWh) - bijv. een energiemonitor voor het hele huis. De voorspelling per uur is het eigen verbruik van die sensor op hetzelfde uur en dezelfde weekdag, gemiddeld over het gekozen aantal weken - zonder rekenwerk, dus zonder de afrondingsverschillen tussen sensoren waar de berekening via het Energiedashboard last van kan hebben.",
+        "data": {
+          "usage_consumption_entities": "Sensor(en) huisverbruik (oplopend, kWh - meer dan één als het verbruik over meerdere meters/groepen verdeeld is)",
+          "usage_lookback_weeks": "Hoeveel weken terug middelen (zelfde uur, zelfde weekdag)"
+        }
+      },
+      "full_charge": {
+        "title": "Vol laden en balanceren",
+        "description": "Sensoren voor vol laden en balanceren. Het balanceren telt pas als bevestigd als de SOC minstens 99,5% is, het celspanningsverschil klein genoeg is en de pakketspanning de doelspanning min 0,1 V heeft bereikt. Gebruik voor het celspanningsverschil óf een verschilsensor óf het paar laagste/hoogste celspanning.",
+        "data": {
+          "voltage_diff_entity": "Sensor celspanningsverschil (optioneel, alleen nodig voor vol laden en balanceren - laat leeg als je BMS dit niet direct geeft en gebruik dan de velden laagste/hoogste celspanning hieronder)",
+          "low_cell_voltage_entity": "Sensor laagste celspanning (V, optioneel - alternatief voor de verschilsensor hierboven; samen met de sensor hoogste celspanning hieronder)",
+          "high_cell_voltage_entity": "Sensor hoogste celspanning (V, optioneel - het verschil wordt berekend als (hoogste - laagste) x 1000 in millivolt)",
+          "battery_voltage_entity": "Spanningssensor accupakket (V, verplicht) - een derde controle naast SOC en celspanningsverschil, vergeleken met de doelspanning hieronder",
+          "full_charge_tracking_source": "Dagen sinds vol laden - intern bijhouden (standaard), of uit een externe sensor lezen die dat al bijhoudt",
+          "days_since_full_charge_entity": "Sensor dagen sinds vol laden (nodig bij de externe-sensoroptie hierboven - gaat naar 0 na een volledige lading)",
+          "full_charge_target_voltage": "Doelspanning vol laden (V) - de spanning van je accupakket als het echt vol is; het balanceerplan telt het als bevestigd zodra de pakketspanning deze waarde min 0,1 V bereikt"
+        }
+      },
+      "system": {
+        "title": "Accu en systeem",
+        "description": "Je accu en omvormer. Capaciteit, normale laad-/ontlaadsnelheid en min/max SOC worden na de installatie instelbare number-entiteiten - daar stel je ze bij. De maximale accusnelheden zijn een vaste hardwaregrens en zijn later aan te passen via Configureren.",
+        "data": {
+          "battery_capacity_kwh": "Accucapaciteit",
+          "charge_speed_kw": "Normale laadsnelheid",
+          "discharge_speed_kw": "Normale ontlaadsnelheid",
+          "max_battery_charge_speed_kw": "Maximale laadsnelheid van de accu (fysieke grens, voor de accuprognose - zon daarboven gaat naar het net)",
+          "max_battery_discharge_speed_kw": "Maximale ontlaadsnelheid van de accu (fysieke grens, voor de accuprognose - verbruik daarboven komt uit het net)",
+          "charge_efficiency_percent": "Laadrendement (%) - wat er per geladen kWh in de accu komt (verlies van omvormer en accu). Bij 90% zet 2,0 kWh zon- of netstroom 1,8 kWh in de accu. 100 = geen verlies",
+          "discharge_efficiency_percent": "Ontlaadrendement (%) - wat er uit de omvormer komt per kWh uit de accu. Bij 90% haalt 0,5 kWh verbruik 0,56 kWh uit de accu. 100 = geen verlies",
+          "min_soc_percent": "Minimale SOC - zontekort (%) - de reserve als het net nodig is om de accu bij te vullen; een aparte, lagere minimum voor zonoverschot stel je na de installatie in op de number-entiteit",
+          "max_soc_percent": "Maximale SOC (%) - mag boven 100% om de zon bewust te laten doorschieten voordat er verkocht wordt",
+          "night_limit_enabled": "Laad-/ontlaadsnelheid 's nachts begrenzen (22:00-07:00)",
+          "battery_power_entity": "Accuvermogen (sensor, optioneel) - voor huis uit het net en teruglevering",
+          "battery_power_sign": "Richting van die sensor"
+        },
+        "data_description": {
+          "night_limit_enabled": "Aan: de volgende pagina vraagt een laad- en ontlaadsnelheid voor de nacht. Tussen 22:00 en 07:00 begrenzen die elke andere snelheid - normaal, negatieve prijs, piek en vol laden - in de plannen en in het verstuurde setpoint: een hogere snelheid wordt verlaagd, een lagere blijft."
+        }
+      },
+      "plans": {
+        "title": "Prijsplannen",
+        "description": "Twee optionele plannen die op de stroomprijs reageren. Beide kunnen later in Configureren aan of uit worden gezet.\n\n**Plan negatieve prijs** - als de prijs onder je drempel voor negatieve prijs zakt (je wordt betaald om stroom af te nemen), laadt het de accu zoveel mogelijk in dat venster, en maakt het vooraf zo nodig ruimte in de accu.\n\n**Plan piekarbitrage** - op een dag waarop het verschil tussen de goedkoopste en de duurste prijs groter is dan je piekmarge, laadt het bewust als stroom goedkoop is en verkoopt het in de prijspiek, in plaats van de accu alleen tussen je minimale en maximale SOC te houden.\n\n**Elektrische auto** - voor een auto die uit de thuisaccu laadt: de laadsessies worden met de rest mee gepland (zie de volgende pagina's).\n\n**Warmtepomp** - voorspelt het verbruik van een warmtepomp uit de weersverwachting in plaats van het 6-weekse gemiddelde (zie de volgende pagina's).\n\n**Het huis uit het net bij lage prijzen** - als de accu later toch geladen zou worden, is het huis nu uit het net halen goedkoper dan uit de accu zolang de prijs nu lager is dan de latere laadprijs min de verliezen van de accu (laad- en ontlaadrendement). Die kwartieren worden samen met het laden gepland, alleen bij een zontekort en nooit zo dat de accu later boven 100% zou komen; ondertussen houdt ESS Manager de accu op 0 W met het netsetpoint (directe aansturing).",
+        "data": {
+          "enable_negative_price_plan": "Negatieve-prijsplan aan",
+          "enable_spike_plan": "Piekplan aan",
+          "ev_enabled": "Elektrische auto die uit de thuisaccu laadt - de pagina's volgen",
+          "hp_enabled": "Warmtepomp: verbruik voorspellen uit het weer - de pagina's volgen",
+          "enable_grid_use_plan": "Huis uit het net bij lage prijzen in plaats van uit de accu - de pagina volgt"
+        }
+      },
+      "ev": {
+        "title": "Elektrische auto - laadpaal",
+        "description": "Alleen voor een auto die uit de thuisaccu laadt: het laden komt dan echt uit de accu, dus de planning moet weten wanneer en hoeveel er geladen wordt.\n\nDe energie van de laadpaal wordt altijd uit de geschiedenis van het huishoudverbruik gehaald; de auto komt alleen via zijn laadsessies in de 120-uursvoorspelling, getoond en bewerkt op de EV-kaart (`custom:ess-manager-ev-card`).\n\n**Sessies voorspellen uit geschiedenis** - een sessie die in meer dan de helft van je terugkijkweken rond hetzelfde uur op dezelfde weekdag begint, wordt voorspeld, met zijn gemiddelde energie en laadstroom (en op zonoverschot als hij van de zon laadde). Uit: de lijst begint leeg en elke sessie wordt met de hand op de kaart toegevoegd.\n\n**Laadpaal** - *Energie- en vermogenssensoren*: elke laadpaal; ESS Manager voorspelt het laden van de auto maar stuurt de laadpaal niet aan. *Victron EV-laadstation*: kies het apparaat van de laadpaal (Victron GX-integratie); de energie en het vermogen worden automatisch gebruikt (laat de twee sensoren hieronder leeg) en ESS Manager stuurt hem aan: als er een auto wordt ingeplugd, vraagt het op je telefoon wat er moet gebeuren - zo snel mogelijk, nu langzaam, of vol op een tijdstip (eerst op de zon, de rest gekocht in de goedkoopste uren, de thuisaccu daarbuiten gehouden) - en tot er een antwoord is draait de laadpaal in zijn eigen Auto-modus (zonoverschot). Op dagen met een geplande sessie vraagt het om 09:00 of die nog klopt. De telefoons zijn de notify-services van de Home Assistant Companion-app (`notify.mobile_app_...`); zonder een daarvan wordt er niets gevraagd en blijft de laadpaal op Auto.",
+        "data": {
+          "ev_charger": "Laadpaal",
+          "ev_victron_device": "Victron EV-laadpaal (apparaat)",
+          "ev_notify_services": "Telefoons voor de vragen (notify-diensten van de Companion-app)",
+          "ev_energy_entity": "Energiesensor laadpaal (oplopend, kWh)",
+          "ev_power_entity": "Vermogenssensor laadpaal (W) - boven 0 loopt er een sessie: dag en starttijd liggen dan vast",
+          "ev_min_current": "Minimale laadstroom (A) - daaronder laadt de laadpaal niet (bepaalt ook wanneer het zonoverschot genoeg is)",
+          "ev_max_current": "Maximale laadstroom (A)",
+          "ev_phases": "Fasen die de laadpaal gebruikt (230 V per fase)",
+          "ev_predict": "Sessies voorspellen uit de geschiedenis"
+        },
+        "data_description": {
+          "ev_notify_services": "De notify-diensten van de Home Assistant Companion-app. Met de Victron-laadpaal: de vragen bij het aansluiten van een auto. Hoe dan ook (vanaf 2026.10.37): om 09:00 de vraag of een sessie voor vandaag nog klopt - Nee zet hem uit (hij blijft op de kaart), Ja vraagt de laadstand."
+        }
+      },
+      "ev_cars": {
+        "title": "Elektrische auto - auto's",
+        "description": "Je auto's. Met een accugrootte wordt een sessie in % getoond en de start-SOC teruggerekend vanaf het doel (aan te passen op de kaart). Met één auto hoort elke sessie bij die auto; met meer auto's heeft een voorspelde sessie geen auto (alleen kWh) tot je er op de kaart een kiest.\n\nHuidige auto's:\n\n{cars}\n\nKies een auto onder \"Auto aanpassen\" om hem te wijzigen, vul een naam in om er een toe te voegen; vink \"Hierna nog een auto toevoegen\" aan voor meer.",
+        "data": {
+          "ev_car_remove": "Verwijderen",
+          "ev_car_name": "Naam van een nieuwe auto (optioneel)",
+          "ev_car_capacity_kwh": "Accugrootte (kWh, optioneel)",
+          "ev_car_target_soc": "Gebruikelijk doel (%)",
+          "ev_car_add_another": "Hierna nog een auto toevoegen",
+          "ev_car_efficiency": "Laadrendement (%)",
+          "ev_car_edit": "Auto aanpassen (optioneel)"
+        },
+        "data_description": {
+          "ev_car_efficiency": "Wat er van de energie die de laadpaal levert in de accu van de auto komt - de energie voor een laadstand wordt erdoor gedeeld, zodat het plan rekent met wat uit de thuisaccu of het net komt. Gebruikelijk bij AC-laden: 85-92%.",
+          "ev_car_edit": "Kies een auto om op de volgende pagina de accugrootte, het doel of het laadrendement aan te passen."
+        }
+      },
+      "hp_meter": {
+        "title": "Warmtepomp - meting",
+        "description": "Voor een warmtepomp waarvan het stroomverbruik het weer volgt. Het 6-weekse gemiddelde van de verbruiksvoorspelling onderschat die in de herfst en overschat die in het voorjaar; hiermee wordt de warmtepomp in plaats daarvan voorspeld uit de weersverwachting, met een model dat ESS Manager zelf bijhoudt (de energie per dag tegen de buitentemperatuur, wind en zon, elke nacht bijgesteld).\n\nWelke energiemeting heeft de warmtepomp?\n\n**Aparte sensoren** - verwarmen en koelen gaan in het model; warm water blijft in het huishoudverbruik, waarvan het weekdag-/uurgemiddelde het vaste ritme al goed voorspelt.\n\n**Eén totaalsensor** - het model splitst die zelf: wat elke dag ongeacht het weer wordt verbruikt (warm water, stand-by), wat meegroeit met de kou (verwarmen) en wat meegroeit met de warmte (koelen).\n\n**Geen eigen meting** - het model werkt op het totale huishoudverbruik en telt alleen het weersverschil op bij de gebruikelijke voorspelling (minst nauwkeurig).",
+        "data": {
+          "hp_meter": "Meting"
+        }
+      },
+      "hp": {
+        "title": "Warmtepomp - sensoren",
+        "description": "De buitentemperatuur heeft langetermijnstatistieken nodig (een sensor met een state class) - eentje van internet is prima. De weersverwachting wordt per dag gelezen (5 dagen), per uur waar de weerentiteit dat heeft. Wind, windrichting, binnen- en gewenste temperatuur zijn optioneel: zonder statistieken worden ze vanaf nu vastgelegd. De binnentemperatuur leert het model ook hoe snel het huis afkoelt (met de eigen meting van de warmtepomp), zodat een huis dat warmer is dan gewoonlijk uitbolt: een aparte sensor met statistieken werkt vanaf het begin, zonder die wordt de eigen huidige temperatuur van een thermostaat gebruikt (de laatste ~10 dagen uit de recorder, daarna hier vastgelegd). Een thermostaat (climate-entiteit) als gewenste temperatuur vertelt het model ook op welke dagen er warmtevraag was - alleen die koele dagen leren het wat de kou kost; de windrichting telt pas mee als er ongeveer een seizoen aan dagen in elke richting is. Bij opslaan wordt het logboek van het model gevuld met tot twee jaar van de statistieken die al bestaan.",
+        "data": {
+          "hp_heat_entities": "Energiesensor(en) verwarming (kWh)",
+          "hp_cool_entities": "Energiesensor(en) koelen (kWh, optioneel)",
+          "hp_total_entity": "Totale energiesensor van de warmtepomp (kWh)",
+          "hp_outdoor_entity": "Buitentemperatuur",
+          "hp_weather_entity": "Weersverwachting (weather-entiteit)",
+          "hp_wind_entity": "Windsnelheid (optioneel)",
+          "hp_wind_dir_entity": "Windrichting in graden (optioneel)",
+          "hp_indoor_entity": "Binnentemperatuur (optioneel - zonder: de eigen temperatuur van de thermostaat)",
+          "hp_setpoint_entity": "Gewenste temperatuur - een thermostaat (climate) of een sensor/number (optioneel)",
+          "hp_cop_entity": "COP van de warmtepomp (optioneel)",
+          "hp_buffer_enabled": "Stap 2: sturen - ESS Manager mag de thermostaat zetten (aan en uit op de warmtepompkaart)",
+          "hp_hourly_enabled": "Stap 1: het huis per uur - de voorspelling gaat mee in de planning zodra die zich bewezen heeft",
+          "floor_enabled": "Vloersturing: ESS Manager zet het retour-setpoint en de warmtevraag (eigen pagina volgt)"
+        },
+        "data_description": {
+          "hp_cop_entity": "Daarmee leert het model de COP per buitentemperatuur: wat een kWh warmte op welk uur kost.",
+          "hp_buffer_enabled": "Heeft stap 1 nodig en een thermostaat (climate-entiteit). Op de kaart: sturen aan/uit, een dag- en nachttemperatuur met hun tijden, en hoeveel warmer of koeler het huis als buffer mag worden (warmer in goedkope of zonnige uren, koeler in dure) - de buffer pas als stap 1 zijn zelftest heeft gehaald. Een wijziging met de hand op de thermostaat gaat voor tot de volgende dag/nacht-wissel.",
+          "hp_hourly_enabled": "Leert hoe de binnentemperatuur het weer en de ingebrachte warmte volgt (met de vertraging van de vloer) en voorspelt die 48 uur vooruit. Elke dag toetst het zichzelf aan de metingen; alleen als het de energie per uur beter plaatst dan het gebruikelijke patroon gebruikt de planning het - en het valt vanzelf terug als het slechter wordt.",
+          "floor_enabled": "Heeft stap 1 nodig en een thermostaat (climate-entiteit, een generic_thermostat op een hulpschakelaar). Begint in de stand 'meekijken': er verandert niets tot je op de warmtepompkaart een hogere stand kiest en de zelftests geslaagd zijn."
+        }
+      },
+      "control": {
+        "title": "Accusturing",
+        "description": "Moet ESS Manager het laad-/ontlaadsetpoint zelf naar je omvormer sturen?\n\n**Alleen statussensor** (standaard) - er wordt niets verstuurd. ESS Manager beslist alleen, via zijn Status-sensor, en je eigen automatisering (zie dashboard/automation_example.yaml) zet dat om in een commando.\n\n**Een number / input_number entiteit instellen** - ESS Manager stuurt het setpoint elke cyclus zelf, met de laad-/ontlaadsnelheden waarmee de plannen zijn berekend - als netsetpoint: het huis wordt eruit gedekt en de accu krijgt de rest, tot zijn maximale snelheid. Met de schakelaar \"Automatic control\" kun je het op elk moment pauzeren; hij stuurt ook idle als een update mislukt, als de integratie wordt ontladen en als Home Assistant stopt. Schakel je dit in, zet dan je eigen ESS-automatisering uit zodat de twee elkaar niet tegenwerken.\n\nDe sensor \"Planned setpoint\" toont wat er verstuurd zou worden, ook als dit uit staat, zodat je het eerst met je automatisering kunt vergelijken.",
+        "data": {
+          "control_mode": "Sturing"
+        }
+      },
+      "control_target": {
+        "title": "Accusturing - setpoint",
+        "description": "De entiteit waar het setpoint naartoe gaat - bijvoorbeeld de `number`-entiteit voor het net-setpoint van je omvormer, of de `input_number` die je omvormerautomatisering leest.\n\nDe rust-waarde wordt precies zo verstuurd als ingevuld wanneer de accu niets hoeft te doen (meestal 0; sommige Victron-systemen staan in rust op -30 W).\n\nLaat je het net-/omvormer-setpoint op de eerste pagina leeg, dan dient deze entiteit als terugmelding voor de status.",
+        "data": {
+          "control_target_entity": "Setpoint-entiteit (number / input_number)",
+          "control_unit": "Eenheid van het setpoint",
+          "control_sign": "Richting van het setpoint",
+          "control_idle_value": "Rust-waarde (in de eenheid hierboven)"
+        }
+      },
+      "night_limit": {
+        "title": "Nachtgrens (22:00-07:00)",
+        "description": "Tussen 22:00 en 07:00 begrenzen deze snelheden elke andere laad- en ontlaadsnelheid (een lagere snelheid blijft zoals hij is): de plannen rekenen ermee (een lading 's nachts duurt langer, een verkoop 's nachts wordt erop afgestemd) en het verstuurde setpoint komt er nooit boven. Buiten deze uren verandert er niets. Een nachtlaadsnelheid van 0 betekent 's nachts niet laden uit het net.",
+        "data": {
+          "night_charge_speed_kw": "Laadsnelheid 's nachts",
+          "night_discharge_speed_kw": "Ontlaadsnelheid 's nachts"
+        }
+      },
+      "floor": {
+        "title": "Warmtepomp - vloersturing",
+        "description": "ESS Manager kan de vloer zelf verwarmen: vanuit het uur-voor-uur huismodel plant het de warmte per uur en zet die om in het retoursetpoint en de warmtevraag van de warmtepomp - met minder doorschieten en lagere watertemperaturen dan een thermostaat die aan en uit schakelt. Het gaat in drie fasen, te kiezen op de warmtepompkaart (Floor control): kijken (het leert alleen en toont wat het zou doen), setpoint (het zet het retoursetpoint, de thermostaat schakelt nog) en volledig (het schakelt ook de warmtevraag). Elke fase draait pas als de vorige zich heeft bewezen.\n\nRicht eerst de thermostaat in: laat je generic_thermostat een helper (input_boolean) schakelen in plaats van de warmtepomp, en voeg de fallback-automatisering uit de README toe die die helper naar de warmtevraag van de warmtepomp kopieert zolang de sensor \"Floor control stage\" niet \"full\" is. De thermostaat blijft waar je de gewenste temperatuur instelt; stopt ESS Manager, dan neemt de thermostaat het vanzelf over.",
+        "data": {
+          "floor_return_setpoint_entity": "Retourtemperatuur-setpoint van de warmtepomp (number)",
+          "floor_demand_entity": "Warmtevraag-schakelaar van de warmtepomp",
+          "floor_thermostat_helper_entity": "De hulpschakelaar van de thermostaat (wat de generic_thermostat nu schakelt)",
+          "floor_supply_entity": "Aanvoertemperatuur",
+          "floor_return_entity": "Retourtemperatuur",
+          "floor_pump_entity": "Circulatiepomp (%)",
+          "floor_thermal_power_entity": "Thermisch vermogen van de warmtepomp (W of kW)",
+          "floor_slab_entity": "Vloertemperatuur in de dekvloer (optioneel)",
+          "floor_cool_switch_entity": "Koelen: de omschakelaar (aan = koelen, optioneel)",
+          "floor_cool_climate_entity": "Koelen: de koelthermostaat (vraagt om koeling = koelen, optioneel)"
+        },
+        "data_description": {
+          "floor_pump_entity": "De aanvoer- en retoursensor tonen het vloerwater alleen als de pomp draait - andere metingen worden overgeslagen.",
+          "floor_slab_entity": "Een sensor in de dekvloer tussen twee leidingen. Wordt in plaats van de kamertemperatuur gebruikt als referentie voor de vloer zodra de meeste stookuren hem hebben - het model leert zichzelf opnieuw.",
+          "floor_cool_switch_entity": "Zolang de warmtepomp koelt, laat de vloersturing hem helemaal met rust - de warmtevraag hoort dan bij het koelen. Het retour-setpoint gaat één keer terug naar de oude waarde, en er wordt niets geleerd.",
+          "floor_cool_climate_entity": "Telt als koelen zolang deze thermostaat om koeling vraagt (actie 'cooling') - dat gebeurt voordat je koelautomatisering de warmtevraag aanzet, dus de vloersturing kan de warmtevraag van het koelen nooit voor verwarmen aanzien. Op 'cool' maar inactief telt niet."
+        }
+      },
+      "ev_car_edit": {
+        "title": "Elektrische auto - {car}",
+        "description": "De accugrootte, het gebruikelijke doel en het laadrendement van {car}. Het laadrendement is wat er van de energie van de laadpaal in de accu komt: de energie voor een laadstand wordt erdoor gedeeld, zodat het plan rekent met wat uit de thuisaccu of het net komt. De laadstandcorrectie die uit afgeronde laadbeurten geleerd is, komt daar nog bovenop.",
+        "data": {
+          "ev_car_capacity_kwh": "Accugrootte (kWh, optioneel)",
+          "ev_car_target_soc": "Gebruikelijk doel (%)",
+          "ev_car_efficiency": "Laadrendement (%)"
+        }
+      },
+      "grid_use": {
+        "title": "Huis uit het net bij lage prijzen",
+        "description": "Zolang het huis uit het net komt, stelt ESS Manager het net-setpoint steeds bij tot de accu niet laadt en niet ontlaadt - overschot van de zon gaat nog steeds de accu in. Daarvoor is het gemeten vermogen van de accu nodig (een vermogenssensor van de accu of de accumonitor, in W of kW). Die kan ook op de accupagina worden ingesteld.",
+        "data": {
+          "battery_power_entity": "Accuvermogen (sensor)",
+          "battery_power_sign": "Richting van die sensor"
+        }
+      }
+    },
+    "error": {
+      "solar_forecast_required": "Kies minstens één zonnevoorspelling.",
+      "battery_voltage_entity_required": "Kies een spanningssensor van het accupakket - nodig bij het vol-laadplan.",
+      "days_since_full_charge_entity_required": "Kies een sensor voor dagen-sinds-vol - nodig bij bijhouden via een externe sensor.",
+      "usage_consumption_entities_required": "Kies minstens één entiteit voor het huisverbruik.",
+      "energy_dashboard_not_configured": "In het Energiedashboard is geen netafname ingesteld. Voeg daar eerst je netbron toe (Instellingen > Dashboards > Energie), of kies een andere verbruiksbron.",
+      "control_target_wrong_type": "Kies een number- of input_number-entiteit.",
+      "ev_entities_required": "Kies de energiesensor en de vermogenssensor van de laadpaal.",
+      "ev_current_range": "De minimale laadstroom kan niet hoger zijn dan de maximale.",
+      "ev_car_exists": "Er bestaat al een auto met deze naam.",
+      "hp_heat_required": "Kies minstens één energiesensor voor verwarming.",
+      "hp_total_required": "Kies de totale energiesensor van de warmtepomp.",
+      "hp_outdoor_required": "Kies een buitentemperatuursensor.",
+      "hp_weather_required": "Kies een weather-entiteit voor de verwachting.",
+      "floor_needs_thermostat": "Vloersturing heeft een thermostaat (climate-entiteit) nodig als gewenste temperatuur.",
+      "floor_needs_hourly": "Vloersturing heeft stap 1 nodig (het huis per uur).",
+      "floor_entities_required": "Kies alle entiteiten voor de vloersturing (alleen de vloersensor is optioneel).",
+      "floor_helper_same": "De hulpschakelaar van de thermostaat moet een andere entiteit zijn dan de warmtevraag-schakelaar van de warmtepomp.",
+      "ev_victron_device_required": "Kies het apparaat van de Victron EV-laadpaal.",
+      "ev_victron_incomplete": "Dit apparaat heeft niet de entiteiten van een Victron EV-laadpaal (status, vermogen, totale energie, modus, laadstroom-setpoint, EV laden) - of een deel ervan is uitgeschakeld.",
+      "battery_power_required": "Kies de vermogenssensor van de accu."
+    },
+    "abort": {
+      "already_configured": "Er bestaat al een ESS Manager met deze naam."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ESS Manager - sensoren",
+        "description": "De sensoren die ESS Manager leest, waar de verbruiksvoorspelling vandaan komt, en of vol laden en balanceren wordt gebruikt.",
+        "data": {
+          "battery_soc_entity": "Laadstandsensor van de accu (%)",
+          "price_entity": "Stroomprijssensor (Nordpool-stijl, met kwartierprijzen voor vandaag/morgen)",
+          "solar_forecast_entities": "Zonnevoorspelling(en): Solcast (attribuut detailedHourly - voeg zoveel dagsensoren toe als nodig voor je horizon) of Helios Forecast (de sensor Power now van elke Helios-installatie - meerdere worden opgeteld, bijv. één per dakvlak)",
+          "grid_setpoint_entity": "Net-/omvormer-setpoint (optioneel) - een sensor, number of input_number met het huidige opgedragen vermogen (W of kW, volgens de eenheid). Voor Start of Actief in de status; met directe sturing van een number-entiteit mag het leeg blijven",
+          "grid_setpoint_sign": "Richting van het net-/omvormer-setpoint (alleen als er hierboven een gekozen is)",
+          "usage_source": "Bron voor de verbruiksvoorspelling - de volgende pagina stelt die in",
+          "enable_full_charge_plan": "Periodiek vol laden en balanceren aan (laadt met een interval tot 100% en houdt dat even vast zodat het BMS de cellen kan balanceren) - de sensoren volgen op de volgende pagina"
+        }
+      },
+      "usage_energy_dashboard": {
+        "title": "Huisverbruik uit het Energiedashboard",
+        "description": "De net-, zon- en accustatistieken komen rechtstreeks uit je Home Assistant Energiedashboard (Instellingen > Dashboards > Energie) en lopen daar automatisch mee - pas ze daar aan, niet hier. Nu gevonden:\n\n{detected}\n\nDe voorspelling per uur is het huisverbruik op hetzelfde uur en dezelfde weekdag (zon + netafname + accu ontladen - teruglevering - accu laden), gemiddeld over het gekozen aantal weken.",
+        "data": {
+          "usage_lookback_weeks": "Hoeveel weken terug middelen (zelfde uur, zelfde weekdag)"
+        }
+      },
+      "usage_consumption": {
+        "title": "Sensor huisverbruik",
+        "data": {
+          "usage_consumption_entities": "Sensor(en) huisverbruik (oplopend, kWh - meer dan één als het verbruik over meerdere meters/groepen verdeeld is)",
+          "usage_lookback_weeks": "Hoeveel weken terug middelen (zelfde uur, zelfde weekdag)"
+        },
+        "description": "Kies hier één of meer sensoren die het totale verbruik van je huis al meten (oplopend, kWh) - bijv. een energiemonitor voor het hele huis. De voorspelling per uur is het eigen verbruik van die sensor op hetzelfde uur en dezelfde weekdag, gemiddeld over het gekozen aantal weken - zonder rekenwerk, dus zonder de afrondingsverschillen tussen sensoren waar de berekening via het Energiedashboard last van kan hebben."
+      },
+      "full_charge": {
+        "title": "Vol laden en balanceren",
+        "description": "Sensoren voor vol laden en balanceren. Het balanceren telt pas als bevestigd als de SOC minstens 99,5% is, het celspanningsverschil klein genoeg is en de pakketspanning de doelspanning min 0,1 V heeft bereikt. Gebruik voor het celspanningsverschil óf een verschilsensor óf het paar laagste/hoogste celspanning. De doelspanning stel je in op de number-entiteit.",
+        "data": {
+          "voltage_diff_entity": "Sensor celspanningsverschil (optioneel, alleen nodig voor vol laden en balanceren - laat leeg als je BMS dit niet direct geeft en gebruik dan de velden laagste/hoogste celspanning hieronder)",
+          "low_cell_voltage_entity": "Sensor laagste celspanning (V, optioneel - alternatief voor de verschilsensor hierboven; samen met de sensor hoogste celspanning hieronder)",
+          "high_cell_voltage_entity": "Sensor hoogste celspanning (V, optioneel - het verschil wordt berekend als (hoogste - laagste) x 1000 in millivolt)",
+          "battery_voltage_entity": "Spanningssensor accupakket (V, verplicht) - een derde controle naast SOC en celspanningsverschil, vergeleken met de doelspanning hieronder",
+          "full_charge_tracking_source": "Dagen sinds vol laden - intern bijhouden (standaard), of uit een externe sensor lezen die dat al bijhoudt",
+          "days_since_full_charge_entity": "Sensor dagen sinds vol laden (nodig bij de externe-sensoroptie hierboven - gaat naar 0 na een volledige lading)"
+        }
+      },
+      "system": {
+        "title": "Accugrenzen",
+        "description": "De fysieke laad-/ontlaadgrens en het rendement van de accu. Capaciteit, normale snelheden en min/max SOC pas je aan op hun number-entiteiten, niet hier.",
+        "data": {
+          "max_battery_charge_speed_kw": "Maximale laadsnelheid van de accu (fysieke grens, voor de accuprognose - zon daarboven gaat naar het net)",
+          "max_battery_discharge_speed_kw": "Maximale ontlaadsnelheid van de accu (fysieke grens, voor de accuprognose - verbruik daarboven komt uit het net)",
+          "charge_efficiency_percent": "Laadrendement (%) - wat er per geladen kWh in de accu komt (verlies van omvormer en accu). Bij 90% zet 2,0 kWh zon- of netstroom 1,8 kWh in de accu. 100 = geen verlies",
+          "discharge_efficiency_percent": "Ontlaadrendement (%) - wat er uit de omvormer komt per kWh uit de accu. Bij 90% haalt 0,5 kWh verbruik 0,56 kWh uit de accu. 100 = geen verlies",
+          "night_limit_enabled": "Laad-/ontlaadsnelheid 's nachts begrenzen (22:00-07:00)",
+          "battery_power_entity": "Accuvermogen (sensor, optioneel) - voor huis uit het net en teruglevering",
+          "battery_power_sign": "Richting van die sensor"
+        },
+        "data_description": {
+          "night_limit_enabled": "Aan: de volgende pagina vraagt een laad- en ontlaadsnelheid voor de nacht. Tussen 22:00 en 07:00 begrenzen die elke andere snelheid - normaal, negatieve prijs, piek en vol laden - in de plannen en in het verstuurde setpoint: een hogere snelheid wordt verlaagd, een lagere blijft."
+        }
+      },
+      "plans": {
+        "title": "Prijsplannen",
+        "description": "Twee optionele plannen die op de stroomprijs reageren.\n\n**Plan negatieve prijs** - als de prijs onder je drempel voor negatieve prijs zakt (je wordt betaald om stroom af te nemen), laadt het de accu zoveel mogelijk in dat venster, en maakt het vooraf zo nodig ruimte in de accu.\n\n**Plan piekarbitrage** - op een dag waarop het verschil tussen de goedkoopste en de duurste prijs groter is dan je piekmarge, laadt het bewust als stroom goedkoop is en verkoopt het in de prijspiek, in plaats van de accu alleen tussen je minimale en maximale SOC te houden.\n\n**Elektrische auto** - voor een auto die uit de thuisaccu laadt: de laadsessies worden met de rest mee gepland (zie de volgende pagina's).\n\n**Warmtepomp** - voorspelt het verbruik van een warmtepomp uit de weersverwachting in plaats van het 6-weekse gemiddelde (zie de volgende pagina's).\n\n**Het huis uit het net bij lage prijzen** - als de accu later toch geladen zou worden, is het huis nu uit het net halen goedkoper dan uit de accu zolang de prijs nu lager is dan de latere laadprijs min de verliezen van de accu (laad- en ontlaadrendement). Die kwartieren worden samen met het laden gepland, alleen bij een zontekort en nooit zo dat de accu later boven 100% zou komen; ondertussen houdt ESS Manager de accu op 0 W met het netsetpoint (directe aansturing).",
+        "data": {
+          "enable_negative_price_plan": "Negatieve-prijsplan aan",
+          "enable_spike_plan": "Piekplan aan",
+          "ev_enabled": "Elektrische auto die uit de thuisaccu laadt - de pagina's volgen",
+          "hp_enabled": "Warmtepomp: verbruik voorspellen uit het weer - de pagina's volgen",
+          "enable_grid_use_plan": "Huis uit het net bij lage prijzen in plaats van uit de accu - de pagina volgt"
+        }
+      },
+      "ev": {
+        "title": "Elektrische auto - laadpaal",
+        "description": "Alleen voor een auto die uit de thuisaccu laadt: het laden komt dan echt uit de accu, dus de planning moet weten wanneer en hoeveel er geladen wordt.\n\nDe energie van de laadpaal wordt altijd uit de geschiedenis van het huishoudverbruik gehaald; de auto komt alleen via zijn laadsessies in de 120-uursvoorspelling, getoond en bewerkt op de EV-kaart (`custom:ess-manager-ev-card`).\n\n**Sessies voorspellen uit geschiedenis** - een sessie die in meer dan de helft van je terugkijkweken rond hetzelfde uur op dezelfde weekdag begint, wordt voorspeld, met zijn gemiddelde energie en laadstroom (en op zonoverschot als hij van de zon laadde). Uit: de lijst begint leeg en elke sessie wordt met de hand op de kaart toegevoegd.\n\n**Laadpaal** - *Energie- en vermogenssensoren*: elke laadpaal; ESS Manager voorspelt het laden van de auto maar stuurt de laadpaal niet aan. *Victron EV-laadstation*: kies het apparaat van de laadpaal (Victron GX-integratie); de energie en het vermogen worden automatisch gebruikt (laat de twee sensoren hieronder leeg) en ESS Manager stuurt hem aan: als er een auto wordt ingeplugd, vraagt het op je telefoon wat er moet gebeuren - zo snel mogelijk, nu langzaam, of vol op een tijdstip (eerst op de zon, de rest gekocht in de goedkoopste uren, de thuisaccu daarbuiten gehouden) - en tot er een antwoord is draait de laadpaal in zijn eigen Auto-modus (zonoverschot). Op dagen met een geplande sessie vraagt het om 09:00 of die nog klopt. De telefoons zijn de notify-services van de Home Assistant Companion-app (`notify.mobile_app_...`); zonder een daarvan wordt er niets gevraagd en blijft de laadpaal op Auto.",
+        "data": {
+          "ev_charger": "Laadpaal",
+          "ev_victron_device": "Victron EV-laadpaal (apparaat)",
+          "ev_notify_services": "Telefoons voor de vragen (notify-diensten van de Companion-app)",
+          "ev_energy_entity": "Energiesensor laadpaal (oplopend, kWh)",
+          "ev_power_entity": "Vermogenssensor laadpaal (W) - boven 0 loopt er een sessie: dag en starttijd liggen dan vast",
+          "ev_min_current": "Minimale laadstroom (A) - daaronder laadt de laadpaal niet (bepaalt ook wanneer het zonoverschot genoeg is)",
+          "ev_max_current": "Maximale laadstroom (A)",
+          "ev_phases": "Fasen die de laadpaal gebruikt (230 V per fase)",
+          "ev_predict": "Sessies voorspellen uit de geschiedenis"
+        },
+        "data_description": {
+          "ev_notify_services": "De notify-diensten van de Home Assistant Companion-app. Met de Victron-laadpaal: de vragen bij het aansluiten van een auto. Hoe dan ook (vanaf 2026.10.37): om 09:00 de vraag of een sessie voor vandaag nog klopt - Nee zet hem uit (hij blijft op de kaart), Ja vraagt de laadstand."
+        }
+      },
+      "ev_cars": {
+        "title": "Elektrische auto - auto's",
+        "description": "Je auto's. Met een accugrootte wordt een sessie in % getoond en de start-SOC teruggerekend vanaf het doel (aan te passen op de kaart). Met één auto hoort elke sessie bij die auto; met meer auto's heeft een voorspelde sessie geen auto (alleen kWh) tot je er op de kaart een kiest.\n\nHuidige auto's:\n\n{cars}\n\nKies een auto onder \"Auto aanpassen\" om hem te wijzigen, vul een naam in om er een toe te voegen; vink \"Hierna nog een auto toevoegen\" aan voor meer.",
+        "data": {
+          "ev_car_remove": "Verwijderen",
+          "ev_car_name": "Naam van een nieuwe auto (optioneel)",
+          "ev_car_capacity_kwh": "Accugrootte (kWh, optioneel)",
+          "ev_car_target_soc": "Gebruikelijk doel (%)",
+          "ev_car_add_another": "Hierna nog een auto toevoegen",
+          "ev_car_efficiency": "Laadrendement (%)",
+          "ev_car_edit": "Auto aanpassen (optioneel)"
+        },
+        "data_description": {
+          "ev_car_efficiency": "Wat er van de energie die de laadpaal levert in de accu van de auto komt - de energie voor een laadstand wordt erdoor gedeeld, zodat het plan rekent met wat uit de thuisaccu of het net komt. Gebruikelijk bij AC-laden: 85-92%.",
+          "ev_car_edit": "Kies een auto om op de volgende pagina de accugrootte, het doel of het laadrendement aan te passen."
+        }
+      },
+      "hp_meter": {
+        "title": "Warmtepomp - meting",
+        "description": "Voor een warmtepomp waarvan het stroomverbruik het weer volgt. Het 6-weekse gemiddelde van de verbruiksvoorspelling onderschat die in de herfst en overschat die in het voorjaar; hiermee wordt de warmtepomp in plaats daarvan voorspeld uit de weersverwachting, met een model dat ESS Manager zelf bijhoudt (de energie per dag tegen de buitentemperatuur, wind en zon, elke nacht bijgesteld).\n\nWelke energiemeting heeft de warmtepomp?\n\n**Aparte sensoren** - verwarmen en koelen gaan in het model; warm water blijft in het huishoudverbruik, waarvan het weekdag-/uurgemiddelde het vaste ritme al goed voorspelt.\n\n**Eén totaalsensor** - het model splitst die zelf: wat elke dag ongeacht het weer wordt verbruikt (warm water, stand-by), wat meegroeit met de kou (verwarmen) en wat meegroeit met de warmte (koelen).\n\n**Geen eigen meting** - het model werkt op het totale huishoudverbruik en telt alleen het weersverschil op bij de gebruikelijke voorspelling (minst nauwkeurig).",
+        "data": {
+          "hp_meter": "Meting"
+        }
+      },
+      "hp": {
+        "title": "Warmtepomp - sensoren",
+        "description": "De buitentemperatuur heeft langetermijnstatistieken nodig (een sensor met een state class) - eentje van internet is prima. De weersverwachting wordt per dag gelezen (5 dagen), per uur waar de weerentiteit dat heeft. Wind, windrichting, binnen- en gewenste temperatuur zijn optioneel: zonder statistieken worden ze vanaf nu vastgelegd. De binnentemperatuur leert het model ook hoe snel het huis afkoelt (met de eigen meting van de warmtepomp), zodat een huis dat warmer is dan gewoonlijk uitbolt: een aparte sensor met statistieken werkt vanaf het begin, zonder die wordt de eigen huidige temperatuur van een thermostaat gebruikt (de laatste ~10 dagen uit de recorder, daarna hier vastgelegd). Een thermostaat (climate-entiteit) als gewenste temperatuur vertelt het model ook op welke dagen er warmtevraag was - alleen die koele dagen leren het wat de kou kost; de windrichting telt pas mee als er ongeveer een seizoen aan dagen in elke richting is. Bij opslaan wordt het logboek van het model gevuld met tot twee jaar van de statistieken die al bestaan.",
+        "data": {
+          "hp_heat_entities": "Energiesensor(en) verwarming (kWh)",
+          "hp_cool_entities": "Energiesensor(en) koelen (kWh, optioneel)",
+          "hp_total_entity": "Totale energiesensor van de warmtepomp (kWh)",
+          "hp_outdoor_entity": "Buitentemperatuur",
+          "hp_weather_entity": "Weersverwachting (weather-entiteit)",
+          "hp_wind_entity": "Windsnelheid (optioneel)",
+          "hp_wind_dir_entity": "Windrichting in graden (optioneel)",
+          "hp_indoor_entity": "Binnentemperatuur (optioneel - zonder: de eigen temperatuur van de thermostaat)",
+          "hp_setpoint_entity": "Gewenste temperatuur - een thermostaat (climate) of een sensor/number (optioneel)",
+          "hp_cop_entity": "COP van de warmtepomp (optioneel)",
+          "hp_buffer_enabled": "Stap 2: sturen - ESS Manager mag de thermostaat zetten (aan en uit op de warmtepompkaart)",
+          "hp_hourly_enabled": "Stap 1: het huis per uur - de voorspelling gaat mee in de planning zodra die zich bewezen heeft",
+          "floor_enabled": "Vloersturing: ESS Manager zet het retour-setpoint en de warmtevraag (eigen pagina volgt)"
+        },
+        "data_description": {
+          "hp_cop_entity": "Daarmee leert het model de COP per buitentemperatuur: wat een kWh warmte op welk uur kost.",
+          "hp_buffer_enabled": "Heeft stap 1 nodig en een thermostaat (climate-entiteit). Op de kaart: sturen aan/uit, een dag- en nachttemperatuur met hun tijden, en hoeveel warmer of koeler het huis als buffer mag worden (warmer in goedkope of zonnige uren, koeler in dure) - de buffer pas als stap 1 zijn zelftest heeft gehaald. Een wijziging met de hand op de thermostaat gaat voor tot de volgende dag/nacht-wissel.",
+          "hp_hourly_enabled": "Leert hoe de binnentemperatuur het weer en de ingebrachte warmte volgt (met de vertraging van de vloer) en voorspelt die 48 uur vooruit. Elke dag toetst het zichzelf aan de metingen; alleen als het de energie per uur beter plaatst dan het gebruikelijke patroon gebruikt de planning het - en het valt vanzelf terug als het slechter wordt.",
+          "floor_enabled": "Heeft stap 1 nodig en een thermostaat (climate-entiteit, een generic_thermostat op een hulpschakelaar). Begint in de stand 'meekijken': er verandert niets tot je op de warmtepompkaart een hogere stand kiest en de zelftests geslaagd zijn."
+        }
+      },
+      "control": {
+        "title": "Accusturing",
+        "description": "Moet ESS Manager het laad-/ontlaadsetpoint zelf naar je omvormer sturen?\n\n**Alleen statussensor** (standaard) - er wordt niets verstuurd. ESS Manager beslist alleen, via zijn Status-sensor, en je eigen automatisering (zie dashboard/automation_example.yaml) zet dat om in een commando.\n\n**Een number / input_number entiteit instellen** - ESS Manager stuurt het setpoint elke cyclus zelf, met de laad-/ontlaadsnelheden waarmee de plannen zijn berekend - als netsetpoint: het huis wordt eruit gedekt en de accu krijgt de rest, tot zijn maximale snelheid. Met de schakelaar \"Automatic control\" kun je het op elk moment pauzeren; hij stuurt ook idle als een update mislukt, als de integratie wordt ontladen en als Home Assistant stopt. Schakel je dit in, zet dan je eigen ESS-automatisering uit zodat de twee elkaar niet tegenwerken.\n\nDe sensor \"Planned setpoint\" toont wat er verstuurd zou worden, ook als dit uit staat, zodat je het eerst met je automatisering kunt vergelijken.",
+        "data": {
+          "control_mode": "Sturing"
+        }
+      },
+      "control_target": {
+        "title": "Accusturing - setpoint",
+        "description": "De entiteit waar het setpoint naartoe gaat - bijvoorbeeld de `number`-entiteit voor het net-setpoint van je omvormer, of de `input_number` die je omvormerautomatisering leest.\n\nDe rust-waarde wordt precies zo verstuurd als ingevuld wanneer de accu niets hoeft te doen (meestal 0; sommige Victron-systemen staan in rust op -30 W).\n\nLaat je het net-/omvormer-setpoint op de eerste pagina leeg, dan dient deze entiteit als terugmelding voor de status.",
+        "data": {
+          "control_target_entity": "Setpoint-entiteit (number / input_number)",
+          "control_unit": "Eenheid van het setpoint",
+          "control_sign": "Richting van het setpoint",
+          "control_idle_value": "Rust-waarde (in de eenheid hierboven)"
+        }
+      },
+      "night_limit": {
+        "title": "Nachtgrens (22:00-07:00)",
+        "description": "Tussen 22:00 en 07:00 begrenzen deze snelheden elke andere laad- en ontlaadsnelheid (een lagere snelheid blijft zoals hij is): de plannen rekenen ermee (een lading 's nachts duurt langer, een verkoop 's nachts wordt erop afgestemd) en het verstuurde setpoint komt er nooit boven. Buiten deze uren verandert er niets. Een nachtlaadsnelheid van 0 betekent 's nachts niet laden uit het net.",
+        "data": {
+          "night_charge_speed_kw": "Laadsnelheid 's nachts",
+          "night_discharge_speed_kw": "Ontlaadsnelheid 's nachts"
+        }
+      },
+      "floor": {
+        "title": "Warmtepomp - vloersturing",
+        "description": "ESS Manager kan de vloer zelf verwarmen: vanuit het uur-voor-uur huismodel plant het de warmte per uur en zet die om in het retoursetpoint en de warmtevraag van de warmtepomp - met minder doorschieten en lagere watertemperaturen dan een thermostaat die aan en uit schakelt. Het gaat in drie fasen, te kiezen op de warmtepompkaart (Floor control): kijken (het leert alleen en toont wat het zou doen), setpoint (het zet het retoursetpoint, de thermostaat schakelt nog) en volledig (het schakelt ook de warmtevraag). Elke fase draait pas als de vorige zich heeft bewezen.\n\nRicht eerst de thermostaat in: laat je generic_thermostat een helper (input_boolean) schakelen in plaats van de warmtepomp, en voeg de fallback-automatisering uit de README toe die die helper naar de warmtevraag van de warmtepomp kopieert zolang de sensor \"Floor control stage\" niet \"full\" is. De thermostaat blijft waar je de gewenste temperatuur instelt; stopt ESS Manager, dan neemt de thermostaat het vanzelf over.",
+        "data": {
+          "floor_return_setpoint_entity": "Retourtemperatuur-setpoint van de warmtepomp (number)",
+          "floor_demand_entity": "Warmtevraag-schakelaar van de warmtepomp",
+          "floor_thermostat_helper_entity": "De hulpschakelaar van de thermostaat (wat de generic_thermostat nu schakelt)",
+          "floor_supply_entity": "Aanvoertemperatuur",
+          "floor_return_entity": "Retourtemperatuur",
+          "floor_pump_entity": "Circulatiepomp (%)",
+          "floor_thermal_power_entity": "Thermisch vermogen van de warmtepomp (W of kW)",
+          "floor_slab_entity": "Vloertemperatuur in de dekvloer (optioneel)",
+          "floor_cool_switch_entity": "Koelen: de omschakelaar (aan = koelen, optioneel)",
+          "floor_cool_climate_entity": "Koelen: de koelthermostaat (vraagt om koeling = koelen, optioneel)"
+        },
+        "data_description": {
+          "floor_pump_entity": "De aanvoer- en retoursensor tonen het vloerwater alleen als de pomp draait - andere metingen worden overgeslagen.",
+          "floor_slab_entity": "Een sensor in de dekvloer tussen twee leidingen. Wordt in plaats van de kamertemperatuur gebruikt als referentie voor de vloer zodra de meeste stookuren hem hebben - het model leert zichzelf opnieuw.",
+          "floor_cool_switch_entity": "Zolang de warmtepomp koelt, laat de vloersturing hem helemaal met rust - de warmtevraag hoort dan bij het koelen. Het retour-setpoint gaat één keer terug naar de oude waarde, en er wordt niets geleerd.",
+          "floor_cool_climate_entity": "Telt als koelen zolang deze thermostaat om koeling vraagt (actie 'cooling') - dat gebeurt voordat je koelautomatisering de warmtevraag aanzet, dus de vloersturing kan de warmtevraag van het koelen nooit voor verwarmen aanzien. Op 'cool' maar inactief telt niet."
+        }
+      },
+      "ev_car_edit": {
+        "title": "Elektrische auto - {car}",
+        "description": "De accugrootte, het gebruikelijke doel en het laadrendement van {car}. Het laadrendement is wat er van de energie van de laadpaal in de accu komt: de energie voor een laadstand wordt erdoor gedeeld, zodat het plan rekent met wat uit de thuisaccu of het net komt. De laadstandcorrectie die uit afgeronde laadbeurten geleerd is, komt daar nog bovenop.",
+        "data": {
+          "ev_car_capacity_kwh": "Accugrootte (kWh, optioneel)",
+          "ev_car_target_soc": "Gebruikelijk doel (%)",
+          "ev_car_efficiency": "Laadrendement (%)"
+        }
+      },
+      "grid_use": {
+        "title": "Huis uit het net bij lage prijzen",
+        "description": "Zolang het huis uit het net komt, stelt ESS Manager het net-setpoint steeds bij tot de accu niet laadt en niet ontlaadt - overschot van de zon gaat nog steeds de accu in. Daarvoor is het gemeten vermogen van de accu nodig (een vermogenssensor van de accu of de accumonitor, in W of kW). Die kan ook op de accupagina worden ingesteld.",
+        "data": {
+          "battery_power_entity": "Accuvermogen (sensor)",
+          "battery_power_sign": "Richting van die sensor"
+        }
+      }
+    },
+    "error": {
+      "battery_voltage_entity_required": "Kies een spanningssensor van het accupakket - nodig bij het vol-laadplan.",
+      "days_since_full_charge_entity_required": "Kies een sensor voor dagen-sinds-vol - nodig bij bijhouden via een externe sensor.",
+      "usage_consumption_entities_required": "Kies minstens één entiteit voor het huisverbruik.",
+      "energy_dashboard_not_configured": "In het Energiedashboard is geen netafname ingesteld. Voeg daar eerst je netbron toe (Instellingen > Dashboards > Energie), of kies een andere verbruiksbron.",
+      "control_target_wrong_type": "Kies een number- of input_number-entiteit.",
+      "ev_entities_required": "Kies de energiesensor en de vermogenssensor van de laadpaal.",
+      "ev_current_range": "De minimale laadstroom kan niet hoger zijn dan de maximale.",
+      "ev_car_exists": "Er bestaat al een auto met deze naam.",
+      "hp_heat_required": "Kies minstens één energiesensor voor verwarming.",
+      "hp_total_required": "Kies de totale energiesensor van de warmtepomp.",
+      "hp_outdoor_required": "Kies een buitentemperatuursensor.",
+      "hp_weather_required": "Kies een weather-entiteit voor de verwachting.",
+      "floor_needs_thermostat": "Vloersturing heeft een thermostaat (climate-entiteit) nodig als gewenste temperatuur.",
+      "floor_needs_hourly": "Vloersturing heeft stap 1 nodig (het huis per uur).",
+      "floor_entities_required": "Kies alle entiteiten voor de vloersturing (alleen de vloersensor is optioneel).",
+      "floor_helper_same": "De hulpschakelaar van de thermostaat moet een andere entiteit zijn dan de warmtevraag-schakelaar van de warmtepomp.",
+      "ev_victron_device_required": "Kies het apparaat van de Victron EV-laadpaal.",
+      "ev_victron_incomplete": "Dit apparaat heeft niet de entiteiten van een Victron EV-laadpaal (status, vermogen, totale energie, modus, laadstroom-setpoint, EV laden) - of een deel ervan is uitgeschakeld.",
+      "battery_power_required": "Kies de vermogenssensor van de accu."
+    }
+  },
+  "issues": {
+    "usage_source_switched": {
+      "title": "ESS Manager: verbruiksbron omgezet naar het Energiedashboard",
+      "description": "**{entry_title}** gebruikte {source} voor de verbruiksvoorspelling. Die optie is in 0.3.0 verdwenen, dus nu worden de net-, zon- en accustatistieken uit je Energiedashboard gebruikt.\n\nControleer of de voorspelling (het attribuut `energy_usage_120h` van de statussensor) klopt, of kies een verbruikssensor via Configureren. Na controle kun je deze melding negeren."
+    },
+    "usage_source_removed": {
+      "title": "ESS Manager: kies een bron voor het huisverbruik",
+      "description": "**{entry_title}** gebruikte {source} voor de verbruiksvoorspelling, en die is in 0.3.0 verdwenen. Automatisch omzetten lukte niet, omdat je Energiedashboard geen netbron heeft.\n\nDe planning staat stil tot je een bron kiest: open Instellingen > Apparaten & diensten > ESS Manager > Configureren en kies het Energiedashboard of een verbruikssensor."
+    },
+    "usage_forecast_no_history": {
+      "title": "ESS Manager: nog te weinig verbruiksgeschiedenis",
+      "description": "**{entry_title}**: {hours} van de komende {total} uur hebben nog geen geschiedenis van het huishoudverbruik, dus de plannen rekenen daar met 0 kWh huishoudverbruik. Dit gebeurt direct na het toevoegen van een nieuwe statistiek aan het Energie-dashboard, of het kiezen van een nieuwe verbruikssensor, met minder dan een dag aan data.\n\nZodra er een dag geschiedenis is, wordt het gemiddelde van de laatste dagen gebruikt, en na een week neemt het normale gemiddelde van dezelfde weekdag het over. Deze melding verdwijnt vanzelf. Houd tot die tijd de geplande laad- en verkoopmomenten in de gaten. De sensor \"Usage forecast history\" toont de voortgang."
+    },
+    "control_write_failed": {
+      "title": "ESS Manager: het setpoint kan niet worden verstuurd",
+      "description": "**{entry_title}** kan al 5 minuten het accu-setpoint niet naar **{target}** sturen: {reason}.\n\nZolang dit duurt wordt de accu niet gestuurd. Controleer of de entiteit bestaat en beschikbaar is (Instellingen > Apparaten & diensten > Entiteiten), en of het de juiste is bij Configureren > directe sturing. Deze melding verdwijnt vanzelf zodra een setpoint aankomt."
+    },
+    "input_unavailable": {
+      "title": "ESS Manager: planning gepauzeerd - een sensor heeft geen waarde",
+      "description": "**{entry_title}** heeft al 15 minuten geen bruikbare waarde van **{entity}**, dus er wordt niets gepland en directe sturing houdt de accu in rust.\n\nControleer de sensor (en de integratie erachter, bijv. die van de omvormer of de prijzen). Deze melding verdwijnt vanzelf zodra de sensor weer een waarde heeft."
+    },
+    "solar_unreadable": {
+      "title": "ESS Manager: een zonnevoorspelling kan niet worden gelezen",
+      "description": "**{entry_title}**: {entities} heeft geen zonnevoorspelling die de integratie kan lezen (een Solcast-attribuut `detailedHourly` of een Helios Forecast-attribuut `forecast`), dus het telt als helemaal geen zon.\n\nControleer de zonnevoorspellingen via Configureren - kies bij Helios Forecast de sensor **Power now**. Deze melding verdwijnt vanzelf zodra de voorspelling te lezen is."
+    },
+    "battery_below_minimum": {
+      "title": "ESS Manager: accu komt naar verwachting onder het minimum",
+      "description": "**{entry_title}**: zelfs met de plannen zakt de accu naar verwachting rond {time} naar {soc} %, onder het minimum van {minimum} %.\n\nMeestal een lading die niet in te plannen is: de laadsnelheid of de planningshorizon te klein, de laadplannen begrensd door de nachtgrens, of meer verbruik dan de accu en de goedkope uren aankunnen. Kijk op de statuskaart en bij de plannen. Deze melding verdwijnt vanzelf zodra de voorspelling boven het minimum blijft."
+    }
+  },
+  "services": {
+    "ev_session_save": {
+      "name": "Laadsessie opslaan",
+      "description": "Een laadsessie voor de elektrische auto maken of wijzigen (gebruikt door de EV-kaart).",
+      "fields": {
+        "entity_id": {
+          "name": "Statussensor",
+          "description": "De statussensor van de ESS Manager-installatie (mag leeg bij één installatie)."
+        },
+        "id": {
+          "name": "Sessie",
+          "description": "Het id van de sessie; laat leeg om een handmatige sessie toe te voegen."
+        },
+        "start": {
+          "name": "Start",
+          "description": "Start (afgerond naar beneden op het hele uur). Vast zolang de sessie loopt."
+        },
+        "kwh": {
+          "name": "Energie",
+          "description": "Te laden energie (kWh). Bij een auto met accugrootte bepalen de start- en doel-SOC dat."
+        },
+        "mode": {
+          "name": "Modus",
+          "description": "fixed: een vaste laadstroom; solar: alleen het zonoverschot na het huis; deadline: vol om `deadline` (Victron-laadpaal) - eerst de zon, de rest in de goedkoopste uren, met de laagste stroom die past."
+        },
+        "current_a": {
+          "name": "Laadstroom",
+          "description": "Laadstroom (A) voor een vaste sessie."
+        },
+        "car": {
+          "name": "Auto",
+          "description": "Het id van de auto (uit het ev-attribuut van de statussensor)."
+        },
+        "start_soc": {
+          "name": "Start-SOC",
+          "description": "De accu van de auto bij de start (%)."
+        },
+        "target_soc": {
+          "name": "Doel-SOC",
+          "description": "Het doel van de auto (%)."
+        },
+        "enabled": {
+          "name": "Telt mee",
+          "description": "Of de sessie meetelt in de planning."
+        },
+        "deadline": {
+          "name": "Vol om",
+          "description": "Voor modus deadline: het tijdstip waarop de auto vol moet zijn."
+        }
+      }
+    },
+    "ev_session_remove": {
+      "name": "Laadsessie verwijderen",
+      "description": "Een handmatige sessie verwijderen, of een voorspelde sessie terugzetten naar het gemiddelde.",
+      "fields": {
+        "entity_id": {
+          "name": "Statussensor",
+          "description": "De statussensor van de ESS Manager-installatie (mag leeg bij één installatie)."
+        },
+        "id": {
+          "name": "Sessie",
+          "description": "Het id van de sessie."
+        }
+      }
+    },
+    "ev_charge_plan": {
+      "name": "Laadplan elektrische auto",
+      "description": "Het plan van de aangesloten auto (Victron EV-laadpaal; gebruikt door de EV-kaart) - dezelfde keuzes als de vraag op de telefoon, die wordt ingetrokken.",
+      "fields": {
+        "entity_id": {
+          "name": "Statussensor",
+          "description": "De statussensor van de ESS Manager-installatie (mag leeg bij één installatie)."
+        },
+        "car": {
+          "name": "Auto",
+          "description": "Het id van de auto (uit het ev-attribuut van de statussensor); nodig bij meer dan één auto."
+        },
+        "choice": {
+          "name": "Keuze",
+          "description": "asap: direct met de maximale stroom; calm: direct met de minimale stroom; deadline: vol om een tijdstip (eerst de zon, de rest in de goedkoopste uren)."
+        },
+        "day": {
+          "name": "Dag",
+          "description": "Voor deadline: today (vandaag), tomorrow (morgen), after (overmorgen) of any (binnen de bekende prijzen)."
+        },
+        "hour": {
+          "name": "Tijd",
+          "description": "Voor deadline vandaag, morgen of overmorgen: het tijdstip waarop hij vol moet zijn (UU:MM)."
+        },
+        "soc": {
+          "name": "Laadstand",
+          "description": "De laadstand van de auto nu (%) - voor een auto met accugrootte; mag leeg zodra die bekend is."
+        },
+        "kwh": {
+          "name": "Energie",
+          "description": "Te laden energie (kWh) - voor een auto zonder accugrootte."
+        }
+      }
+    }
+  }
+}

@@ -1581,7 +1581,9 @@ entity: sensor.home_status
 
 The cards are updated together with the integration. Texts follow your
 Home Assistant language (Dutch or English, English for any other
-language); times, numbers and the currency follow Home Assistant's
+language) - the status card shows the status in Dutch too, while the
+sensor's state itself stays English for your automations. The setup and
+Configure screens are in Dutch as well; times, numbers and the currency follow Home Assistant's
 language, region and time zone settings.
 
 **Battery forecast card.** Always whole days from today 00:00 - five by

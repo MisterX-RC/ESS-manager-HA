@@ -227,7 +227,7 @@ const I18N = {
   nl: {
     planned: "gepland", running: "bezig", done: "klaar", of: "van", stop: "stop",
     left: (d) => `nog ${d}`, no_sell: "Geen sale gepland", no_buy: "Geen laadactie gepland",
-    spike: "Spike", negative: "Negatieve prijs", balancing: "Balanceren", balancing_max: (d) => `max ${d}`, cell_diff: "Celspanningsverschil", pack_voltage: "Accuspanning",
+    spike: "Piek", negative: "Negatieve prijs", balancing: "Balanceren", balancing_max: (d) => `max ${d}`, cell_diff: "Celspanningsverschil", pack_voltage: "Accuspanning",
     more_blocks: (n) => `+${n}`, more_blocks_tip: (n) => `en nog ${n} ${n === 1 ? "blok" : "blokken"}`,
     active: "Actief", inactive: "Inactief", below: "onder", auto_control: "Automatische aansturing",
     h: "u", min: "min", ago: (h) => `-${h} u`, now: "nu", settings: "Instellingen",
@@ -236,7 +236,7 @@ const I18N = {
     offgrid_days: "zonder stroomnet 5+ dagen", measured: "gemeten", expected: "verwacht",
     soc: "SOC", without_plans: "Zonder plannen", solar: "Zon", usage: "Verbruik", price: "Prijs",
     min_label: (p) => `min ${p} %`, max_label: (p) => `max ${p} %`,
-    plan_sell: "Sell", plan_buy: "Buy", plan_spike: "Spike", plan_negative: "Negatieve prijs",
+    plan_sell: "Verkoop", plan_buy: "Laden", plan_spike: "Piek", plan_negative: "Negatieve prijs",
     plan_full: "Vol laden", plan_charged: "Geladen", plan_sold: "Verkocht",
     price_title: "Stroomprijs", buy_price: "inkoop", incl_transport: "incl. transport",
     cheapest: "goedkoopst", most_expensive: "duurst", per_kwh: "/kWh",
@@ -253,7 +253,7 @@ const I18N = {
     ed_entity: "ESS Manager Status-sensor", ed_title: "Titel", ed_colours: "Kleuren", ed_height: "Hoogte grafiek (px)",
     ed_days: "Dagen", ed_show_days: "Dagtegels tonen", ed_show_raw: "Voorspelling zonder plannen tonen",
     ed_show_solar: "Zon tonen", ed_show_usage: "Verbruik tonen", ed_show_outlook: "\"Zonder stroomnet\" tonen",
-    ed_soc_color: "SOC", ed_solar_color: "Zon", ed_usage_color: "Verbruik", ed_sell_color: "Sell", ed_buy_color: "Buy",
+    ed_soc_color: "SOC", ed_solar_color: "Zon", ed_usage_color: "Verbruik", ed_sell_color: "Verkoop", ed_buy_color: "Laden",
     ed_show_extremes: "Goedkoopst / duurst tonen", ed_show_buy_line: "Lijn met inkoopprijs tonen",
     ed_legend: "Legenda tonen", ed_cheap_color: "Goedkoop", ed_mid_color: "Gemiddeld", ed_high_color: "Duur",
     ed_negative_color: "Negatief",
@@ -414,6 +414,20 @@ const I18N = {
 
 function hassLang(hass) {
   return (hass && ((hass.locale && hass.locale.language) || hass.language)) || "en";
+}
+
+// The Status sensor's states shown in the user's language (as of 2026.10.45);
+// the state itself stays English - automations listen to those texts.
+const STATUS_NL = {
+  Standby: "Stand-by", "Start charge": "Start laden", Actief: "Actief", "Start discharge": "Start ontladen", Stop: "Stop",
+  "House from grid": "Huis uit het net", "Solar export": "Teruglevering",
+  "Start negative price charge": "Start laden (negatieve prijs)", "Negative price charge": "Laden (negatieve prijs)",
+  "Start spike discharge": "Start piekverkoop", "Spike discharge": "Piekverkoop",
+  "Full charge scheduled": "Vol laden gepland", "Awaiting solar (full charge)": "Wacht op zon (vol laden)",
+};
+
+function statusText(hass, state) {
+  return hassLang(hass).slice(0, 2) === "nl" && STATUS_NL[state] ? STATUS_NL[state] : state;
 }
 
 function tr(hass, key) {
@@ -2185,7 +2199,7 @@ class EssManagerStatusCard extends HTMLElement {
       .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color, #a0a0a0); margin-top: -8px; }
     `;
     const changed = setCardContent(this, css, `
-      <div class="top"><span class="title">${esc(opt.title)}</span><span class="status"><i style="background:${dot}"></i>${esc(stateObj.state)}</span>${settings}${toggle}</div>
+      <div class="top"><span class="title">${esc(opt.title)}</span><span class="status"><i style="background:${dot}"></i>${esc(statusText(this._hass, stateObj.state))}</span>${settings}${toggle}</div>
       <div class="blocks">${this._block("sell", plans.sell, opt)}${this._block("buy", plans.buy, opt)}</div>
       <div class="tiles">${this._planTile("spike", attrs.spike_plan, opt)}${this._planTile("negative", attrs.negative_price_plan, opt)}</div>
       ${timeline}

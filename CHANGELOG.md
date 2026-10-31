@@ -14,6 +14,19 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.10.44] - 2026-10-31
 
+### Dutch
+- **The setup and Configure screens in Dutch** (`translations/nl.json`):
+  every step, field, help text, option, Problems notice and phone message,
+  with the Home Assistant language set to Dutch. Entity names and sensor
+  states stay English, so automations that check a state like
+  `House from grid` keep working in every language.
+- **The status card shows the status in Dutch** ("Huis uit het net",
+  "Teruglevering", "Laden (negatieve prijs)", ...) - only the text on the
+  card; the sensor's state itself doesn't change.
+- **The last English labels on the cards** translated: Sell / Buy / Spike
+  on the plan chips and in the card editor's colour fields ("Verkoop",
+  "Laden", "Piek").
+
 ### Performance (for a Raspberry Pi)
 - **The charge planning about 5x faster** (live data: 242 ms -> 47 ms per
   cycle on a fast machine, roughly 1-1.5 s -> 0.2-0.3 s on a Pi). Nearly

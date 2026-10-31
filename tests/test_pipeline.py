@@ -5261,6 +5261,25 @@ _sx_win = display.unit_windows(_sx_units, {}, 40, _sx_now)
 check("solar export expected: windows 10:00-11:00 and 12:45-13:00", len(_sx_win) == 2 and _sx_win[0]["start"].startswith("2026-10-31T10:00")
       and _sx_win[0]["stop"].startswith("2026-10-31T11:00"))
 
+
+# 2026.10.44: the Dutch translation has exactly the keys of the English one, with the same placeholders
+import json as _json, re as _re
+_tr_dir = os.path.join(os.path.dirname(__file__), "..", "custom_components", "ess_manager")
+_tr_en = _json.load(open(os.path.join(_tr_dir, "translations", "en.json")))
+_tr_nl = _json.load(open(os.path.join(_tr_dir, "translations", "nl.json")))
+_tr_bad = []
+def _tr_walk(a, b, path):
+    if isinstance(a, dict):
+        if not isinstance(b, dict) or set(a) != set(b):
+            _tr_bad.append(path); return
+        for k in a:
+            _tr_walk(a[k], b[k], path + "/" + k)
+    elif isinstance(a, str):
+        if not isinstance(b, str) or set(_re.findall(r"\{\w+\}", a)) != set(_re.findall(r"\{\w+\}", b)):
+            _tr_bad.append(path)
+_tr_walk(_tr_en, _tr_nl, "")
+check("translations: nl.json has the keys and placeholders of en.json", not _tr_bad)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:
