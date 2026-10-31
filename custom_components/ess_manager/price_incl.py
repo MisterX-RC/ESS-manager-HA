@@ -18,10 +18,10 @@ energy tax and VAT. Two ways to know it, chosen in Configure:
   are dropped and the line is moved by the jump (same a) until there's
   enough data for a new fit.
 
-Selling: while net metering (salderen) still applies the energy tax and
-VAT come back too, so the sell price is the price incl; from
-SELL_EXCL_FROM (1 January 2027, the end of net metering in the
-Netherlands) it's the bare price.
+Selling is always at the bare price (the price sensor's own, no transport):
+as from 2027, when net metering (salderen) ends in the Netherlands, selling
+no longer gets the energy tax and VAT back. The planning already counts
+that way (2026.10.44).
 
 The transport tariff (transport.py) stays separate: the buy price incl is
 the line applied to price + transport.
@@ -29,7 +29,6 @@ the line applied to price + transport.
 from __future__ import annotations
 
 import math
-from datetime import date
 from typing import Any, Optional
 
 MODE_NONE = "none"
@@ -45,7 +44,6 @@ A_RANGE = (0.8, 1.6)
 JUMP = 0.01
 JUMP_N = 4
 SHIFT_MIN = 4
-SELL_EXCL_FROM = date(2027, 1, 1)
 
 
 def to_eur_per_kwh(value: Optional[float], unit: Optional[str]) -> Optional[float]:
@@ -190,16 +188,3 @@ def incl_line(mode: str, model: Optional[dict[str, Any]], manual: dict[str, floa
 def apply_line(prices: list[Optional[float]], line: tuple[float, float]) -> list[Optional[float]]:
     a, b = line
     return [round(a * p + b, 5) if p is not None else None for p in prices]
-
-
-def sell_prices(prices: list[Optional[float]], incl: list[Optional[float]], unit_dates: list[date]) -> tuple[list[Optional[float]], Optional[int]]:
-    """The sell price per unit - incl while net metering applies, bare from
-    SELL_EXCL_FROM - and the first unit that's bare (None if none)."""
-    out: list[Optional[float]] = []
-    first_excl = None
-    for i, (p, inc) in enumerate(zip(prices, incl)):
-        bare = i < len(unit_dates) and unit_dates[i] >= SELL_EXCL_FROM
-        if bare and first_excl is None:
-            first_excl = i
-        out.append(p if bare else inc)
-    return out, first_excl

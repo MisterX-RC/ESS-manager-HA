@@ -1482,11 +1482,11 @@ class EssManagerPriceCard extends EssChartCard {
     // deficit, the sell prices with a surplus - one kind at a time, named in
     // the header; tapping the header switches.
     const inclBuy = Array.isArray(attrs.all_buy_price_incl) ? attrs.all_buy_price_incl.map(num) : null;
-    const inclSell = Array.isArray(attrs.all_sell_price_incl) ? attrs.all_sell_price_incl.map(num) : null;
-    const incl = !!(inclBuy && inclSell && inclBuy.length);
+    // selling is at the bare price (as from 2027)
+    const inclSell = (attrs.all_price || []).map(num);
+    const incl = !!(inclBuy && inclBuy.length);
     const autoView = attrs.solar_mode && attrs.solar_mode.mode === "surplus" ? "sell" : "buy";
     const view = incl ? this._view || autoView : null;
-    const exclFrom = attrs.sell_excl_from_unit == null ? null : Number(attrs.sell_excl_from_unit);
     const prices = incl ? (view === "sell" ? inclSell : inclBuy) : (attrs.all_price || []).map(num);
     if (!prices.length) {
       setCardContent(this, BASE_CSS, `<div class="top"><span class="title">${title}</span></div><div class="dim">${esc(this._t("no_prices"))}</div>`);
@@ -1547,7 +1547,7 @@ class EssManagerPriceCard extends EssChartCard {
     const y = (v) => top + ((hi - v) / (hi - lo)) * H;
     const base = y(0);
     this._geo = { W, X0, top, H, bottom, bw, xi, y, T0, unitMs, n, slots };
-    this._prices = { prices, buy, incl, inclBuy, inclSell, exclFrom };
+    this._prices = { prices, buy, incl, inclBuy, inclSell };
 
     // colour by level: negative apart, then cheap -> average -> expensive
     const pmin = Math.max(0, Math.min(...valid));
@@ -1733,7 +1733,7 @@ class EssManagerPriceCard extends EssChartCard {
     const changed = setCardContent(this, css, `
       <div class="top">
         <div class="now"><span class="dim${incl ? " swap" : ""}" style="font-size:13px"${incl ? ` title="${esc(this._t("switch_view"))}"` : ""}>${title}${incl ? ` · ${esc(this._t(view === "sell" ? "sell_price" : "buy_price"))}` : ""} · ${esc(this._t("now"))}</span>
-          <span class="big${incl ? " swap" : ""}">${nowP === null ? "–" : esc(f.money(nowP))}<small> ${esc(this._t("per_kwh"))}${incl ? ` · ${esc(this._t(view === "sell" && exclFrom !== null && cur >= exclFrom ? "excl_tax" : "incl_tax"))}` : ""}</small></span>
+          <span class="big${incl ? " swap" : ""}">${nowP === null ? "–" : esc(f.money(nowP))}<small> ${esc(this._t("per_kwh"))}${incl ? ` · ${esc(this._t(view === "sell" ? "excl_tax" : "incl_tax"))}` : ""}</small></span>
           ${buyText ? `<span class="dim" style="font-size:12px">${esc(buyText)}</span>` : ""}</div>
         ${extremes}
       </div>
@@ -1790,7 +1790,7 @@ class EssManagerPriceCard extends EssChartCard {
     let html = `<div class="row"><b>${esc(f.dayLabel(t))} · ${esc(f.time(t))}–${esc(f.time(t + g.unitMs))}</b></div>`;
     const P = this._prices;
     if (P.incl) {
-      const sellTax = P.exclFrom !== null && i >= P.exclFrom ? "excl_tax" : "incl_tax";
+      const sellTax = "excl_tax";
       if (P.inclBuy[i] !== null) html += `<div class="row"><span class="k">${esc(this._t("buy_price"))} · ${esc(this._t("incl_tax"))}</span><b>${esc(f.money(P.inclBuy[i]))}</b></div>`;
       if (P.inclSell[i] !== null) html += `<div class="row"><span class="k">${esc(this._t("sell_price"))} · ${esc(this._t(sellTax))}</span><b>${esc(f.money(P.inclSell[i]))}</b></div>`;
     } else if (p !== null) html += `<div class="row"><span class="k">${esc(this._t("price"))}</span><b>${esc(f.money(p))}</b></div>`;

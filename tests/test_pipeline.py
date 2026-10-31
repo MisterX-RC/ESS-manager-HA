@@ -5351,24 +5351,19 @@ _pi_line = price_incl.incl_line("manual", None, {"energy_tax": 0.0916, "purchase
 check("price incl: manual - (price + fee + tax) x 1.21",
       abs(price_incl.apply_line([0.2], _pi_line)[0] - (0.2 + 0.0916 + 0.0175) * 1.21) < 1e-5
       and price_incl.incl_line("none", None, {}) is None and price_incl.incl_line("sensor", None, {}) is None)
-_pi_sell, _pi_first = price_incl.sell_prices([0.2, 0.3, None], [0.37, 0.49, None],
-                                             [_pdate(2026, 12, 31), _pdate(2027, 1, 1), _pdate(2027, 1, 1)])
-check("price incl: selling incl until 2027, then the bare price", _pi_sell == [0.37, 0.3, None] and _pi_first == 1)
 
 
-# 2026.10.44: a spike has to pay for itself with the real prices
-_sp = {"active": True, "low_price_unit": 10, "high_price_unit": 70, "discharge_start_unit": 66, "discharge_end_unit": 74}
-_sp_buy = [0.40] * 96
-_sp_buy[10] = 0.30
-check("spike pays: sold at 0.70, bought back at 0.30 / 0.81 - yes",
-      plans.spike_pays(_sp, _sp_buy, [0.70] * 96, 0.9, 0.9, 0))
-check("spike pays: 2027 - sold at the bare 0.35, bought at 0.30 incl / 0.81 - no",
-      not plans.spike_pays(_sp, _sp_buy, [0.35] * 96, 0.9, 0.9, 0))
-check("spike pays: a running sale is never stopped; no plan is fine",
-      plans.spike_pays(_sp, _sp_buy, [0.35] * 96, 0.9, 0.9, 68) and plans.spike_pays({"active": False}, [], [], 0.9, 0.9, 0))
-check("spike pays: its charge passed - bought back at the cheapest quarter after the peak",
-      not plans.spike_pays(_sp, _sp_buy, [0.45] * 96, 0.9, 0.9, 20)
-      and plans.spike_pays(_sp, _sp_buy[:71] + [0.20] * 25, [0.45] * 96, 0.9, 0.9, 20))
+# 2026.10.44: the spike margin is the real gain per kWh: sell - buy / (ce x de)
+_sk_buy = [0.40] * 96 + [0.40] * 96
+_sk_buy[110] = 0.30
+_sk_sell = [0.25] * 96 + [0.25] * 96
+_sk_sell[170] = 0.80
+_sk_args = (0, _sk_sell, [10.0] * 49, [0.5] * 49, 3.0, 20.0, 20.0)
+_sk_kw = dict(buy_price=_sk_buy, charge_efficiency=0.9, discharge_efficiency=0.9, today_units=96)
+_sk_a = plans.compute_spike_plan(None, *_sk_args, 0.40, 3.0, 3.0, None, 1.0, **_sk_kw)
+_sk_b = plans.compute_spike_plan(None, *_sk_args, 0.45, 3.0, 3.0, None, 1.0, **_sk_kw)
+check("spike: 0.80 sold, 0.30 bought / 0.81 = 0.43 gained - above a margin of 0.40, not above 0.45",
+      _sk_a.get("active") and _sk_a["low_price_unit"] == 110 and _sk_a["high_price_unit"] == 170 and not _sk_b.get("active"))
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

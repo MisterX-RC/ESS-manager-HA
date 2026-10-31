@@ -209,7 +209,7 @@
       },
       "price_incl": {
         "title": "ESS Manager - prijzen inclusief belastingen",
-        "description": "Wat je echt betaalt per kWh: incl = (prijs + inkoopvergoeding + energiebelasting) x (1 + btw). De drie bedragen staan op je energierekening of de website van je leverancier, per kWh **exclusief btw**. Laat de vaste kosten van de netbeheerder weg (gebruik het nummer Transport tariff voor een tijdsafhankelijk nettarief).\n\nVerkopen: tot 1 januari 2027 (salderen) is de verkoopprijs de prijs inclusief, daarna de kale prijs.",
+        "description": "Wat je echt betaalt per kWh: incl = (prijs + inkoopvergoeding + energiebelasting) x (1 + btw). De drie bedragen staan op je energierekening of de website van je leverancier, per kWh **exclusief btw**. Laat de vaste kosten van de netbeheerder weg (gebruik het nummer Transport tariff voor een tijdsafhankelijk nettarief).\n\nVerkopen rekent met de kale prijs, zoals vanaf 2027 als salderen stopt. De drempel voor een negatieve prijs vergelijkt met de inkoopprijs inclusief, de piekmarge met de echte winst per kWh (verkoop - inkoop incl / de rendementen).",
         "data": {
           "price_energy_tax": "Energiebelasting per kWh, excl. btw",
           "price_purchase_fee": "Inkoopvergoeding van de leverancier per kWh, excl. btw",
@@ -218,7 +218,7 @@
       },
       "price_incl_sensor": {
         "title": "ESS Manager - prijzen inclusief belastingen",
-        "description": "Kies een sensor van je energieleverancier waarvan de waarde de **huidige prijs inclusief belastingen** is (€/kWh of ct/kWh, per kwartier of per uur) - bijv. het huidige tarief van de Zonneplan- of Tibber-integratie.\n\nElk kwartier noteert ESS Manager die naast de kale prijs van dat kwartier en leert uit de laatste 7 dagen de lijn incl = a x prijs + b. Die wordt gebruikt zodra er een dag aan kwartieren is met genoeg verschil tussen goedkoop en duur (bij vlakke prijzen wacht hij); tot dan blijven de prijzen zoals ze zijn. Een andere belasting of vergoeding wordt vanzelf opgepikt. De geleerde lijn staat in de diagnose en op de prijskaart.\n\nVerkopen: tot 1 januari 2027 (salderen) is de verkoopprijs de prijs inclusief, daarna de kale prijs.",
+        "description": "Kies een sensor van je energieleverancier waarvan de waarde de **huidige prijs inclusief belastingen** is (€/kWh of ct/kWh, per kwartier of per uur) - bijv. het huidige tarief van de Zonneplan- of Tibber-integratie.\n\nElk kwartier noteert ESS Manager die naast de kale prijs van dat kwartier en leert uit de laatste 7 dagen de lijn incl = a x prijs + b. Die wordt gebruikt zodra er een dag aan kwartieren is met genoeg verschil tussen goedkoop en duur (bij vlakke prijzen wacht hij); tot dan blijven de prijzen zoals ze zijn. Een andere belasting of vergoeding wordt vanzelf opgepikt. De geleerde lijn staat in de diagnose en op de prijskaart.\n\nVerkopen rekent met de kale prijs, zoals vanaf 2027 als salderen stopt. De drempel voor een negatieve prijs vergelijkt met de inkoopprijs inclusief, de piekmarge met de echte winst per kWh (verkoop - inkoop incl / de rendementen).",
         "data": {
           "price_incl_entity": "Huidige prijs incl. belastingen van de leverancier"
         }
@@ -454,7 +454,7 @@
       },
       "price_incl": {
         "title": "ESS Manager - prijzen inclusief belastingen",
-        "description": "Wat je echt betaalt per kWh: incl = (prijs + inkoopvergoeding + energiebelasting) x (1 + btw). De drie bedragen staan op je energierekening of de website van je leverancier, per kWh **exclusief btw**. Laat de vaste kosten van de netbeheerder weg (gebruik het nummer Transport tariff voor een tijdsafhankelijk nettarief).\n\nVerkopen: tot 1 januari 2027 (salderen) is de verkoopprijs de prijs inclusief, daarna de kale prijs.",
+        "description": "Wat je echt betaalt per kWh: incl = (prijs + inkoopvergoeding + energiebelasting) x (1 + btw). De drie bedragen staan op je energierekening of de website van je leverancier, per kWh **exclusief btw**. Laat de vaste kosten van de netbeheerder weg (gebruik het nummer Transport tariff voor een tijdsafhankelijk nettarief).\n\nVerkopen rekent met de kale prijs, zoals vanaf 2027 als salderen stopt. De drempel voor een negatieve prijs vergelijkt met de inkoopprijs inclusief, de piekmarge met de echte winst per kWh (verkoop - inkoop incl / de rendementen).",
         "data": {
           "price_energy_tax": "Energiebelasting per kWh, excl. btw",
           "price_purchase_fee": "Inkoopvergoeding van de leverancier per kWh, excl. btw",
@@ -463,7 +463,7 @@
       },
       "price_incl_sensor": {
         "title": "ESS Manager - prijzen inclusief belastingen",
-        "description": "Kies een sensor van je energieleverancier waarvan de waarde de **huidige prijs inclusief belastingen** is (€/kWh of ct/kWh, per kwartier of per uur) - bijv. het huidige tarief van de Zonneplan- of Tibber-integratie.\n\nElk kwartier noteert ESS Manager die naast de kale prijs van dat kwartier en leert uit de laatste 7 dagen de lijn incl = a x prijs + b. Die wordt gebruikt zodra er een dag aan kwartieren is met genoeg verschil tussen goedkoop en duur (bij vlakke prijzen wacht hij); tot dan blijven de prijzen zoals ze zijn. Een andere belasting of vergoeding wordt vanzelf opgepikt. De geleerde lijn staat in de diagnose en op de prijskaart.\n\nVerkopen: tot 1 januari 2027 (salderen) is de verkoopprijs de prijs inclusief, daarna de kale prijs.",
+        "description": "Kies een sensor van je energieleverancier waarvan de waarde de **huidige prijs inclusief belastingen** is (€/kWh of ct/kWh, per kwartier of per uur) - bijv. het huidige tarief van de Zonneplan- of Tibber-integratie.\n\nElk kwartier noteert ESS Manager die naast de kale prijs van dat kwartier en leert uit de laatste 7 dagen de lijn incl = a x prijs + b. Die wordt gebruikt zodra er een dag aan kwartieren is met genoeg verschil tussen goedkoop en duur (bij vlakke prijzen wacht hij); tot dan blijven de prijzen zoals ze zijn. Een andere belasting of vergoeding wordt vanzelf opgepikt. De geleerde lijn staat in de diagnose en op de prijskaart.\n\nVerkopen rekent met de kale prijs, zoals vanaf 2027 als salderen stopt. De drempel voor een negatieve prijs vergelijkt met de inkoopprijs inclusief, de piekmarge met de echte winst per kWh (verkoop - inkoop incl / de rendementen).",
         "data": {
           "price_incl_entity": "Huidige prijs incl. belastingen van de leverancier"
         }

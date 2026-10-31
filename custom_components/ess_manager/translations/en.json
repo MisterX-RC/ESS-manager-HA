@@ -209,7 +209,7 @@
       },
       "price_incl": {
         "title": "ESS Manager - prices including taxes",
-        "description": "What you really pay per kWh: incl = (price + purchase fee + energy tax) x (1 + VAT). The three amounts are on your energy bill or your supplier's website, per kWh **excluding VAT**. Leave out the grid operator's fixed costs (and use the Transport tariff number for a time-dependent grid tariff).\n\nSelling: until 1 January 2027 (net metering) the sell price is the price incl, from then on the bare price.",
+        "description": "What you really pay per kWh: incl = (price + purchase fee + energy tax) x (1 + VAT). The three amounts are on your energy bill or your supplier's website, per kWh **excluding VAT**. Leave out the grid operator's fixed costs (and use the Transport tariff number for a time-dependent grid tariff).\n\nSelling is counted at the bare price, as from 2027 when net metering ends. The negative price threshold compares with the buy price incl, the spike margin with the real gain per kWh (sell - buy incl / the efficiencies).",
         "data": {
           "price_energy_tax": "Energy tax per kWh, excl. VAT",
           "price_purchase_fee": "Supplier's purchase fee per kWh, excl. VAT",
@@ -218,7 +218,7 @@
       },
       "price_incl_sensor": {
         "title": "ESS Manager - prices including taxes",
-        "description": "Pick a sensor from your energy supplier whose state is the **current price including taxes** (€/kWh or ct/kWh, per quarter or per hour) - e.g. the Zonneplan or Tibber integration's current tariff.\n\nEvery quarter ESS Manager notes it next to the bare price of that quarter and learns the line incl = a x price + b from the last 7 days. It's used once there's a day of quarters with enough difference between cheap and dear (with flat prices it waits); until then the prices stay as they are. A change of tax or fee is picked up by itself. The learned line is in the diagnostics and on the price card.\n\nSelling: until 1 January 2027 (net metering) the sell price is the price incl, from then on the bare price.",
+        "description": "Pick a sensor from your energy supplier whose state is the **current price including taxes** (€/kWh or ct/kWh, per quarter or per hour) - e.g. the Zonneplan or Tibber integration's current tariff.\n\nEvery quarter ESS Manager notes it next to the bare price of that quarter and learns the line incl = a x price + b from the last 7 days. It's used once there's a day of quarters with enough difference between cheap and dear (with flat prices it waits); until then the prices stay as they are. A change of tax or fee is picked up by itself. The learned line is in the diagnostics and on the price card.\n\nSelling is counted at the bare price, as from 2027 when net metering ends. The negative price threshold compares with the buy price incl, the spike margin with the real gain per kWh (sell - buy incl / the efficiencies).",
         "data": {
           "price_incl_entity": "Supplier's current price incl. taxes"
         }
@@ -454,7 +454,7 @@
       },
       "price_incl": {
         "title": "ESS Manager - prices including taxes",
-        "description": "What you really pay per kWh: incl = (price + purchase fee + energy tax) x (1 + VAT). The three amounts are on your energy bill or your supplier's website, per kWh **excluding VAT**. Leave out the grid operator's fixed costs (and use the Transport tariff number for a time-dependent grid tariff).\n\nSelling: until 1 January 2027 (net metering) the sell price is the price incl, from then on the bare price.",
+        "description": "What you really pay per kWh: incl = (price + purchase fee + energy tax) x (1 + VAT). The three amounts are on your energy bill or your supplier's website, per kWh **excluding VAT**. Leave out the grid operator's fixed costs (and use the Transport tariff number for a time-dependent grid tariff).\n\nSelling is counted at the bare price, as from 2027 when net metering ends. The negative price threshold compares with the buy price incl, the spike margin with the real gain per kWh (sell - buy incl / the efficiencies).",
         "data": {
           "price_energy_tax": "Energy tax per kWh, excl. VAT",
           "price_purchase_fee": "Supplier's purchase fee per kWh, excl. VAT",
@@ -463,7 +463,7 @@
       },
       "price_incl_sensor": {
         "title": "ESS Manager - prices including taxes",
-        "description": "Pick a sensor from your energy supplier whose state is the **current price including taxes** (€/kWh or ct/kWh, per quarter or per hour) - e.g. the Zonneplan or Tibber integration's current tariff.\n\nEvery quarter ESS Manager notes it next to the bare price of that quarter and learns the line incl = a x price + b from the last 7 days. It's used once there's a day of quarters with enough difference between cheap and dear (with flat prices it waits); until then the prices stay as they are. A change of tax or fee is picked up by itself. The learned line is in the diagnostics and on the price card.\n\nSelling: until 1 January 2027 (net metering) the sell price is the price incl, from then on the bare price.",
+        "description": "Pick a sensor from your energy supplier whose state is the **current price including taxes** (€/kWh or ct/kWh, per quarter or per hour) - e.g. the Zonneplan or Tibber integration's current tariff.\n\nEvery quarter ESS Manager notes it next to the bare price of that quarter and learns the line incl = a x price + b from the last 7 days. It's used once there's a day of quarters with enough difference between cheap and dear (with flat prices it waits); until then the prices stay as they are. A change of tax or fee is picked up by itself. The learned line is in the diagnostics and on the price card.\n\nSelling is counted at the bare price, as from 2027 when net metering ends. The negative price threshold compares with the buy price incl, the spike margin with the real gain per kWh (sell - buy incl / the efficiencies).",
         "data": {
           "price_incl_entity": "Supplier's current price incl. taxes"
         }

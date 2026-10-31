@@ -2020,13 +2020,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if mode == pi.MODE_MANUAL:
             attr.update({"status": "ready", "a": round(line[0], 5), "b": round(line[1], 5)})
         if line is None:
-            return {"price_incl": attr if mode != pi.MODE_NONE else None, "all_buy_price_incl": None,
-                    "all_sell_price_incl": None, "sell_excl_from_unit": None}
-        incl = pi.apply_line(all_price, line)
-        times = transport.unit_local_times(dt_util.start_of_local_day(), len(all_price), now.tzinfo)
-        sell, first_excl = pi.sell_prices(all_price, incl, [t.date() for t in times])
-        return {"price_incl": attr, "all_buy_price_incl": pi.apply_line(buy_price, line),
-                "all_sell_price_incl": sell, "sell_excl_from_unit": first_excl}
+            return {"price_incl": attr if mode != pi.MODE_NONE else None, "all_buy_price_incl": None}
+        return {"price_incl": attr, "all_buy_price_incl": pi.apply_line(buy_price, line)}
 
     async def _async_buy_prices(self, all_price: list[float]) -> tuple[float, list[float]]:
         """(tariff, buy prices) from the "Transport tariff" number entity
@@ -2212,13 +2207,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Buying costs price + (transport tariff x factor) per unit; selling
         # is the plain price (as of v0.4.0 - see transport.py).
         transport_tariff, buy_price = await self._async_buy_prices(all_price)
-        # Prices including taxes (as of 2026.10.44): what buying and selling
-        # really cost / bring in. The planning's costs and gains use them
-        # (`plan_buy` / `plan_sell`); the negative price threshold and the
-        # spike margin keep working on the price sensor's own prices.
+        # Prices including taxes (as of 2026.10.44), counted as from 2027:
+        # buying costs the price incl taxes (of price + transport), selling
+        # brings in the bare price. Every plan uses these - also the negative
+        # price threshold (on the buy price) and the spike margin (the real
+        # gain per kWh).
         price_incl = await self._async_price_incl(conf, all_price, buy_price, units.price_unit(now), now)
         plan_buy = price_incl["all_buy_price_incl"] or buy_price
-        plan_sell = price_incl["all_sell_price_incl"] or all_price
+        plan_sell = all_price
 
         # Only the two supported sources exist (v0.3.0). Anything else - an
         # entry still on a removed source that the v2 migration couldn't
@@ -2656,7 +2652,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # the battery can't hold more (as of 2026.10.1; up to then a
                     # max SOC of 110% let it plan 10% that can't go in)
                     min(high_threshold_kwh, upper_limit_kwh),
-                    buy_price=buy_price,
+                    buy_price=plan_buy,
                     charge_efficiency=charge_efficiency,
                     discharge_efficiency=discharge_efficiency,
                     replan=replan,
@@ -2687,7 +2683,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     kw,
                     self._negative_price_plan,
                     minimum_charge_target_kwh,
-                    buy_price=buy_price,
+                    buy_price=plan_buy,
                     charge_efficiency=charge_efficiency,
                     discharge_efficiency=discharge_efficiency,
                     replan=replan,
@@ -2697,12 +2693,6 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ), spike_discharge_speed_kw, night_discharge_kw, now=now)
             else:
                 self._spike_plan = {"active": False}
-            # the spike margin is on the price sensor's prices; with prices
-            # including taxes a spike also has to pay for itself for real
-            # (as of 2026.10.44 - from 2027 selling brings in the bare price)
-            if price_incl["all_buy_price_incl"] and not plans.spike_pays(
-                    self._spike_plan, plan_buy, plan_sell, charge_efficiency, discharge_efficiency, current_price_unit):
-                self._spike_plan = {"active": False, "reason": "doesn't pay with prices incl. taxes"}
 
             forecast_with_spike = plans.compose_forecast_with_spike(
                 forecast_with_negative_price, self._spike_plan, current_price_unit, now, high_threshold_kwh - 0.01
@@ -3066,7 +3056,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # prices including taxes (as of 2026.10.44) - what the planning
             # counts with and the price card shows: price_incl (the line and
             # how it was learned),
-            # all_buy_price_incl, all_sell_price_incl, sell_excl_from_unit
+            # all_buy_price_incl (selling is the bare all_price)
             **price_incl,
             # Where the "tomorrow" half of all_price begins (i.e. len(today's
             # own price list)) - lets a dashboard split all_price back into

@@ -24,22 +24,23 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   supplier sensor (EUR or ct, per quarter or hour); a change of energy tax
   or fee is followed by itself. On a real day of Zonneplan quarters against
   Nordpool: a = 1.209, b = 0.131, at most 0.07 ct off.
-- **Selling** at the price incl until 31 December 2026 (net metering), from
-  1 January 2027 at the bare price.
+- **Counted as from 2027**: buying at the price incl taxes (of price +
+  transport tariff), selling at the bare price.
 - **The price card** shows the buy prices with a solar deficit and the sell
   prices with a surplus - one kind at a time, named in the header with
   **incl** / **excl** after the price now; tap the header to switch. The
   tooltip shows both.
-- **The planning uses them** for costs and gains: the low charge plan
-  (also whether the house from the grid beats the battery after its
-  losses), the sale plan, full-charge balancing, Solar export and the heat
-  pump's buffer. The negative price threshold and the spike margin stay on
-  the price sensor's own prices - nothing to adjust when switching it on.
-  A spike also has to pay for itself for real (the peak's sell price incl
-  above the buy-back price / the efficiencies) - from 2027 that rules out
-  most. On the 13 regression moments with entered taxes: in 2026 only one
-  changes a little (one quarter of a charge moves); simulated as 2027,
-  most charges shift by a few kWh and one running charge moves to later.
+- **Every plan counts with them**: the low charge plan (also whether the
+  house from the grid beats the battery after its losses), the sale plan,
+  full-charge balancing, Solar export and the heat pump's buffer. The
+  **negative price plan** triggers on the buy price incl being below the
+  threshold.
+- **The spike margin is the real gain per kWh** - sell price minus buy
+  price / (charge x discharge efficiency) - for whether there's a spike, a
+  later recharge, the top-up's price cap and the sale's price floor (also
+  without prices incl: then with the bare prices; up to now the margin was
+  the plain price difference, so with 90% / 90% a spike now needs a bit
+  more difference).
 - Two leftovers of the Dutch translation: the price card's legend ("Laden
   gepland" / "Verkoop gepland") and the status card's block names.
 

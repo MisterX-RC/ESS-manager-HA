@@ -912,13 +912,22 @@ def compute_spike_plan(
     price (it has to pay for itself), and the sale is sized on the level
     the battery is then expected to reach at the peak. Up to v0.5.11 the
     whole plan was fixed from the start of its charge until the sale ended.
-    `replan` (a setting changed): not even a running window is kept."""
+    `replan` (a setting changed): not even a running window is kept.
+
+    The margin is the real gain per kWh (as of 2026.10.44): what a kWh sold
+    in the peak brings in minus what it cost to buy, charge and discharge -
+    sell - buy / (charge efficiency x discharge efficiency) > margin. With
+    prices including taxes the buy price is incl and the sell price bare
+    (as from 2027), so the margin is what's really earned. Everywhere the
+    margin is used (whether there's a spike, a later recharge, the top-up's
+    price cap, the sale's price floor) it's that gain."""
     prev = prev or {"active": False}
     if not replan and prev.get("active") and (
         prev.get("charge_start_unit", -1) <= cur_unit < prev.get("charge_end_unit", -1)
         or prev.get("discharge_start_unit", -1) <= cur_unit < prev.get("discharge_end_unit", -1)
     ):
         return prev
+    losses = max(charge_efficiency * discharge_efficiency, 0.01)
     # The charge leg of this spike has already run (or had nothing to buy)
     # and its sale is still ahead or running: any further charge is a top-up.
     topup = bool(
@@ -964,7 +973,7 @@ def compute_spike_plan(
                 d_min, min_idx = buy[i], i
             if d_max is None or prices[i] > d_max:
                 d_max, max_idx = prices[i], i
-        if d_min is not None and (d_max - d_min) > spike_margin:
+        if d_min is not None and (d_max - d_min / losses) > spike_margin:
             if min_idx < max_idx and (max_idx > cur_unit or max_idx == running_peak):
                 found = True
                 day_start_sel = day_start
@@ -977,7 +986,7 @@ def compute_spike_plan(
 
     after = buy[high_abs + 1 :]
     later_min = min(after) if after else None
-    recharge_qualifies = later_min is not None and (day_max - later_min) > spike_margin
+    recharge_qualifies = later_min is not None and (day_max - later_min / losses) > spike_margin
     recharge_unit = high_abs + 1 + after.index(later_min) if recharge_qualifies else high_abs
 
     hour_index_high = min(max((high_abs - cur_unit) // 4, 0), len(forecast) - 1) if forecast else 0
@@ -1012,7 +1021,7 @@ def compute_spike_plan(
         # buy price at least spike_margin below the peak price. The longest
         # run of such quarters (up to what's needed) before the peak, the
         # cheapest one of that length.
-        topup_price_cap = day_max - spike_margin
+        topup_price_cap = (day_max - spike_margin) * losses
         ok = [masked_prices[i] <= topup_price_cap for i in range(len(masked_prices))]
         best = None
         for n in range(min(charge_units_needed, max(high_abs - cur_unit, 0)), 0, -1):
@@ -1117,7 +1126,7 @@ def compute_spike_plan(
 
     desired_units = max(math.ceil(desired_discharge_kwh / effective_discharge_per_unit), 1)
 
-    discharge_price_floor = (int(day_min * 100) / 100) + spike_margin
+    discharge_price_floor = (int(day_min * 100) / 100) / losses + spike_margin
     day_end = day_start_sel + day_len_sel
     back_i = high_abs
     for _ in range(96):
@@ -1174,34 +1183,6 @@ def compute_spike_plan(
         "effective_charge_per_unit": round(effective_charge_per_unit, 4),
         "effective_discharge_per_unit": round(effective_discharge_per_unit, 4),
     }
-
-
-def spike_pays(spike: Optional[dict], buy: list[float], sell: list[float], charge_efficiency: float,
-               discharge_efficiency: float, cur_unit: int) -> bool:
-    """Whether a spike still pays with the real prices (as of 2026.10.44 -
-    prices including taxes): the peak's sell price has to beat what the
-    energy costs to buy back, after the losses of charging and discharging.
-    Bought back at its own cheap quarter while that's still ahead,
-    otherwise at the cheapest quarter after the peak (the energy sold has
-    to come back in some time). A sale that's running is never stopped;
-    no plan is fine."""
-    if not spike or not spike.get("active"):
-        return True
-    if spike.get("discharge_start_unit", -1) <= cur_unit < spike.get("discharge_end_unit", -1):
-        return True
-    high = spike.get("high_price_unit")
-    low = spike.get("low_price_unit")
-    if high is None or not (0 <= high < len(sell)):
-        return True
-    if low is not None and cur_unit <= low < high and low < len(buy):
-        back = buy[low]
-    else:
-        later = [p for p in buy[high + 1:] if p is not None]
-        back = min(later) if later else (buy[low] if low is not None and 0 <= low < len(buy) else None)
-    if back is None or sell[high] is None:
-        return True
-    losses = max(charge_efficiency * discharge_efficiency, 0.01)
-    return sell[high] > back / losses
 
 
 def compose_forecast_with_spike(

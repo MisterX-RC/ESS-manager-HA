@@ -39,8 +39,6 @@ STATUS_ATTRIBUTES = [
     # prices including taxes (as of 2026.10.44) - price_incl.py
     "price_incl",
     "all_buy_price_incl",
-    "all_sell_price_incl",
-    "sell_excl_from_unit",
     "today_price_units",
     "solar_120h",
     "energy_usage_120h",

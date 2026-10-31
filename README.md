@@ -1120,9 +1120,11 @@ full-charge balancing's window, the negative price plan's trigger ("is
 buying below the threshold?") and the spike plan's charge window. Every
 sell decision uses the sell price: the high discharge plan, making room
 before a negative price window, and the spike plan's discharge window. The
-spike plan's spread is the day's highest sell price minus its lowest buy
-price (so its `day_min_price` is a buy price, `day_max_price` a sell price),
-and its discharge price floor is that lowest buy price plus the margin.
+spike plan's gain is the day's highest sell price minus its lowest buy
+price divided by the charge and discharge efficiency (so its
+`day_min_price` is a buy price, `day_max_price` a sell price), and its
+discharge price floor is that lowest buy price / the efficiencies plus the
+margin. With prices including taxes (below) the buy prices are incl.
 
 **The factors** (month x local hour) come with the integration in
 `custom_components/ess_manager/transport_factors.json` - currently the draft
@@ -1162,33 +1164,28 @@ offers three choices:
   The learned quarters are stored apart (`ess_manager_<entry>_prices`), only
   when one is added.
 
-**Selling:** while net metering (salderen) applies the energy tax and VAT
-come back too, so until 31 December 2026 the sell price is the price incl;
-from 1 January 2027 it's the bare price.
+**Counted as from 2027:** buying costs the price incl taxes (of price +
+transport tariff, see "Grid transport tariff"), selling brings in the bare
+price - as when net metering (salderen) ends in the Netherlands on
+1 January 2027. Without prices incl taxes ("No") buying is price +
+transport and selling the price, as before.
 
 The Status sensor carries `price_incl` (the way chosen, the line a / b, how
-well it fits, how many quarters, or why it's still learning),
-`all_buy_price_incl`, `all_sell_price_incl` and `sell_excl_from_unit` (the
-first quarter sold at the bare price).
+well it fits, how many quarters, or why it's still learning) and
+`all_buy_price_incl`; the sell price is `all_price`.
 
-**The planning uses them** for what things really cost and bring in: the
-low charge plan (which quarters to buy, and whether taking the house from
-the grid now beats the battery after its losses), the sale plan,
-full-charge balancing, Solar export and the heat pump's buffer. Your own
-thresholds stay on the price sensor's prices, so nothing needs adjusting
-when you switch it on: the **negative price threshold** and the **spike
-margin** compare with the bare price as before. A spike found that way
-also has to pay for itself for real: the peak's sell price incl must beat
-buying the energy back (its cheap quarter, or once that's passed the
-cheapest quarter after the peak) divided by the charge and discharge
-efficiency - from 2027, with selling at the bare price, that rules out
-most spikes. The negative price plan keeps the bare prices.
+**Every plan counts with them:** the low charge plan (which quarters to
+buy, and whether taking the house from the grid now beats the battery
+after its losses), the sale plan, full-charge balancing, Solar export and
+the heat pump's buffer, and:
 
-In 2026 this changes little: buying and selling both become about 1.21 x
-price + 0.13, and the fixed part falls away when one quarter is compared
-with another - only the losses weigh a bit more. From 2027 selling brings
-in much less than buying costs, and the battery is then mostly used for
-your own usage.
+- **Negative price plan** - triggers when the **buy price incl** drops
+  below your negative price threshold (with the line above: a bare price
+  below about -0.11 gives a buy price incl below 0).
+- **Spike plan** - the spike margin is the **real gain per kWh**: sell
+  price in the peak minus buy price / (charge efficiency x discharge
+  efficiency). A spike is only planned when that's above the margin; the
+  top-up's price cap and the sale's price floor follow the same gain.
 
 ## Installation
 
@@ -1731,9 +1728,9 @@ still to come. Tap (or hover) for the price of a quarter.
 **With prices including taxes** (see above) the card shows one kind of
 price at a time: the **buy** prices with a solar deficit, the **sell**
 prices with a solar surplus. The header says which ("Electricity price ·
-buy · now") and whether the price now is **incl** or **excl** taxes (sell
-prices from 2027 are excl); tap the header to switch between the two. The
-tooltip always shows both, each labelled.
+buy · now") and whether the price now is **incl** (buying) or **excl**
+(selling) taxes; tap the header to switch between the two. The tooltip
+always shows both, each labelled.
 
 **Solar surplus** (yellow column and line, "Solar surplus 14:15" - or
 just a sun at the top where the label doesn't fit next to another one): the
