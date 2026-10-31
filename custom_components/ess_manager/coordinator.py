@@ -200,6 +200,12 @@ GRID_USE_MAX_KW = 25.0
 # solar export (as of 2026.10.41): the battery keeps charging at this, the
 # solar above it goes to the grid
 SOLAR_EXPORT_BATTERY_W = 1000.0
+# share of the battery's deviation corrected per step (the minute cycle and
+# the fast loop): with a sensor that lags a little, the whole of it would
+# overshoot - 60% settles in a few steps without (as of 2026.10.41)
+LOOP_GAIN = 0.6
+# the fast loop skips a step this soon after the minute cycle (same reading)
+FAST_LOOP_MIN_GAP_S = 8.0
 
 
 def ev_energy_entity(conf: dict[str, Any]) -> Optional[str]:
@@ -378,6 +384,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._grid_use_kw: Optional[float] = None
         # solar export (as of 2026.10.41): the same, for the export setpoint
         self._export_kw: Optional[float] = None
+        # the fast loop (as of 2026.10.41): what the last cycle decided, and when
+        self._fast: Optional[dict[str, Any]] = None
+        self._loop_ts = 0.0
         self._ev_target: Optional[dict[str, Any]] = None
         # The heat pump model (as of 2026.10.16) - see heatpump_runtime.py.
         self.hp = HeatPumpRuntime()
@@ -648,9 +657,28 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         discharge_w = power_w if conf.get(CONF_BATTERY_POWER_SIGN) == BATTERY_POWER_DISCHARGE_POSITIVE else -power_w
         value = self._grid_use_kw if self._grid_use_kw is not None else idle_kw
         if abs(discharge_w) > GRID_USE_DEADBAND_W:
-            value += discharge_w / 1000.0
+            value += LOOP_GAIN * discharge_w / 1000.0
         self._grid_use_kw = round(min(max(value, idle_kw), GRID_USE_MAX_KW), 3)
         return self._grid_use_kw
+
+    async def async_fast_control(self) -> None:
+        """The fast loop (as of 2026.10.41, every FAST_LOOP_SECONDS): while
+        the house is taken from the grid or solar is exported, the grid
+        setpoint follows the battery's power between the minute cycles.
+        Nothing else is worked out; the next cycle decides whether it goes
+        on."""
+        fast = self._fast
+        if not fast or dt_util.utcnow().timestamp() - self._loop_ts < FAST_LOOP_MIN_GAP_S:
+            return
+        settings = self.control_settings()
+        if not settings.active or not self.controller.enabled:
+            return
+        if fast["action"] == control.ACTION_GRID_USE:
+            power_kw = self._grid_use_setpoint_kw(fast["conf"], settings)
+        else:
+            power_kw = self._solar_export_setpoint_kw(fast["conf"], settings, fast["export_target_w"])
+        self._loop_ts = dt_util.utcnow().timestamp()
+        await self.controller.async_apply(settings, fast["action"], power_kw, fast["status"], offset_kw=fast["offset_kw"])
 
     def _solar_export_setpoint_kw(self, conf: dict[str, Any], control_settings: ControlSettings, battery_w: float) -> float:
         """Solar export (as of 2026.10.41): last minute's grid setpoint minus
@@ -669,7 +697,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         value = self._export_kw if self._export_kw is not None else idle_kw
         error_w = charge_w - battery_w
         if abs(error_w) > GRID_USE_DEADBAND_W:
-            value -= error_w / 1000.0
+            value -= LOOP_GAIN * error_w / 1000.0
         self._export_kw = round(min(max(value, -GRID_USE_MAX_KW), idle_kw), 3)
         return self._export_kw
 
@@ -2781,10 +2809,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # solar export (as of 2026.10.41): the battery keeps charging at
         # SOLAR_EXPORT_BATTERY_W (before a negative price window: 0 W, the
         # room stays free), the rest of the solar goes to the grid
+        export_target_w = SOLAR_EXPORT_BATTERY_W
         if control_action == control.ACTION_SOLAR_EXPORT:
             neg = self._negative_price_plan or {}
             room = bool(neg.get("active")) and neg.get("solar_export_start_unit", -1) <= current_price_unit < neg.get("solar_export_end_unit", -1)
-            control_power_kw = self._solar_export_setpoint_kw(conf, control_settings, 0.0 if room else SOLAR_EXPORT_BATTERY_W)
+            export_target_w = 0.0 if room else SOLAR_EXPORT_BATTERY_W
+            control_power_kw = self._solar_export_setpoint_kw(conf, control_settings, export_target_w)
         else:
             self._export_kw = None
         # the Victron charger (as of 2026.10.27): in a grid window of the
@@ -2796,6 +2826,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             control_settings, control_action, control_power_kw, system_status, offset_kw=ev_offset_kw
         )
         self._ev_offset_w = ev_offset_kw * 1000.0 if control_settings.active and self.controller.enabled else 0.0
+        # what the fast loop needs until the next cycle (as of 2026.10.41)
+        self._loop_ts = dt_util.utcnow().timestamp()
+        self._fast = (
+            {"conf": conf, "action": control_action, "status": system_status, "offset_kw": ev_offset_kw,
+             "export_target_w": export_target_w}
+            if control_action in (control.ACTION_GRID_USE, control.ACTION_SOLAR_EXPORT) else None
+        )
         self._ev_charge_until = self._charge_until(conf, control_action, card_plans, control_settings)
         if ev_victron is not None:
             await self._async_ev_charger(conf, ev_entities, now, control_settings)

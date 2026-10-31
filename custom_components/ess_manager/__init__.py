@@ -5,6 +5,7 @@ sensor into a configurable, HACS-installable custom integration.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
@@ -12,7 +13,7 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.event import async_track_time_change, async_track_time_interval
 from homeassistant.loader import async_get_integration
 
 from .const import (
@@ -25,6 +26,7 @@ from .const import (
     DOMAIN,
     PLATFORMS,
     QUARTER_REFRESH_SECOND,
+    FAST_LOOP_SECONDS,
     REMOVED_CONFIG_KEYS,
     REMOVED_USAGE_SOURCE_LABELS,
     REMOVED_USAGE_SOURCES,
@@ -292,6 +294,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(
         async_track_time_change(hass, _async_quarter, minute=[0, 15, 30, 45], second=QUARTER_REFRESH_SECOND)
     )
+
+    # The fast loop (as of 2026.10.41): while the house is taken from the
+    # grid or solar is exported, the grid setpoint follows the battery's
+    # power every FAST_LOOP_SECONDS - the rest of the cycle stays a minute.
+    async def _async_fast(_now) -> None:
+        await coordinator.async_fast_control()
+
+    entry.async_on_unload(async_track_time_interval(hass, _async_fast, timedelta(seconds=FAST_LOOP_SECONDS)))
 
     async def _async_idle_on_stop(_event: Event) -> None:
         # Direct control: nobody supervises the battery while Home Assistant

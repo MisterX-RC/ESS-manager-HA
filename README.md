@@ -155,12 +155,13 @@ Five planning engines, all documented in detail in the code
    still goes into the battery. A short solar gap (up to an hour) between
    two such quarters comes along: a 15-minute forecast average can hide a
    peak above the sun. Meanwhile the Status is **House from grid** and, with
-   direct control, the grid setpoint is worked out **every minute** from
-   the battery's measured power: last minute's setpoint plus what the
+   direct control, the grid setpoint follows the battery's measured power
+   **every 15 seconds** (a fast loop that only does this - the rest of the
+   cycle stays once a minute): the last setpoint plus 60% of what the
    battery discharges (minus what it charges), so it settles where the
-   battery is at 0 W - never below the idle value, a car or a kettle
-   included, back to idle by itself when the sun comes out (±30 W counts as
-   0; without a power reading: idle). The forecast keeps that energy in the
+   battery is at 0 W in a few steps without overshooting - never below the
+   idle value, a car or a kettle included, back to idle by itself when the
+   sun comes out (±30 W counts as 0; without a power reading: idle). The forecast keeps that energy in the
    battery, and the price chart shows those quarters in their own colour.
    Switched on on the price plans page in Configure. The battery's power
    sensor and its direction are on the battery page (also used by solar
@@ -1283,8 +1284,9 @@ battery is forecast to reach 100% later today, and the price now is higher
 than every price until then - exporting now pays more than storing (and in
 a negative price plan, solar going to the grid before the negative window).
 *(As of 2026.10.41)* with direct control and the battery's power sensor
-(battery page) it's steered: the grid setpoint is worked out every minute
-so the battery keeps charging at **1000 W** and the solar above that goes
+(battery page) it's steered: the grid setpoint follows the battery's power
+every 15 seconds (the same fast loop, 60% of the deviation per step) so
+the battery keeps charging at **1000 W** and the solar above that goes
 to the grid - export only, never above the idle value, so nothing is
 bought for it (with less than 1000 W of surplus the battery just takes
 what there is). Before a negative price window the battery is kept at

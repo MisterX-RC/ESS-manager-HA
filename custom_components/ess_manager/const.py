@@ -14,6 +14,9 @@ PLATFORMS = ["number", "switch", "select", "sensor"]
 # limit at 07:00/22:00 starts and stops on time; since each cycle restarts
 # the one-minute timer, the loop runs on that same second every minute.
 UPDATE_INTERVAL_SECONDS = 60
+# the fast loop (as of 2026.10.41): the grid setpoint following the battery's
+# power while the house is taken from the grid or solar is exported
+FAST_LOOP_SECONDS = 15
 QUARTER_REFRESH_SECOND = 2
 # Diagnostics download (as of 2026.10.22): the decision history keeps the
 # changes of the last 24 hours, at most this many entries.

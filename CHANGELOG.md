@@ -48,6 +48,13 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   power sensor it stays idle. While either loop runs the setpoint counts as
   idle for the Status.
 
+- **A fast loop for both (15 seconds).** While the house is taken from the
+  grid or solar is exported, the grid setpoint follows the battery's power
+  every 15 seconds, between the minute cycles (which stay as they are -
+  nothing else is worked out in the fast loop). Each step corrects 60% of
+  the battery's deviation, so a sensor that lags a little doesn't make it
+  overshoot; a step right after the minute cycle is skipped.
+
 ### Removed
 - **The status "Grid usage".** A label only (the setpoint stayed at idle)
   for a battery within 1 kWh of the low threshold while a planned charge
