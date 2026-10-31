@@ -1169,9 +1169,26 @@ from 1 January 2027 it's the bare price.
 The Status sensor carries `price_incl` (the way chosen, the line a / b, how
 well it fits, how many quarters, or why it's still learning),
 `all_buy_price_incl`, `all_sell_price_incl` and `sell_excl_from_unit` (the
-first quarter sold at the bare price). **For now these are only shown on
-the price card - the planning still uses the bare prices**; that follows in
-a separate version.
+first quarter sold at the bare price).
+
+**The planning uses them** for what things really cost and bring in: the
+low charge plan (which quarters to buy, and whether taking the house from
+the grid now beats the battery after its losses), the sale plan,
+full-charge balancing, Solar export and the heat pump's buffer. Your own
+thresholds stay on the price sensor's prices, so nothing needs adjusting
+when you switch it on: the **negative price threshold** and the **spike
+margin** compare with the bare price as before. A spike found that way
+also has to pay for itself for real: the peak's sell price incl must beat
+buying the energy back (its cheap quarter, or once that's passed the
+cheapest quarter after the peak) divided by the charge and discharge
+efficiency - from 2027, with selling at the bare price, that rules out
+most spikes. The negative price plan keeps the bare prices.
+
+In 2026 this changes little: buying and selling both become about 1.21 x
+price + 0.13, and the fixed part falls away when one quarter is compared
+with another - only the losses weigh a bit more. From 2027 selling brings
+in much less than buying costs, and the battery is then mostly used for
+your own usage.
 
 ## Installation
 

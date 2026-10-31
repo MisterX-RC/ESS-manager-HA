@@ -13,7 +13,7 @@
           "grid_setpoint_sign": "Richting van het net-/omvormer-setpoint (alleen als er hierboven een gekozen is)",
           "usage_source": "Bron voor de verbruiksvoorspelling - de volgende pagina stelt die in",
           "enable_full_charge_plan": "Periodiek vol laden en balanceren aan (laadt met een interval tot 100% en houdt dat even vast zodat het BMS de cellen kan balanceren) - de sensoren volgen op de volgende pagina",
-          "price_incl_mode": "Prijzen inclusief belastingen - nu voor de kaarten, in een volgende versie ook voor de planning (de volgende pagina stelt het in)"
+          "price_incl_mode": "Prijzen inclusief belastingen - waar de planning kosten en opbrengsten mee rekent, en wat de prijskaart toont (de volgende pagina stelt het in)"
         }
       },
       "usage_energy_dashboard": {
@@ -264,7 +264,7 @@
           "grid_setpoint_sign": "Richting van het net-/omvormer-setpoint (alleen als er hierboven een gekozen is)",
           "usage_source": "Bron voor de verbruiksvoorspelling - de volgende pagina stelt die in",
           "enable_full_charge_plan": "Periodiek vol laden en balanceren aan (laadt met een interval tot 100% en houdt dat even vast zodat het BMS de cellen kan balanceren) - de sensoren volgen op de volgende pagina",
-          "price_incl_mode": "Prijzen inclusief belastingen - nu voor de kaarten, in een volgende versie ook voor de planning (de volgende pagina stelt het in)"
+          "price_incl_mode": "Prijzen inclusief belastingen - waar de planning kosten en opbrengsten mee rekent, en wat de prijskaart toont (de volgende pagina stelt het in)"
         }
       },
       "usage_energy_dashboard": {

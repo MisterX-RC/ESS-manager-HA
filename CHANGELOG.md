@@ -14,7 +14,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.10.44] - 2026-10-31
 
-### Prices including taxes (on the price card)
+### Prices including taxes (planning and price card)
 - **New in Configure (page 1): Prices including taxes** - no (default,
   nothing changes), entered (energy tax, purchase fee, VAT), or **learned
   from the supplier's price sensor**: every quarter the supplier's current
@@ -30,7 +30,16 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   prices with a surplus - one kind at a time, named in the header with
   **incl** / **excl** after the price now; tap the header to switch. The
   tooltip shows both.
-- **The planning doesn't use them yet** - that's a separate version.
+- **The planning uses them** for costs and gains: the low charge plan
+  (also whether the house from the grid beats the battery after its
+  losses), the sale plan, full-charge balancing, Solar export and the heat
+  pump's buffer. The negative price threshold and the spike margin stay on
+  the price sensor's own prices - nothing to adjust when switching it on.
+  A spike also has to pay for itself for real (the peak's sell price incl
+  above the buy-back price / the efficiencies) - from 2027 that rules out
+  most. On the 13 regression moments with entered taxes: in 2026 only one
+  changes a little (one quarter of a charge moves); simulated as 2027,
+  most charges shift by a few kWh and one running charge moves to later.
 - Two leftovers of the Dutch translation: the price card's legend ("Laden
   gepland" / "Verkoop gepland") and the status card's block names.
 

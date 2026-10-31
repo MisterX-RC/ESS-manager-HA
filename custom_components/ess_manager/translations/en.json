@@ -13,7 +13,7 @@
           "grid_setpoint_sign": "Polarity of the grid/inverter setpoint (only used when one is chosen above)",
           "usage_source": "Household usage forecast source - the next page sets it up",
           "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page",
-          "price_incl_mode": "Prices including taxes - for the cards now, for the planning in a coming version (the next page sets it up)"
+          "price_incl_mode": "Prices including taxes - what the planning counts as costs and gains, and what the price card shows (the next page sets it up)"
         }
       },
       "usage_energy_dashboard": {
@@ -264,7 +264,7 @@
           "grid_setpoint_sign": "Polarity of the grid/inverter setpoint (only used when one is chosen above)",
           "usage_source": "Household usage forecast source - the next page sets it up",
           "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page",
-          "price_incl_mode": "Prices including taxes - for the cards now, for the planning in a coming version (the next page sets it up)"
+          "price_incl_mode": "Prices including taxes - what the planning counts as costs and gains, and what the price card shows (the next page sets it up)"
         }
       },
       "usage_energy_dashboard": {

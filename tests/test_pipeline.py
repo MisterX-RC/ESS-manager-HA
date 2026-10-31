@@ -5355,6 +5355,21 @@ _pi_sell, _pi_first = price_incl.sell_prices([0.2, 0.3, None], [0.37, 0.49, None
                                              [_pdate(2026, 12, 31), _pdate(2027, 1, 1), _pdate(2027, 1, 1)])
 check("price incl: selling incl until 2027, then the bare price", _pi_sell == [0.37, 0.3, None] and _pi_first == 1)
 
+
+# 2026.10.44: a spike has to pay for itself with the real prices
+_sp = {"active": True, "low_price_unit": 10, "high_price_unit": 70, "discharge_start_unit": 66, "discharge_end_unit": 74}
+_sp_buy = [0.40] * 96
+_sp_buy[10] = 0.30
+check("spike pays: sold at 0.70, bought back at 0.30 / 0.81 - yes",
+      plans.spike_pays(_sp, _sp_buy, [0.70] * 96, 0.9, 0.9, 0))
+check("spike pays: 2027 - sold at the bare 0.35, bought at 0.30 incl / 0.81 - no",
+      not plans.spike_pays(_sp, _sp_buy, [0.35] * 96, 0.9, 0.9, 0))
+check("spike pays: a running sale is never stopped; no plan is fine",
+      plans.spike_pays(_sp, _sp_buy, [0.35] * 96, 0.9, 0.9, 68) and plans.spike_pays({"active": False}, [], [], 0.9, 0.9, 0))
+check("spike pays: its charge passed - bought back at the cheapest quarter after the peak",
+      not plans.spike_pays(_sp, _sp_buy, [0.45] * 96, 0.9, 0.9, 20)
+      and plans.spike_pays(_sp, _sp_buy[:71] + [0.20] * 25, [0.45] * 96, 0.9, 0.9, 20))
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

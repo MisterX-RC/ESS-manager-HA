@@ -2212,6 +2212,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Buying costs price + (transport tariff x factor) per unit; selling
         # is the plain price (as of v0.4.0 - see transport.py).
         transport_tariff, buy_price = await self._async_buy_prices(all_price)
+        # Prices including taxes (as of 2026.10.44): what buying and selling
+        # really cost / bring in. The planning's costs and gains use them
+        # (`plan_buy` / `plan_sell`); the negative price threshold and the
+        # spike margin keep working on the price sensor's own prices.
+        price_incl = await self._async_price_incl(conf, all_price, buy_price, units.price_unit(now), now)
+        plan_buy = price_incl["all_buy_price_incl"] or buy_price
+        plan_sell = price_incl["all_sell_price_incl"] or all_price
 
         # Only the two supported sources exist (v0.3.0). Anything else - an
         # entry still on a removed source that the v2 migration couldn't
@@ -2385,8 +2392,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hour0 = int(now.replace(minute=0, second=0, microsecond=0).timestamp())
             per_day = len(today_price) or 24
             hp_prices = {
-                "buy": heatpump_house.hourly_prices(buy_price, per_day, day_start, hour0, 48),
-                "sell": heatpump_house.hourly_prices(all_price, per_day, day_start, hour0, 48),
+                "buy": heatpump_house.hourly_prices(plan_buy, per_day, day_start, hour0, 48),
+                "sell": heatpump_house.hourly_prices(plan_sell, per_day, day_start, hour0, 48),
                 "surplus": [max(v, 0.0) for v in net_energy[:48]],
             }
             hp_total, hp_attribute = await self._async_heat_pump(conf, now, merged_solar_points, hp_prices)
@@ -2487,7 +2494,6 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # real quarters since midnight (as of 2026.10.25): the price list has
         # 100 units the day summer time ends and 92 the day it starts
         current_price_unit = units.price_unit(now)
-        price_incl = await self._async_price_incl(conf, all_price, buy_price, current_price_unit, now)
 
         # What a grid charge really adds to the battery per quarter (as of
         # 2026.10.4): the battery's max charge speed minus the solar already
@@ -2604,11 +2610,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     high_threshold_kwh,
                     usage_forecast,
                     charge_speed_kw,
-                    all_price,
+                    plan_sell,
                     battery_forecast,
                     battery_voltage,
                     full_charge_target_voltage,
-                    buy_price=buy_price,
+                    buy_price=plan_buy,
                     charge_efficiency=charge_efficiency,
                     replan=replan,
                     charge_rates=charge_rates,
@@ -2691,6 +2697,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ), spike_discharge_speed_kw, night_discharge_kw, now=now)
             else:
                 self._spike_plan = {"active": False}
+            # the spike margin is on the price sensor's prices; with prices
+            # including taxes a spike also has to pay for itself for real
+            # (as of 2026.10.44 - from 2027 selling brings in the bare price)
+            if price_incl["all_buy_price_incl"] and not plans.spike_pays(
+                    self._spike_plan, plan_buy, plan_sell, charge_efficiency, discharge_efficiency, current_price_unit):
+                self._spike_plan = {"active": False, "reason": "doesn't pay with prices incl. taxes"}
 
             forecast_with_spike = plans.compose_forecast_with_spike(
                 forecast_with_negative_price, self._spike_plan, current_price_unit, now, high_threshold_kwh - 0.01
@@ -2725,11 +2737,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 minimum_charge_target_kwh,
                 upper_limit_kwh,
                 usage_forecast,
-                all_price,
+                plan_sell,
                 planning_horizon_hours,
                 battery_now_kwh,
                 high_threshold_kwh=high_threshold_kwh,
-                buy_price=buy_price,
+                buy_price=plan_buy,
                 charge_efficiency=charge_efficiency,
                 discharge_efficiency=discharge_efficiency,
                 replan=replan,
@@ -2778,7 +2790,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 high_threshold_kwh,
                 low_threshold_kwh,
                 usage_forecast,
-                all_price,
+                plan_sell,
                 planning_horizon_hours,
                 battery_now_kwh,
                 suppress_high_discharge,
@@ -2829,7 +2841,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             full_unit = hour0_unit + full_hour * 4 + 3 if full_hour is not None else None
             # where solar export is expected (as of 2026.10.41, for the charts)
             export_expected = display.unit_windows(
-                plans.solar_export_units(net_energy, current_price_unit, now, full_unit, all_price,
+                plans.solar_export_units(net_energy, current_price_unit, now, full_unit, plan_sell,
                                          today_units=len(today_price) or 96,
                                          neg=self._negative_price_plan),
                 {}, current_price_unit, now,
@@ -2847,7 +2859,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 low_threshold_kwh,
                 charge_speed_kw,
                 discharge_speed_kw,
-                all_price,
+                plan_sell,
                 full_unit=full_unit,
                 solar_surplus_now=bool(net_energy) and net_energy[0] > 0,
                 solar_export=bool(conf.get(CONF_BATTERY_POWER_ENTITY)),
@@ -3051,8 +3063,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # factor) - the same as all_price without a tariff (v0.4.0).
             "all_buy_price": buy_price,
             "transport_tariff": transport_tariff,
-            # prices including taxes (as of 2026.10.44) - for the cards only
-            # for now: price_incl (the line and how it was learned),
+            # prices including taxes (as of 2026.10.44) - what the planning
+            # counts with and the price card shows: price_incl (the line and
+            # how it was learned),
             # all_buy_price_incl, all_sell_price_incl, sell_excl_from_unit
             **price_incl,
             # Where the "tomorrow" half of all_price begins (i.e. len(today's
