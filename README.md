@@ -77,7 +77,16 @@ Five planning engines, all documented in detail in the code
    higher all along (more left in a power cut), and a later dip can wait
    for a cheaper valley because the level is already higher. A dip below
    the surplus minimum is always met; the plan shows `lowest_kwh` and
-   `horizon_target_kwh`.
+   `horizon_target_kwh`. *(as of 2026.10.40)* What's needed after the end
+   of the known prices is no longer left until they come in: it's bought
+   now, before that end, as far as it fits under 100% - so a battery that
+   only drains for days (little sun, cars to charge) is topped up a bit
+   more every day instead of getting just enough to reach midnight. Those
+   not-yet-urgent parts (and every other part only needed "where it fits")
+   only go in quarters at most the **average buy price of the known
+   quarters**, and a block of only such parts that would have to be
+   lengthened to the Minimum charge duration into dearer quarters is left
+   out - a charge is never stretched into the expensive hours for them.
 2. **High discharge plan** - discharges before the battery would otherwise
    overshoot your maximum SOC, during the priciest available price window,
    selling the forecast peak back down to 100% (so with a max SOC of 110%

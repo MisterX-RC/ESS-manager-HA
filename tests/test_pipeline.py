@@ -3140,23 +3140,25 @@ _tp_rates = forecasting.grid_charge_rates(_tp_net, _tp_now, 3.0, 5.0, 192, 1.0, 
 _tp_kw = dict(high_threshold_kwh=33.0, charge_efficiency=1.0, discharge_efficiency=1.0, charge_rates=_tp_rates)
 _tp = plans.compute_low_charge_plan(None, 72, _tp_fc, _tp_now, 3.0, 9.0, 0.5, 30.0, [0.5] * 121, _tp_price, 48, 10.0,
                                     min_charge_units=2, **_tp_kw)
-check("blocks: tonight (0.20) only what's needed until the cheap valley tomorrow 11:00 (9 - 1.5 = 7.5 kWh)",
-      _tp["start_unit"] == 72 and _tp["block_kwh"] == 7.5 and _tp["blocks"][0]["target_level_kwh"] == 16.25)
-check("blocks: the rest in tomorrow's cheap valley (0.05), up to the last known price (14.25 kWh in all)",
-      len(_tp["blocks"]) == 2 and _tp_price[_tp["blocks"][1]["start_unit"]] == 0.05 and _tp["planned_kwh"] == 14.25)
-check("blocks: what's needed after the known prices waits for them (23.5 kWh needed in all)",
-      _tp["target_kwh"] == 23.5 and _tp["planned_kwh"] < _tp["target_kwh"])
+# (as of 2026.10.40 what's needed after the known prices no longer waits for them: it's bought now where
+# it fits, in quarters at most the average known price - the 0.05 valley and tonight's 0.20, never 0.25)
+check("blocks: the valley (0.05) almost full, the rest tonight (0.20) - nothing at 0.25",
+      _tp["start_unit"] == 72 and _tp["block_kwh"] == 12.0 and len(_tp["blocks"]) == 2
+      and _tp_price[_tp["blocks"][1]["start_unit"]] == 0.05 and _tp["blocks"][1]["kwh"] == 11.5
+      and all(_tp_price[u] < 0.25 for b in _tp["blocks"] for u in range(b["start_unit"], b["end_unit"])))
+check("blocks: what's needed after the known prices is bought now where it fits (23.5 kWh in all)",
+      _tp["target_kwh"] == 23.5 and _tp["planned_kwh"] == 23.5)
 _tp_adj = plans.compose_forecast_adjusted(_tp_fc, _tp, {"active": False}, 72, _tp_now, upper_limit_kwh=30.0,
                                           battery_now_kwh=10.0)
-check("blocks: drawn with both blocks - down to exactly 9 kWh at 11:00, then up again",
-      _tp_adj[16] == 9.0 and _tp_adj[18] > 13.0)
+check("blocks: drawn with both blocks - up tonight, down to 13.5 kWh by 11:00, then up again",
+      _tp_adj[3] == 20.0 and _tp_adj[16] == 13.5 and _tp_adj[20] == 23.0)
 _tp_sum = display.card_plans({"active": False}, {"active": False}, {"active": False}, _tp, {"active": False}, 72,
                              _tp_now, 10.0, 30.0)
-check("blocks: the status card shows the first block (7.5 kWh) and +1 more",
-      _tp_sum["buy"]["energy_kwh"] == 7.5 and _tp_sum["buy"]["more_blocks"] == 1
+check("blocks: the status card shows the first block (12 kWh) and +1 more",
+      _tp_sum["buy"]["energy_kwh"] == 12.0 and _tp_sum["buy"]["more_blocks"] == 1
       and _tp_sum["buy"]["blocks"][0]["start"].startswith("2026-10-10T11:00"))
 check("blocks: the Charge amount sensor follows the block",
-      display.charge_display({"active": False}, {"active": False}, {"active": False}, _tp, 72, _tp_now)[0] == 7.5)
+      display.charge_display({"active": False}, {"active": False}, {"active": False}, _tp, 72, _tp_now)[0] == 12.0)
 
 # the minimum charge duration: one cheap quarter in the middle of a dear stretch becomes a block of that length
 _md_rates = [0.0] * 8 + [0.5] * 16
@@ -4936,9 +4938,21 @@ check("weekday names: today / tomorrow on a button and in a sentence",
 # to then whole blocks went first, so a cheap short block could be dropped
 # while expensive quarters added to lengthen another block stayed
 _tr_price = [0.05, 0.22, 0.22, 0.15, 0.3, 0.08, 0.05, 0.22]
-_tr = plans._schedule_charge([(8, 4.0, False)], [1.0] * 8, _tr_price, _tr_price, 0, 8, 1.0, 1.0, 2, [], 0, 100.0)
+_tr = plans._schedule_charge([(8, 4.0, True)], [1.0] * 8, _tr_price, _tr_price, 0, 8, 1.0, 1.0, 2, [], 0, 100.0)
 check("charge blocks: the cheap blocks are kept, not the expensive lengthening (0.05+0.22 and 0.08+0.05, not 0.05+0.22+0.22+0.15)",
       _tr == [0, 1, 5, 6])
+# 2026.10.40: a soft part only in quarters at most the average known price (0.161 here), and a block of
+# only soft parts that would have to be lengthened into dearer quarters is left out
+_tr_soft = plans._schedule_charge([(8, 4.0, False)], [1.0] * 8, _tr_price, _tr_price, 0, 8, 1.0, 1.0, 2, [], 0, 100.0)
+check("charge blocks: soft parts never stretched into the dearer quarters (only 0.08+0.05 kept)", _tr_soft == [5, 6])
+# needed after the known prices (deadline 12 > 8): bought now as a soft part, in the cheap quarters only
+_tr_after = plans._schedule_charge([(12, 3.0, True)], [1.0] * 8, _tr_price, _tr_price, 0, 8, 1.0, 1.0, 1, [], 0, 100.0)
+check("charge blocks: needed after the known prices -> bought now, only at most the average price",
+      _tr_after == [0, 5, 6])
+_tr_full = plans._schedule_charge([(12, 3.0, True)], [1.0] * 8, _tr_price, _tr_price, 0, 8, 1.0, 1.0, 1,
+                                  [28.0] * 4, 0, 30.0)
+check("charge blocks: ... and only where it fits under 100 % (2 kWh room: the two 0.05 quarters)",
+      _tr_full == [0, 6])
 
 # 2026.10.33: a full charge that's only scheduled no longer holds the other
 # plans back; the low charge plan counts its quarters

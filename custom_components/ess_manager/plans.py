@@ -265,8 +265,15 @@ def _schedule_charge(
     first one. Every part goes where every later forecast hour stays under
     `cap_kwh` if it can; a hard requirement is met however it must (over
     100% if nothing fits, and - if nothing is left before its deadline - in
-    the first free quarters after it); a soft one is simply left out. Requirements after `last_unit` (prices not known yet)
-    are left for later: they're planned when the prices come in.
+    the first free quarters after it); a soft one is simply left out.
+
+    Needed after `last_unit` (prices not known yet): up to 2026.10.39 a hard
+    part was left for when the prices come in - a battery that only drains
+    for days (little sun) then got just enough each day to reach midnight.
+    As of 2026.10.40 it's a soft part due by the end of the known prices:
+    what fits under `cap_kwh` goes in now. Soft parts only go in quarters at
+    most the average buy price of the known quarters, so a charge is never
+    stretched into the expensive hours for them.
 
     `rates`: what the grid really adds per quarter (grid_charge_rates);
     cost per kWh = (bought - sent straight back) / added. Blocks shorter
@@ -296,21 +303,32 @@ def _schedule_charge(
         for h in range(hour_of(u), len(added)):
             added[h] += rates[u]
 
+    def drop(u: int) -> None:
+        chosen.discard(u)
+        for h in range(hour_of(u), len(added)):
+            added[h] -= rates[u]
+
     def delivered_before(units: set[int], deadline: int) -> float:
         return sum(rates[u] for u in units if u < deadline)
 
-    met: list[tuple[int, float]] = []
+    # the cheaper part of the known quarters - at most their average buy
+    # price: where soft parts may go (2026.10.40)
+    known = [buy[u] for u in range(cur_unit, n) if rates[u] > 1e-6]
+    soft_max = sum(known) / len(known) if known else math.inf
+
+    met: list[tuple[int, float, bool]] = []
     for deadline, need, hard in sorted(requirements):
         if deadline > n:
-            if hard:
-                continue  # needed after the known prices: planned when they come in
+            # needed after the known prices: bought now where it fits and is
+            # cheap, the rest when the prices come in (as of 2026.10.40)
+            hard = False
             deadline = n
         while delivered_before(chosen, deadline) < need - 1e-6:
             free = [u for u in range(cur_unit, min(deadline, n)) if u not in chosen and rates[u] > 1e-6]
             # where it fits under 100% (so a long drain is bought bit by bit,
             # not all at once); a hard need that can't fit anywhere goes in
             # anyway
-            options = [u for u in free if fits(u)] or (free if hard else [])
+            options = [u for u in free if fits(u) and (hard or buy[u] <= soft_max + 1e-9)] or (free if hard else [])
             if options:
                 # equal cost: next to a quarter already taken (fewer blocks)
                 take(min(options, key=lambda u: (round(cost(u), 6), 0 if (u - 1 in chosen or u + 1 in chosen) else 1, u)))
@@ -329,7 +347,7 @@ def _schedule_charge(
         got = delivered_before(chosen, deadline)
         # what was reached by each deadline is kept when trimming (also a
         # hard need that was only partly in time - all of that counts)
-        met.append((deadline, min(need, got)))
+        met.append((deadline, min(need, got), hard))
         # (as of 2026.10.19 a soft part that doesn't fit no longer stops the
         # later requirements: they're cumulative, so a later dip still gets
         # what fits before it - and a later hard floor breach is still met)
@@ -343,6 +361,9 @@ def _schedule_charge(
                 out.append([u])
         return out
 
+    def hard_needs(units: set[int]) -> bool:
+        return any(delivered_before(units, d) < v - 1e-6 for d, v, h in met if h)
+
     # lengthen blocks that are too short
     for _ in range(len(rates)):
         short = [r for r in runs(chosen) if len(r) < min_block_units]
@@ -350,18 +371,29 @@ def _schedule_charge(
             break
         grown = False
         for run in short:
+            if not set(run) <= chosen:
+                continue
             options = [u for u in (run[0] - 1, run[-1] + 1) if cur_unit <= u < n and u not in chosen]
             if not options:
                 continue
             fitting = [u for u in options if rates[u] > 1e-6 and fits(u)] or options
-            take(min(fitting, key=lambda u: (round(cost(u), 6) if rates[u] > 1e-6 else 1e9, u)))
+            pick = min(fitting, key=lambda u: (round(cost(u), 6) if rates[u] > 1e-6 else 1e9, u))
+            if buy[pick] > soft_max + 1e-9 and not hard_needs(chosen - set(run)):
+                # only soft parts in it and lengthening it would reach into
+                # the dearer quarters: left out instead (as of 2026.10.40)
+                for u in run:
+                    drop(u)
+            else:
+                take(pick)
             grown = True
         if not grown:
             break
+    # what the soft parts still get after that is what's kept when trimming
+    met = [(d, v if h else min(v, delivered_before(chosen, d)), h) for d, v, h in met]
 
     # trim what's no longer needed off the ends of blocks
     def still_met(units: set[int]) -> bool:
-        return all(delivered_before(units, d) >= need - 1e-6 for d, need in met)
+        return all(delivered_before(units, d) >= need - 1e-6 for d, need, _ in met)
 
     def unit_cost(u: int) -> float:
         return cost(u) if rates[u] > 1e-6 else 1e9

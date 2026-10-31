@@ -12,6 +12,23 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.40] - 2026-10-31
+
+### Changed
+- **Low charge: what's needed after the known prices is bought now where it
+  fits.** Up to now that part waited for the prices to come in, so a
+  battery that only drains for days (little sun, car sessions) got just
+  enough each day to reach midnight and ran low (live: 30 kWh battery at
+  45%, a 72-hour drain to -20 kWh, 6.4 kWh planned to last until midnight).
+  Now it's a part due by the end of the known prices, bought as far as it
+  fits under 100% (live: ~16 kWh today, the battery stays above ~14 kWh
+  until tomorrow evening instead of ~3).
+- **Never stretched into the expensive hours for it.** Parts only needed
+  "where it fits" - these, later dips, the buffer of a follow-up charge -
+  only go in quarters at most the average buy price of the known quarters;
+  a block of only such parts that would have to be lengthened to the
+  Minimum charge duration into dearer quarters is left out instead.
+
 ## [2026.10.39] - 2026-10-30
 
 ### Added
