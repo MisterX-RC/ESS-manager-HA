@@ -161,6 +161,15 @@ CONF_ENABLE_SPIKE_PLAN = "enable_spike_plan"
 CONF_ENABLE_GRID_USE_PLAN = "enable_grid_use_plan"
 CONF_BATTERY_POWER_ENTITY = "battery_power_entity"
 CONF_BATTERY_POWER_SIGN = "battery_power_sign"
+# Prices including taxes (as of 2026.10.44) - price_incl.py: none, manual
+# (purchase fee + energy tax, VAT) or a supplier sensor the integration
+# learns the line from.
+CONF_PRICE_INCL_MODE = "price_incl_mode"
+CONF_PRICE_INCL_ENTITY = "price_incl_entity"
+CONF_PRICE_PURCHASE_FEE = "price_purchase_fee"
+CONF_PRICE_ENERGY_TAX = "price_energy_tax"
+CONF_PRICE_VAT_PERCENT = "price_vat_percent"
+DEFAULT_PRICE_VAT_PERCENT = 21.0
 BATTERY_POWER_CHARGE_POSITIVE = "charge_positive"
 BATTERY_POWER_DISCHARGE_POSITIVE = "discharge_positive"
 CONF_ENABLE_NEGATIVE_PRICE_PLAN = "enable_negative_price_plan"

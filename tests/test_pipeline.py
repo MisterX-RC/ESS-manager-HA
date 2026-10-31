@@ -38,6 +38,7 @@ ev = _load("ev")
 usage_forecast = _load("usage_forecast")
 transport = _load("transport")
 sensor_watch = _load("sensor_watch")
+price_incl = _load("price_incl")
 
 FAILURES = []
 
@@ -5314,6 +5315,45 @@ _sw2_three = _sw2.stuck("sensor.s", 900.0)
 _sw2.loop_step("sensor.s", 0.4, 0.5, 900.0, 1.0)
 check("sensor watch: a sensor that only reports changes - 4 setpoint steps after the first reading without a change",
       not _sw2_three and _sw2.stuck("sensor.s", 900.0))
+
+
+# 2026.10.44: prices including taxes - the line learned from a supplier sensor
+import math as _pm
+from datetime import date as _pdate
+_pi_raw = [0.25 + 0.06 * _pm.sin(i / 7.0) for i in range(200)]
+_pi_m = price_incl.PriceModel()
+for _i in range(95):
+    _pi_m.add(1_800_000_000 + 900 * _i, _pi_raw[_i], 1.21 * _pi_raw[_i] + 0.131 + (0.0004 if _i % 2 else -0.0004))
+check("price incl: still learning before a day of quarters", _pi_m.model is None and _pi_m.attribute()["status"] == "learning")
+_pi_m.add(1_800_000_000 + 900 * 95, _pi_raw[95], 1.21 * _pi_raw[95] + 0.131)
+_pi_at = _pi_m.attribute()
+check("price incl: a day of quarters - the line a = 1.21, b = 0.131",
+      _pi_at["status"] == "ready" and abs(_pi_at["a"] - 1.21) < 0.005 and abs(_pi_at["b"] - 0.131) < 0.002)
+for _i in range(96, 100):
+    _pi_m.add(1_800_000_000 + 900 * _i, _pi_raw[_i], 1.21 * _pi_raw[_i] + 0.151)
+check("price incl: the energy tax up 2 ct - 4 quarters off the line, it follows (same a)",
+      abs(_pi_m.model["b"] - 0.151) < 0.002 and _pi_m.model["a"] == _pi_at["a"] and len(_pi_m.samples) == 4)
+_pi_m.add(1_800_000_000 + 900 * 99, 0.9, 9.9)
+check("price incl: a quarter twice is noted once", len(_pi_m.samples) == 4)
+_pi_f = price_incl.PriceModel()
+for _i in range(120):
+    _pi_f.add(1_800_000_000 + 900 * _i, 0.25 + 0.001 * (_i % 3), 0.43)
+check("price incl: flat prices - no line, says why", _pi_f.model is None and _pi_f.attribute()["status"] == "flat_prices")
+_pi_h = price_incl.PriceModel()
+for _i in range(160):
+    _hour = [_pi_raw[(_i // 4) * 4 + k] for k in range(4)]
+    _pi_h.add(1_800_000_000 + 900 * _i, _pi_raw[_i] + (0.02 if _i % 2 else -0.02), 1.21 * sum(_hour) / 4 + 0.131)
+check("price incl: a supplier with hourly prices - compared per hour",
+      _pi_h.model is not None and _pi_h.model["resolution"] == "hour" and abs(_pi_h.model["a"] - 1.21) < 0.02)
+check("price incl: ct/kWh and EUR/kWh", price_incl.to_eur_per_kwh(43.79, "ct/kWh") == 0.4379
+      and price_incl.to_eur_per_kwh(0.4379, "€/kWh") == 0.4379 and price_incl.to_eur_per_kwh(float("nan"), "") is None)
+_pi_line = price_incl.incl_line("manual", None, {"energy_tax": 0.0916, "purchase_fee": 0.0175, "vat_percent": 21})
+check("price incl: manual - (price + fee + tax) x 1.21",
+      abs(price_incl.apply_line([0.2], _pi_line)[0] - (0.2 + 0.0916 + 0.0175) * 1.21) < 1e-5
+      and price_incl.incl_line("none", None, {}) is None and price_incl.incl_line("sensor", None, {}) is None)
+_pi_sell, _pi_first = price_incl.sell_prices([0.2, 0.3, None], [0.37, 0.49, None],
+                                             [_pdate(2026, 12, 31), _pdate(2027, 1, 1), _pdate(2027, 1, 1)])
+check("price incl: selling incl until 2027, then the bare price", _pi_sell == [0.37, 0.3, None] and _pi_first == 1)
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

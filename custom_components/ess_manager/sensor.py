@@ -36,6 +36,11 @@ STATUS_ATTRIBUTES = [
     # Buying costs price + transport (as of v0.4.0) - see transport.py.
     "all_buy_price",
     "transport_tariff",
+    # prices including taxes (as of 2026.10.44) - price_incl.py
+    "price_incl",
+    "all_buy_price_incl",
+    "all_sell_price_incl",
+    "sell_excl_from_unit",
     "today_price_units",
     "solar_120h",
     "energy_usage_120h",

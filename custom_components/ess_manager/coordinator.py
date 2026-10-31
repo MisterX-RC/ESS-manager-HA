@@ -34,6 +34,7 @@ from . import accuracy
 from .accuracy_runtime import AccuracyRuntime
 from .problems import ProblemTracker, below_minimum
 from . import sensor_watch as sw
+from . import price_incl as pi
 from . import floor_control as fc
 from .const import (
     CONF_BATTERY_SOC_ENTITY,
@@ -156,6 +157,12 @@ from .const import (
     USAGE_SOURCE_ENERGY_DASHBOARD,
     CONF_ENABLE_GRID_USE_PLAN,
     CONF_BATTERY_POWER_ENTITY,
+    CONF_PRICE_INCL_MODE,
+    CONF_PRICE_INCL_ENTITY,
+    CONF_PRICE_PURCHASE_FEE,
+    CONF_PRICE_ENERGY_TAX,
+    CONF_PRICE_VAT_PERCENT,
+    DEFAULT_PRICE_VAT_PERCENT,
     CONF_BATTERY_POWER_SIGN,
     BATTERY_POWER_DISCHARGE_POSITIVE,
 )
@@ -326,6 +333,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass = hass
         self.entry = entry
         self.store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}{STORAGE_KEY_SUFFIX}")
+        # Prices including taxes (as of 2026.10.44) - price_incl.py; the
+        # learned quarters in their own store, saved only when one is added.
+        self.price_store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_prices")
+        self.price_model = pi.PriceModel()
+        self._price_incl_entity: Optional[str] = None
+        self._price_sampled_ts = 0.0
 
         self._numbers: dict[str, Any] = {}
 
@@ -537,6 +550,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- persistence --------------------------------------------------------
     async def _async_restore(self) -> None:
+        prices = await self.price_store.async_load()
+        if isinstance(prices, dict):
+            self.price_model.restore(prices)
+            self._price_incl_entity = prices.get("entity")
         data = await self.store.async_load()
         if data:
             self._negative_price_plan = data.get("negative_price_plan")
@@ -1973,6 +1990,44 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._set_usage_history(hour_sources, lookback_weeks)
         return self._usage_forecast_cache
 
+    async def _async_price_incl(self, conf: dict[str, Any], all_price: list[float], buy_price: list[float],
+                                unit: int, now: datetime) -> dict[str, Any]:
+        """Prices including taxes (as of 2026.10.44): with a supplier sensor
+        one quarter is noted (once per quarter, minutes 5-12, so a sensor
+        that changes a little late isn't caught on the old price); then the
+        buy and sell prices incl per unit - None while there's no line (yet)."""
+        mode = conf.get(CONF_PRICE_INCL_MODE) or pi.MODE_NONE
+        attr: dict[str, Any] = {"mode": mode}
+        if mode == pi.MODE_SENSOR:
+            entity = conf.get(CONF_PRICE_INCL_ENTITY)
+            if entity != self._price_incl_entity:
+                self.price_model.reset()
+                self._price_incl_entity = entity
+            unit_ts = now.replace(minute=now.minute - now.minute % 15, second=0, microsecond=0).timestamp()
+            state = self.hass.states.get(entity) if entity else None
+            if (5 <= now.minute % 15 <= 12 and unit_ts > self._price_sampled_ts and state is not None
+                    and 0 <= unit < len(all_price)):
+                incl = pi.to_eur_per_kwh(_float_or(state.state, None), state.attributes.get("unit_of_measurement"))
+                if incl is not None:
+                    self.price_model.add(unit_ts, all_price[unit], incl)
+                    self._price_sampled_ts = unit_ts
+                    await self.price_store.async_save({**self.price_model.as_store(), "entity": entity})
+            attr.update(self.price_model.attribute())
+            attr["entity"] = entity
+        line = pi.incl_line(mode, self.price_model.model, {
+            "energy_tax": conf.get(CONF_PRICE_ENERGY_TAX), "purchase_fee": conf.get(CONF_PRICE_PURCHASE_FEE),
+            "vat_percent": conf.get(CONF_PRICE_VAT_PERCENT, DEFAULT_PRICE_VAT_PERCENT)})
+        if mode == pi.MODE_MANUAL:
+            attr.update({"status": "ready", "a": round(line[0], 5), "b": round(line[1], 5)})
+        if line is None:
+            return {"price_incl": attr if mode != pi.MODE_NONE else None, "all_buy_price_incl": None,
+                    "all_sell_price_incl": None, "sell_excl_from_unit": None}
+        incl = pi.apply_line(all_price, line)
+        times = transport.unit_local_times(dt_util.start_of_local_day(), len(all_price), now.tzinfo)
+        sell, first_excl = pi.sell_prices(all_price, incl, [t.date() for t in times])
+        return {"price_incl": attr, "all_buy_price_incl": pi.apply_line(buy_price, line),
+                "all_sell_price_incl": sell, "sell_excl_from_unit": first_excl}
+
     async def _async_buy_prices(self, all_price: list[float]) -> tuple[float, list[float]]:
         """(tariff, buy prices) from the "Transport tariff" number entity
         (default 0 = no transport: the buy prices are the prices)."""
@@ -2432,6 +2487,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # real quarters since midnight (as of 2026.10.25): the price list has
         # 100 units the day summer time ends and 92 the day it starts
         current_price_unit = units.price_unit(now)
+        price_incl = await self._async_price_incl(conf, all_price, buy_price, current_price_unit, now)
 
         # What a grid charge really adds to the battery per quarter (as of
         # 2026.10.4): the battery's max charge speed minus the solar already
@@ -2995,6 +3051,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # factor) - the same as all_price without a tariff (v0.4.0).
             "all_buy_price": buy_price,
             "transport_tariff": transport_tariff,
+            # prices including taxes (as of 2026.10.44) - for the cards only
+            # for now: price_incl (the line and how it was learned),
+            # all_buy_price_incl, all_sell_price_incl, sell_excl_from_unit
+            **price_incl,
             # Where the "tomorrow" half of all_price begins (i.e. len(today's
             # own price list)) - lets a dashboard split all_price back into
             # its today/tomorrow halves by index without guessing a 96-unit

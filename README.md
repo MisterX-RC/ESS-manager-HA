@@ -1136,6 +1136,43 @@ sensor and on the same basis (with or without VAT). At 0 the buy price is
 the plain price and nothing changes; once the tariff is known, enter it
 there. The Status sensor shows the value in use as `transport_tariff`.
 
+## Prices including taxes
+
+*(as of 2026.10.44)* The price sensor (e.g. Nordpool) gives the bare
+market price; what you really pay per kWh also has the supplier's purchase
+fee, the energy tax and VAT. Configure (page 1, **Prices including taxes**)
+offers three choices:
+
+- **No** (default) - everything as before.
+- **Enter them myself** - energy tax and purchase fee per kWh excl. VAT,
+  and the VAT: incl = (price + purchase fee + energy tax) x (1 + VAT). The
+  amounts are on your energy bill. Leave out the grid operator's fixed
+  costs (a time-dependent grid tariff goes in the Transport tariff number).
+- **Learn it from my supplier's price sensor** - any sensor whose state is
+  the supplier's **current** price including taxes (EUR/kWh or ct/kWh, per
+  quarter or per hour - e.g. the Zonneplan or Tibber integration's current
+  tariff). Every quarter (minutes 5-12, so a sensor that changes a bit late
+  isn't caught on the old price) its value is noted next to the bare price
+  of that quarter, and the line incl = a x price + b is fitted to the last
+  7 days. It's used once there's a day of quarters with at least 3 ct
+  between the cheapest and dearest price and the line fits closely (with
+  flat prices it waits); until then the prices stay bare. A supplier with
+  hourly prices is compared per hour. A change of energy tax or fee (four
+  quarters in a row more than 1 ct off the line) moves the line by itself.
+  The learned quarters are stored apart (`ess_manager_<entry>_prices`), only
+  when one is added.
+
+**Selling:** while net metering (salderen) applies the energy tax and VAT
+come back too, so until 31 December 2026 the sell price is the price incl;
+from 1 January 2027 it's the bare price.
+
+The Status sensor carries `price_incl` (the way chosen, the line a / b, how
+well it fits, how many quarters, or why it's still learning),
+`all_buy_price_incl`, `all_sell_price_incl` and `sell_excl_from_unit` (the
+first quarter sold at the bare price). **For now these are only shown on
+the price card - the planning still uses the bare prices**; that follows in
+a separate version.
+
 ## Installation
 
 ### Via HACS (recommended)
@@ -1673,6 +1710,13 @@ still show in it. The dotted line is the buy price (with transport - only
 when a transport tariff is set, otherwise it equals the price). Top:
 the price now, the buy price, and the cheapest and most expensive moment
 still to come. Tap (or hover) for the price of a quarter.
+
+**With prices including taxes** (see above) the card shows one kind of
+price at a time: the **buy** prices with a solar deficit, the **sell**
+prices with a solar surplus. The header says which ("Electricity price ·
+buy · now") and whether the price now is **incl** or **excl** taxes (sell
+prices from 2027 are excl); tap the header to switch between the two. The
+tooltip always shows both, each labelled.
 
 **Solar surplus** (yellow column and line, "Solar surplus 14:15" - or
 just a sun at the top where the label doesn't fit next to another one): the

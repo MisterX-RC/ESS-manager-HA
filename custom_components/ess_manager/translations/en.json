@@ -12,7 +12,8 @@
           "grid_setpoint_entity": "Grid/inverter setpoint (optional) - a sensor, number or input_number with the currently commanded power (W or kW, from its unit). Used to show Start vs Actief in the Status; with direct control of a number entity it can be left empty",
           "grid_setpoint_sign": "Polarity of the grid/inverter setpoint (only used when one is chosen above)",
           "usage_source": "Household usage forecast source - the next page sets it up",
-          "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page"
+          "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page",
+          "price_incl_mode": "Prices including taxes - for the cards now, for the planning in a coming version (the next page sets it up)"
         }
       },
       "usage_energy_dashboard": {
@@ -205,6 +206,22 @@
           "battery_power_entity": "Battery power (sensor)",
           "battery_power_sign": "Direction of that sensor"
         }
+      },
+      "price_incl": {
+        "title": "ESS Manager - prices including taxes",
+        "description": "What you really pay per kWh: incl = (price + purchase fee + energy tax) x (1 + VAT). The three amounts are on your energy bill or your supplier's website, per kWh **excluding VAT**. Leave out the grid operator's fixed costs (and use the Transport tariff number for a time-dependent grid tariff).\n\nSelling: until 1 January 2027 (net metering) the sell price is the price incl, from then on the bare price.",
+        "data": {
+          "price_energy_tax": "Energy tax per kWh, excl. VAT",
+          "price_purchase_fee": "Supplier's purchase fee per kWh, excl. VAT",
+          "price_vat_percent": "VAT"
+        }
+      },
+      "price_incl_sensor": {
+        "title": "ESS Manager - prices including taxes",
+        "description": "Pick a sensor from your energy supplier whose state is the **current price including taxes** (€/kWh or ct/kWh, per quarter or per hour) - e.g. the Zonneplan or Tibber integration's current tariff.\n\nEvery quarter ESS Manager notes it next to the bare price of that quarter and learns the line incl = a x price + b from the last 7 days. It's used once there's a day of quarters with enough difference between cheap and dear (with flat prices it waits); until then the prices stay as they are. A change of tax or fee is picked up by itself. The learned line is in the diagnostics and on the price card.\n\nSelling: until 1 January 2027 (net metering) the sell price is the price incl, from then on the bare price.",
+        "data": {
+          "price_incl_entity": "Supplier's current price incl. taxes"
+        }
       }
     },
     "error": {
@@ -227,7 +244,8 @@
       "floor_helper_same": "The thermostat's helper switch must be another entity than the heat pump's heat demand switch.",
       "ev_victron_device_required": "Pick the Victron EV charging station's device.",
       "ev_victron_incomplete": "This device doesn't have the entities of a Victron EV charging station (status, power, total energy, mode, charge current setpoint, EV charging) - or some of them are disabled.",
-      "battery_power_required": "Pick the battery's power sensor."
+      "battery_power_required": "Pick the battery's power sensor.",
+      "price_incl_entity_required": "Choose the supplier's price sensor"
     },
     "abort": {
       "already_configured": "An ESS Manager instance with this name already exists."
@@ -245,7 +263,8 @@
           "grid_setpoint_entity": "Grid/inverter setpoint (optional) - a sensor, number or input_number with the currently commanded power (W or kW, from its unit). Used to show Start vs Actief in the Status; with direct control of a number entity it can be left empty",
           "grid_setpoint_sign": "Polarity of the grid/inverter setpoint (only used when one is chosen above)",
           "usage_source": "Household usage forecast source - the next page sets it up",
-          "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page"
+          "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page",
+          "price_incl_mode": "Prices including taxes - for the cards now, for the planning in a coming version (the next page sets it up)"
         }
       },
       "usage_energy_dashboard": {
@@ -432,6 +451,22 @@
           "battery_power_entity": "Battery power (sensor)",
           "battery_power_sign": "Direction of that sensor"
         }
+      },
+      "price_incl": {
+        "title": "ESS Manager - prices including taxes",
+        "description": "What you really pay per kWh: incl = (price + purchase fee + energy tax) x (1 + VAT). The three amounts are on your energy bill or your supplier's website, per kWh **excluding VAT**. Leave out the grid operator's fixed costs (and use the Transport tariff number for a time-dependent grid tariff).\n\nSelling: until 1 January 2027 (net metering) the sell price is the price incl, from then on the bare price.",
+        "data": {
+          "price_energy_tax": "Energy tax per kWh, excl. VAT",
+          "price_purchase_fee": "Supplier's purchase fee per kWh, excl. VAT",
+          "price_vat_percent": "VAT"
+        }
+      },
+      "price_incl_sensor": {
+        "title": "ESS Manager - prices including taxes",
+        "description": "Pick a sensor from your energy supplier whose state is the **current price including taxes** (€/kWh or ct/kWh, per quarter or per hour) - e.g. the Zonneplan or Tibber integration's current tariff.\n\nEvery quarter ESS Manager notes it next to the bare price of that quarter and learns the line incl = a x price + b from the last 7 days. It's used once there's a day of quarters with enough difference between cheap and dear (with flat prices it waits); until then the prices stay as they are. A change of tax or fee is picked up by itself. The learned line is in the diagnostics and on the price card.\n\nSelling: until 1 January 2027 (net metering) the sell price is the price incl, from then on the bare price.",
+        "data": {
+          "price_incl_entity": "Supplier's current price incl. taxes"
+        }
       }
     },
     "error": {
@@ -453,7 +488,8 @@
       "floor_helper_same": "The thermostat's helper switch must be another entity than the heat pump's heat demand switch.",
       "ev_victron_device_required": "Pick the Victron EV charging station's device.",
       "ev_victron_incomplete": "This device doesn't have the entities of a Victron EV charging station (status, power, total energy, mode, charge current setpoint, EV charging) - or some of them are disabled.",
-      "battery_power_required": "Pick the battery's power sensor."
+      "battery_power_required": "Pick the battery's power sensor.",
+      "price_incl_entity_required": "Choose the supplier's price sensor"
     }
   },
   "issues": {

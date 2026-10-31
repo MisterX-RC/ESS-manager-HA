@@ -12,7 +12,8 @@
           "grid_setpoint_entity": "Net-/omvormer-setpoint (optioneel) - een sensor, number of input_number met het huidige opgedragen vermogen (W of kW, volgens de eenheid). Voor Start of Actief in de status; met directe sturing van een number-entiteit mag het leeg blijven",
           "grid_setpoint_sign": "Richting van het net-/omvormer-setpoint (alleen als er hierboven een gekozen is)",
           "usage_source": "Bron voor de verbruiksvoorspelling - de volgende pagina stelt die in",
-          "enable_full_charge_plan": "Periodiek vol laden en balanceren aan (laadt met een interval tot 100% en houdt dat even vast zodat het BMS de cellen kan balanceren) - de sensoren volgen op de volgende pagina"
+          "enable_full_charge_plan": "Periodiek vol laden en balanceren aan (laadt met een interval tot 100% en houdt dat even vast zodat het BMS de cellen kan balanceren) - de sensoren volgen op de volgende pagina",
+          "price_incl_mode": "Prijzen inclusief belastingen - nu voor de kaarten, in een volgende versie ook voor de planning (de volgende pagina stelt het in)"
         }
       },
       "usage_energy_dashboard": {
@@ -205,6 +206,22 @@
           "battery_power_entity": "Accuvermogen (sensor)",
           "battery_power_sign": "Richting van die sensor"
         }
+      },
+      "price_incl": {
+        "title": "ESS Manager - prijzen inclusief belastingen",
+        "description": "Wat je echt betaalt per kWh: incl = (prijs + inkoopvergoeding + energiebelasting) x (1 + btw). De drie bedragen staan op je energierekening of de website van je leverancier, per kWh **exclusief btw**. Laat de vaste kosten van de netbeheerder weg (gebruik het nummer Transport tariff voor een tijdsafhankelijk nettarief).\n\nVerkopen: tot 1 januari 2027 (salderen) is de verkoopprijs de prijs inclusief, daarna de kale prijs.",
+        "data": {
+          "price_energy_tax": "Energiebelasting per kWh, excl. btw",
+          "price_purchase_fee": "Inkoopvergoeding van de leverancier per kWh, excl. btw",
+          "price_vat_percent": "Btw"
+        }
+      },
+      "price_incl_sensor": {
+        "title": "ESS Manager - prijzen inclusief belastingen",
+        "description": "Kies een sensor van je energieleverancier waarvan de waarde de **huidige prijs inclusief belastingen** is (€/kWh of ct/kWh, per kwartier of per uur) - bijv. het huidige tarief van de Zonneplan- of Tibber-integratie.\n\nElk kwartier noteert ESS Manager die naast de kale prijs van dat kwartier en leert uit de laatste 7 dagen de lijn incl = a x prijs + b. Die wordt gebruikt zodra er een dag aan kwartieren is met genoeg verschil tussen goedkoop en duur (bij vlakke prijzen wacht hij); tot dan blijven de prijzen zoals ze zijn. Een andere belasting of vergoeding wordt vanzelf opgepikt. De geleerde lijn staat in de diagnose en op de prijskaart.\n\nVerkopen: tot 1 januari 2027 (salderen) is de verkoopprijs de prijs inclusief, daarna de kale prijs.",
+        "data": {
+          "price_incl_entity": "Huidige prijs incl. belastingen van de leverancier"
+        }
       }
     },
     "error": {
@@ -227,7 +244,8 @@
       "floor_helper_same": "De hulpschakelaar van de thermostaat moet een andere entiteit zijn dan de warmtevraag-schakelaar van de warmtepomp.",
       "ev_victron_device_required": "Kies het apparaat van de Victron EV-laadpaal.",
       "ev_victron_incomplete": "Dit apparaat heeft niet de entiteiten van een Victron EV-laadpaal (status, vermogen, totale energie, modus, laadstroom-setpoint, EV laden) - of een deel ervan is uitgeschakeld.",
-      "battery_power_required": "Kies de vermogenssensor van de accu."
+      "battery_power_required": "Kies de vermogenssensor van de accu.",
+      "price_incl_entity_required": "Kies de prijssensor van de leverancier"
     },
     "abort": {
       "already_configured": "Er bestaat al een ESS Manager met deze naam."
@@ -245,7 +263,8 @@
           "grid_setpoint_entity": "Net-/omvormer-setpoint (optioneel) - een sensor, number of input_number met het huidige opgedragen vermogen (W of kW, volgens de eenheid). Voor Start of Actief in de status; met directe sturing van een number-entiteit mag het leeg blijven",
           "grid_setpoint_sign": "Richting van het net-/omvormer-setpoint (alleen als er hierboven een gekozen is)",
           "usage_source": "Bron voor de verbruiksvoorspelling - de volgende pagina stelt die in",
-          "enable_full_charge_plan": "Periodiek vol laden en balanceren aan (laadt met een interval tot 100% en houdt dat even vast zodat het BMS de cellen kan balanceren) - de sensoren volgen op de volgende pagina"
+          "enable_full_charge_plan": "Periodiek vol laden en balanceren aan (laadt met een interval tot 100% en houdt dat even vast zodat het BMS de cellen kan balanceren) - de sensoren volgen op de volgende pagina",
+          "price_incl_mode": "Prijzen inclusief belastingen - nu voor de kaarten, in een volgende versie ook voor de planning (de volgende pagina stelt het in)"
         }
       },
       "usage_energy_dashboard": {
@@ -432,6 +451,22 @@
           "battery_power_entity": "Accuvermogen (sensor)",
           "battery_power_sign": "Richting van die sensor"
         }
+      },
+      "price_incl": {
+        "title": "ESS Manager - prijzen inclusief belastingen",
+        "description": "Wat je echt betaalt per kWh: incl = (prijs + inkoopvergoeding + energiebelasting) x (1 + btw). De drie bedragen staan op je energierekening of de website van je leverancier, per kWh **exclusief btw**. Laat de vaste kosten van de netbeheerder weg (gebruik het nummer Transport tariff voor een tijdsafhankelijk nettarief).\n\nVerkopen: tot 1 januari 2027 (salderen) is de verkoopprijs de prijs inclusief, daarna de kale prijs.",
+        "data": {
+          "price_energy_tax": "Energiebelasting per kWh, excl. btw",
+          "price_purchase_fee": "Inkoopvergoeding van de leverancier per kWh, excl. btw",
+          "price_vat_percent": "Btw"
+        }
+      },
+      "price_incl_sensor": {
+        "title": "ESS Manager - prijzen inclusief belastingen",
+        "description": "Kies een sensor van je energieleverancier waarvan de waarde de **huidige prijs inclusief belastingen** is (€/kWh of ct/kWh, per kwartier of per uur) - bijv. het huidige tarief van de Zonneplan- of Tibber-integratie.\n\nElk kwartier noteert ESS Manager die naast de kale prijs van dat kwartier en leert uit de laatste 7 dagen de lijn incl = a x prijs + b. Die wordt gebruikt zodra er een dag aan kwartieren is met genoeg verschil tussen goedkoop en duur (bij vlakke prijzen wacht hij); tot dan blijven de prijzen zoals ze zijn. Een andere belasting of vergoeding wordt vanzelf opgepikt. De geleerde lijn staat in de diagnose en op de prijskaart.\n\nVerkopen: tot 1 januari 2027 (salderen) is de verkoopprijs de prijs inclusief, daarna de kale prijs.",
+        "data": {
+          "price_incl_entity": "Huidige prijs incl. belastingen van de leverancier"
+        }
       }
     },
     "error": {
@@ -453,7 +488,8 @@
       "floor_helper_same": "De hulpschakelaar van de thermostaat moet een andere entiteit zijn dan de warmtevraag-schakelaar van de warmtepomp.",
       "ev_victron_device_required": "Kies het apparaat van de Victron EV-laadpaal.",
       "ev_victron_incomplete": "Dit apparaat heeft niet de entiteiten van een Victron EV-laadpaal (status, vermogen, totale energie, modus, laadstroom-setpoint, EV laden) - of een deel ervan is uitgeschakeld.",
-      "battery_power_required": "Kies de vermogenssensor van de accu."
+      "battery_power_required": "Kies de vermogenssensor van de accu.",
+      "price_incl_entity_required": "Kies de prijssensor van de leverancier"
     }
   },
   "issues": {

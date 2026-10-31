@@ -14,6 +14,26 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.10.44] - 2026-10-31
 
+### Prices including taxes (on the price card)
+- **New in Configure (page 1): Prices including taxes** - no (default,
+  nothing changes), entered (energy tax, purchase fee, VAT), or **learned
+  from the supplier's price sensor**: every quarter the supplier's current
+  price incl is noted next to the bare price, and from the last 7 days the
+  line incl = a x price + b is fitted - in use once there's a day of
+  quarters with enough price difference and a close fit. Works with any
+  supplier sensor (EUR or ct, per quarter or hour); a change of energy tax
+  or fee is followed by itself. On a real day of Zonneplan quarters against
+  Nordpool: a = 1.209, b = 0.131, at most 0.07 ct off.
+- **Selling** at the price incl until 31 December 2026 (net metering), from
+  1 January 2027 at the bare price.
+- **The price card** shows the buy prices with a solar deficit and the sell
+  prices with a surplus - one kind at a time, named in the header with
+  **incl** / **excl** after the price now; tap the header to switch. The
+  tooltip shows both.
+- **The planning doesn't use them yet** - that's a separate version.
+- Two leftovers of the Dutch translation: the price card's legend ("Laden
+  gepland" / "Verkoop gepland") and the status card's block names.
+
 ### Tests
 - **Regression tests on real situations, kept off GitHub.** Moments from
   real installations (prices, forecasts, battery level and settings only -

@@ -42,6 +42,12 @@ from .const import (
     CONF_ENABLE_GRID_USE_PLAN,
     DEFAULT_ENABLE_GRID_USE_PLAN,
     CONF_BATTERY_POWER_ENTITY,
+    CONF_PRICE_INCL_MODE,
+    CONF_PRICE_INCL_ENTITY,
+    CONF_PRICE_PURCHASE_FEE,
+    CONF_PRICE_ENERGY_TAX,
+    CONF_PRICE_VAT_PERCENT,
+    DEFAULT_PRICE_VAT_PERCENT,
     CONF_BATTERY_POWER_SIGN,
     BATTERY_POWER_CHARGE_POSITIVE,
     BATTERY_POWER_DISCHARGE_POSITIVE,
@@ -162,6 +168,13 @@ def _usage_source_options() -> list[selector.SelectOptionDict]:
     ]
 
 
+PRICE_INCL_OPTIONS = [
+    selector.SelectOptionDict(value="none", label="No - the price sensor's own prices (default)"),
+    selector.SelectOptionDict(value="manual", label="Enter the energy tax, purchase fee and VAT myself"),
+    selector.SelectOptionDict(value="sensor", label="Learn it from my supplier's price sensor (incl. taxes)"),
+]
+
+
 CONTROL_MODE_OPTIONS = [
     selector.SelectOptionDict(
         value=CONTROL_MODE_OFF, label="Status sensor only - my own automation controls the battery (default)"
@@ -257,6 +270,11 @@ def _sensors_schema(defaults: dict[str, Any], include_name: bool) -> vol.Schema:
                 selector.EntitySelectorConfig(domain="sensor")
             ),
             vol.Required(
+                CONF_PRICE_INCL_MODE, default=defaults.get(CONF_PRICE_INCL_MODE) or "none"
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=PRICE_INCL_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+            ),
+            vol.Required(
                 CONF_SOLAR_FORECAST_ENTITIES, default=defaults.get(CONF_SOLAR_FORECAST_ENTITIES, [])
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
             vol.Optional(
@@ -282,6 +300,28 @@ def _sensors_schema(defaults: dict[str, Any], include_name: bool) -> vol.Schema:
         }
     )
     return vol.Schema(fields)
+
+
+def _money_per_kwh() -> selector.NumberSelector:
+    """An amount per kWh to 5 decimals (a box: a slider can't take that)."""
+    return selector.NumberSelector(selector.NumberSelectorConfig(
+        min=0, max=1, step="any", unit_of_measurement="€/kWh", mode=selector.NumberSelectorMode.BOX))
+
+
+def _price_incl_schema(defaults: dict[str, Any], mode: str) -> vol.Schema:
+    """Prices including taxes (as of 2026.10.44): the supplier's sensor, or
+    the three amounts from the energy bill."""
+    if mode == "sensor":
+        return vol.Schema({
+            vol.Optional(CONF_PRICE_INCL_ENTITY, default=defaults.get(CONF_PRICE_INCL_ENTITY)): _optional_entity_selector(),
+        })
+    return vol.Schema({
+        vol.Required(CONF_PRICE_ENERGY_TAX, default=defaults.get(CONF_PRICE_ENERGY_TAX, 0.0)): _money_per_kwh(),
+        vol.Required(CONF_PRICE_PURCHASE_FEE, default=defaults.get(CONF_PRICE_PURCHASE_FEE, 0.0)): _money_per_kwh(),
+        vol.Required(
+            CONF_PRICE_VAT_PERCENT, default=defaults.get(CONF_PRICE_VAT_PERCENT, DEFAULT_PRICE_VAT_PERCENT)
+        ): _number(0, 50, 0.1, "%"),
+    })
 
 
 def _full_charge_schema(defaults: dict[str, Any], include_target_voltage: bool) -> vol.Schema:
@@ -764,6 +804,7 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
         CONF_EV_ENERGY_ENTITY,
         CONF_EV_POWER_ENTITY,
         CONF_BATTERY_POWER_ENTITY,
+        CONF_PRICE_INCL_ENTITY,
         CONF_HP_TOTAL_ENTITY,
         CONF_HP_OUTDOOR_ENTITY,
         CONF_HP_WEATHER_ENTITY,
@@ -816,6 +857,35 @@ class _EssManagerSteps:
         raise NotImplementedError
 
     async def _async_after_sensors(self):
+        if self._data.get(CONF_PRICE_INCL_MODE) == "manual":
+            return await self.async_step_price_incl()
+        if self._data.get(CONF_PRICE_INCL_MODE) == "sensor":
+            return await self.async_step_price_incl_sensor()
+        return await self._async_after_price_incl()
+
+    async def async_step_price_incl(self, user_input: dict[str, Any] | None = None):
+        """Prices including taxes, entered (as of 2026.10.44)."""
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self._async_after_price_incl()
+        return self.async_show_form(
+            step_id="price_incl", data_schema=_price_incl_schema({**self._defaults(), **self._data}, "manual"))
+
+    async def async_step_price_incl_sensor(self, user_input: dict[str, Any] | None = None):
+        """Prices including taxes, learned from a supplier sensor (2026.10.44)."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data = _clean(user_input)
+            if not data.get(CONF_PRICE_INCL_ENTITY):
+                errors = {"base": "price_incl_entity_required"}
+            else:
+                self._data.update(data)
+                return await self._async_after_price_incl()
+        return self.async_show_form(
+            step_id="price_incl_sensor", data_schema=_price_incl_schema({**self._defaults(), **self._data}, "sensor"),
+            errors=errors)
+
+    async def _async_after_price_incl(self):
         source = self._data[CONF_USAGE_SOURCE]
         if source == USAGE_SOURCE_ENERGY_DASHBOARD:
             return await self.async_step_usage_energy_dashboard()

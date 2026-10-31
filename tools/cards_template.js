@@ -46,7 +46,7 @@ const I18N = {
     plan_sell: "Sell", plan_buy: "Buy", plan_spike: "Spike", plan_negative: "Negative price",
     plan_full: "Full charge", plan_charged: "Charged", plan_sold: "Sold",
     // price card
-    price_title: "Electricity price", buy_price: "buy", incl_transport: "incl. transport",
+    price_title: "Electricity price", buy_price: "buy", incl_transport: "incl. transport", sell_price: "sell", incl_tax: "incl", excl_tax: "excl", switch_view: "Tap to switch between buy and sell prices",
     cheapest: "cheapest", most_expensive: "most expensive", per_kwh: "/kWh",
     legend_level: "price level", legend_sell: "Sell planned", legend_buy: "Buy planned", legend_buy_line: "Buy price",
     solar_surplus: "Solar surplus", legend_surplus: "Solar surplus", surplus_full: "battery full", surplus_rate: "more than the battery can take",
@@ -238,9 +238,9 @@ const I18N = {
     min_label: (p) => `min ${p} %`, max_label: (p) => `max ${p} %`,
     plan_sell: "Verkoop", plan_buy: "Laden", plan_spike: "Piek", plan_negative: "Negatieve prijs",
     plan_full: "Vol laden", plan_charged: "Geladen", plan_sold: "Verkocht",
-    price_title: "Stroomprijs", buy_price: "inkoop", incl_transport: "incl. transport",
+    price_title: "Stroomprijs", buy_price: "inkoop", incl_transport: "incl. transport", sell_price: "verkoop", incl_tax: "incl", excl_tax: "excl", switch_view: "Tik om te wisselen tussen inkoop- en verkoopprijzen",
     cheapest: "goedkoopst", most_expensive: "duurst", per_kwh: "/kWh",
-    legend_level: "prijsniveau", legend_sell: "Sell gepland", legend_buy: "Buy gepland", legend_buy_line: "Inkoopprijs",
+    legend_level: "prijsniveau", legend_sell: "Verkoop gepland", legend_buy: "Laden gepland", legend_buy_line: "Inkoopprijs",
     solar_surplus: "Zonoverschot", legend_surplus: "Zonoverschot", surplus_full: "accu vol", surplus_rate: "meer dan de accu kan laden",
     surplus_kwh: (v) => `~${v} kWh naar het net`, ed_surplus_color: "Zonoverschot",
     grid_use: "Uit het net", legend_grid_use: "Huis uit het net", ed_grid_color: "Huis uit het net",
@@ -416,7 +416,7 @@ function hassLang(hass) {
   return (hass && ((hass.locale && hass.locale.language) || hass.language)) || "en";
 }
 
-// The Status sensor's states shown in the user's language (as of 2026.10.45);
+// The Status sensor's states shown in the user's language (as of 2026.10.44);
 // the state itself stays English - automations listen to those texts.
 const STATUS_NL = {
   Standby: "Stand-by", "Start charge": "Start laden", Actief: "Actief", "Start discharge": "Start ontladen", Stop: "Stop",
@@ -1468,7 +1468,7 @@ class EssManagerPriceCard extends EssChartCard {
     const siblings = attrs.card_entities || {};
     const actionObj = siblings.battery_action ? this._hass.states[siblings.battery_action] : null;
     const width = this._chartWidth();
-    const key = [stateObj, actionObj, this._hist, width, hassLang(this._hass)];
+    const key = [stateObj, actionObj, this._hist, width, hassLang(this._hass), this._view];
     if (this._renderKey && key.every((v, i) => v === this._renderKey[i])) return;
     this._renderKey = key;
 
@@ -1478,12 +1478,21 @@ class EssManagerPriceCard extends EssChartCard {
     const T0 = localMidnight(this._hass, now);
     this._ensureHistory(siblings, T0, actionObj);
     const title = esc(opt.title || this._t("price_title"));
-    const prices = (attrs.all_price || []).map(num);
+    // Prices including taxes (as of 2026.10.44): the buy prices with a solar
+    // deficit, the sell prices with a surplus - one kind at a time, named in
+    // the header; tapping the header switches.
+    const inclBuy = Array.isArray(attrs.all_buy_price_incl) ? attrs.all_buy_price_incl.map(num) : null;
+    const inclSell = Array.isArray(attrs.all_sell_price_incl) ? attrs.all_sell_price_incl.map(num) : null;
+    const incl = !!(inclBuy && inclSell && inclBuy.length);
+    const autoView = attrs.solar_mode && attrs.solar_mode.mode === "surplus" ? "sell" : "buy";
+    const view = incl ? this._view || autoView : null;
+    const exclFrom = attrs.sell_excl_from_unit == null ? null : Number(attrs.sell_excl_from_unit);
+    const prices = incl ? (view === "sell" ? inclSell : inclBuy) : (attrs.all_price || []).map(num);
     if (!prices.length) {
       setCardContent(this, BASE_CSS, `<div class="top"><span class="title">${title}</span></div><div class="dim">${esc(this._t("no_prices"))}</div>`);
       return;
     }
-    const buy = (attrs.all_buy_price || attrs.all_price).map(num);
+    const buy = incl ? prices : (attrs.all_buy_price || attrs.all_price).map(num);
     // 15-minute prices; an hourly price list (24 values a day) works too.
     const unitMs = (num(attrs.today_price_units) || 96) <= 25 ? HOUR_MS : UNIT_MS;
     const n = prices.length;
@@ -1538,7 +1547,7 @@ class EssManagerPriceCard extends EssChartCard {
     const y = (v) => top + ((hi - v) / (hi - lo)) * H;
     const base = y(0);
     this._geo = { W, X0, top, H, bottom, bw, xi, y, T0, unitMs, n, slots };
-    this._prices = { prices, buy };
+    this._prices = { prices, buy, incl, inclBuy, inclSell, exclFrom };
 
     // colour by level: negative apart, then cheap -> average -> expensive
     const pmin = Math.max(0, Math.min(...valid));
@@ -1682,7 +1691,7 @@ class EssManagerPriceCard extends EssChartCard {
     const nowB = buy[cur];
     const tariff = num(attrs.transport_tariff) || 0;
     let buyText = "";
-    if (nowB !== null && (tariff > 0 || nowB !== nowP)) buyText = `${this._t("buy_price")} ${f.money(nowB)}${tariff > 0 ? ` ${this._t("incl_transport")}` : ""}`;
+    if (!incl && nowB !== null && (tariff > 0 || nowB !== nowP)) buyText = `${this._t("buy_price")} ${f.money(nowB)}${tariff > 0 ? ` ${this._t("incl_transport")}` : ""}`;
     let extremes = "";
     if (opt.show_extremes !== false) {
       let iMin = null;
@@ -1719,11 +1728,12 @@ class EssManagerPriceCard extends EssChartCard {
       .xl { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; }
       @container (max-width: 420px) { .top { flex-direction: column; align-items: stretch; } }
       .top + div { margin-top: -8px; }
+      .swap { cursor: pointer; }
     `;
     const changed = setCardContent(this, css, `
       <div class="top">
-        <div class="now"><span class="dim" style="font-size:13px">${title} · ${esc(this._t("now"))}</span>
-          <span class="big">${nowP === null ? "–" : esc(f.money(nowP))}<small> ${esc(this._t("per_kwh"))}</small></span>
+        <div class="now"><span class="dim${incl ? " swap" : ""}" style="font-size:13px"${incl ? ` title="${esc(this._t("switch_view"))}"` : ""}>${title}${incl ? ` · ${esc(this._t(view === "sell" ? "sell_price" : "buy_price"))}` : ""} · ${esc(this._t("now"))}</span>
+          <span class="big${incl ? " swap" : ""}">${nowP === null ? "–" : esc(f.money(nowP))}<small> ${esc(this._t("per_kwh"))}${incl ? ` · ${esc(this._t(view === "sell" && exclFrom !== null && cur >= exclFrom ? "excl_tax" : "incl_tax"))}` : ""}</small></span>
           ${buyText ? `<span class="dim" style="font-size:12px">${esc(buyText)}</span>` : ""}</div>
         ${extremes}
       </div>
@@ -1741,6 +1751,12 @@ class EssManagerPriceCard extends EssChartCard {
     `);
     this._windows = windows;
     this._surplus = surplus;
+    for (const el of this.shadowRoot.querySelectorAll(".swap")) {
+      el.onclick = () => {
+        this._view = view === "sell" ? "buy" : "sell";
+        this._render();
+      };
+    }
     if (changed) this._wireTooltip((px) => this._showTip(px));
   }
 
@@ -1772,8 +1788,13 @@ class EssManagerPriceCard extends EssChartCard {
     }`;
     const w = (this._windows || []).find((win) => t + g.unitMs > win.start && t < win.stop);
     let html = `<div class="row"><b>${esc(f.dayLabel(t))} · ${esc(f.time(t))}–${esc(f.time(t + g.unitMs))}</b></div>`;
-    if (p !== null) html += `<div class="row"><span class="k">${esc(this._t("price"))}</span><b>${esc(f.money(p))}</b></div>`;
-    if (b !== null && b !== p) html += `<div class="row"><span class="k">${esc(this._t("buy_price"))}</span><b>${esc(f.money(b))}</b></div>`;
+    const P = this._prices;
+    if (P.incl) {
+      const sellTax = P.exclFrom !== null && i >= P.exclFrom ? "excl_tax" : "incl_tax";
+      if (P.inclBuy[i] !== null) html += `<div class="row"><span class="k">${esc(this._t("buy_price"))} · ${esc(this._t("incl_tax"))}</span><b>${esc(f.money(P.inclBuy[i]))}</b></div>`;
+      if (P.inclSell[i] !== null) html += `<div class="row"><span class="k">${esc(this._t("sell_price"))} · ${esc(this._t(sellTax))}</span><b>${esc(f.money(P.inclSell[i]))}</b></div>`;
+    } else if (p !== null) html += `<div class="row"><span class="k">${esc(this._t("price"))}</span><b>${esc(f.money(p))}</b></div>`;
+    if (!P.incl && b !== null && b !== p) html += `<div class="row"><span class="k">${esc(this._t("buy_price"))}</span><b>${esc(f.money(b))}</b></div>`;
     if (w) html += `<div class="row sep"><span class="k">${esc(planLabel(this._hass, w))}</span><b>${esc(f.time(w.start))}–${esc(f.time(w.stop))}</b></div>`;
     const sp = (this._surplus || []).find((s) => t + g.unitMs > s.start && t < s.stop);
     if (sp) {
@@ -1990,7 +2011,7 @@ class EssManagerStatusCard extends HTMLElement {
     }[plan.source];
     // the plan that drives the block outlines it in its colour: spike, negative price, full-charge balancing
     const outline = plan && ["spike", "negative_price", "full_charge"].includes(plan.source) ? chipInfo[1] : "transparent";
-    const head = `<div class="head"><span class="name" style="color:${color}">${icon(sell ? "up" : "down", color, 16, 2.2)}${sell ? "Sell" : "Buy"}</span>${
+    const head = `<div class="head"><span class="name" style="color:${color}">${icon(sell ? "up" : "down", color, 16, 2.2)}${esc(this._t(sell ? "plan_sell" : "plan_buy"))}</span>${
       chipInfo ? `<span class="chip" style="background:${tint(chipInfo[1], 0.18)};color:${chipInfo[1]}">${icon(chipInfo[2], chipInfo[1], 12, 2.4)}${esc(chipInfo[0])}</span>` : ""
     }</div>`;
     if (!plan) {
