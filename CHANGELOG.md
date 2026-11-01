@@ -12,6 +12,14 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.2] - 2026-11-01
+
+### Savings card
+- **The arrows sit right under the period tabs** instead of on a row of
+  their own.
+- The text at the bottom is just one line now: this house and its usage,
+  compared with and without the battery.
+
 ## [2026.11.1] - 2026-11-01
 
 ### Savings card
@@ -26,10 +34,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   (and the diagnostics): the statistics' coverage, or a quarter without a
   price.
 - **Arrows to go back** a day, week, month, year or 365 days, like on the
-  Energy dashboard (back as far as there are stored days), right under the
-  period tabs. Week is now a calendar week, Monday to Sunday.
-- The text at the bottom is just one line now: this house and its usage,
-  compared with and without the battery.
+  Energy dashboard (back as far as there are stored days). Week is now a calendar week, Monday to Sunday.
 - **Day has no bars any more** - just the totals. Per hour the money goes
   out while charging and the saving comes later, when the battery is used,
   which looked like the battery costing money.
