@@ -26,8 +26,10 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   (and the diagnostics): the statistics' coverage, or a quarter without a
   price.
 - **Arrows to go back** a day, week, month, year or 365 days, like on the
-  Energy dashboard (back as far as there are stored days). Week is now a
-  calendar week, Monday to Sunday.
+  Energy dashboard (back as far as there are stored days), right under the
+  period tabs. Week is now a calendar week, Monday to Sunday.
+- The text at the bottom is just one line now: this house and its usage,
+  compared with and without the battery.
 - **Day has no bars any more** - just the totals. Per hour the money goes
   out while charging and the saving comes later, when the battery is used,
   which looked like the battery costing money.

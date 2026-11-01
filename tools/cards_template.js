@@ -4361,7 +4361,7 @@ const SV_TEXT = {
     without: "Without battery", with: "With ESS Manager", bought: "bought", sold: "sold", at: "at", no_sale: "no sale",
     legend_saving: "saved", legend_loss: "more expensive than without battery", avg: (v) => `avg. ${v} / day`,
     tap: "tap a bar",
-    note: (h) => `Compared with the same house without a battery, per quarter with the real prices: buying incl. taxes (and transport), selling bare. The price after the kWh is the average per kWh. Measured from the Energy dashboard (grid import and export, battery charged and discharged), the battery's losses included. Every night yesterday is added${h ? `; looked back ${h} days (as long as the recorder keeps its history)` : ""}.`,
+    note: () => "This house and its usage, compared with and without the battery.",
     no_battery: "The savings need the battery's charged and discharged energy in the Energy dashboard (Settings > Dashboards > Energy).",
     no_grid: "The savings need the grid import and export in the Energy dashboard (Settings > Dashboards > Energy).",
     waiting: "Working out the savings - the days the recorder still has are filled in shortly.",
@@ -4376,7 +4376,7 @@ const SV_TEXT = {
     without: "Zonder accu", with: "Met ESS Manager", bought: "ingekocht", sold: "verkocht", at: "à", no_sale: "geen verkoop",
     legend_saving: "bespaard", legend_loss: "duurder dan zonder accu", avg: (v) => `gem. ${v} / dag`,
     tap: "tik op een staaf",
-    note: (h) => `Vergeleken met hetzelfde huis zonder accu, per kwartier met de echte prijzen: inkoop incl. belastingen (en transport), verkoop kaal. De prijs achter de kWh is het gemiddelde per kWh. Gemeten uit het Energie-dashboard (inkoop en teruglevering, laden en ontladen van de accu), verliezen van de accu zitten erin. Elke nacht komt de dag van gisteren erbij${h ? `; ${h} dagen teruggekeken (zo lang bewaart de recorder zijn geschiedenis)` : ""}.`,
+    note: () => "Dit huis en zijn verbruik, vergeleken met en zonder accu.",
     no_battery: "Voor de besparing is het laden en ontladen van de accu nodig in het Energie-dashboard (Instellingen > Dashboards > Energie).",
     no_grid: "Voor de besparing zijn inkoop en teruglevering nodig in het Energie-dashboard (Instellingen > Dashboards > Energie).",
     waiting: "De besparing wordt uitgerekend - de dagen die de recorder nog heeft komen er zo bij.",
@@ -4402,8 +4402,9 @@ const SV_CSS = `
   .sv-legend i { display: inline-block; width: 11px; height: 8px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
   .sv-note { font-size: 11.5px; line-height: 16px; color: var(--secondary-text-color, #8f8f8f); margin-top: 10px; }
   .sv-chart { position: relative; margin-top: 14px; }
-  .sv-nav { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; font-size: 14px; font-weight: 500; }
-  .sv-nav span { min-width: 150px; text-align: center; }
+  .sv-right { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+  .sv-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; font-weight: 500; }
+  .sv-nav span { flex-grow: 1; text-align: center; white-space: nowrap; }
   .sv-nav button { width: 30px; height: 30px; border-radius: 50%; border: 0; background: rgba(127,127,127,.16); color: inherit; font: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
   .sv-nav button[disabled] { opacity: .3; cursor: default; }
   .sv-chart svg { display: block; }
@@ -4599,12 +4600,12 @@ class EssManagerSavingsCard extends EssChartCard {
       <div class="sv-top">
         <div><div class="dim" style="font-size:13px">${pTitle}</div>
           <div class="sv-big">${esc(f.money(Math.abs(save)))} <small>${esc(this._s(good ? "saved" : "cost_more"))}</small></div>${pill}</div>
-        <div class="sv-tabs">${tabs}</div>
-      </div>
-      <div class="sv-nav">
-        <button type="button" class="prev" aria-label="‹"${canBack ? "" : " disabled"}>‹</button>
-        <span>${esc(label)}</span>
-        <button type="button" class="next" aria-label="›"${off > 0 ? "" : " disabled"}>›</button>
+        <div class="sv-right"><div class="sv-tabs">${tabs}</div>
+          <div class="sv-nav">
+            <button type="button" class="prev" aria-label="‹"${canBack ? "" : " disabled"}>‹</button>
+            <span>${esc(label)}</span>
+            <button type="button" class="next" aria-label="›"${off > 0 ? "" : " disabled"}>›</button>
+          </div></div>
       </div>
       ${inPeriod.length ? `<div class="sv-cmp">
         ${box(this._s("without"), t[6] - t[8], t[5], t[6], t[7], t[8], null, null)}
