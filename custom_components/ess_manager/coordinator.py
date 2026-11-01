@@ -342,7 +342,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._price_incl_entity: Optional[str] = None
         self._price_sampled_ts = 0.0
         self._buy_line: tuple[float, float] = (1.0, 0.0)
-        # What the battery saves (as of 2026.10.45) - savings.py; the days in
+        # What the battery saves (as of 2026.11.0) - savings.py; the days in
         # their own store, worked out in the background.
         self.savings_store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_savings")
         self.savings = sv.SavingsData()
@@ -2035,7 +2035,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {"price_incl": attr if mode != pi.MODE_NONE else None, "all_buy_price_incl": None}
         return {"price_incl": attr, "all_buy_price_incl": pi.apply_line(buy_price, line)}
 
-    # -- what the battery saves (as of 2026.10.45) ------------------------------
+    # -- what the battery saves (as of 2026.11.0) ------------------------------
     def _savings_buy_of(self, prices: list[Optional[float]], day_start: datetime) -> list[Optional[float]]:
         """A day's buy prices: price + transport (the tariff now), bare -
         the line incl taxes is put on when shown."""
@@ -3124,7 +3124,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # how it was learned),
             # all_buy_price_incl (selling is the bare all_price)
             **price_incl,
-            # what the battery saves (as of 2026.10.45) - the savings card
+            # what the battery saves (as of 2026.11.0) - the savings card
             "savings": self.savings.attribute(self._buy_line),
             # Where the "tomorrow" half of all_price begins (i.e. len(today's
             # own price list)) - lets a dashboard split all_price back into

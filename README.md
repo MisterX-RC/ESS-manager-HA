@@ -1864,7 +1864,7 @@ or the kWh extra to warm it up. Three tabs:
 | `title` | `Heat pump` | the card's title |
 | `hp_color` | orange | the heat pump colour |
 
-**Savings card** *(as of 2026.10.45)*. What the battery saved against the
+**Savings card** *(as of 2026.11.0)*. What the battery saved against the
 same house without a battery: per quarter, the grid import and export
 that were measured, against what would have gone through the grid without
 the battery (export - import + charged - discharged, per 5 minutes) -

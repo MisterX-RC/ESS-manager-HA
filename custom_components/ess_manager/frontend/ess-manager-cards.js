@@ -1907,7 +1907,7 @@ function timelineColors(opt) {
     negative_price_charge: opt.buy_color,
     discharge: shade(opt.sell_color, 0.5),
     spike_discharge: opt.sell_color,
-    // the house from the grid / solar export (as of 2026.10.45): the same
+    // the house from the grid / solar export (as of 2026.11.0): the same
     // colours as on the price and battery charts
     grid_use: opt.grid_color,
     solar_export: opt.export_color,
@@ -4332,7 +4332,7 @@ class EssManagerForecastCard extends EssChartCard {
   }
 }
 
-// -- Savings card (as of 2026.10.45) ----------------------------------------------
+// -- Savings card (as of 2026.11.0) ----------------------------------------------
 // What the battery saved against the same house without one (savings.py):
 // per day what was bought and sold with the battery and without, priced
 // with the buy price incl taxes (the line of the Status sensor) and the bare
@@ -4484,7 +4484,7 @@ class EssManagerSavingsCard extends EssChartCard {
         bars.push([period === "week" ? f.weekday(ms) : String(Number(d.slice(8))), r ? saving(sum([r])) : null, r, f.dayLabel(ms)]);
       }
     } else if (period === "rolling") {
-      // the last 365 days, today included (as of 2026.10.45): a bar per
+      // the last 365 days, today included (as of 2026.11.0): a bar per
       // month, the first one only from the day a year back
       const from = addDays(todayIso, -364);
       const months = [];

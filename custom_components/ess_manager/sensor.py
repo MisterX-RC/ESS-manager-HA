@@ -101,7 +101,7 @@ CARD_ENTITY_KEYS = (
     "discharge_stop",
     "spike_status",
     "negative_price_status",
-    # what the battery saves (as of 2026.10.45) - the savings card
+    # what the battery saves (as of 2026.11.0) - the savings card
     "savings",
 )
 
@@ -512,7 +512,7 @@ class EssManagerHeatPumpSensor(CoordinatorEntity[EssManagerCoordinator], SensorE
 
 
 class EssManagerSavingsSensor(CoordinatorEntity[EssManagerCoordinator], SensorEntity):
-    """What the battery saved this month (as of 2026.10.45) - savings.py.
+    """What the battery saved this month (as of 2026.11.0) - savings.py.
     State: the saving this calendar month so far (incl today), in the
     currency of Home Assistant. Attributes: per day what was bought and sold
     with the battery and without, today's quarters - for the savings card."""

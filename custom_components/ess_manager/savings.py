@@ -1,4 +1,4 @@
-"""What the battery saves (as of 2026.10.45) - no Home Assistant imports, the
+"""What the battery saves (as of 2026.11.0) - no Home Assistant imports, the
 recorder is reached through the fetch functions the coordinator hands in
 (unit-tested in tests/test_pipeline.py).
 

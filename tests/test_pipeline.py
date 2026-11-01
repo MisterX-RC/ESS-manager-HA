@@ -5367,7 +5367,7 @@ check("spike: 0.80 sold, 0.30 bought / 0.81 = 0.43 gained - above a margin of 0.
       _sk_a.get("active") and _sk_a["low_price_unit"] == 110 and _sk_a["high_price_unit"] == 170 and not _sk_b.get("active"))
 
 
-# 2026.10.45: what the battery saves - per 5-minute slot, with and without the battery
+# 2026.11.0: what the battery saves - per 5-minute slot, with and without the battery
 import asyncio as _sa
 from datetime import timezone as _stz
 _s_src = {"import": ["imp"], "export": ["exp"], "battery_charge": ["ch"], "battery_discharge": ["dis"]}

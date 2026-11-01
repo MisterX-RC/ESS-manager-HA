@@ -145,7 +145,7 @@ async def async_fetch_state_changes(hass: HomeAssistant, entity_id: str, start, 
 async def async_fetch_5min_changes(hass: HomeAssistant, ids: Iterable[str], start: datetime, end: datetime) -> dict[str, dict[int, float]]:
     """Each statistic's energy per 5-minute slot (kWh, the recorder's
     short-term statistics' `change`) between start and end, keyed by the
-    slot's start (epoch) - for the savings card (2026.10.45). The recorder
+    slot's start (epoch) - for the savings card (2026.11.0). The recorder
     keeps these as long as its history (`keep_days`)."""
     wanted = {i for i in ids if i}
     if not wanted:
@@ -170,7 +170,7 @@ async def async_fetch_5min_changes(hass: HomeAssistant, ids: Iterable[str], star
 async def async_fetch_numeric_states(hass: HomeAssistant, entity_id: str, start: datetime, end: datetime) -> list[tuple[float, float]]:
     """The recorded numeric states of an entity [(epoch, value)], oldest
     first, the state at `start` included - the price sensor's quarter
-    prices of the last days, for the savings card (2026.10.45)."""
+    prices of the last days, for the savings card (2026.11.0)."""
     from homeassistant.components.recorder.history import state_changes_during_period
 
     changes = await get_instance(hass).async_add_executor_job(
