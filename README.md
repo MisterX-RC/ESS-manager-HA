@@ -1872,15 +1872,19 @@ bought at the buy price incl taxes and transport (see [Prices including
 taxes](#prices-including-taxes)), sold at the bare price. The battery's
 losses are in it by themselves: only measured energy counts.
 
-At the top the saving in the period - **Day** (today so far, a bar per
-hour), **Week** (the last 7 days), **Month** (this month, a bar per day,
-with the average per day), **Year** (this calendar year, a bar per month)
-or **365 d** (the last 365 days up to today, a bar per month) - and how much less
+At the top the saving in the period - **Day** (just the totals, no bars:
+within a day the money goes out while charging and the saving comes when
+the battery is used, which bars per hour would show as losses), **Week**
+(Monday to Sunday, a bar per day), **Month** (a bar per day, with the
+average per day), **Year** (a bar per month) or **365 d** (365 days up to
+today, a bar per month) - and how much less
 that is than without the battery. Below it **without battery** and **with
 ESS Manager** side by side: what it cost, the kWh bought and sold and the
 average price per kWh of each. A day that cost more with the battery (e.g.
 losses on a day with flat prices) is a red bar below zero. Tap a bar for
-that day: the saving and the cost with and without.
+that day: the saving and the cost with and without. Below the tabs the
+arrows go back and forth a day, week, month, year or 365 days, like on the
+Energy dashboard (back as far as there are stored days).
 
 Where it comes from: the Energy dashboard's **grid import and export** and
 **battery charged and discharged** statistics in 5-minute steps (the

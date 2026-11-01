@@ -4366,6 +4366,7 @@ const SV_TEXT = {
     no_grid: "The savings need the grid import and export in the Energy dashboard (Settings > Dashboards > Energy).",
     waiting: "Working out the savings - the days the recorder still has are filled in shortly.",
     empty: "No savings yet - the first day is added tonight.",
+    no_data: "No data for this period.",
     cost_with: "with battery", cost_without: "without battery",
   },
   nl: {
@@ -4380,6 +4381,7 @@ const SV_TEXT = {
     no_grid: "Voor de besparing zijn inkoop en teruglevering nodig in het Energie-dashboard (Instellingen > Dashboards > Energie).",
     waiting: "De besparing wordt uitgerekend - de dagen die de recorder nog heeft komen er zo bij.",
     empty: "Nog geen besparing - de eerste dag komt er vannacht bij.",
+    no_data: "Geen gegevens voor deze periode.",
     cost_with: "met accu", cost_without: "zonder accu",
   },
 };
@@ -4400,6 +4402,10 @@ const SV_CSS = `
   .sv-legend i { display: inline-block; width: 11px; height: 8px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
   .sv-note { font-size: 11.5px; line-height: 16px; color: var(--secondary-text-color, #8f8f8f); margin-top: 10px; }
   .sv-chart { position: relative; margin-top: 14px; }
+  .sv-nav { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; font-size: 14px; font-weight: 500; }
+  .sv-nav span { min-width: 150px; text-align: center; }
+  .sv-nav button { width: 30px; height: 30px; border-radius: 50%; border: 0; background: rgba(127,127,127,.16); color: inherit; font: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
+  .sv-nav button[disabled] { opacity: .3; cursor: default; }
   .sv-chart svg { display: block; }
   .sv-chart text { fill: var(--secondary-text-color, #8f8f8f); font-size: 10px; font-family: inherit; }
   @container (max-width: 420px) { .sv-cmp { grid-template-columns: minmax(0, 1fr); } }
@@ -4437,7 +4443,7 @@ class EssManagerSavingsCard extends EssChartCard {
     const svId = (st.attributes.card_entities || {}).savings;
     const svObj = svId ? this._hass.states[svId] : null;
     const width = this._chartWidth();
-    const key = [svObj, width, this._period, this._tip, hassLang(this._hass)];
+    const key = [svObj, width, this._period, this._offset, this._tip, hassLang(this._hass)];
     if (this._renderKey && key.every((v, i) => v === this._renderKey[i])) return;
     this._renderKey = key;
     const title = esc(this._config.title || this._s("title"));
@@ -4453,60 +4459,72 @@ class EssManagerSavingsCard extends EssChartCard {
     if (!rows.length) return msg(this._s("empty"));
 
     const period = this._period || "month";
+    const off = this._offset || 0;
     const todayIso = isoDate(this._hass, Date.now());
+    const lang = hassLang(this._hass);
     const byDate = Object.fromEntries(rows.map((r) => [r[0], r]));
     const sum = (list) => list.reduce((a, r) => { for (let k = 1; k < 9; k++) a[k] += Number(r[k]) || 0; return a; }, [null, 0, 0, 0, 0, 0, 0, 0, 0]);
     const saving = (t) => (t[6] - t[8]) - (t[2] - t[4]);
-    // the bars: [label, saving, row-or-sum, tooltip label]
+    const noon = (d) => Date.parse(`${d}T12:00:00Z`);
+    const fmt = (d, o) => new Intl.DateTimeFormat(lang, { timeZone: "UTC", ...o }).format(noon(d));
+    const monthBars = (months, lo, hi, withYear) => {
+      for (const ym of months) {
+        const list = rows.filter((r) => r[0].startsWith(ym) && r[0] >= lo && r[0] <= hi);
+        inPeriod = inPeriod.concat(list);
+        const name = fmt(`${ym}-15`, { month: "short" });
+        bars.push([name, list.length ? saving(sum(list)) : null, list.length ? sum(list) : null, withYear ? `${name} ${ym.slice(0, 4)}` : name]);
+      }
+    };
+    // the period shown, `off` periods back (as of 2026.11.1 - the arrows,
+    // like the Energy dashboard): [label, first date], and the bars
+    // [label, saving, row-or-sum, tooltip label]; Day has no bars
     let bars = [];
     let inPeriod = [];
+    let label = "";
+    let first = todayIso;
     if (period === "day") {
-      inPeriod = today ? [today] : [];
-      const q = (sv.today && sv.today.quarters) || [];
-      const T0 = localMidnight(this._hass, Date.now());
-      const hoursNow = Math.ceil((Date.now() - T0) / HOUR_MS);
-      for (let h = 0; h < Math.ceil(q.length / 4); h++) {
-        const v = h < hoursNow ? q.slice(h * 4, h * 4 + 4).reduce((a, b) => a + (Number(b) || 0), 0) : null;
-        bars.push([String(h).padStart(2, "0"), v, null, `${f.time(T0 + h * HOUR_MS)}–${f.time(T0 + (h + 1) * HOUR_MS)}`]);
-      }
+      const d = addDays(todayIso, -off);
+      first = d;
+      if (byDate[d]) inPeriod = [byDate[d]];
+      label = off === 0 ? this._s("p_day") : fmt(d, { weekday: "short", day: "numeric", month: "long" });
     } else if (period === "week" || period === "month") {
       const dates = [];
       if (period === "week") {
-        for (let k = 6; k >= 0; k--) dates.push(addDays(todayIso, -k));
+        // a calendar week, Monday to Sunday
+        const dow = (new Date(noon(todayIso)).getUTCDay() + 6) % 7;
+        const monday = addDays(todayIso, -dow - 7 * off);
+        for (let k = 0; k < 7; k++) dates.push(addDays(monday, k));
+        label = `${fmt(dates[0], { day: "numeric", month: "short" })} – ${fmt(dates[6], { day: "numeric", month: "short" })}`;
       } else {
-        const first = todayIso.slice(0, 8) + "01";
-        for (let d = first; d.slice(0, 7) === todayIso.slice(0, 7); d = addDays(d, 1)) dates.push(d);
+        const dt = new Date(noon(todayIso.slice(0, 8) + "01"));
+        dt.setUTCMonth(dt.getUTCMonth() - off);
+        const firstDay = dt.toISOString().slice(0, 10);
+        for (let d = firstDay; d.slice(0, 7) === firstDay.slice(0, 7); d = addDays(d, 1)) dates.push(d);
+        label = fmt(firstDay, { month: "long", year: "numeric" });
       }
+      first = dates[0];
       for (const d of dates) {
-        const r = byDate[d];
+        const r = d <= todayIso ? byDate[d] : null;
         if (r) inPeriod.push(r);
-        const ms = Date.parse(`${d}T12:00:00Z`);
-        bars.push([period === "week" ? f.weekday(ms) : String(Number(d.slice(8))), r ? saving(sum([r])) : null, r, f.dayLabel(ms)]);
+        bars.push([period === "week" ? fmt(d, { weekday: "short" }) : String(Number(d.slice(8))), r ? saving(sum([r])) : null, r, fmt(d, { weekday: "short", day: "numeric", month: "short" })]);
       }
     } else if (period === "rolling") {
-      // the last 365 days, today included (as of 2026.11.0): a bar per
+      // 365 days up to today (or a whole such stretch back): a bar per
       // month, the first one only from the day a year back
-      const from = addDays(todayIso, -364);
+      const to = addDays(todayIso, -365 * off);
+      const from = addDays(to, -364);
+      first = from;
       const months = [];
-      for (let d = from.slice(0, 8) + "01"; d <= todayIso; d = addDays(d.slice(0, 8) + "28", 4).slice(0, 8) + "01") months.push(d.slice(0, 7));
-      for (const ym of months) {
-        const list = rows.filter((r) => r[0].startsWith(ym) && r[0] >= from && r[0] <= todayIso);
-        inPeriod = inPeriod.concat(list);
-        const ms = Date.parse(`${ym}-15T12:00:00Z`);
-        const name = new Intl.DateTimeFormat(hassLang(this._hass), { month: "short" }).format(ms);
-        bars.push([name, list.length ? saving(sum(list)) : null, list.length ? sum(list) : null, `${name} ${ym.slice(0, 4)}`]);
-      }
+      for (let d = from.slice(0, 8) + "01"; d <= to; d = addDays(d.slice(0, 8) + "28", 4).slice(0, 8) + "01") months.push(d.slice(0, 7));
+      monthBars(months, from, to, true);
+      label = off === 0 ? this._s("p_rolling") : `${fmt(from, { day: "numeric", month: "short", year: "numeric" })} – ${fmt(to, { day: "numeric", month: "short", year: "numeric" })}`;
     } else {
-      const year = todayIso.slice(0, 4);
-      for (let m = 1; m <= 12; m++) {
-        const ym = `${year}-${String(m).padStart(2, "0")}`;
-        const list = rows.filter((r) => r[0].startsWith(ym));
-        inPeriod = inPeriod.concat(list);
-        const ms = Date.parse(`${ym}-15T12:00:00Z`);
-        const name = new Intl.DateTimeFormat(hassLang(this._hass), { month: "short" }).format(ms);
-        bars.push([name, list.length ? saving(sum(list)) : null, list.length ? sum(list) : null, name]);
-      }
+      const year = String(Number(todayIso.slice(0, 4)) - off);
+      first = `${year}-01-01`;
+      monthBars(Array.from({ length: 12 }, (_, m) => `${year}-${String(m + 1).padStart(2, "0")}`), first, `${year}-12-31`, false);
+      label = off === 0 ? this._s("p_year") : year;
     }
+    const oldest = rows.map((r) => r[0]).sort()[0];
     const t = sum(inPeriod);
     const save = saving(t);
     const without = t[6] - t[8];
@@ -4518,8 +4536,8 @@ class EssManagerSavingsCard extends EssChartCard {
     const box = (label, cost, imp, bought, exp, sold, color, bg) => `<div class="sv-box"${bg ? ` style="background:${bg}"` : ""}>
         <div class="dim" style="font-size:12px">${esc(label)}</div>
         <div class="v"${color ? ` style="color:${color}"` : ""}>${esc(f.money(cost))}</div>
-        <div class="sv-ln"><span class="dim">↓ ${esc(this._s("bought"))}</span><span>${esc(f.num(imp, 0))} kWh</span><span class="dim">${esc(this._s("at"))}</span><b${color ? ` style="color:${color}"` : ""}>${esc(priceTxt(bought, imp) || "–")}</b></div>
-        <div class="sv-ln"><span class="dim">↑ ${esc(this._s("sold"))}</span><span>${esc(f.num(exp, 0))} kWh</span><span class="dim">${exp > 0.05 ? esc(this._s("at")) : ""}</span><b${color ? ` style="color:${color}"` : ""}>${exp > 0.05 ? esc(priceTxt(sold, exp)) : `<span class="dim" style="font-weight:400;font-size:12px">${esc(this._s("no_sale"))}</span>`}</b></div>
+        <div class="sv-ln"><span class="dim">↓ ${esc(this._s("bought"))}</span><span>${esc(f.num(imp, imp < 10 ? 1 : 0))} kWh</span><span class="dim">${esc(this._s("at"))}</span><b${color ? ` style="color:${color}"` : ""}>${esc(priceTxt(bought, imp) || "–")}</b></div>
+        <div class="sv-ln"><span class="dim">↑ ${esc(this._s("sold"))}</span><span>${esc(f.num(exp, exp < 10 ? 1 : 0))} kWh</span><span class="dim">${exp > 0.05 ? esc(this._s("at")) : ""}</span><b${color ? ` style="color:${color}"` : ""}>${exp > 0.05 ? esc(priceTxt(sold, exp)) : `<span class="dim" style="font-weight:400;font-size:12px">${esc(this._s("no_sale"))}</span>`}</b></div>
       </div>`;
 
     // the chart
@@ -4571,7 +4589,9 @@ class EssManagerSavingsCard extends EssChartCard {
         : "";
       tip = `<div class="tip" style="display:flex;left:${r1(left)}px;top:0"><div class="row"><b>${esc(b[3])}</b></div><div class="row"><span class="k">${esc(this._s(b[1] >= 0 ? "saved" : "cost_more"))}</span><b>${esc(f.money(Math.abs(b[1])))}</b></div>${lines}</div>`;
     }
-    const pTitle = `${title} · ${esc(this._s("p_" + period))}`;
+    const pTitle = title;
+    // back as long as the period before still has stored days
+    const canBack = !!oldest && oldest < first;
     const pill = pct !== null
       ? `<span class="sv-pill" style="background:${tint(good ? opt.saving_color : opt.loss_color, 0.16)};color:${good ? opt.saving_color : opt.loss_color}">${good ? "▲" : "▼"} ${esc(this._s(good ? "less" : "more")(pct))}</span>`
       : "";
@@ -4581,22 +4601,37 @@ class EssManagerSavingsCard extends EssChartCard {
           <div class="sv-big">${esc(f.money(Math.abs(save)))} <small>${esc(this._s(good ? "saved" : "cost_more"))}</small></div>${pill}</div>
         <div class="sv-tabs">${tabs}</div>
       </div>
-      <div class="sv-cmp">
+      <div class="sv-nav">
+        <button type="button" class="prev" aria-label="‹"${canBack ? "" : " disabled"}>‹</button>
+        <span>${esc(label)}</span>
+        <button type="button" class="next" aria-label="›"${off > 0 ? "" : " disabled"}>›</button>
+      </div>
+      ${inPeriod.length ? `<div class="sv-cmp">
         ${box(this._s("without"), t[6] - t[8], t[5], t[6], t[7], t[8], null, null)}
         ${box(this._s("with"), t[2] - t[4], t[1], t[2], t[3], t[4], opt.saving_color, tint(opt.saving_color, 0.1))}
-      </div>
-      <div class="sv-chart"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${svg}</svg>${tip}
+      </div>` : `<div class="sv-note" style="font-size:13px;margin:14px 0">${esc(this._s("no_data"))}</div>`}
+      ${bars.length && inPeriod.length ? `<div class="sv-chart"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${svg}</svg>${tip}
         <div class="hit" style="position:absolute;left:${X0}px;top:0;width:${r1(W - X0)}px;height:${H}px"></div></div>
-      <div class="sv-legend"><span><i style="background:${opt.saving_color}"></i>${esc(this._s("legend_saving"))}</span><span><i style="background:${opt.loss_color}"></i>${esc(this._s("legend_loss"))}</span><span style="margin-left:auto">${esc(this._s("tap"))}</span></div>
+      <div class="sv-legend"><span><i style="background:${opt.saving_color}"></i>${esc(this._s("legend_saving"))}</span><span><i style="background:${opt.loss_color}"></i>${esc(this._s("legend_loss"))}</span><span style="margin-left:auto">${esc(this._s("tap"))}</span></div>` : ""}
       <div class="sv-note">${esc(this._s("note")(sv.history_days))}</div>`;
     setCardContent(this, css, html);
     for (const btn of this.shadowRoot.querySelectorAll(".sv-tabs button")) {
       btn.onclick = () => {
         this._period = btn.dataset.p;
+        this._offset = 0;
         this._tip = null;
         this._render();
       };
     }
+    const nav = (d) => () => {
+      this._offset = Math.max((this._offset || 0) + d, 0);
+      this._tip = null;
+      this._render();
+    };
+    const prev = this.shadowRoot.querySelector(".sv-nav .prev");
+    const next = this.shadowRoot.querySelector(".sv-nav .next");
+    if (prev) prev.onclick = nav(1);
+    if (next) next.onclick = nav(-1);
     const hit = this.shadowRoot.querySelector(".hit");
     if (hit) {
       hit.onclick = (ev) => {
