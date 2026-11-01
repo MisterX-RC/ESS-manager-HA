@@ -14,6 +14,25 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.10.45] - 2026-11-01
 
+### Savings card
+- **New card: ESS Manager - Savings** (`custom:ess-manager-savings-card`) -
+  what the battery saved against the same house without one: per quarter
+  the measured grid import and export against what would have gone through
+  the grid without the battery (export - import + charged - discharged, per
+  5 minutes), bought incl taxes and transport, sold bare. Day / week /
+  month / year, the saving and how much less than without, **without
+  battery** and **with ESS Manager** side by side with the kWh bought and
+  sold and the average price per kWh, a bar per hour / day / month (red
+  below zero for a day that cost more). Losses are in it by themselves.
+- From the Energy dashboard's grid and battery statistics in 5-minute steps
+  and the price sensor's recorded states; every night yesterday is added,
+  and at the start it looks back as far as the recorder keeps its history
+  (`keep_days`, 10 days by default). Stored per day as raw sums, so the
+  line incl taxes applies when shown (also to past days after it changes).
+- New sensor **Savings this month** (its attributes hold the days, out of
+  the recorder). Worked out in the background: it never holds up the
+  planning.
+
 ### Cards
 - **The status card's timeline shows House from grid and Solar export in
   their own colours** (purple / orange, as on the price and battery charts)

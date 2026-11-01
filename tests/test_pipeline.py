@@ -39,6 +39,7 @@ usage_forecast = _load("usage_forecast")
 transport = _load("transport")
 sensor_watch = _load("sensor_watch")
 price_incl = _load("price_incl")
+savings = _load("savings")
 
 FAILURES = []
 
@@ -5364,6 +5365,65 @@ _sk_a = plans.compute_spike_plan(None, *_sk_args, 0.40, 3.0, 3.0, None, 1.0, **_
 _sk_b = plans.compute_spike_plan(None, *_sk_args, 0.45, 3.0, 3.0, None, 1.0, **_sk_kw)
 check("spike: 0.80 sold, 0.30 bought / 0.81 = 0.43 gained - above a margin of 0.40, not above 0.45",
       _sk_a.get("active") and _sk_a["low_price_unit"] == 110 and _sk_a["high_price_unit"] == 170 and not _sk_b.get("active"))
+
+
+# 2026.10.45: what the battery saves - per 5-minute slot, with and without the battery
+import asyncio as _sa
+from datetime import timezone as _stz
+_s_src = {"import": ["imp"], "export": ["exp"], "battery_charge": ["ch"], "battery_discharge": ["dis"]}
+_s_d0 = 1_800_000_000 - 1_800_000_000 % 86400
+def _s_stats(day0, quarters=96, cheap_q=8, dear_q=72):
+    st = {k: {} for k in ("imp", "exp", "ch", "dis")}
+    for k in range(quarters * 3):
+        t = day0 + k * 300
+        q = k // 3
+        house = 0.1   # 1.2 kW
+        if q == cheap_q:          # the battery charges 1 kWh per slot from the grid
+            st["imp"][t] = house + 1.0; st["ch"][t] = 1.0; st["exp"][t] = 0.0; st["dis"][t] = 0.0
+        elif q == dear_q:         # and gives the house its 0.1 kWh
+            st["imp"][t] = 0.0; st["ch"][t] = 0.0; st["exp"][t] = 0.0; st["dis"][t] = house
+        else:
+            st["imp"][t] = house; st["ch"][t] = 0.0; st["exp"][t] = 0.0; st["dis"][t] = 0.0
+    return st
+_s_buy = [0.20] * 96
+_s_buy[8] = 0.10
+_s_buy[72] = 0.40
+_s_rows = savings.day_rows(_s_d0, 96, _s_d0 + 86400, _s_stats(_s_d0), _s_src, _s_buy, [0.15] * 96)
+_s_tot = savings.total(_s_rows)
+_s_p = savings.priced(_s_tot, (1.0, 0.0))
+check("savings: with - 3 kWh bought at 0.10 for the battery, the dear quarter from the battery",
+      abs(_s_p["import_with"] - (28.8 + 3.0 - 0.3)) < 1e-6 and abs(_s_p["import_without"] - 28.8) < 1e-6)
+check("savings: without the battery the dear quarter is bought - 0.3 x 0.40 vs 3.0 x 0.10 = 0.18 less with",
+      abs(_s_p["saving"] - (0.3 * 0.40 - 3.0 * 0.10)) < 1e-6)
+_s_p2 = savings.priced(_s_tot, (1.21, 0.131))
+check("savings: the line incl taxes is put on afterwards - the extra 2.7 kWh bought costs the fixed part too",
+      abs(_s_p2["saving"] - (1.21 * (0.3 * 0.40 - 3.0 * 0.10) - 0.131 * 2.7)) < 1e-6)
+_s_st = _s_stats(_s_d0)
+for _k in list(_s_st["imp"])[:40]:
+    del _s_st["imp"][_k]
+check("savings: a day the statistics don't cover is skipped",
+      savings.day_rows(_s_d0, 96, _s_d0 + 86400, _s_st, _s_src, _s_buy, [0.15] * 96) is None)
+check("savings: the price of each quarter from the recorded states (a moment after it begins)",
+      savings.quarter_prices([(_s_d0 - 50, 0.3), (_s_d0 + 905, 0.25), (_s_d0 + 2000, 0.2)], _s_d0, 3) == [0.3, 0.25, 0.25])
+_s_data = savings.SavingsData()
+async def _s_fetch(ids, start, end):
+    out = {k: {} for k in ids}
+    d = int(start.timestamp())
+    while d < end.timestamp():
+        for k, v in _s_stats(d).items():
+            out[k].update(v)
+        d += 86400
+    return out
+async def _s_prices(start, end):
+    return [(start.timestamp(), 0.2)]
+_s_now = datetime.fromtimestamp(_s_d0 + 3 * 86400 + 3600, tz=_stz.utc)
+_sa.run(_s_data.async_fill(_s_now, 2, _s_src, _s_fetch, _s_prices, lambda p, ds: p))
+check("savings: the finished days the recorder still has are filled in (2 days kept: 2 days)",
+      sorted(_s_data.days) == [(_s_now.date() - timedelta(days=2)).isoformat(), (_s_now.date() - timedelta(days=1)).isoformat()])
+_sa.run(_s_data.async_today(_s_now, _s_src, _s_fetch, [0.2] * 96, lambda p, ds: p))
+_s_at = _s_data.attribute((1.0, 0.0))
+check("savings: today so far, and the attribute per day",
+      _s_at["today"] is not None and len(_s_at["days"]) == 2 and _s_at["history_days"] == 2 and len(_s_at["days"][0]) == 9)
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

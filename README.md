@@ -1634,6 +1634,7 @@ browser refresh), edit a dashboard, choose **Add card** and search for
 | ESS Manager - Electric car (`custom:ess-manager-ev-card`) | the electric car's charging sessions in the planning: check, edit or add them (only with the electric car switched on, see [Electric car](#electric-car)) |
 | ESS Manager - Heat pump (`custom:ess-manager-heatpump-card`) | the heat pump forecast from the weather: the coming days, the energy signature and what the model has learned (only with the heat pump switched on, see [Heat pump](#heat-pump)) |
 | ESS Manager - Forecast check (`custom:ess-manager-forecast-card`) | how good the usage and solar forecasts were, which usage forecast is in use and the Safety buffer advice, with the "adjust automatically" switch (see [Forecast check](#forecast-check)) |
+| ESS Manager - Savings (`custom:ess-manager-savings-card`) | what the battery saved against the same house without one - per day, week, month and year, with what was bought and sold and the average price per kWh |
 
 All of them are drawn by the integration itself - nothing else to install
 (since v0.5.1 also not apexcharts-card). The integration loads the card
@@ -1862,6 +1863,41 @@ or the kWh extra to warm it up. Three tabs:
 |---|---|---|
 | `title` | `Heat pump` | the card's title |
 | `hp_color` | orange | the heat pump colour |
+
+**Savings card** *(as of 2026.10.45)*. What the battery saved against the
+same house without a battery: per quarter, the grid import and export
+that were measured, against what would have gone through the grid without
+the battery (export - import + charged - discharged, per 5 minutes) -
+bought at the buy price incl taxes and transport (see [Prices including
+taxes](#prices-including-taxes)), sold at the bare price. The battery's
+losses are in it by themselves: only measured energy counts.
+
+At the top the saving in the period - **Day** (today so far, a bar per
+hour), **Week** (the last 7 days), **Month** (this month, a bar per day,
+with the average per day) or **Year** (a bar per month) - and how much less
+that is than without the battery. Below it **without battery** and **with
+ESS Manager** side by side: what it cost, the kWh bought and sold and the
+average price per kWh of each. A day that cost more with the battery (e.g.
+losses on a day with flat prices) is a red bar below zero. Tap a bar for
+that day: the saving and the cost with and without.
+
+Where it comes from: the Energy dashboard's **grid import and export** and
+**battery charged and discharged** statistics in 5-minute steps (the
+recorder's short-term statistics) and the price sensor's recorded states.
+Every night yesterday is added; at the start the integration looks back as
+far as the recorder keeps its history (`keep_days` of the recorder, 10 days
+by default - set it higher in `configuration.yaml` to look back further).
+Days the statistics don't cover are skipped. Without the battery in the
+Energy dashboard the card says so instead. A day is stored as raw sums
+(kWh and kWh x price), so the line incl taxes is put on when shown - a
+learned line or a tax change applies to the past days too. The days are
+on the **Savings this month** sensor (state: this month's saving), its
+attributes out of the recorder.
+
+| Option | Default | What it does |
+|---|---|---|
+| `title` | `Savings` | the card's title |
+| `saving_color` / `loss_color` | green / red | a day saved / a day more expensive |
 
 `dashboard/` still has the old chart cards as plain apexcharts-card YAML
 and the old status card (`entities_card.yaml`), for when you'd rather

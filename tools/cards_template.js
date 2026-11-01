@@ -59,7 +59,7 @@ const I18N = {
     msg_not_status: (e) => `ESS Manager: ${e} is not an ESS Manager Status sensor - choose the "Status" sensor.`,
     msg_unavailable: (e) => `ESS Manager has no data yet: ${e} is unavailable. Right after a restart that's normal for a moment; if it stays, look in Settings > System > Logs for "ess_manager".`,
     // editors
-    ed_entity: "ESS Manager Status sensor", ed_title: "Title", ed_colours: "Colours", ed_height: "Chart height (px)",
+    ed_entity: "ESS Manager Status sensor", ed_title: "Title", ed_saving_color: "Saved", ed_loss_color: "More expensive", ed_colours: "Colours", ed_height: "Chart height (px)",
     ed_days: "Days", ed_show_days: "Show the day tiles", ed_show_raw: "Show the forecast without plans",
     ed_show_solar: "Show solar", ed_show_usage: "Show usage", ed_show_outlook: "Show \"without grid\"",
     ed_soc_color: "SOC", ed_solar_color: "Solar", ed_usage_color: "Usage", ed_sell_color: "Sell", ed_buy_color: "Buy",
@@ -250,7 +250,7 @@ const I18N = {
     msg_not_found: (e) => `ESS Manager: ${e} niet gevonden - kies de "Status"-sensor van de installatie.`,
     msg_not_status: (e) => `ESS Manager: ${e} is geen ESS Manager Status-sensor - kies de "Status"-sensor.`,
     msg_unavailable: (e) => `ESS Manager heeft nog geen gegevens: ${e} is niet beschikbaar. Vlak na een herstart is dat even normaal; blijft het zo, kijk dan in Instellingen > Systeem > Logboeken naar "ess_manager".`,
-    ed_entity: "ESS Manager Status-sensor", ed_title: "Titel", ed_colours: "Kleuren", ed_height: "Hoogte grafiek (px)",
+    ed_entity: "ESS Manager Status-sensor", ed_title: "Titel", ed_saving_color: "Bespaard", ed_loss_color: "Duurder", ed_colours: "Kleuren", ed_height: "Hoogte grafiek (px)",
     ed_days: "Dagen", ed_show_days: "Dagtegels tonen", ed_show_raw: "Voorspelling zonder plannen tonen",
     ed_show_solar: "Zon tonen", ed_show_usage: "Verbruik tonen", ed_show_outlook: "\"Zonder stroomnet\" tonen",
     ed_soc_color: "SOC", ed_solar_color: "Zon", ed_usage_color: "Verbruik", ed_sell_color: "Verkoop", ed_buy_color: "Laden",
@@ -4332,6 +4332,289 @@ class EssManagerForecastCard extends EssChartCard {
   }
 }
 
+// -- Savings card (as of 2026.10.45) ----------------------------------------------
+// What the battery saved against the same house without one (savings.py):
+// per day what was bought and sold with the battery and without, priced
+// with the buy price incl taxes (the line of the Status sensor) and the bare
+// sell price. Day / week / month / year; a bar per hour, day or month.
+const SV_DEFAULTS = {
+  title: "",
+  saving_color: [77, 208, 160],
+  loss_color: [224, 95, 95],
+};
+const SV_COLOR_KEYS = ["saving_color", "loss_color"];
+const SV_SCHEMA = (t) => [
+  { name: "title", selector: { text: {} } },
+  {
+    type: "expandable",
+    flatten: true,
+    name: "colours",
+    title: t("ed_colours"),
+    schema: [{ type: "grid", name: "", schema: SV_COLOR_KEYS.map((name) => ({ name, selector: { color_rgb: {} } })) }],
+  },
+];
+const SV_TEXT = {
+  en: {
+    title: "Savings", saved: "saved", cost_more: "more expensive", day: "Day", week: "Week", month: "Month", year: "Year",
+    p_day: "today", p_week: "last 7 days", p_month: "this month", p_year: "this year",
+    less: (p) => `${p}% less than without battery`, more: (p) => `${p}% more than without battery`,
+    without: "Without battery", with: "With ESS Manager", bought: "bought", sold: "sold", at: "at", no_sale: "no sale",
+    legend_saving: "saved", legend_loss: "more expensive than without battery", avg: (v) => `avg. ${v} / day`,
+    tap: "tap a bar",
+    note: (h) => `Compared with the same house without a battery, per quarter with the real prices: buying incl. taxes (and transport), selling bare. The price after the kWh is the average per kWh. Measured from the Energy dashboard (grid import and export, battery charged and discharged), the battery's losses included. Every night yesterday is added${h ? `; looked back ${h} days (as long as the recorder keeps its history)` : ""}.`,
+    no_battery: "The savings need the battery's charged and discharged energy in the Energy dashboard (Settings > Dashboards > Energy).",
+    no_grid: "The savings need the grid import and export in the Energy dashboard (Settings > Dashboards > Energy).",
+    waiting: "Working out the savings - the days the recorder still has are filled in shortly.",
+    empty: "No savings yet - the first day is added tonight.",
+    cost_with: "with battery", cost_without: "without battery",
+  },
+  nl: {
+    title: "Besparing", saved: "bespaard", cost_more: "duurder", day: "Dag", week: "Week", month: "Maand", year: "Jaar",
+    p_day: "vandaag", p_week: "laatste 7 dagen", p_month: "deze maand", p_year: "dit jaar",
+    less: (p) => `${p}% minder dan zonder accu`, more: (p) => `${p}% meer dan zonder accu`,
+    without: "Zonder accu", with: "Met ESS Manager", bought: "ingekocht", sold: "verkocht", at: "à", no_sale: "geen verkoop",
+    legend_saving: "bespaard", legend_loss: "duurder dan zonder accu", avg: (v) => `gem. ${v} / dag`,
+    tap: "tik op een staaf",
+    note: (h) => `Vergeleken met hetzelfde huis zonder accu, per kwartier met de echte prijzen: inkoop incl. belastingen (en transport), verkoop kaal. De prijs achter de kWh is het gemiddelde per kWh. Gemeten uit het Energie-dashboard (inkoop en teruglevering, laden en ontladen van de accu), verliezen van de accu zitten erin. Elke nacht komt de dag van gisteren erbij${h ? `; ${h} dagen teruggekeken (zo lang bewaart de recorder zijn geschiedenis)` : ""}.`,
+    no_battery: "Voor de besparing is het laden en ontladen van de accu nodig in het Energie-dashboard (Instellingen > Dashboards > Energie).",
+    no_grid: "Voor de besparing zijn inkoop en teruglevering nodig in het Energie-dashboard (Instellingen > Dashboards > Energie).",
+    waiting: "De besparing wordt uitgerekend - de dagen die de recorder nog heeft komen er zo bij.",
+    empty: "Nog geen besparing - de eerste dag komt er vannacht bij.",
+    cost_with: "met accu", cost_without: "zonder accu",
+  },
+};
+const SV_CSS = `
+  .sv-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .sv-big { font-size: 32px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
+  .sv-big small { font-size: 14px; font-weight: 500; color: var(--secondary-text-color, #a0a0a0); }
+  .sv-pill { display: inline-block; margin-top: 6px; font-size: 12px; padding: 4px 10px; border-radius: 999px; }
+  .sv-tabs { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(127,127,127,.14); }
+  .sv-tabs button { border: 0; background: transparent; color: var(--secondary-text-color, #a0a0a0); font: inherit; font-size: 12px; padding: 5px 11px; border-radius: 999px; cursor: pointer; }
+  .sv-tabs button[aria-selected="true"] { background: rgba(127,127,127,.3); color: var(--primary-text-color, #fff); }
+  .sv-cmp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0 4px; }
+  .sv-box { border-radius: 14px; padding: 10px 12px; background: rgba(127,127,127,.12); min-width: 0; }
+  .sv-box .v { font-size: 20px; font-weight: 600; margin: 2px 0 6px; }
+  .sv-ln { display: grid; grid-template-columns: minmax(0, 1fr) auto auto minmax(56px, auto); gap: 6px; font-size: 12.5px; margin-top: 3px; align-items: baseline; }
+  .sv-ln b { text-align: right; font-size: 14px; }
+  .sv-legend { display: flex; gap: 14px; font-size: 12px; color: var(--secondary-text-color, #a0a0a0); margin-top: 6px; flex-wrap: wrap; }
+  .sv-legend i { display: inline-block; width: 11px; height: 8px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
+  .sv-note { font-size: 11.5px; line-height: 16px; color: var(--secondary-text-color, #8f8f8f); margin-top: 10px; }
+  .sv-chart { position: relative; margin-top: 14px; }
+  .sv-chart svg { display: block; }
+  .sv-chart text { fill: var(--secondary-text-color, #8f8f8f); font-size: 10px; font-family: inherit; }
+  @container (max-width: 420px) { .sv-cmp { grid-template-columns: minmax(0, 1fr); } }
+`;
+
+class EssManagerSavingsCard extends EssChartCard {
+  static get info() {
+    return {
+      name: "ESS Manager - Savings",
+      description: "What the battery saved against the same house without one - per day, week, month and year, with the average buy and sell price.",
+      schema: SV_SCHEMA,
+      defaults: SV_DEFAULTS,
+      labels: { title: "ed_title", saving_color: "ed_saving_color", loss_color: "ed_loss_color" },
+    };
+  }
+
+  getCardSize() {
+    return 6;
+  }
+
+  _s(key) {
+    const lang = hassLang(this._hass).slice(0, 2) === "nl" ? "nl" : "en";
+    return SV_TEXT[lang][key];
+  }
+
+  _render() {
+    if (!this._hass || !this._config || !this.shadowRoot) return;
+    const st = this._hass.states[this._config.entity];
+    const opt = colorOptions(this._config, SV_DEFAULTS, SV_COLOR_KEYS);
+    const css = BASE_CSS + SV_CSS;
+    if (!isStatusSensor(st)) {
+      setCardContent(this, css, notStatusMessage(this._hass, this._config.entity, st));
+      return;
+    }
+    const svId = (st.attributes.card_entities || {}).savings;
+    const svObj = svId ? this._hass.states[svId] : null;
+    const width = this._chartWidth();
+    const key = [svObj, width, this._period, this._tip, hassLang(this._hass)];
+    if (this._renderKey && key.every((v, i) => v === this._renderKey[i])) return;
+    this._renderKey = key;
+    const title = esc(this._config.title || this._s("title"));
+    const sv = svObj ? svObj.attributes : null;
+    const msg = (text) => setCardContent(this, css, `<div class="top"><span class="title">${title}</span></div><div class="sv-note" style="font-size:13px">${esc(text)}</div>`);
+    if (!sv || !sv.status || sv.status === "waiting") return msg(this._s("waiting"));
+    if (sv.status === "no_battery") return msg(this._s("no_battery"));
+    if (sv.status === "no_grid") return msg(this._s("no_grid"));
+    const f = formats(this._hass);
+    const rows = (sv.days || []).slice();
+    const today = sv.today && sv.today.row ? sv.today.row : null;
+    if (today && !rows.some((r) => r[0] === today[0])) rows.push(today);
+    if (!rows.length) return msg(this._s("empty"));
+
+    const period = this._period || "month";
+    const todayIso = isoDate(this._hass, Date.now());
+    const byDate = Object.fromEntries(rows.map((r) => [r[0], r]));
+    const sum = (list) => list.reduce((a, r) => { for (let k = 1; k < 9; k++) a[k] += Number(r[k]) || 0; return a; }, [null, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const saving = (t) => (t[6] - t[8]) - (t[2] - t[4]);
+    // the bars: [label, saving, row-or-sum, tooltip label]
+    let bars = [];
+    let inPeriod = [];
+    if (period === "day") {
+      inPeriod = today ? [today] : [];
+      const q = (sv.today && sv.today.quarters) || [];
+      const T0 = localMidnight(this._hass, Date.now());
+      const hoursNow = Math.ceil((Date.now() - T0) / HOUR_MS);
+      for (let h = 0; h < Math.ceil(q.length / 4); h++) {
+        const v = h < hoursNow ? q.slice(h * 4, h * 4 + 4).reduce((a, b) => a + (Number(b) || 0), 0) : null;
+        bars.push([String(h).padStart(2, "0"), v, null, `${f.time(T0 + h * HOUR_MS)}–${f.time(T0 + (h + 1) * HOUR_MS)}`]);
+      }
+    } else if (period === "week" || period === "month") {
+      const dates = [];
+      if (period === "week") {
+        for (let k = 6; k >= 0; k--) dates.push(addDays(todayIso, -k));
+      } else {
+        const first = todayIso.slice(0, 8) + "01";
+        for (let d = first; d.slice(0, 7) === todayIso.slice(0, 7); d = addDays(d, 1)) dates.push(d);
+      }
+      for (const d of dates) {
+        const r = byDate[d];
+        if (r) inPeriod.push(r);
+        const ms = Date.parse(`${d}T12:00:00Z`);
+        bars.push([period === "week" ? f.weekday(ms) : String(Number(d.slice(8))), r ? saving(sum([r])) : null, r, f.dayLabel(ms)]);
+      }
+    } else {
+      const year = todayIso.slice(0, 4);
+      for (let m = 1; m <= 12; m++) {
+        const ym = `${year}-${String(m).padStart(2, "0")}`;
+        const list = rows.filter((r) => r[0].startsWith(ym));
+        inPeriod = inPeriod.concat(list);
+        const ms = Date.parse(`${ym}-15T12:00:00Z`);
+        const name = new Intl.DateTimeFormat(hassLang(this._hass), { month: "short" }).format(ms);
+        bars.push([name, list.length ? saving(sum(list)) : null, list.length ? sum(list) : null, name]);
+      }
+    }
+    const t = sum(inPeriod);
+    const save = saving(t);
+    const without = t[6] - t[8];
+    const pct = without > 0.01 ? Math.round((Math.abs(save) / without) * 100) : null;
+    const good = save >= 0;
+    const tabs = ["day", "week", "month", "year"]
+      .map((p) => `<button type="button" data-p="${p}" aria-selected="${p === period}">${esc(this._s(p))}</button>`).join("");
+    const priceTxt = (eur, kwh) => (kwh > 0.05 ? formatPrice(f, eur / kwh) : null);
+    const box = (label, cost, imp, bought, exp, sold, color, bg) => `<div class="sv-box"${bg ? ` style="background:${bg}"` : ""}>
+        <div class="dim" style="font-size:12px">${esc(label)}</div>
+        <div class="v"${color ? ` style="color:${color}"` : ""}>${esc(f.money(cost))}</div>
+        <div class="sv-ln"><span class="dim">↓ ${esc(this._s("bought"))}</span><span>${esc(f.num(imp, 0))} kWh</span><span class="dim">${esc(this._s("at"))}</span><b${color ? ` style="color:${color}"` : ""}>${esc(priceTxt(bought, imp) || "–")}</b></div>
+        <div class="sv-ln"><span class="dim">↑ ${esc(this._s("sold"))}</span><span>${esc(f.num(exp, 0))} kWh</span><span class="dim">${exp > 0.05 ? esc(this._s("at")) : ""}</span><b${color ? ` style="color:${color}"` : ""}>${exp > 0.05 ? esc(priceTxt(sold, exp)) : `<span class="dim" style="font-weight:400;font-size:12px">${esc(this._s("no_sale"))}</span>`}</b></div>
+      </div>`;
+
+    // the chart
+    const W = width;
+    const H = 130;
+    const X0 = 30;
+    const vals = bars.map((b) => b[1]).filter((v) => v !== null);
+    let hi = Math.max(0, ...vals);
+    let lo = Math.min(0, ...vals);
+    const steps = [0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
+    const step = steps.find((s) => (hi - lo) / s <= 4) || 1000;
+    hi = Math.max(step, Math.ceil(hi / step - 1e-9) * step);
+    lo = Math.floor(lo / step + 1e-9) * step;
+    const top = 8;
+    const bottom = H - 16;
+    const y = (v) => top + ((hi - v) / (hi - lo)) * (bottom - top);
+    const n = bars.length;
+    const bw = (W - X0) / n;
+    let svg = "";
+    for (let v = lo; v <= hi + step / 2; v += step) {
+      svg += `<line x1="${X0}" y1="${r1(y(v))}" x2="${W}" y2="${r1(y(v))}" stroke="rgba(127,127,127,${Math.abs(v) < step / 2 ? 0.35 : 0.13})"/>`;
+      svg += `<text x="0" y="${r1(y(v) + 3)}">${esc(f.num(v, step < 1 ? (step < 0.1 ? 2 : 1) : 0))}</text>`;
+    }
+    const labelEvery = n > 24 ? 5 : n > 12 ? 3 : 1;
+    bars.forEach((b, i) => {
+      const x = X0 + i * bw + bw * 0.15;
+      const w = Math.max(bw * 0.7, 1);
+      if (b[1] !== null) {
+        const y0 = y(Math.max(b[1], 0));
+        const h = Math.max(Math.abs(y(b[1]) - y(0)), b[1] === 0 ? 0 : 1);
+        svg += `<rect x="${r1(x)}" y="${r1(b[1] >= 0 ? y0 : y(0))}" width="${r1(w)}" height="${r1(h)}" rx="2" fill="${b[1] >= 0 ? opt.saving_color : opt.loss_color}" fill-opacity="${this._tip === i ? 1 : 0.82}"/>`;
+      }
+      if (i % labelEvery === 0) svg += `<text x="${r1(x + w / 2)}" y="${H - 3}" text-anchor="middle">${esc(b[0])}</text>`;
+    });
+    let avgTxt = "";
+    if ((period === "week" || period === "month") && vals.length) {
+      const a = vals.reduce((x, v) => x + v, 0) / vals.length;
+      svg += `<line x1="${X0}" y1="${r1(y(a))}" x2="${W}" y2="${r1(y(a))}" stroke="${opt.saving_color}" stroke-dasharray="3 3" stroke-opacity=".7"/>`;
+      avgTxt = this._s("avg")(f.money(a));
+      svg += `<text x="${W}" y="${r1(y(a) - 4)}" text-anchor="end" style="fill:${opt.saving_color}">${esc(avgTxt)}</text>`;
+    }
+    let tip = "";
+    if (this._tip != null && bars[this._tip] && bars[this._tip][1] !== null) {
+      const b = bars[this._tip];
+      const r = b[2];
+      const left = clamp(X0 + this._tip * bw - 60, 0, W - 190);
+      const lines = r
+        ? `<div class="row"><span class="k">${esc(this._s("cost_with"))}</span><b>${esc(f.money(r[2] - r[4]))}</b></div><div class="row"><span class="k">${esc(this._s("cost_without"))}</span><b>${esc(f.money(r[6] - r[8]))}</b></div>`
+        : "";
+      tip = `<div class="tip" style="display:flex;left:${r1(left)}px;top:0"><div class="row"><b>${esc(b[3])}</b></div><div class="row"><span class="k">${esc(this._s(b[1] >= 0 ? "saved" : "cost_more"))}</span><b>${esc(f.money(Math.abs(b[1])))}</b></div>${lines}</div>`;
+    }
+    const pTitle = `${title} · ${esc(this._s("p_" + period))}`;
+    const pill = pct !== null
+      ? `<span class="sv-pill" style="background:${tint(good ? opt.saving_color : opt.loss_color, 0.16)};color:${good ? opt.saving_color : opt.loss_color}">${good ? "▲" : "▼"} ${esc(this._s(good ? "less" : "more")(pct))}</span>`
+      : "";
+    const html = `
+      <div class="sv-top">
+        <div><div class="dim" style="font-size:13px">${pTitle}</div>
+          <div class="sv-big">${esc(f.money(Math.abs(save)))} <small>${esc(this._s(good ? "saved" : "cost_more"))}</small></div>${pill}</div>
+        <div class="sv-tabs">${tabs}</div>
+      </div>
+      <div class="sv-cmp">
+        ${box(this._s("without"), t[6] - t[8], t[5], t[6], t[7], t[8], null, null)}
+        ${box(this._s("with"), t[2] - t[4], t[1], t[2], t[3], t[4], opt.saving_color, tint(opt.saving_color, 0.1))}
+      </div>
+      <div class="sv-chart"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${svg}</svg>${tip}
+        <div class="hit" style="position:absolute;left:${X0}px;top:0;width:${r1(W - X0)}px;height:${H}px"></div></div>
+      <div class="sv-legend"><span><i style="background:${opt.saving_color}"></i>${esc(this._s("legend_saving"))}</span><span><i style="background:${opt.loss_color}"></i>${esc(this._s("legend_loss"))}</span><span style="margin-left:auto">${esc(this._s("tap"))}</span></div>
+      <div class="sv-note">${esc(this._s("note")(sv.history_days))}</div>`;
+    setCardContent(this, css, html);
+    for (const btn of this.shadowRoot.querySelectorAll(".sv-tabs button")) {
+      btn.onclick = () => {
+        this._period = btn.dataset.p;
+        this._tip = null;
+        this._render();
+      };
+    }
+    const hit = this.shadowRoot.querySelector(".hit");
+    if (hit) {
+      hit.onclick = (ev) => {
+        const i = clamp(Math.floor((ev.clientX - hit.getBoundingClientRect().left) / bw), 0, n - 1);
+        this._tip = this._tip === i ? null : i;
+        this._render();
+      };
+    }
+  }
+}
+
+// a price per kWh with three decimals (€ 0,381)
+function formatPrice(f, v) {
+  const two = f.money(v);
+  const digits = f.num(v, 3);
+  return two.replace(/[\d.,]+/, digits.replace(/^-/, ""));
+}
+// the local date (YYYY-MM-DD) of a moment, in the shown time zone
+function isoDate(hass, ms) {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: hassTimeZone(hass), year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
+  } catch (err) {
+    return new Date(ms).toISOString().slice(0, 10);
+  }
+}
+function addDays(iso, k) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + k);
+  return d.toISOString().slice(0, 10);
+}
+
 window.customCards = window.customCards || [];
 for (const [type, cls] of [
   ["ess-manager-status-card", EssManagerStatusCard],
@@ -4340,6 +4623,7 @@ for (const [type, cls] of [
   ["ess-manager-ev-card", EssManagerEvCard],
   ["ess-manager-heatpump-card", EssManagerHeatPumpCard],
   ["ess-manager-forecast-card", EssManagerForecastCard],
+  ["ess-manager-savings-card", EssManagerSavingsCard],
 ]) {
   if (customElements.get(type)) continue;
   customElements.define(type, cls);

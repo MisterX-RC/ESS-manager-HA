@@ -35,6 +35,7 @@ from .accuracy_runtime import AccuracyRuntime
 from .problems import ProblemTracker, below_minimum
 from . import sensor_watch as sw
 from . import price_incl as pi
+from . import savings as sv
 from . import floor_control as fc
 from .const import (
     CONF_BATTERY_SOC_ENTITY,
@@ -169,6 +170,7 @@ from .const import (
 from .controller import ControlSettings, EssController
 from .energy_source import async_get_energy_prefs
 from .statistics_source import async_fetch_hourly_means, async_fetch_state_changes, async_fetch_hourly_sums, async_last_recorded_state
+from .statistics_source import async_fetch_5min_changes, async_fetch_numeric_states, recorder_keep_days
 from .usage_forecast import (
     _week_sample,
     HISTORY_NONE,
@@ -339,6 +341,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.price_model = pi.PriceModel()
         self._price_incl_entity: Optional[str] = None
         self._price_sampled_ts = 0.0
+        self._buy_line: tuple[float, float] = (1.0, 0.0)
+        # What the battery saves (as of 2026.10.45) - savings.py; the days in
+        # their own store, worked out in the background.
+        self.savings_store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_savings")
+        self.savings = sv.SavingsData()
+        self._savings_sources: Optional[dict[str, list[str]]] = None
+        self._savings_sources_at = 0.0
+        self._savings_task: Any = None
 
         self._numbers: dict[str, Any] = {}
 
@@ -550,6 +560,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- persistence --------------------------------------------------------
     async def _async_restore(self) -> None:
+        self.savings.restore(await self.savings_store.async_load())
         prices = await self.price_store.async_load()
         if isinstance(prices, dict):
             self.price_model.restore(prices)
@@ -2019,9 +2030,63 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "vat_percent": conf.get(CONF_PRICE_VAT_PERCENT, DEFAULT_PRICE_VAT_PERCENT)})
         if mode == pi.MODE_MANUAL:
             attr.update({"status": "ready", "a": round(line[0], 5), "b": round(line[1], 5)})
+        self._buy_line = line or (1.0, 0.0)
         if line is None:
             return {"price_incl": attr if mode != pi.MODE_NONE else None, "all_buy_price_incl": None}
         return {"price_incl": attr, "all_buy_price_incl": pi.apply_line(buy_price, line)}
+
+    # -- what the battery saves (as of 2026.10.45) ------------------------------
+    def _savings_buy_of(self, prices: list[Optional[float]], day_start: datetime) -> list[Optional[float]]:
+        """A day's buy prices: price + transport (the tariff now), bare -
+        the line incl taxes is put on when shown."""
+        tariff = max(self.get_number(NUM_TRANSPORT_TARIFF, 0.0), 0.0)
+        if not tariff or not self._transport_factors:
+            return list(prices)
+        times = transport.unit_local_times(day_start, len(prices), day_start.tzinfo)
+        factors = transport.unit_factors(times, self._transport_factors)
+        return [None if p is None else round(p + tariff * factors[i], 5) for i, p in enumerate(prices)]
+
+    async def _async_savings_sources(self) -> Optional[dict[str, list[str]]]:
+        if self._savings_sources is None or time.monotonic() - self._savings_sources_at > 3600:
+            self._savings_sources = energy_prefs_to_sources(await async_get_energy_prefs(self.hass))
+            self._savings_sources_at = time.monotonic()
+        return self._savings_sources
+
+    def _savings_start(self, conf: dict[str, Any], prices_today: list[float], now: datetime) -> None:
+        """Start the savings work in the background when it's due: the
+        finished days the recorder still has once a day (and at the start),
+        today once a quarter. Never holds up or breaks the planning."""
+        if self._savings_task is not None and not self._savings_task.done():
+            return
+        fill_due = self.savings.filled_for != now.date().isoformat() and now.hour * 60 + now.minute >= 15
+        today_due = now.timestamp() - self.savings.today_at >= 900 and now.minute % 15 >= 2
+        if not (fill_due or today_due):
+            return
+        self._savings_task = self.hass.async_create_background_task(
+            self._async_savings(conf, list(prices_today), now, fill_due), f"{DOMAIN}_savings")
+
+    async def _async_savings(self, conf: dict[str, Any], prices_today: list[float], now: datetime, fill: bool) -> None:
+        try:
+            sources = await self._async_savings_sources() or {}
+            if not sources.get("import"):
+                self.savings.status = "no_grid"
+                return
+            if not (sources.get("battery_charge") or sources.get("battery_discharge")):
+                self.savings.status = "no_battery"
+                return
+            self.savings.status = "ok"
+            fetch_stats = lambda ids, start, end: async_fetch_5min_changes(self.hass, ids, start, end)  # noqa: E731
+            price_entity = conf.get(CONF_PRICE_ENTITY)
+            fetch_prices = lambda start, end: async_fetch_numeric_states(self.hass, price_entity, start, end)  # noqa: E731
+            if fill:
+                keep = recorder_keep_days(self.hass)
+                if await self.savings.async_fill(now, keep, sources, fetch_stats, fetch_prices, self._savings_buy_of):
+                    await self.savings_store.async_save(self.savings.as_store())
+            await self.savings.async_today(now, sources, fetch_stats, prices_today, self._savings_buy_of)
+        except Exception as err:  # noqa: BLE001 - the savings card must never stop the planning
+            _LOGGER.warning("ESS Manager (%s): savings not worked out this time: %s", self.entry.title, err)
+            self.savings.today_at = now.timestamp()
+            self.savings.filled_for = now.date().isoformat() if fill else self.savings.filled_for
 
     async def _async_buy_prices(self, all_price: list[float]) -> tuple[float, list[float]]:
         """(tariff, buy prices) from the "Transport tariff" number entity
@@ -2215,6 +2280,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         price_incl = await self._async_price_incl(conf, all_price, buy_price, units.price_unit(now), now)
         plan_buy = price_incl["all_buy_price_incl"] or buy_price
         plan_sell = all_price
+        self._savings_start(conf, today_price and [float(p) for p in today_price] or [], now)
 
         # Only the two supported sources exist (v0.3.0). Anything else - an
         # entry still on a removed source that the v2 migration couldn't
@@ -3058,6 +3124,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # how it was learned),
             # all_buy_price_incl (selling is the bare all_price)
             **price_incl,
+            # what the battery saves (as of 2026.10.45) - the savings card
+            "savings": self.savings.attribute(self._buy_line),
             # Where the "tomorrow" half of all_price begins (i.e. len(today's
             # own price list)) - lets a dashboard split all_price back into
             # its today/tomorrow halves by index without guessing a 96-unit

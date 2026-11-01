@@ -10,6 +10,7 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import MATCH_ALL, EntityCategory
+from homeassistant.util import dt as dt_util
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
@@ -100,6 +101,8 @@ CARD_ENTITY_KEYS = (
     "discharge_stop",
     "spike_status",
     "negative_price_status",
+    # what the battery saves (as of 2026.10.45) - the savings card
+    "savings",
 )
 
 
@@ -180,6 +183,7 @@ async def async_setup_entry(
         EssManagerHeatPumpSensor(coordinator, entry, device_info),
         EssManagerBufferAdviceSensor(coordinator, entry, device_info),
         EssManagerFloorStageSensor(coordinator, entry, device_info),
+        EssManagerSavingsSensor(coordinator, entry, device_info),
     ]
     async_add_entities(entities)
 
@@ -505,6 +509,50 @@ class EssManagerHeatPumpSensor(CoordinatorEntity[EssManagerCoordinator], SensorE
             "cop": (hp.get("house_model") or {}).get("cop"),
             "steering_setpoint": (hp.get("house_model") or {}).get("setpoint_now"),
         }
+
+
+class EssManagerSavingsSensor(CoordinatorEntity[EssManagerCoordinator], SensorEntity):
+    """What the battery saved this month (as of 2026.10.45) - savings.py.
+    State: the saving this calendar month so far (incl today), in the
+    currency of Home Assistant. Attributes: per day what was bought and sold
+    with the battery and without, today's quarters - for the savings card."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Savings this month"
+    _attr_icon = "mdi:piggy-bank-outline"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _unrecorded_attributes = frozenset({MATCH_ALL})
+
+    def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_savings"
+        self._attr_device_info = device_info
+
+    def _data(self) -> dict[str, Any] | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.get("savings")
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        return self.hass.config.currency if self.hass else None
+
+    @property
+    def native_value(self) -> float | None:
+        data = self._data()
+        if not data or data.get("status") != "ok":
+            return None
+        month = dt_util.now().date().isoformat()[:7]
+        rows = [r for r in data.get("days") or [] if r[0].startswith(month)]
+        if data.get("today") and data["today"]["row"][0].startswith(month):
+            rows.append(data["today"]["row"])
+        if not rows:
+            return None
+        return round(sum((r[6] - r[8]) - (r[2] - r[4]) for r in rows), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return dict(self._data() or {})
 
 
 class EssManagerBufferAdviceSensor(CoordinatorEntity[EssManagerCoordinator], SensorEntity):

@@ -140,3 +140,55 @@ async def async_fetch_state_changes(hass: HomeAssistant, entity_id: str, start, 
         )
     )
     return list(changes.get(entity_id.lower(), []))
+
+
+async def async_fetch_5min_changes(hass: HomeAssistant, ids: Iterable[str], start: datetime, end: datetime) -> dict[str, dict[int, float]]:
+    """Each statistic's energy per 5-minute slot (kWh, the recorder's
+    short-term statistics' `change`) between start and end, keyed by the
+    slot's start (epoch) - for the savings card (2026.10.45). The recorder
+    keeps these as long as its history (`keep_days`)."""
+    wanted = {i for i in ids if i}
+    if not wanted:
+        return {}
+    raw = await get_instance(hass).async_add_executor_job(
+        statistics_during_period, hass, start, end, wanted, "5minute", {"energy": "kWh"}, {"change"}
+    )
+    result: dict[str, dict[int, float]] = {}
+    for sid, rows in raw.items():
+        series: dict[int, float] = {}
+        for row in rows:
+            value = row.get("change")
+            if value is None:
+                continue
+            row_start = row.get("start")
+            epoch = int(row_start) if isinstance(row_start, (int, float)) else int(dt_util.as_utc(row_start).timestamp())
+            series[epoch] = float(value)
+        result[sid] = series
+    return result
+
+
+async def async_fetch_numeric_states(hass: HomeAssistant, entity_id: str, start: datetime, end: datetime) -> list[tuple[float, float]]:
+    """The recorded numeric states of an entity [(epoch, value)], oldest
+    first, the state at `start` included - the price sensor's quarter
+    prices of the last days, for the savings card (2026.10.45)."""
+    from homeassistant.components.recorder.history import state_changes_during_period
+
+    changes = await get_instance(hass).async_add_executor_job(
+        lambda: state_changes_during_period(hass, start, end, entity_id, no_attributes=True, include_start_time_state=True)
+    )
+    out: list[tuple[float, float]] = []
+    for st in changes.get(entity_id.lower(), []):
+        try:
+            out.append((st.last_changed.timestamp(), float(st.state)))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def recorder_keep_days(hass: HomeAssistant) -> int:
+    """How many days the recorder keeps its history (and the 5-minute
+    statistics) - 10 by default."""
+    try:
+        return int(get_instance(hass).keep_days)
+    except Exception:  # noqa: BLE001 - no recorder: nothing to look back on
+        return 0
