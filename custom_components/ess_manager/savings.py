@@ -63,10 +63,10 @@ def _sum_ids(stats: Stats, ids: list[str]) -> dict[int, float]:
 
 
 def day_rows(day_start: float, n_quarters: int, until: float, stats: Stats, sources: dict[str, list[str]],
-             buy: list[Optional[float]], sell: list[Optional[float]]) -> Optional[list[list[float]]]:
+             buy: list[Optional[float]], sell: list[Optional[float]], why: Optional[list[str]] = None) -> Optional[list[list[float]]]:
     """The raw sums (RAW) per quarter of one day, up to `until`; None when
     the statistics cover less than MIN_COVERAGE of the slots, or energy
-    fell in a quarter without a price."""
+    fell in a quarter without a price - `why` gets the reason then."""
     imp = _sum_ids(stats, sources.get("import") or [])
     exp = _sum_ids(stats, sources.get("export") or [])
     ch = _sum_ids(stats, sources.get("battery_charge") or [])
@@ -77,6 +77,8 @@ def day_rows(day_start: float, n_quarters: int, until: float, stats: Stats, sour
     covered_grid = sum(1 for s in slots if s in imp)
     covered_batt = sum(1 for s in slots if s in ch or s in dis)
     if covered_grid < MIN_COVERAGE * len(slots) or covered_batt < MIN_COVERAGE * len(slots):
+        if why is not None:
+            why.append(f"statistics cover {covered_grid}/{len(slots)} slots (grid), {covered_batt}/{len(slots)} (battery)")
         return None
     rows = [[0.0] * len(RAW) for _ in range(n_quarters)]
     for s in slots:
@@ -88,6 +90,8 @@ def day_rows(day_start: float, n_quarters: int, until: float, stats: Stats, sour
         b = buy[q] if q < len(buy) else None
         p = sell[q] if q < len(sell) else None
         if b is None or p is None:
+            if why is not None:
+                why.append(f"no price for quarter {q}")
             return None
         net = e - i + c - d
         io, eo = max(-net, 0.0), max(net, 0.0)
@@ -138,14 +142,30 @@ class SavingsData:
         self.today_at = 0.0
         self.status = "waiting"
         self.history_days: Optional[int] = None
-        self.skipped: list[str] = []
+        self.skipped: dict[str, str] = {}
+        # the price sensor's quarter prices per day, kept by the integration
+        # itself (as of 2026.11.1): a price sensor left out of the recorder
+        # (often done for its big attributes) has no history to look back on
+        self.prices: dict[str, list[float]] = {}
 
     def as_store(self) -> dict[str, Any]:
-        return {"days": self.days}
+        return {"days": self.days, "prices": self.prices}
 
     def restore(self, data: Optional[dict[str, Any]]) -> None:
         if isinstance(data, dict) and isinstance(data.get("days"), dict):
             self.days = {k: list(v) for k, v in data["days"].items() if isinstance(v, list) and len(v) == len(RAW)}
+        if isinstance(data, dict) and isinstance(data.get("prices"), dict):
+            self.prices = {k: list(v) for k, v in data["prices"].items() if isinstance(v, list)}
+
+    def note_prices(self, day: str, prices: list[float]) -> bool:
+        """Keep today's price list (the last 14 days). True when it's new
+        or changed - then it's worth storing."""
+        if not prices or self.prices.get(day) == list(prices):
+            return False
+        self.prices[day] = list(prices)
+        for k in sorted(self.prices)[:-14]:
+            del self.prices[k]
+        return True
 
     @staticmethod
     def _day_start(d: date, tz) -> datetime:
@@ -169,15 +189,17 @@ class SavingsData:
         stats = await fetch_stats(ids, start, end)
         states = await fetch_prices(start - timedelta(hours=1), end)
         added = False
-        self.skipped = []
+        self.skipped = {}
         for d in missing:
             ds = self._day_start(d, tz)
             de = self._day_start(d + timedelta(days=1), tz)
             n = int(round((de - ds).total_seconds() / QUARTER))
-            raw_prices = quarter_prices(states, ds.timestamp(), n)
-            rows = day_rows(ds.timestamp(), n, de.timestamp(), stats, sources, buy_of(raw_prices, ds), raw_prices)
+            kept = self.prices.get(d.isoformat())
+            raw_prices = list(kept) if kept and len(kept) == n else quarter_prices(states, ds.timestamp(), n)
+            why: list[str] = []
+            rows = day_rows(ds.timestamp(), n, de.timestamp(), stats, sources, buy_of(raw_prices, ds), raw_prices, why)
             if rows is None:
-                self.skipped.append(d.isoformat())
+                self.skipped[d.isoformat()] = why[0] if why else "nothing measured"
                 continue
             self.days[d.isoformat()] = total(rows)
             added = True

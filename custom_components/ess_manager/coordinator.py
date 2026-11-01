@@ -2280,6 +2280,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         price_incl = await self._async_price_incl(conf, all_price, buy_price, units.price_unit(now), now)
         plan_buy = price_incl["all_buy_price_incl"] or buy_price
         plan_sell = all_price
+        if self.savings.note_prices(now.date().isoformat(), [float(p) for p in today_price]):
+            self.hass.async_create_task(self.savings_store.async_save(self.savings.as_store()))
         self._savings_start(conf, today_price and [float(p) for p in today_price] or [], now)
 
         # Only the two supported sources exist (v0.3.0). Anything else - an

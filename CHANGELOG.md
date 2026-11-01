@@ -12,6 +12,20 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.1] - 2026-11-01
+
+### Savings card
+- **Days filled in without the price sensor's history.** The integration
+  now keeps each day's quarter prices itself (the last 14 days): a price
+  sensor that's left out of the recorder (often done because of its big
+  attributes) has no history, so up to now every past day was skipped.
+  From today on every night's day has its prices. The days before this
+  version can only be filled in when the recorder has the price sensor's
+  history.
+- **Why a day was skipped** is in the Savings sensor's `skipped` attribute
+  (and the diagnostics): the statistics' coverage, or a quarter without a
+  price.
+
 ## [2026.11.0] - 2026-11-01
 
 ### Savings card

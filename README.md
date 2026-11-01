@@ -1888,7 +1888,10 @@ recorder's short-term statistics) and the price sensor's recorded states.
 Every night yesterday is added; at the start the integration looks back as
 far as the recorder keeps its history (`keep_days` of the recorder, 10 days
 by default - set it higher in `configuration.yaml` to look back further).
-Days the statistics don't cover are skipped. Without the battery in the
+Days the statistics don't cover are skipped (the reason is in the
+sensor's `skipped` attribute). The prices of each day are kept by the
+integration itself (as of 2026.11.1) - for the days before that it needs
+the price sensor's recorded history. Without the battery in the
 Energy dashboard the card says so instead. A day is stored as raw sums
 (kWh and kWh x price), so the line incl taxes is put on when shown - a
 learned line or a tax change applies to the past days too. The days are

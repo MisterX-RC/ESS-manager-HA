@@ -5420,6 +5420,15 @@ _s_now = datetime.fromtimestamp(_s_d0 + 3 * 86400 + 3600, tz=_stz.utc)
 _sa.run(_s_data.async_fill(_s_now, 2, _s_src, _s_fetch, _s_prices, lambda p, ds: p))
 check("savings: the finished days the recorder still has are filled in (2 days kept: 2 days)",
       sorted(_s_data.days) == [(_s_now.date() - timedelta(days=2)).isoformat(), (_s_now.date() - timedelta(days=1)).isoformat()])
+_s_kept = savings.SavingsData()
+async def _s_no_prices(start, end):
+    return []   # the price sensor left out of the recorder
+_s_y = (_s_now.date() - timedelta(days=1)).isoformat()
+check("savings: today's prices are kept (once, the last 14 days)",
+      _s_kept.note_prices(_s_y, [0.2] * 96) and not _s_kept.note_prices(_s_y, [0.2] * 96))
+_sa.run(_s_kept.async_fill(_s_now, 2, _s_src, _s_fetch, _s_no_prices, lambda p, ds: p))
+check("savings: without price history a day with kept prices is filled, one without is skipped - with the reason",
+      list(_s_kept.days) == [_s_y] and list(_s_kept.skipped.values())[0].startswith("no price"))
 _sa.run(_s_data.async_today(_s_now, _s_src, _s_fetch, [0.2] * 96, lambda p, ds: p))
 _s_at = _s_data.attribute((1.0, 0.0))
 check("savings: today so far, and the attribute per day",
