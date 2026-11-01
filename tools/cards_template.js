@@ -4355,8 +4355,8 @@ const SV_SCHEMA = (t) => [
 ];
 const SV_TEXT = {
   en: {
-    title: "Savings", saved: "saved", cost_more: "more expensive", day: "Day", week: "Week", month: "Month", year: "Year",
-    p_day: "today", p_week: "last 7 days", p_month: "this month", p_year: "this year",
+    title: "Savings", saved: "saved", cost_more: "more expensive", day: "Day", week: "Week", month: "Month", year: "Year", rolling: "365 d",
+    p_day: "today", p_week: "last 7 days", p_month: "this month", p_year: "this year", p_rolling: "last 365 days",
     less: (p) => `${p}% less than without battery`, more: (p) => `${p}% more than without battery`,
     without: "Without battery", with: "With ESS Manager", bought: "bought", sold: "sold", at: "at", no_sale: "no sale",
     legend_saving: "saved", legend_loss: "more expensive than without battery", avg: (v) => `avg. ${v} / day`,
@@ -4369,8 +4369,8 @@ const SV_TEXT = {
     cost_with: "with battery", cost_without: "without battery",
   },
   nl: {
-    title: "Besparing", saved: "bespaard", cost_more: "duurder", day: "Dag", week: "Week", month: "Maand", year: "Jaar",
-    p_day: "vandaag", p_week: "laatste 7 dagen", p_month: "deze maand", p_year: "dit jaar",
+    title: "Besparing", saved: "bespaard", cost_more: "duurder", day: "Dag", week: "Week", month: "Maand", year: "Jaar", rolling: "365 d",
+    p_day: "vandaag", p_week: "laatste 7 dagen", p_month: "deze maand", p_year: "dit jaar", p_rolling: "laatste 365 dagen",
     less: (p) => `${p}% minder dan zonder accu`, more: (p) => `${p}% meer dan zonder accu`,
     without: "Zonder accu", with: "Met ESS Manager", bought: "ingekocht", sold: "verkocht", at: "à", no_sale: "geen verkoop",
     legend_saving: "bespaard", legend_loss: "duurder dan zonder accu", avg: (v) => `gem. ${v} / dag`,
@@ -4483,6 +4483,19 @@ class EssManagerSavingsCard extends EssChartCard {
         const ms = Date.parse(`${d}T12:00:00Z`);
         bars.push([period === "week" ? f.weekday(ms) : String(Number(d.slice(8))), r ? saving(sum([r])) : null, r, f.dayLabel(ms)]);
       }
+    } else if (period === "rolling") {
+      // the last 365 days, today included (as of 2026.10.45): a bar per
+      // month, the first one only from the day a year back
+      const from = addDays(todayIso, -364);
+      const months = [];
+      for (let d = from.slice(0, 8) + "01"; d <= todayIso; d = addDays(d.slice(0, 8) + "28", 4).slice(0, 8) + "01") months.push(d.slice(0, 7));
+      for (const ym of months) {
+        const list = rows.filter((r) => r[0].startsWith(ym) && r[0] >= from && r[0] <= todayIso);
+        inPeriod = inPeriod.concat(list);
+        const ms = Date.parse(`${ym}-15T12:00:00Z`);
+        const name = new Intl.DateTimeFormat(hassLang(this._hass), { month: "short" }).format(ms);
+        bars.push([name, list.length ? saving(sum(list)) : null, list.length ? sum(list) : null, `${name} ${ym.slice(0, 4)}`]);
+      }
     } else {
       const year = todayIso.slice(0, 4);
       for (let m = 1; m <= 12; m++) {
@@ -4499,7 +4512,7 @@ class EssManagerSavingsCard extends EssChartCard {
     const without = t[6] - t[8];
     const pct = without > 0.01 ? Math.round((Math.abs(save) / without) * 100) : null;
     const good = save >= 0;
-    const tabs = ["day", "week", "month", "year"]
+    const tabs = ["day", "week", "month", "year", "rolling"]
       .map((p) => `<button type="button" data-p="${p}" aria-selected="${p === period}">${esc(this._s(p))}</button>`).join("");
     const priceTxt = (eur, kwh) => (kwh > 0.05 ? formatPrice(f, eur / kwh) : null);
     const box = (label, cost, imp, bought, exp, sold, color, bg) => `<div class="sv-box"${bg ? ` style="background:${bg}"` : ""}>

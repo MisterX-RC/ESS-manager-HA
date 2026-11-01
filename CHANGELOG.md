@@ -20,7 +20,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   the measured grid import and export against what would have gone through
   the grid without the battery (export - import + charged - discharged, per
   5 minutes), bought incl taxes and transport, sold bare. Day / week /
-  month / year, the saving and how much less than without, **without
+  month / year / 365 days (the last 365 days up to today), the saving and how much less than without, **without
   battery** and **with ESS Manager** side by side with the kWh bought and
   sold and the average price per kWh, a bar per hour / day / month (red
   below zero for a day that cost more). Losses are in it by themselves.

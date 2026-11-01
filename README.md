@@ -1874,7 +1874,8 @@ losses are in it by themselves: only measured energy counts.
 
 At the top the saving in the period - **Day** (today so far, a bar per
 hour), **Week** (the last 7 days), **Month** (this month, a bar per day,
-with the average per day) or **Year** (a bar per month) - and how much less
+with the average per day), **Year** (this calendar year, a bar per month)
+or **365 d** (the last 365 days up to today, a bar per month) - and how much less
 that is than without the battery. Below it **without battery** and **with
 ESS Manager** side by side: what it cost, the kWh bought and sold and the
 average price per kWh of each. A day that cost more with the battery (e.g.
