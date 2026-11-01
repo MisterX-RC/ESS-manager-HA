@@ -12,6 +12,17 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.10.45] - 2026-11-01
+
+### Cards
+- **The status card's timeline shows House from grid and Solar export in
+  their own colours** (purple / orange, as on the price and battery charts)
+  instead of grey; adjustable with `grid_color` / `export_color` in the
+  card editor.
+- **Price card: plan labels no longer overlap** - a label pushed inwards at
+  the edge ("Uit het net 00:00") was still counted where it would have
+  stood, so the next one ("Geladen 11:15") could be drawn over it.
+
 ## [2026.10.44] - 2026-10-31
 
 ### Prices including taxes (planning and price card)

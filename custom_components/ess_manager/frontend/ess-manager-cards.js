@@ -1585,11 +1585,11 @@ class EssManagerPriceCard extends EssChartCard {
       const text = `${planLabel(this._hass, w)} ${f.time(w.start)}`;
       const cx = (x0 + x1) / 2;
       const half = text.length * 3;
-      if (cx - half > lastRight + 4) {
+      if (clamp(cx, X0 + half, W - half) - half > lastRight + 4) {
         const lx = clamp(cx, X0 + half, W - half);
         labels += `<span class="plabel" style="left:${r1(lx)}px;top:0;color:${w.past ? "var(--secondary-text-color, #a0a0a0)" : tint(c, 1)}">${esc(text)}</span>`;
         placed.push([lx - half, lx + half]);
-        lastRight = cx + half;
+        lastRight = lx + half;
       }
     }
     // solar surplus blocks, below the plans in the label order
@@ -1868,8 +1868,10 @@ const STATUS_DEFAULTS = {
   buy_color: [79, 163, 247],
   spike_color: [255, 179, 0],
   negative_color: [77, 208, 225],
+  grid_color: [167, 120, 230],
+  export_color: [255, 159, 67],
 };
-const STATUS_COLOR_KEYS = ["sell_color", "buy_color", "spike_color", "negative_color"];
+const STATUS_COLOR_KEYS = ["sell_color", "buy_color", "spike_color", "negative_color", "grid_color", "export_color"];
 const STATUS_SCHEMA = (t) => [
   { name: "title", selector: { text: {} } },
   { name: "automation", selector: { entity: { filter: [{ domain: "automation" }, { domain: "input_boolean" }, { domain: "switch" }] } } },
@@ -1905,6 +1907,10 @@ function timelineColors(opt) {
     negative_price_charge: opt.buy_color,
     discharge: shade(opt.sell_color, 0.5),
     spike_discharge: opt.sell_color,
+    // the house from the grid / solar export (as of 2026.10.45): the same
+    // colours as on the price and battery charts
+    grid_use: opt.grid_color,
+    solar_export: opt.export_color,
   };
 }
 
@@ -1917,7 +1923,7 @@ class EssManagerStatusCard extends HTMLElement {
       defaults: STATUS_DEFAULTS,
       labels: {
         title: "ed_title", automation: "ed_automation", hours: "ed_hours", show_history: "ed_show_history",
-        sell_color: "ed_sell_color", buy_color: "ed_buy_color", spike_color: "ed_spike_color", negative_color: "ed_negative_plan_color",
+        sell_color: "ed_sell_color", buy_color: "ed_buy_color", spike_color: "ed_spike_color", negative_color: "ed_negative_plan_color", grid_color: "ed_grid_color", export_color: "ed_export_color",
       },
     };
   }

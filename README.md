@@ -1791,6 +1791,7 @@ Assistant language (Dutch or English).
 | `hours` | `24` | how many hours the timeline shows |
 | `sell_color` / `buy_color` | red / blue | the Sell / Buy colours (`[r, g, b]` or `"#rrggbb"`) - the timeline follows them too (a darker shade for a normal charge / discharge, the colour itself for a negative price charge / spike discharge) |
 | `spike_color` / `negative_color` | amber / turquoise | the colour of an active spike / negative price plan |
+| `grid_color` / `export_color` | purple / orange | the timeline's House from grid / Solar export (the same colours as on the price and battery charts) |
 
 **Electric car card.** The car's charging sessions for today and the next
 four days (see [Electric car](#electric-car)), with the total that's in the
