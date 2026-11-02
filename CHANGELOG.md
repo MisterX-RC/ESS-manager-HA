@@ -12,6 +12,18 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.6] - 2026-11-03
+
+### Victron EV charging station
+- **A grid window now really starts the charge.** A new target for the
+  charger (a grid window starting, a new choice) is checked against the
+  charger as a whole: mode, current and start. Up to now only the values
+  that changed were sent - start had been switched on in Auto mode before
+  the window, so when the window put the charger on Manual it stood on
+  "waiting for start" and start wasn't sent again. While the target stays
+  the same, a change made on the charger itself (stopped by hand) is still
+  left alone.
+
 ## [2026.11.5] - 2026-11-02
 
 ### EV card - the charge plan of a "full by"

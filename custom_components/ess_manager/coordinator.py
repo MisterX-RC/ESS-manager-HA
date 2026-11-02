@@ -856,6 +856,18 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         flow = self.ev.flow
         applied: dict[str, Any] = flow.setdefault("applied", {}) if flow is not None else {}
+        # A new target (a grid window starting, a new choice) is checked
+        # against the charger as a whole (as of 2026.11.6): up to then only
+        # the values that changed were - a charge switched on in Auto mode
+        # counted as applied, so when the charger went to Manual for the grid
+        # window (and stood on "waiting for start") start wasn't sent again.
+        # While the target stays the same, a change made on the charger itself
+        # is still left alone.
+        key = [target["mode"], target.get("current"), bool(target["charge"]), target.get("why")]
+        if applied.get("target") != key:
+            for role in ("mode", "current", "charge"):
+                applied.pop(role, None)
+            applied["target"] = key
         calls: list[tuple[str, str, str, str, dict[str, Any], Any]] = []
         if applied.get("mode") != target["mode"]:
             mode_state = self.hass.states.get(ents.get("mode", ""))

@@ -627,7 +627,10 @@ behind. ESS Manager sends a value to the
 charger only when its plan changes (plugging in, a choice, a grid window
 starting or ending, done); what you change on the charger itself in
 between - e.g. starting a charge by hand - is left alone (as of
-2026.10.28). A charge the charger starts **by itself** before there's a
+2026.10.28). When the plan changes, the charger is checked as a whole -
+mode, current and start (as of 2026.11.6): a grid window that puts the
+charger on Manual also sends start, even when start was already sent
+before the window. A charge the charger starts **by itself** before there's a
 choice - by hand on the charger, its own auto start, a schedule or its own
 Auto mode - counts as "now, at the current it's set to": it goes on, the
 session is forecast at that current, and the card says so. A choice made
