@@ -12,6 +12,17 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.4] - 2026-11-02
+
+### Victron EV charging station
+- **The grid setpoint is exactly 0 while the charger is on its own Auto
+  mode** with a car plugged in - instead of the idle value, and instead of
+  the Solar export loop. The charger follows the sun itself (and charges
+  on for half an hour by its own timer when the sun falls short). Only
+  what's sent changes: the Status and the Battery action stay what the
+  plans say, and a planned charge or sale of the house battery still goes
+  first.
+
 ## [2026.11.3] - 2026-11-02
 
 ### Solar export

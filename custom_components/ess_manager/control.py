@@ -30,6 +30,10 @@ ACTION_GRID_USE = "grid_use"
 # set charge power and sends the rest of the solar to the grid - never
 # buying for it (coordinator)
 ACTION_SOLAR_EXPORT = "solar_export"
+# the Victron charger on its own Auto mode (as of 2026.11.4): the grid
+# setpoint is exactly 0 - the charger follows the sun itself. Only what's
+# sent: the Status and the Battery action stay what the plans say.
+ACTION_GRID_ZERO = "grid_zero"
 
 ACTIONS = (
     ACTION_IDLE,
@@ -119,6 +123,8 @@ def command_value(
     converted one. `offset_kw` (as of 2026.10.27: the car in a grid window)
     is added in the output's unit and sign."""
     extra = power_to_output(offset_kw, unit, sign) if offset_kw else 0.0
+    if action == ACTION_GRID_ZERO:
+        return 0.0 + extra
     if action == ACTION_IDLE or power_kw == 0:
         return float(idle_value) + extra
     return power_to_output(power_kw, unit, sign) + extra
