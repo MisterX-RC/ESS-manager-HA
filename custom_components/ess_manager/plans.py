@@ -2969,9 +2969,31 @@ def with_grid_use(forecast: list[float], low: dict, cur_unit: int, now: datetime
     return [round(v, 3) for v in out]
 
 
+def _export_pays(u: int, full_unit: int, sell: list[float], buy: Optional[list[float]],
+                 solar_full_unit: Optional[int], low: Optional[dict], losses: float) -> bool:
+    """Whether solar sold in quarter `u` beats keeping it (as of 2026.11.3).
+    The battery full by the sun alone (`solar_full_unit` at or before
+    `full_unit`, or no buy prices given): the solar kept now would only push
+    later solar into the grid, so the price now has to beat every sell price
+    until full. Full only because of a planned grid charge: what's sold now
+    is bought back by that charge, so the price now has to beat the dearest
+    quarter of that charge (its buy price / the charge and discharge
+    efficiency)."""
+    if u >= len(sell) or sell[u] is None:
+        return False
+    if buy is None or (solar_full_unit is not None and solar_full_unit <= full_unit):
+        ahead = [p for p in sell[u + 1 : full_unit + 1] if p is not None]
+        return bool(ahead) and sell[u] > max(ahead)
+    charged = [x for b in (low or {}).get("blocks") or [] for x in range(b["start_unit"], b["end_unit"])
+               if u < x <= full_unit and x < len(buy) and buy[x] is not None]
+    back = [buy[x] for x in charged] or [p for p in buy[u + 1 : full_unit + 1] if p is not None]
+    return bool(back) and sell[u] > max(back) / max(losses, 0.01)
+
+
 def solar_export_units(
     net: list[float], cur_unit: int, now: datetime, full_unit: Optional[int], all_price: list[float],
-    today_units: int = 96, neg: Optional[dict] = None,
+    today_units: int = 96, neg: Optional[dict] = None, buy_price: Optional[list[float]] = None,
+    solar_full_unit: Optional[int] = None, low: Optional[dict] = None, losses: float = 1.0,
 ) -> list[int]:
     """The quarters solar export is expected (as of 2026.10.41, for the
     charts): the same rule as the Status, on the forecast - solar left over
@@ -2987,8 +3009,7 @@ def solar_export_units(
             h = (u - hour0) // 4
             if h >= len(net) or net[h] is None or net[h] <= 0 or u >= len(all_price):
                 continue
-            ahead = all_price[u + 1 : full_unit + 1]
-            if ahead and all_price[u] > max(ahead):
+            if _export_pays(u, full_unit, all_price, buy_price, solar_full_unit, low, losses):
                 out.add(u)
     return sorted(out)
 
@@ -3016,6 +3037,9 @@ def compute_system_status_and_action(
     solar_surplus_now: bool = False,
     today_units: int = 96,
     solar_export: bool = True,
+    buy_price: Optional[list[float]] = None,
+    solar_full_unit: Optional[int] = None,
+    losses: float = 1.0,
 ) -> tuple[str, str]:
     """The Status (what the dashboard and an external automation see) plus
     the control action behind it (control.ACTION_*), which direct control
@@ -3031,6 +3055,11 @@ def compute_system_status_and_action(
     `solar_export` (as of 2026.10.43): whether solar export can be steered
     (the battery's power sensor is set). Without it there's no "Solar
     export" at all - up to then it was a label only: "Standby".
+
+    `buy_price` / `solar_full_unit` / `losses` (as of 2026.11.3): when the
+    battery only gets full because of a planned grid charge (the forecast
+    without plans reaches 100% at `solar_full_unit`, later or never), solar
+    sold now is bought back by that charge - see _export_pays.
     """
     status, action = _compute_system_status_raw(
         setpoint_w,
@@ -3076,9 +3105,7 @@ def compute_system_status_and_action(
         and full_unit is not None
         and cur_unit < full_unit < today_units
     ):
-        ahead = all_price[cur_unit + 1 : full_unit + 1]
-        price_now = all_price[cur_unit] if cur_unit < len(all_price) else None
-        if ahead and price_now is not None and price_now > max(ahead):
+        if _export_pays(cur_unit, full_unit, all_price, buy_price, solar_full_unit, low, losses):
             # (as of 2026.10.41 steered: the battery keeps charging at
             # SOLAR_EXPORT_BATTERY_W, the rest goes to the grid)
             return "Solar export", ACTION_SOLAR_EXPORT

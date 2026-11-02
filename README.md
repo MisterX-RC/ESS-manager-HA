@@ -1353,6 +1353,11 @@ during this same wait). `Solar export`: there's solar left over now, the
 battery is forecast to reach 100% later today, and the price now is higher
 than every price until then - exporting now pays more than storing (and in
 a negative price plan, solar going to the grid before the negative window).
+*(As of 2026.11.3)* that's when the sun alone fills the battery; when it
+only gets full because of a planned grid charge, what's sold now is bought
+back by that charge, so the price now has to beat the dearest quarter of
+that charge (its buy price - incl taxes when set - divided by the charge
+and discharge efficiency).
 *(As of 2026.10.41)* with direct control and the battery's power sensor
 (battery page) it's steered: the grid setpoint follows the battery's power
 every 15 seconds (the same fast loop, 60% of the deviation per step) so
