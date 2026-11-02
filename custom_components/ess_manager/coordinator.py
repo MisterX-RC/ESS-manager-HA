@@ -3062,16 +3062,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # the house battery stays out of it
         ev_offset_kw = (self._ev_grid_offset_kw(ev_victron, ev_entities, now) if ev_victron
                         else self._ev_charge_offset_kw(conf, control_action))
-        # the Victron charger on its own Auto mode with a car plugged in (as
-        # of 2026.11.4): the grid setpoint exactly 0 instead of the idle value
-        # (or the solar export loop) - the charger follows the sun itself
-        send_action, send_kw = control_action, control_power_kw
-        car_auto = bool(ev_victron and ev_victron.get("connected") and ev_victron.get("mode") == evc.MODE_AUTO)
-        if car_auto and control_action in (control.ACTION_IDLE, control.ACTION_SOLAR_EXPORT):
-            send_action, send_kw = control.ACTION_GRID_ZERO, 0.0
-            self._export_kw = None
         await self.controller.async_apply(
-            control_settings, send_action, send_kw, system_status, offset_kw=ev_offset_kw
+            control_settings, control_action, control_power_kw, system_status, offset_kw=ev_offset_kw
         )
         self._ev_offset_w = ev_offset_kw * 1000.0 if control_settings.active and self.controller.enabled else 0.0
         # what the fast loop needs until the next cycle (as of 2026.10.41)
@@ -3079,7 +3071,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fast = (
             {"conf": conf, "action": control_action, "status": system_status, "offset_kw": ev_offset_kw,
              "export_target_w": export_target_w}
-            if send_action in (control.ACTION_GRID_USE, control.ACTION_SOLAR_EXPORT) else None
+            if control_action in (control.ACTION_GRID_USE, control.ACTION_SOLAR_EXPORT) else None
         )
         self._ev_charge_until = self._charge_until(conf, control_action, card_plans, control_settings)
         if ev_victron is not None:

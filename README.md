@@ -600,13 +600,6 @@ possible**, **Slowly now** or **Full by a time**.
   control, the grid setpoint sent goes up by what the car takes (measured),
   so the grid supplies the car and the battery does what it was going to
   do anyway; the battery forecast leaves that energy out too.
-- **While the charger is on its own Auto mode** *(as of 2026.11.4)* with a
-  car plugged in, the grid setpoint sent is exactly **0** instead of the
-  idle value (and instead of the Solar export loop) - the charger follows
-  the sun itself (and, by its own timer, charges on for half an hour when
-  the sun falls short). The Status and the Battery action stay what the
-  plans say; a planned charge or sale of the house battery still goes
-  first.
 
 **Until there's an answer** - and when there never is one - ESS Manager
 **doesn't start anything** (as of 2026.10.31; up to then the charger was put
