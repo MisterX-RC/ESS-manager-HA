@@ -5461,6 +5461,13 @@ check("victron: a battery window -> the charger on Manual (the grid setpoint isn
       evc.charger_target({"choice": "deadline", "need_kwh": 4, "windows": [], "battery_windows": [[0, 900]], "plan": {"current_a": 16}}, 100, 6, 16)
       == {"mode": "manual", "charge": True, "current": 16, "why": "battery_window"})
 
+# 2026.11.5: per charge window what goes in and what it costs (the charge plan in the EV card)
+check("charge plan: kWh per window adds up to grid / battery, cost per window to the plan's cost",
+      abs(sum(_bpl3["window_kwh"]) - _bpl3["grid_kwh"]) < 0.01 and abs(sum(_bpl3["battery_window_kwh"]) - _bpl3["battery_kwh"]) < 0.01
+      and abs(sum(_bpl3["window_cost"]) + sum(_bpl3["battery_window_cost"]) - _bpl3["cost"]) < 0.02
+      and len(_bpl3["window_kwh"]) == len(_bpl3["windows"]) and len(_bpl3["battery_window_kwh"]) == len(_bpl3["battery_windows"]))
+check("charge plan: the last window only as far as needed", abs(sum(_fb["window_kwh"]) - _fb["grid_kwh"]) < 0.01)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

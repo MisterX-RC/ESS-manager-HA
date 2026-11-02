@@ -324,6 +324,10 @@ def plan_deadline(
     got = 0.0
     end = None
     solar_kwh = grid_kwh = batt_kwh = cost = 0.0
+    # per quarter what goes in and what it costs (for the card's charge
+    # plan, as of 2026.11.5)
+    q_kwh: dict[int, float] = {}
+    q_cost: dict[int, float] = {}
     for q in quarters:
         e = grid_q * frac(q) if q in chosen else sun[q]
         if e <= 0:
@@ -333,10 +337,14 @@ def plan_deadline(
             break
         if q in from_batt:
             batt_kwh += part
-            cost += part * (batt_cost(q) or (refill.get(q) or 0.0) / losses)
+            c = part * (batt_cost(q) or (refill.get(q) or 0.0) / losses)
+            cost += c
+            q_kwh[q], q_cost[q] = part, c
         elif q in chosen:
             grid_kwh += part
-            cost += part * (price(q) or 0.0)
+            c = part * (price(q) or 0.0)
+            cost += c
+            q_kwh[q], q_cost[q] = part, c
         else:
             solar_kwh += part
         got += part
@@ -355,11 +363,20 @@ def plan_deadline(
                 out.append([q, q + UNIT])
         return out
 
+    def sums(windows: list[list[int]], per_q: dict[int, float]) -> list[float]:
+        return [round(sum(v for q, v in per_q.items() if a <= q < b), 3) for a, b in windows]
+
     grid_set = chosen - from_batt
+    grid_windows = merged(grid_set)
+    batt_windows = merged(from_batt)
     return {
-        "windows": merged(grid_set),
+        "windows": grid_windows,
+        "window_kwh": sums(grid_windows, q_kwh),
+        "window_cost": sums(grid_windows, q_cost),
+        "battery_window_kwh": sums(batt_windows, q_kwh),
+        "battery_window_cost": sums(batt_windows, q_cost),
         "quarters": sorted(grid_set),
-        "battery_windows": merged(from_batt),
+        "battery_windows": batt_windows,
         "battery_quarters": sorted(from_batt),
         "solar_kwh": round(solar_kwh, 2),
         "grid_kwh": round(grid_kwh, 2),

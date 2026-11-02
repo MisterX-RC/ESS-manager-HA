@@ -112,6 +112,9 @@ const I18N = {
     ev_ext_text: "The charger started by itself and charges at its own current - ESS Manager leaves it alone until you choose.",
     ev_done_text: "Full according to the sums - the charger stays as it is, the car stops by itself when it's really full. Unplug the car to end the session.",
     ev_r_by_fixed: (amps, kw, a, b) => `${amps} A \u00b7 ${kw} \u00b7 planned to be done by ${a} (an hour before ${b})`, ev_r_estimate: "prices for then not known yet: estimated as a calm charge",
+    ev_pl_title: "Charge plan", ev_pl_preview: "preview - saved, the integration plans it", ev_pl_grid: "grid", ev_pl_batt: "battery", ev_pl_sun: "sun",
+    ev_pl_cost: "Estimated cost", ev_pl_avg: (p) => `avg ${p}/kWh`, ev_pl_legend: "bars = price per quarter \u00b7 blue = grid \u00b7 green = house battery \u00b7 yellow = full by",
+    ev_pl_batt_note: "battery: the cheapest refill after it, with the losses", ev_pl_blocks: (n) => (n === 1 ? "1 block" : `${n} blocks`),
     ev_st_full: (c) => `${c} \u00b7 full by the sums`,
     ev_how_q: "How do you want to charge?", ev_how: "How", ev_h_asap: "Fast", ev_h_calm: "Slow", ev_h_solar: "On the sun", ev_h_by: "Full by",
     ev_h_solar_sub: "solar surplus only", ev_h_by_sub: "sun first, rest cheapest",
@@ -301,6 +304,9 @@ const I18N = {
     ev_ext_text: "De lader is zelf begonnen en laadt op zijn eigen stroom - ESS Manager laat hem met rust tot je kiest.",
     ev_done_text: "Vol volgens de berekening - de lader blijft zoals hij staat, de auto stopt zelf als hij echt vol is. Koppel de auto los om de sessie af te sluiten.",
     ev_r_by_fixed: (amps, kw, a, b) => `${amps} A \u00b7 ${kw} \u00b7 gepland klaar om ${a} (een uur voor ${b})`, ev_r_estimate: "prijzen voor dan nog niet bekend: geschat als rustige lading",
+    ev_pl_title: "Laadplan", ev_pl_preview: "voorbeeld - na opslaan plant de integratie het", ev_pl_grid: "net", ev_pl_batt: "accu", ev_pl_sun: "zon",
+    ev_pl_cost: "Geschatte kosten", ev_pl_avg: (p) => `gem. ${p}/kWh`, ev_pl_legend: "balkjes = prijs per kwartier \u00b7 blauw = net \u00b7 groen = thuisaccu \u00b7 geel = vol om",
+    ev_pl_batt_note: "accu: goedkoopste aanvulmoment daarna, met de verliezen", ev_pl_blocks: (n) => (n === 1 ? "1 blok" : `${n} blokken`),
     ev_st_full: (c) => `${c} \u00b7 vol volgens berekening`,
     ev_how_q: "Hoe wil je laden?", ev_how: "Hoe", ev_h_asap: "Snel", ev_h_calm: "Rustig", ev_h_solar: "Op zon", ev_h_by: "Vol om",
     ev_h_solar_sub: "alleen zon-overschot", ev_h_by_sub: "zon eerst, rest goedkoopst",
@@ -2292,6 +2298,21 @@ const EV_HIST_BORDER = "#e5534b";
 const evPower = (amps, phases) => Math.max(Number(amps) || 0, 0) * EV_VOLTAGE * Math.max(Number(phases) || 1, 1) / 1000;
 
 const EV_CSS = `
+  .pl { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+  .pl-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--secondary-text-color,#a0a0a0); }
+  .pl-head .dim { font-weight: 400; letter-spacing: 0; text-transform: none; text-align: right; }
+  .pl-tl { position: relative; height: 64px; border-radius: 8px; background: rgba(127,127,127,.1); overflow: hidden; }
+  .pl-tl i { position: absolute; bottom: 0; border-radius: 2px 2px 0 0; }
+  .pl-tl b { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--c) 14%, transparent); border-left: 1px solid var(--c); border-right: 1px solid var(--c); }
+  .pl-tl u { position: absolute; top: 0; bottom: 0; right: 0; width: 2px; background: #f2c14e; }
+  .pl-ticks { position: relative; height: 14px; font-size: 11px; color: var(--secondary-text-color,#a0a0a0); }
+  .pl-ticks span { position: absolute; transform: translateX(-50%); }
+  .pl-ticks span:first-child { transform: none; }
+  .pl-rows { display: flex; flex-direction: column; }
+  .pl-row { display: grid; grid-template-columns: 10px auto 40px 1fr auto; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(127,127,127,.18); font-size: 13px; }
+  .pl-row i { width: 9px; height: 9px; border-radius: 3px; }
+  .pl-row span:nth-child(3) { font-size: 12px; }
+  .pl-sum { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding-top: 2px; }
   .ev-list { display: flex; flex-direction: column; gap: 6px; }
   .ev-row { display: flex; align-items: center; gap: 4px; padding: 8px 4px 8px 12px; border-radius: 10px; background: rgba(127,127,127,.12); }
   .ev-row.off { opacity: .55; }
@@ -2606,7 +2627,8 @@ class EssManagerEvCard extends EssChartCard {
   _prices() {
     const st = this._hass.states[this._config.entity];
     const a = (st && st.attributes) || {};
-    return (a.all_buy_price || a.all_price || []).map((v) => (v == null ? null : Number(v)));
+    // (as of 2026.11.5) incl taxes once known - the prices the planning uses
+    return (a.all_buy_price_incl || a.all_buy_price || a.all_price || []).map((v) => (v == null ? null : Number(v)));
   }
 
   // -- the panel for the plugged-in car ---------------------------------------------
@@ -2935,7 +2957,117 @@ class EssManagerEvCard extends EssChartCard {
       // the "full by" day (as of 2026.10.32); null = the first time after the start
       dlDay: s.deadline ? localMidnight(this._hass, Date.parse(s.deadline)) : null,
     };
+    this._edit.orig = this._editKey(this._edit);
     this._error = null;
+  }
+
+  // what the plan depends on (as of 2026.11.5): unchanged = the integration's plan is shown
+  _editKey(e) {
+    return JSON.stringify([e.day, e.hour, e.car, e.kwh, e.start_soc, e.target_soc, e.how, e.dl, e.dlDay]);
+  }
+
+  // The integration's plan of a saved "full by" (as of 2026.11.5), while the
+  // panel shows it unchanged - in the card's own preview's shape
+  _savedPlan(ev, e) {
+    if (!e.id || e.orig !== this._editKey(e)) return null;
+    const s = (ev.sessions || []).find((x) => x.id === e.id);
+    const fb = s && s.full_by;
+    if (!fb || !Array.isArray(fb.window_kwh) || fb.tight || fb.estimate) return null;
+    const ms = (w) => (w || []).map(([a, b]) => [Date.parse(a), Date.parse(b)]);
+    return {
+      real: true,
+      windows: ms(fb.windows), windowKwh: fb.window_kwh, windowCost: fb.window_cost || [],
+      bwindows: ms(fb.battery_windows), bwindowKwh: fb.battery_window_kwh || [], bwindowCost: fb.battery_window_cost || [],
+      solar: Number(fb.solar_kwh) || 0, grid: Number(fb.grid_kwh) || 0, battery: Number(fb.battery_kwh) || 0,
+      cost: Number(fb.cost) || 0, amps: fb.current_a, kw: Number(fb.grid_kw) || evPower(fb.current_a, ev.phases || 3),
+      end: fb.end ? Date.parse(fb.end) : s.end ? Date.parse(s.end) : null,
+      readyBy: fb.ready_by ? Date.parse(fb.ready_by) : null,
+      deadline: s.deadline ? Date.parse(s.deadline) : null,
+    };
+  }
+
+  // the card's own preview split per window (each at the plan's power, the
+  // last one only as far as needed), with the price of its quarters
+  _previewParts(p) {
+    const prices = this._prices();
+    const priceStart = localMidnight(this._hass, Date.now());
+    const now = Date.now();
+    let left = p.grid || 0;
+    const kwh = [];
+    const cost = [];
+    for (const [a, b] of p.windows || []) {
+      let k = 0;
+      let c = 0;
+      for (let q = a; q < b && left > 1e-9; q += UNIT_MS) {
+        const fr = Math.max(Math.min(q + UNIT_MS, b) - Math.max(q, now), 0) / UNIT_MS;
+        const take = Math.min((p.kw / 4) * fr, left);
+        const i = Math.floor((q - priceStart) / UNIT_MS);
+        left -= take;
+        k += take;
+        c += take * (i >= 0 && i < prices.length && prices[i] != null ? prices[i] : 0);
+      }
+      kwh.push(k);
+      cost.push(c);
+    }
+    return { ...p, real: false, windowKwh: kwh, windowCost: cost, bwindows: [], bwindowKwh: [], bwindowCost: [], battery: 0 };
+  }
+
+  // The charge plan of a "full by" (as of 2026.11.5): the quarters' prices
+  // from the start to the deadline, the windows on them, and per window what
+  // goes in and what it costs
+  _planBlock(plan, begin) {
+    const deadline = plan.deadline;
+    if (!deadline || deadline <= begin) return "";
+    const prices = this._prices();
+    const priceStart = localMidnight(this._hass, Date.now());
+    const first = Math.floor(begin / UNIT_MS) * UNIT_MS;
+    const qs = [];
+    for (let q = first; q < deadline; q += UNIT_MS) {
+      const i = Math.floor((q - priceStart) / UNIT_MS);
+      qs.push([q, i >= 0 && i < prices.length && prices[i] != null && isFinite(prices[i]) ? prices[i] : null]);
+    }
+    const known = qs.map(([, v]) => v).filter((v) => v != null);
+    if (!known.length) return "";
+    const lo = Math.min(...known);
+    const hi = Math.max(...known);
+    const span = deadline - first;
+    const pos = (t) => Math.min(Math.max(((t - first) / span) * 100, 0), 100);
+    const inW = (q, ws) => ws.some(([a, b]) => q >= a && q < b);
+    const w = 100 / qs.length;
+    let bars = qs.map(([q, v]) => {
+      if (v == null) return "";
+      const h = 18 + (hi > lo ? (82 * (v - lo)) / (hi - lo) : 40);
+      const c = inW(q, plan.bwindows) ? EV_BATT : inW(q, plan.windows) ? EV_GRID : "rgba(127,127,127,.38)";
+      return `<i style="left:${pos(q)}%;width:${w * 0.78}%;height:${h}%;background:${c}"></i>`;
+    }).join("");
+    bars += plan.windows.map(([a, b]) => `<b style="left:${pos(a)}%;width:${pos(b) - pos(a)}%;--c:${EV_GRID}"></b>`).join("");
+    bars += plan.bwindows.map(([a, b]) => `<b style="left:${pos(a)}%;width:${pos(b) - pos(a)}%;--c:${EV_BATT}"></b>`).join("");
+    const ticks = [];
+    const hours = span / HOUR_MS;
+    const step = hours > 36 ? 12 : hours > 18 ? 6 : hours > 8 ? 3 : 1;
+    for (let t = Math.ceil(first / HOUR_MS) * HOUR_MS; t <= deadline; t += HOUR_MS) {
+      const [h] = formats(this._hass).clock(t);
+      if (h % step === 0) ticks.push(`<span style="left:${pos(t)}%">${String(h).padStart(2, "0")}</span>`);
+    }
+    const f = formats(this._hass);
+    const rows = [];
+    plan.windows.forEach(([a, b], k) => rows.push([a, b, "grid", plan.windowKwh[k] || 0, plan.windowCost[k] || 0]));
+    plan.bwindows.forEach(([a, b], k) => rows.push([a, b, "batt", plan.bwindowKwh[k] || 0, plan.bwindowCost[k] || 0]));
+    rows.sort((x, y) => x[0] - y[0]);
+    let list = rows.map(([a, b, kind, k, c]) => `<div class="pl-row"><i style="background:${kind === "batt" ? EV_BATT : EV_GRID}"></i><b>${esc(this._time(a))} \u2013 ${esc(this._time(b))}</b><span style="color:${kind === "batt" ? EV_BATT : EV_GRID}">${esc(this._t(kind === "batt" ? "ev_pl_batt" : "ev_pl_grid"))}</span><span class="dim">${esc(`${plan.amps} A \u00b7 ${this._kwh(k)}`)}</span><span>${k > 0.01 ? esc(formatPrice(f, c / k)) : ""}</span></div>`).join("");
+    if (plan.solar > 0.05) list += `<div class="pl-row"><i style="background:var(--evsun)"></i><b>${esc(this._t("ev_pl_sun"))}</b><span></span><span class="dim">${esc(this._kwh(plan.solar))}</span><span></span></div>`;
+    const kwh = rows.reduce((a, r) => a + r[3], 0);
+    const cost = rows.reduce((a, r) => a + r[4], 0);
+    const sum = kwh > 0.05 ? `<div class="pl-sum"><span class="dim">${esc(this._t("ev_pl_cost"))}</span><b>${esc(f.money(cost))} \u00b7 ${esc(this._t("ev_pl_avg")(formatPrice(f, cost / kwh)))}</b></div>` : "";
+    const notes = [this._t("ev_pl_legend")];
+    if (plan.bwindows.length) notes.push(this._t("ev_pl_batt_note"));
+    return `<div class="pl">
+      <div class="pl-head"><span>${esc(this._t("ev_pl_title"))}</span>${plan.real ? "" : `<span class="dim">${esc(this._t("ev_pl_preview"))}</span>`}</div>
+      <div class="pl-tl">${bars}<u></u></div>
+      <div class="pl-ticks">${ticks.join("")}</div>
+      ${list ? `<div class="pl-rows">${list}</div>` : ""}${sum}
+      <div class="hint">${esc(notes.join(" \u00b7 "))}</div>
+    </div>`;
   }
 
   _hhmm(ms) {
@@ -3007,6 +3139,9 @@ class EssManagerEvCard extends EssChartCard {
     if (e.how === "deadline") {
       const deadline = this._editDeadline(e);
       if (deadline <= begin) return { past: true, by: true, need, got: 0 };
+      // (as of 2026.11.5) a saved session unchanged: the integration's own plan
+      const saved = this._savedPlan(ev, e);
+      if (saved) return { ...saved, deadline, readyBy: saved.readyBy || deadline - HOUR_MS, got: need, need, by: true };
       const prices = this._prices();
       const priceStart = localMidnight(this._hass, now);
       const net = ev.house_net_120h || [];
@@ -3060,7 +3195,8 @@ class EssManagerEvCard extends EssChartCard {
         return `<div class="result bad">${EV_ICON.warn("#ff7b72")}<div style="display:flex;flex-direction:column;gap:4px"><b style="color:#ffb4ad">${esc(this._t("ev_r_tight_t")(this._when(p.deadline)))}</b><span>${esc(this._t("ev_r_tight")(this._kwh(p.need), `${ev.max_current} A`, this._kwh(p.reach), this._when(p.end)))}</span></div></div>`;
       }
       const note = p.estimate ? `<div class="hint">${esc(this._t("ev_r_estimate"))}</div>` : "";
-      return `<div class="result">${EV_ICON.deadline(EV_GRID)}<div style="display:flex;flex-direction:column;gap:2px"><span>${esc(this._t("ev_r_end"))} <b>${esc(this._when(p.end))}</b> \u00b7 ${esc(this._t("ev_in_plan")(this._kwh(kwh)))}</span><span class="dim" style="font-size:12px">${esc(this._t("ev_r_by_fixed")(p.amps, this._kw(p.kw), this._when(p.readyBy), this._when(p.deadline)))}</span>${note}</div></div>`;
+      const block = p.estimate ? "" : this._planBlock(p.real ? p : this._previewParts(p), Math.max(this._startMs(e), Date.now()));
+      return `<div class="result">${EV_ICON.deadline(EV_GRID)}<div style="display:flex;flex-direction:column;gap:2px"><span>${esc(this._t("ev_r_end"))} <b>${esc(this._when(p.end))}</b> \u00b7 ${esc(this._t("ev_in_plan")(this._kwh(kwh)))}</span><span class="dim" style="font-size:12px">${esc(this._t("ev_r_by_fixed")(p.amps, this._kw(p.kw), this._when(p.readyBy), this._when(p.deadline)))}</span>${note}</div></div>${block}`;
     }
     if (e.how === "solar" && p.warning === "no_surplus") return `<div class="result warn">${ICON_CLOCK(EV_WARN)}<div>${esc(this._t("ev_warn_none"))}</div></div>`;
     if (e.how === "solar" && p.warning === "short") return `<div class="result warn">${ICON_CLOCK(EV_WARN)}<div>${esc(this._t("ev_warn_short")(this._kwh(p.got + (e.running ? e.delivered : 0)), this._kwh(kwh)))}</div></div>`;
@@ -3162,6 +3298,17 @@ class EssManagerEvCard extends EssChartCard {
     const sel = this._edit && this._edit.id === s.id;
     const cls = ["ev-row", s.enabled ? "" : "off", sel ? "sel" : s.solar_history ? "hist" : ""].join(" ");
     const stop = end ? `${solar ? "\u00b1 " : ""}${this._time(end)}` : "\u2014";
+    // (as of 2026.11.5) a planned "full by": from its first charge window on
+    let from = start;
+    let blocks = "";
+    const fb = s.mode === "deadline" && !s.running ? s.full_by : null;
+    if (fb && !fb.tight && !fb.estimate && !(Number(fb.solar_kwh) > 0.05)) {
+      const ws = [...(fb.windows || []), ...(fb.battery_windows || [])].map(([a]) => Date.parse(a)).filter((t) => isFinite(t));
+      if (ws.length) {
+        from = Math.max(Math.min(...ws), start);
+        blocks = ` \u00b7 ${this._t("ev_pl_blocks")(ws.length)}`;
+      }
+    }
     const chip = { history: "ev_label_history", edited: "ev_label_edited", manual: "ev_label_manual" }[s.label] || "ev_label_manual";
     const how = this._howOf(ev, s);
     let warn = "";
@@ -3173,11 +3320,11 @@ class EssManagerEvCard extends EssChartCard {
     return `
       <div class="${cls}">
         <button type="button" class="ev-main" data-open="${esc(s.id)}" aria-label="${esc(this._t("ev_edit_aria"))} ${esc(this._day(start))} ${esc(this._time(start))}">
-          <div class="ev-line"><div class="ev-when">${esc(this._day(start))} \u00b7 ${esc(this._time(start))} \u2192 ${esc(stop)}</div><div class="ev-kwh">+${esc(this._kwh(s.kwh))}</div></div>
+          <div class="ev-line"><div class="ev-when">${esc(this._day(from))} \u00b7 ${esc(this._time(from))} \u2192 ${esc(stop)}</div><div class="ev-kwh">+${esc(this._kwh(s.kwh))}</div></div>
           <div class="ev-meta">
             <span class="chip${s.label === "history" ? "" : " strong"}">${esc(this._t(chip))}</span>
             ${car ? `<span class="car">${esc(car.name)} \u00b7</span>` : ""}
-            <span class="how">${EV_ICON[how](EV_HOW_COLOR[how]).replace('width="16" height="16"', 'width="14" height="14"')}${esc(this._howText(ev, s))}</span>
+            <span class="how">${EV_ICON[how](EV_HOW_COLOR[how]).replace('width="16" height="16"', 'width="14" height="14"')}${esc(this._howText(ev, s))}${blocks ? `<span class="dim">${esc(blocks)}</span>` : ""}</span>
           </div>
           ${warn}
         </button>

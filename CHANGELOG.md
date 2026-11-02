@@ -12,6 +12,26 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.5] - 2026-11-02
+
+### EV card - the charge plan of a "full by"
+- **Charge plan in the session's panel**: a timeline from the start to the
+  deadline with the price per quarter, the charge windows on it (blue =
+  grid, green = house battery, yellow line = full by), and per window the
+  time, the current, the kWh and the average price, with the estimated
+  cost. Opened unchanged, a saved session shows the integration's own plan
+  (up to now the panel showed the card's own sum, which could differ - 15 A
+  done 02:40 on the card, 14 A in two blocks in the integration); changed,
+  the card's preview, marked as such.
+- **The session's line** shows its first charge window (23:45 → 05:07)
+  instead of the plug-in time (18:00 → 05:07), with the number of blocks.
+- The card's sums use the prices incl taxes once they're known, like the
+  planning does.
+- The `full_by` of a session on the Status sensor's `ev` attribute has per
+  window the kWh and the cost (`window_kwh`, `window_cost`,
+  `battery_window_kwh`, `battery_window_cost`), and `solar_kwh`,
+  `grid_kwh`, `battery_kwh`, `cost`, `grid_kw`, `ready_by`, `end`.
+
 ## [2026.11.4] - 2026-11-02
 
 ### Victron EV charging station - "full by"

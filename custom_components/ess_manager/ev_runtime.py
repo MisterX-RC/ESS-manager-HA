@@ -1229,7 +1229,19 @@ class EvRuntime(_VictronMixin):
                     {"current_a": s["full_by"].get("current_a"), "tight": bool(s["full_by"].get("tight")),
                      "windows": [[iso(a), iso(b)] for a, b in s["full_by"].get("windows") or []],
                      "battery_windows": [[iso(a), iso(b)] for a, b in s["full_by"].get("battery_windows") or []],
-                     "estimate": bool(s["full_by"].get("estimate"))}
+                     "estimate": bool(s["full_by"].get("estimate")),
+                     # (as of 2026.11.5) for the charge plan in the card
+                     "window_kwh": s["full_by"].get("window_kwh"),
+                     "window_cost": s["full_by"].get("window_cost"),
+                     "battery_window_kwh": s["full_by"].get("battery_window_kwh"),
+                     "battery_window_cost": s["full_by"].get("battery_window_cost"),
+                     "solar_kwh": s["full_by"].get("solar_kwh"),
+                     "grid_kwh": s["full_by"].get("grid_kwh"),
+                     "battery_kwh": s["full_by"].get("battery_kwh"),
+                     "cost": s["full_by"].get("cost"),
+                     "grid_kw": s["full_by"].get("grid_kw"),
+                     "ready_by": iso(s["full_by"].get("ready_by")) if s["full_by"].get("ready_by") else None,
+                     "end": iso(s.get("end")) if s.get("end") else None}
                     if s.get("full_by") else None
                 ),
                 "running": bool(s.get("running")),

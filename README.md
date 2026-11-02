@@ -741,7 +741,14 @@ on the sun); tap one to edit it in the same kind of panel (day, plug-in
 time, way of charging, state of charge when plugged in and target; for
 "full by" the day and the time it should be full - as of 2026.10.32 the day
 is picked too: the plug-in day or one of the three after it, moving along
-when the plug-in day changes). The card uses the service `ess_manager.ev_charge_plan` (`choice`: asap / calm /
+when the plug-in day changes). As of 2026.11.5 a "full by" shows its
+**charge plan** in that panel: the price per quarter from the start to the
+deadline, the charge windows on it (blue = grid, green = house battery) and
+per window the time, the current, the kWh and the average price, with the
+estimated cost below. A saved session that's opened unchanged shows the
+integration's own plan; as soon as something is changed the card's preview
+("preview") until it's saved. The session's line shows its first charge
+window instead of the plug-in time, with the number of blocks. The card uses the service `ess_manager.ev_charge_plan` (`choice`: asap / calm /
 solar / deadline, `day`: today / tomorrow / after / any, `hour`: "07:00", `soc` or
 `kwh`, `target_soc`, `current_a` for asap/calm, `car`) - also usable in
 automations.
