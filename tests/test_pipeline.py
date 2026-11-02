@@ -5435,20 +5435,6 @@ check("savings: today so far, and the attribute per day",
       _s_at["today"] is not None and len(_s_at["days"]) == 2 and _s_at["history_days"] == 2 and len(_s_at["days"][0]) == 9)
 
 
-# 2026.11.3: solar export when only a planned grid charge fills the battery - it's bought back
-_xe_sell = [0.25] * 96
-_xe_sell[36] = 0.312
-_xe_low = {"blocks": [{"start_unit": 49, "end_unit": 52}, {"start_unit": 53, "end_unit": 59}]}
-_xe_bare = [0.20] * 96
-_xe_incl = [round(1.21 * 0.20 + 0.131, 4)] * 96
-check("solar export: full by the grid charge, bare prices - 0.312 beats buying back at 0.20 / 0.855",
-      plans._export_pays(36, 55, _xe_sell, _xe_bare, None, _xe_low, 0.855))
-check("solar export: full by the grid charge, buying incl (0.373) - not worth it",
-      not plans._export_pays(36, 55, _xe_sell, _xe_incl, None, _xe_low, 0.855))
-check("solar export: full by the sun - as before, the price now above every sell price until full",
-      plans._export_pays(36, 55, _xe_sell, _xe_incl, 50, _xe_low, 0.855)
-      and not plans._export_pays(37, 55, _xe_sell, _xe_incl, 50, _xe_low, 0.855))
-
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

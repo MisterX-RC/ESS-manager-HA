@@ -15,17 +15,15 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ## [2026.11.3] - 2026-11-02
 
 ### Solar export
-- **When only a planned grid charge fills the battery, solar export
-  compares with buying it back.** The rule was made for a battery the sun
-  fills: then solar kept now just pushes later solar into the grid, so the
-  price now only had to beat the sell prices until full. When the battery
-  only gets full because of a cheap grid charge, the solar sold now is
-  bought back by that charge - now the price now has to beat the dearest
-  quarter of that charge (its buy price, incl taxes when set, / the charge
-  and discharge efficiency). With bare prices that usually still pays
-  (0.31 sold against 0.20 bought back); counted with prices incl taxes
-  (about 0.37 to buy back) it doesn't. The same on the cards' "export
-  expected".
+- **Only when the sun alone fills the battery - over the max SOC.** Solar
+  export now needs the forecast without any plan (just solar and usage) to
+  take the battery over the max SOC later today - the level that triggers
+  a sale - and the price now above every price until then. Up to now it
+  looked at the forecast with the plans reaching 100%, so a planned cheap
+  grid charge that fills the battery could also make it export (sell the
+  solar now, buy it back with that charge). ESS Manager buys and sells as
+  little as it can: only the spike and negative price plans trade for
+  profit. The same on the cards' "export expected".
 
 ## [2026.11.2] - 2026-11-01
 

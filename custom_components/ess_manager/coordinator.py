@@ -2889,29 +2889,22 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 now,
             )
 
-            # For "Solar export" (as of 2026.10.3): the last quarter of the hour
-            # the forecast (with the plans) reaches 100%, and whether there's
-            # solar left over right now.
+            # For "Solar export" (as of 2026.11.3): the last quarter of the hour
+            # the sun alone - the forecast without any plan - takes the battery
+            # over the max SOC (the level that triggers a sale), and whether
+            # there's solar left over right now. Not when only a grid charge
+            # (or anything else) fills it: ESS Manager buys and sells as little
+            # as it can, only the spike and negative price plans trade.
             hour0_unit = current_price_unit - (now.minute // 15)
             full_hour = next(
-                (h for h, v in enumerate(battery_forecast_adjusted) if v >= upper_limit_kwh - 0.01), None
+                (h for h, v in enumerate(battery_forecast) if v >= high_threshold_kwh - 0.01), None
             )
             full_unit = hour0_unit + full_hour * 4 + 3 if full_hour is not None else None
-            # ... and when the sun alone gets it there (as of 2026.11.3): if
-            # only a planned grid charge fills it, solar sold now is bought
-            # back by that charge
-            solar_full_hour = next(
-                (h for h, v in enumerate(battery_forecast) if v >= upper_limit_kwh - 0.01), None
-            )
-            solar_full_unit = hour0_unit + solar_full_hour * 4 + 3 if solar_full_hour is not None else None
-            export_losses = charge_efficiency * discharge_efficiency
             # where solar export is expected (as of 2026.10.41, for the charts)
             export_expected = display.unit_windows(
                 plans.solar_export_units(net_energy, current_price_unit, now, full_unit, plan_sell,
                                          today_units=len(today_price) or 96,
-                                         neg=self._negative_price_plan, buy_price=plan_buy,
-                                         solar_full_unit=solar_full_unit, low=self._low_charge_plan,
-                                         losses=export_losses),
+                                         neg=self._negative_price_plan),
                 {}, current_price_unit, now,
             ) if conf.get(CONF_BATTERY_POWER_ENTITY) else []
             system_status, control_action = plans.compute_system_status_and_action(
@@ -2932,9 +2925,6 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 solar_surplus_now=bool(net_energy) and net_energy[0] > 0,
                 solar_export=bool(conf.get(CONF_BATTERY_POWER_ENTITY)),
                 today_units=len(today_price) or 96,
-                buy_price=plan_buy,
-                solar_full_unit=solar_full_unit,
-                losses=export_losses,
             )
 
             charge_kwh, charge_start_text, charge_stop_text = display.charge_display(
