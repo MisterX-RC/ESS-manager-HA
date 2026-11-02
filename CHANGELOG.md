@@ -12,6 +12,26 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.4] - 2026-11-02
+
+### Victron EV charging station - "full by"
+- **Dear quarters out of the house battery.** Per quarter the car's energy
+  can now also come out of the house battery, at what it costs to fill it
+  up again: the cheapest price after that quarter / the charge x discharge
+  efficiency. Where that beats the grid at that moment (an evening peak
+  when the night is too short), the car charges from the battery - the
+  charger on Manual, the grid setpoint not raised - and the battery
+  forecast counts it as usage, so the charge plan fills the battery up in
+  the cheapest hours. Within what the battery can give without going below
+  its minimum + Safety buffer on the house alone until the deadline, and
+  only where its max discharge speed next to the house covers the car's
+  power. Shown in green on the EV card.
+- **The current that costs least**, not the lowest that makes it: a faster
+  charge can fit in the cheap quarters where a slow one needs dear ones.
+  Of equal cost (e.g. flat prices) still the lowest - a calm charge. Also
+  in the card's own preview.
+- The car's prices are now the buy prices incl taxes when those are set.
+
 ## [2026.11.3] - 2026-11-02
 
 ### Solar export

@@ -125,7 +125,7 @@ const I18N = {
     ev_r_solar_none: "No solar surplus in sight - this way it won't charge.", ev_r_solar_short: (got, need) => `Not enough sun: \u00b1 ${got} of ${need}`,
     ev_r_solar_hint: (lo, hi) => `Charges only on what the sun has left after the house (${lo} - ${hi}).`,
     ev_go_start: "Start", ev_go_save: "Save", ev_change: "Change", ev_edit_btn: "Edit", ev_phone_note: "The question on your phone goes away",
-    ev_legend_grid: (a) => `Grid, ${a} A`, ev_legend_sun: "Sun", ev_none_short: "none",
+    ev_legend_grid: (a) => `Grid, ${a} A`, ev_legend_sun: "Sun", ev_none_short: "none", ev_legend_batt: (a) => `House battery, ${a} A`,
     ev_tl_from: (t) => `plugged in ${t}`, ev_tl_to: (a, b) => (a ? `done ${a} \u00b7 full by ${b}` : `full by ${b}`),
     ev_soc_line: (p, k, n) => `now \u00b1 ${p}% \u00b7 ${k} of ${n} charged`, ev_kwh_line: (k, n) => `${k} of ${n} charged`,
     ev_tight_full: "Full at about",
@@ -314,7 +314,7 @@ const I18N = {
     ev_r_solar_none: "Geen zon-overschot in zicht - zo laadt hij niet.", ev_r_solar_short: (got, need) => `Te weinig zon: \u00b1 ${got} van ${need}`,
     ev_r_solar_hint: (lo, hi) => `Laadt alleen op wat de zon na het huis over heeft (${lo} - ${hi}).`,
     ev_go_start: "Start", ev_go_save: "Opslaan", ev_change: "Wijzigen", ev_edit_btn: "Bewerken", ev_phone_note: "De vraag op je telefoon verdwijnt",
-    ev_legend_grid: (a) => `Net, ${a} A`, ev_legend_sun: "Zon", ev_none_short: "geen",
+    ev_legend_grid: (a) => `Net, ${a} A`, ev_legend_sun: "Zon", ev_none_short: "geen", ev_legend_batt: (a) => `Thuisaccu, ${a} A`,
     ev_tl_from: (t) => `aangesloten ${t}`, ev_tl_to: (a, b) => (a ? `klaar ${a} \u00b7 vol om ${b}` : `vol om ${b}`),
     ev_soc_line: (p, k, n) => `nu \u00b1 ${p}% \u00b7 ${k} van ${n} geladen`, ev_kwh_line: (k, n) => `${k} van ${n} geladen`,
     ev_tight_full: "Vol rond",
@@ -2446,13 +2446,16 @@ function evPlanDeadline(nowMs, deadlineMs, need, net, hour0Ms, prices, priceStar
   let end = null;
   let solar = 0;
   let grid = 0;
+  let cost = 0;
   for (const q of qs) {
     const e = chosen.has(q) ? gq * frac(q) : sun.get(q);
     if (e <= 0) continue;
     const take = Math.min(e, Math.max(need - got, 0));
     if (take <= 0) break;
-    if (chosen.has(q)) grid += take;
-    else solar += take;
+    if (chosen.has(q)) {
+      grid += take;
+      cost += take * price(q);
+    } else solar += take;
     got += take;
     if (end === null && got >= need - 1e-9) end = Math.max(q, nowMs) + (take / e) * frac(q) * U;
   }
@@ -2462,18 +2465,23 @@ function evPlanDeadline(nowMs, deadlineMs, need, net, hour0Ms, prices, priceStar
     if (windows.length && windows[windows.length - 1][1] === q) windows[windows.length - 1][1] = q + U;
     else windows.push([q, q + U]);
   }
-  return { windows, solar, grid, short: Math.max(need - got, 0), end };
+  return { windows, solar, grid, short: Math.max(need - got, 0), end, cost };
 }
 
 function evPlanFullBy(nowMs, deadlineMs, need, net, hour0Ms, prices, priceStartMs, phases, minA, maxA, marginMs) {
   const readyBy = Math.max(deadlineMs - marginMs, nowMs);
   const pMin = evPower(minA, phases);
   const pMax = evPower(maxA, phases);
+  // (as of 2026.11.4) the current that costs least, of equal cost the
+  // lowest - like plan_full_by (the house battery's dear quarters are left
+  // to the integration: the panel shows the grid)
+  let best = null;
   for (let a = Math.round(minA); a <= Math.round(maxA); a++) {
     const kw = evPower(a, phases);
     const plan = evPlanDeadline(nowMs, readyBy, need, net, hour0Ms, prices, priceStartMs, pMin, pMax, kw);
-    if (plan.short <= 0.05) return { ...plan, amps: a, kw, tight: false, readyBy, deadline: deadlineMs, reach: need };
+    if (plan.short <= 0.05 && (!best || plan.cost < best.cost - 0.005)) best = { ...plan, amps: a, kw, tight: false, readyBy, deadline: deadlineMs, reach: need };
   }
+  if (best) return best;
   const reach = Math.min((pMax * Math.max(deadlineMs - nowMs, 0)) / HOUR_MS, Math.max(need, 0));
   const end = pMax > 0 ? nowMs + (Math.max(need, 0) / pMax) * HOUR_MS : null;
   return { windows: end ? [[nowMs, end]] : [], solar: 0, grid: need, short: need - reach, end, amps: Math.round(maxA), kw: pMax, tight: true, readyBy, deadline: deadlineMs, reach };
@@ -2489,6 +2497,7 @@ const EV_ICON = {
   warn: (c) => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex-shrink:0"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18v.5"></path></svg>`,
 };
 const EV_GRID = "#4fa3f7";
+const EV_BATT = "#6fcf97";
 const EV_RED = "#e5534b";
 const EV_HOW_COLOR = { asap: "var(--ev)", calm: "var(--ev)", solar: "var(--evsun)", deadline: EV_GRID };
 
@@ -2881,6 +2890,9 @@ class EssManagerEvCard extends EssChartCard {
       ticks += `<span class="tick" style="left:${pos(t)}%">${String(formats(this._hass).clock(t)[0]).padStart(2, "0")}</span>`;
     }
     let bar = wins.map(([a, b]) => `<i style="left:${pos(a)}%;width:${pos(b) - pos(a)}%;background:${EV_GRID};border-radius:3px;opacity:.8"></i>`).join("");
+    // (as of 2026.11.4) dear quarters out of the house battery
+    const bwins = (cs.battery_windows || []).map(([a, b]) => [Date.parse(a), Date.parse(b)]);
+    bar += bwins.map(([a, b]) => `<i style="left:${pos(a)}%;width:${pos(b) - pos(a)}%;background:${EV_BATT};border-radius:3px;opacity:.85"></i>`).join("");
     bar += `<i class="now" style="left:${pos(now)}%"></i>`;
     const ready = cs.ready_by ? Date.parse(cs.ready_by) : null;
     if (ready && deadline && ready < deadline) bar += `<i class="mark" style="left:${pos(ready)}%;border-color:var(--ev)"></i>`;
@@ -2890,6 +2902,7 @@ class EssManagerEvCard extends EssChartCard {
     const amps = Math.round(cs.plan_current_a || ev.max_current);
     out += `<div class="legend2">
       <div><i style="background:${EV_GRID}"></i><span>${esc(this._t("ev_legend_grid")(amps))}</span><span>${esc(this._windowsText(wins) || this._t("ev_none_short"))}</span></div>
+      ${bwins.length ? `<div><i style="background:${EV_BATT}"></i><span>${esc(this._t("ev_legend_batt")(amps))}</span><span>${esc(this._windowsText(bwins))}</span></div>` : ""}
       <div><i style="background:var(--evsun)"></i><span>${esc(this._t("ev_legend_sun"))}</span><span>${esc(cs.solar_kwh > 0.05 ? this._kwh(cs.solar_kwh) : this._t("ev_none_short"))}</span></div></div>`;
     if (cs.tight) {
       out += `<div class="result bad">${EV_ICON.warn("#ff7b72")}<div style="display:flex;flex-direction:column;gap:4px"><b style="color:#ffb4ad">${esc(this._t("ev_r_tight_t")(this._when(deadline)))}</b><span>${esc(this._t("ev_tight_full"))} ${esc(this._when(cs.end ? Date.parse(cs.end) : null))}</span></div></div>`;

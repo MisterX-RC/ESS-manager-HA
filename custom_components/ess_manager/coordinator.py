@@ -635,7 +635,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 out[role] = entry.entity_id
         return out
 
-    def _victron_inputs(self, conf: dict[str, Any], ents: dict[str, str], now: datetime, buy_price: list[float]) -> dict[str, Any]:
+    def _victron_inputs(self, conf: dict[str, Any], ents: dict[str, str], now: datetime, buy_price: list[float],
+                        battery: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         status_state = self.hass.states.get(ents.get("status", ""))
         status = status_state.state if status_state and status_state.state not in ("unknown", "unavailable") else None
         # A car is plugged in when the charger's Status isn't "disconnected".
@@ -663,6 +664,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "notify": bool(notify),
             "notify_services": notify,
             "prices": list(buy_price),
+            # what the house battery can give a "full by" charge (as of 2026.11.4)
+            "battery": battery,
             "price_start": int(units.local_midnight(now).timestamp()),
         }
 
@@ -2473,7 +2476,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ev_entities: dict[str, str] = {}
         if conf.get(CONF_EV_ENABLED) and conf.get(CONF_EV_CHARGER) == EV_CHARGER_VICTRON:
             ev_entities = self._victron_entities(conf.get(CONF_EV_VICTRON_DEVICE))
-            ev_victron = self._victron_inputs(conf, ev_entities, now, buy_price)
+            ev_victron = self._victron_inputs(conf, ev_entities, now, plan_buy, {
+                "level_kwh": round(capacity_kwh * soc_now_percent / 100, 3),
+                "floor_kwh": round(capacity_kwh * min_soc_deficit_percent / 100, 3) + safety_buffer_kwh,
+                "capacity_kwh": capacity_kwh,
+                "max_discharge_kw": max_battery_discharge_speed_kw,
+                "losses": charge_efficiency * discharge_efficiency,
+            })
         if conf.get(CONF_EV_ENABLED):
             ev_total, ev_attribute = self.ev.update(
                 {

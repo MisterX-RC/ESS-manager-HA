@@ -25,6 +25,7 @@ translation key.
 """
 from __future__ import annotations
 
+import heapq
 import math
 import re
 from typing import Any, Optional
@@ -158,6 +159,32 @@ def needed_kwh(car: Optional[dict[str, Any]], soc: float, target: Optional[float
 
 
 # -- the deadline plan ----------------------------------------------------------
+def battery_option(
+    now_epoch: int, hour0_epoch: int, house_net: list[Optional[float]], until_epoch: int,
+    level_kwh: Optional[float], floor_kwh: float, capacity_kwh: float, max_discharge_kw: float, losses: float,
+) -> Optional[dict[str, Any]]:
+    """What the house battery can give the car (as of 2026.11.4): `budget_kwh`
+    - the lowest level the battery reaches until `until_epoch` on the house
+    alone (solar minus the house, per hour), above `floor_kwh` (taking
+    energy earlier lowers every later hour by as much); `room_kw` per hour -
+    its max discharge speed minus what the house takes; `losses` - charge x
+    discharge efficiency. None without a battery level."""
+    if level_kwh is None or max_discharge_kw <= 0:
+        return None
+    level = float(level_kwh)
+    low = level
+    room = []
+    hours = max(math.ceil((until_epoch - hour0_epoch) / 3600), 1)
+    for h in range(len(house_net)):
+        n = house_net[h] if house_net[h] is not None else 0.0
+        room.append(max(max_discharge_kw - max(-n, 0.0), 0.0))
+        if h < hours:
+            frac = max((hour0_epoch + 3600 - now_epoch) / 3600, 0.0) if h == 0 else 1.0
+            level = min(level + n * frac, capacity_kwh)
+            low = min(low, level)
+    return {"budget_kwh": round(max(low - floor_kwh, 0.0), 3), "room_kw": room, "losses": max(losses, 0.01)}
+
+
 def plan_deadline(
     now_epoch: int,
     deadline_epoch: int,
@@ -170,6 +197,8 @@ def plan_deadline(
     p_max_kw: float,
     keep: Optional[list[int]] = None,
     grid_kw: Optional[float] = None,
+    battery: Optional[dict[str, Any]] = None,
+    keep_battery: Optional[list[int]] = None,
 ) -> dict[str, Any]:
     """Where a charge that has to be done by `deadline_epoch` gets its
     `need_kwh`: solar first (per quarter what the surplus `net` - kWh per
@@ -181,10 +210,18 @@ def plan_deadline(
     `grid_kw` (as of 2026.10.29): the power of the grid quarters (default
     the max) - the sun keeps its own range up to the max.
 
-    Returns {"windows": [[start, end], ...] (merged, epochs), "quarters":
-    [start epochs], "solar_kwh", "grid_kwh", "short_kwh" (what doesn't fit
+    `battery` (as of 2026.11.4, battery_option): a quarter can also come out
+    of the house battery, at what it costs to fill it up again - the
+    cheapest price after that quarter, / the losses - within the battery's
+    budget and its room (its max discharge minus the house, at least the
+    car's power); per quarter the cheaper of the two. `keep_battery`: the
+    battery quarters of a window that is running - kept.
+
+    Returns {"windows": [[start, end], ...] (merged, epochs - the grid part),
+    "quarters": [start epochs], "battery_windows", "battery_quarters",
+    "solar_kwh", "grid_kwh", "battery_kwh", "short_kwh" (what doesn't fit
     before the deadline), "end" (epoch the energy is in, None when it isn't),
-    "cost" (of the grid part)}."""
+    "cost" (grid at its price, battery at its refill price)}."""
     need = max(float(need_kwh or 0.0), 0.0)
     first = now_epoch - now_epoch % UNIT
     quarters = list(range(first, max(deadline_epoch, first), UNIT))
@@ -203,18 +240,68 @@ def plan_deadline(
         i = (q - price_start_epoch) // UNIT
         return prices[i] if 0 <= i < len(prices) else None
 
-    grid_q = (grid_kw if grid_kw is not None else p_max_kw) / 4
+    car_kw = grid_kw if grid_kw is not None else p_max_kw
+    grid_q = car_kw / 4
+    # the refill price after each quarter: the cheapest price later on
+    refill: dict[int, Optional[float]] = {}
+    if battery:
+        n_p = len(prices)
+        later: list[Optional[float]] = [None] * (n_p + 1)
+        for i in range(n_p - 1, -1, -1):
+            p, nxt = prices[i], later[i + 1]
+            later[i] = nxt if p is None else (p if nxt is None else min(p, nxt))
+        for q in quarters:
+            i = (q - price_start_epoch) // UNIT
+            refill[q] = later[i + 1] if 0 <= i + 1 <= n_p else None
+    budget = float((battery or {}).get("budget_kwh") or 0.0)
+    losses = float((battery or {}).get("losses") or 1.0)
+
+    def batt_cost(q: int) -> Optional[float]:
+        if not battery or refill.get(q) is None:
+            return None
+        h = (q - hour0_epoch) // 3600
+        room = (battery.get("room_kw") or [])
+        if not (0 <= h < len(room)) or room[h] < car_kw - 1e-6:
+            return None
+        return refill[q] / losses
+
     chosen: set[int] = {q for q in (keep or []) if q in quarters}
+    from_batt: set[int] = set()
+    for q in keep_battery or []:
+        if q in quarters and q not in chosen:
+            chosen.add(q)
+            from_batt.add(q)
+            budget -= grid_q * frac(q)
     sun = {q: solar(q) for q in quarters}
     total = sum(grid_q * frac(q) if q in chosen else sun[q] for q in quarters)
 
-    candidates = sorted((q for q in quarters if price(q) is not None and frac(q) > 0), key=lambda q: (price(q), q))
-    for q in candidates:
-        if total >= need - 1e-9:
-            break
+    heap: list[tuple[float, int, int]] = []
+    for q in quarters:
+        if frac(q) <= 0 or q in chosen:
+            continue
+        if price(q) is not None:
+            heap.append((price(q), q, 0))
+        bc = batt_cost(q)
+        if bc is not None:
+            heap.append((bc, q, 1))
+    heapq.heapify(heap)
+
+    def take(q: int, kind: int) -> bool:
+        nonlocal budget, total
+        e = grid_q * frac(q)
+        if kind == 1:
+            if budget < e - 1e-9:
+                return False
+            budget -= e
+            from_batt.add(q)
+        chosen.add(q)
+        total += e - sun[q]
+        return True
+
+    while heap and total < need - 1e-9:
+        _, q, kind = heapq.heappop(heap)
         if q not in chosen:
-            chosen.add(q)
-            total += grid_q * frac(q) - sun[q]
+            take(q, kind)
     # no lone quarters: a quarter on its own takes its cheaper neighbour
     for q in sorted(chosen):
         run = [q]
@@ -222,42 +309,61 @@ def plan_deadline(
             run.append(run[-1] + UNIT)
         if len(run) >= MIN_WINDOW_UNITS or (q - UNIT) in chosen:
             continue
-        options = [n for n in (q - UNIT, q + UNIT) if n in quarters and price(n) is not None and frac(n) > 0]
+        options = []
+        for n in (q - UNIT, q + UNIT):
+            if n in quarters and frac(n) > 0 and n not in chosen:
+                if price(n) is not None:
+                    options.append((price(n), n, 0))
+                bc = batt_cost(n)
+                if bc is not None and budget >= grid_q * frac(n):
+                    options.append((bc, n, 1))
         if options:
-            chosen.add(min(options, key=lambda n: (price(n), n)))
+            _, n, kind = min(options)
+            take(n, kind)
 
     got = 0.0
     end = None
-    solar_kwh = grid_kwh = cost = 0.0
+    solar_kwh = grid_kwh = batt_kwh = cost = 0.0
     for q in quarters:
         e = grid_q * frac(q) if q in chosen else sun[q]
         if e <= 0:
             continue
-        take = min(e, max(need - got, 0.0))
-        if take <= 0:
+        part = min(e, max(need - got, 0.0))
+        if part <= 0:
             break
-        if q in chosen:
-            grid_kwh += take
-            cost += take * (price(q) or 0.0)
+        if q in from_batt:
+            batt_kwh += part
+            cost += part * (batt_cost(q) or (refill.get(q) or 0.0) / losses)
+        elif q in chosen:
+            grid_kwh += part
+            cost += part * (price(q) or 0.0)
         else:
-            solar_kwh += take
-        got += take
+            solar_kwh += part
+        got += part
         if end is None and got >= need - 1e-9:
             start = max(q, now_epoch)
-            end = int(start + (take / e) * frac(q) * UNIT)
+            end = int(start + (part / e) * frac(q) * UNIT)
     if need <= 0:
         end = now_epoch
-    windows: list[list[int]] = []
-    for q in sorted(chosen):
-        if windows and windows[-1][1] == q:
-            windows[-1][1] = q + UNIT
-        else:
-            windows.append([q, q + UNIT])
+
+    def merged(qs: set[int]) -> list[list[int]]:
+        out: list[list[int]] = []
+        for q in sorted(qs):
+            if out and out[-1][1] == q:
+                out[-1][1] = q + UNIT
+            else:
+                out.append([q, q + UNIT])
+        return out
+
+    grid_set = chosen - from_batt
     return {
-        "windows": windows,
-        "quarters": sorted(chosen),
+        "windows": merged(grid_set),
+        "quarters": sorted(grid_set),
+        "battery_windows": merged(from_batt),
+        "battery_quarters": sorted(from_batt),
         "solar_kwh": round(solar_kwh, 2),
         "grid_kwh": round(grid_kwh, 2),
+        "battery_kwh": round(batt_kwh, 2),
         "short_kwh": round(max(need - got, 0.0), 2),
         "end": end,
         "cost": round(cost, 2),
@@ -278,11 +384,16 @@ def plan_full_by(
     keep: Optional[list[int]] = None,
     keep_a: Optional[int] = None,
     margin: int = DEADLINE_MARGIN,
+    battery: Optional[dict[str, Any]] = None,
+    keep_battery: Optional[list[int]] = None,
 ) -> dict[str, Any]:
     """"Full by" with its own speed (as of 2026.10.29): planned to be done
-    `margin` before the deadline, at the LOWEST current that still gets
-    `need_kwh` in by then (sun first, the rest in the cheapest quarters) -
-    a calm charge where there's time. `keep`/`keep_a`: a running grid window
+    `margin` before the deadline (sun first, the rest in the cheapest
+    quarters). As of 2026.11.4 at the current that costs least - a faster
+    charge can fit in the cheap quarters where a slow one needs dear ones -
+    and of equal cost the lowest (a calm charge where there's time); dear
+    quarters can come out of the house battery (`battery`, see
+    plan_deadline). `keep`/`keep_a`: a running grid window
     and its current stay. When even the max current doesn't make it, it's
     `tight`: charge at the max right away (the end is then later than the
     deadline, `reach_kwh` = what's in by the deadline). Adds `current_a`,
@@ -296,10 +407,10 @@ def plan_full_by(
     plan = None
     for amps in range(lo, hi + 1):
         kw = power_kw(amps, phases)
-        trial = plan_deadline(now_epoch, ready_by, need_kwh, net, hour0_epoch, prices, price_start_epoch, p_min, p_max, keep, kw)
-        if trial["short_kwh"] <= 0.05:
+        trial = plan_deadline(now_epoch, ready_by, need_kwh, net, hour0_epoch, prices, price_start_epoch, p_min, p_max, keep, kw,
+                              battery, keep_battery)
+        if trial["short_kwh"] <= 0.05 and (plan is None or trial["cost"] < plan["cost"] - 0.005):
             plan = {**trial, "current_a": amps, "grid_kw": kw, "tight": False}
-            break
     if plan is None:
         # not even at the max: right away at the max, as much as fits
         quarters = list(range(now_epoch - now_epoch % UNIT, max(deadline_epoch, now_epoch), UNIT))
@@ -307,7 +418,8 @@ def plan_full_by(
         end = now_epoch + int(max(need_kwh, 0.0) / p_max * 3600) if p_max > 0 else None
         windows = [[now_epoch - now_epoch % UNIT, end - end % UNIT + UNIT]] if end else []
         plan = {
-            "windows": windows, "quarters": quarters, "solar_kwh": 0.0, "grid_kwh": round(max(need_kwh, 0.0), 2),
+            "windows": windows, "quarters": quarters, "battery_windows": [], "battery_quarters": [], "battery_kwh": 0.0,
+            "solar_kwh": 0.0, "grid_kwh": round(max(need_kwh, 0.0), 2),
             "short_kwh": round(max(need_kwh - reach, 0.0), 2), "end": end, "cost": 0.0,
             "current_a": hi, "grid_kw": p_max, "tight": True,
         }
@@ -345,6 +457,10 @@ def charger_target(flow: Optional[dict[str, Any]], now_epoch: int, min_a: float,
         plan = flow.get("plan") or {}
         if in_windows(now_epoch, flow.get("windows") or []):
             return {"mode": MODE_MANUAL, "charge": True, "current": int(plan.get("current_a") or max_a), "why": "grid_window"}
+        if in_windows(now_epoch, flow.get("battery_windows") or []):
+            # (as of 2026.11.4) a dear quarter out of the house battery: the
+            # grid setpoint isn't raised, so the battery supplies the car
+            return {"mode": MODE_MANUAL, "charge": True, "current": int(plan.get("current_a") or max_a), "why": "battery_window"}
         return {"mode": MODE_AUTO, "charge": True, "current": None, "why": "solar"}
     if choice is None:
         # no choice and nothing planned to take over: ESS Manager doesn't
@@ -386,6 +502,7 @@ def planned_full_by(
     phases: int,
     min_a: float,
     max_a: float,
+    battery: Optional[dict[str, Any]] = None,
 ) -> tuple[list[float], list[float], dict[str, Any]]:
     """A planned "full by" session (as of 2026.10.29) in the forecast: per
     hour what it takes (a full-hour value for hour 0) and the part of it in
@@ -401,7 +518,8 @@ def planned_full_by(
         return zero, zero, {"end": start, "kwh": 0.0, "warning": None, "plan": None}
     prices_end = price_start_epoch + len(prices) * UNIT
     if deadline - DEADLINE_MARGIN <= prices_end:
-        plan = plan_full_by(start, deadline, need, net, hour0_epoch, prices, price_start_epoch, phases, min_a, max_a)
+        plan = plan_full_by(start, deadline, need, net, hour0_epoch, prices, price_start_epoch, phases, min_a, max_a,
+                            battery=battery)
     else:
         ready = max(deadline - DEADLINE_MARGIN, start + UNIT)
         amps = int(round(max_a))
@@ -419,14 +537,17 @@ def planned_full_by(
             "ready_by": ready, "reach_kwh": round(reach, 2), "estimate": True,
         }
     grid = grid_profile(plan["windows"], hour0_epoch, hours, now_epoch, float(plan["grid_kw"]), float(plan["grid_kwh"]))
+    # (as of 2026.11.4) the part out of the house battery counts as usage
+    batt = grid_profile(plan.get("battery_windows") or [], hour0_epoch, hours, now_epoch, float(plan["grid_kw"]),
+                        float(plan.get("battery_kwh") or 0.0))
     solar, _ = _ev.session_profile(
         {"start": start, "kwh": plan["solar_kwh"], "mode": _ev.MODE_SOLAR}, now_epoch, hour0_epoch, hours, net,
         phases, min_a, max_a, int(plan.get("ready_by") or deadline),
     )
-    total = [round(a + b, 4) for a, b in zip(grid, solar)]
+    total = [round(a + b + c, 4) for a, b, c in zip(grid, batt, solar)]
     info = {
         "end": plan["end"],
-        "kwh": round(plan["solar_kwh"] + plan["grid_kwh"], 2),
+        "kwh": round(plan["solar_kwh"] + plan["grid_kwh"] + float(plan.get("battery_kwh") or 0.0), 2),
         "warning": _ev.WARNING_SHORT if plan.get("tight") else None,
         "plan": plan,
     }

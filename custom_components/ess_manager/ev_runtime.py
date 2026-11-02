@@ -683,6 +683,16 @@ class _VictronMixin:
         got = max(float(last) - float(start), 0.0) if start is not None and last is not None else 0.0
         return max(float(need) - got, 0.0)
 
+    def _battery(self, now_epoch: int, hour0: int, house_net: list[float], until: int) -> Optional[dict[str, Any]]:
+        """What the house battery can give the car until `until` (as of
+        2026.11.4) - see ev_charger.battery_option; None without its state."""
+        b = self.ctx.get("battery")
+        if not b:
+            return None
+        return evc.battery_option(now_epoch, hour0, house_net, until, b.get("level_kwh"), float(b.get("floor_kwh") or 0.0),
+                                  float(b.get("capacity_kwh") or 0.0), float(b.get("max_discharge_kw") or 0.0),
+                                  float(b.get("losses") or 1.0))
+
     # -- each cycle: the plan, done, the announcement ------------------------------------
     def _victron_plan(self, now_epoch: int, hour0: int, house_net: list[float], phases: int, min_a: float, max_a: float) -> None:
         flow = self.flow
@@ -700,22 +710,30 @@ class _VictronMixin:
             price_start = int(self.ctx.get("price_start") or 0)
             deadline = flow.get("deadline") or (price_start + len(prices) * evc.UNIT)
             keep: list[int] = []
+            keep_batt: list[int] = []
             quarter = now_epoch - now_epoch % evc.UNIT
             for a, b in flow.get("windows") or []:
                 if a <= now_epoch < b:
                     keep = list(range(quarter, b, evc.UNIT))
+            for a, b in flow.get("battery_windows") or []:
+                if a <= now_epoch < b:
+                    keep_batt = list(range(quarter, b, evc.UNIT))
             # its own speed, done an hour early (as of 2026.10.29); "doesn't
             # matter" has no time to keep a margin to
             margin = 0 if flow.get("deadline") is None else evc.DEADLINE_MARGIN
+            running = keep or keep_batt
             plan = evc.plan_full_by(
                 now_epoch, deadline, left, house_net, hour0, prices, price_start, phases, min_a, max_a,
-                keep, ((flow.get("plan") or {}).get("current_a") if keep else None), margin,
+                keep, ((flow.get("plan") or {}).get("current_a") if running else None), margin,
+                battery=self._battery(now_epoch, hour0, house_net, deadline), keep_battery=keep_batt,
             )
             flow["windows"] = plan["windows"]
             flow["quarters"] = plan["quarters"]
+            flow["battery_windows"] = plan.get("battery_windows") or []
         else:
             flow["windows"] = []
             flow["quarters"] = []
+            flow["battery_windows"] = []
         flow["plan"] = plan
         if not flow.get("announce"):
             return
@@ -1160,6 +1178,7 @@ class EvRuntime(_VictronMixin):
                 part, grid_part, pinfo = evc.planned_full_by(
                     s, now_epoch, hour0, hours, net_left, self.ctx.get("prices") or [], int(self.ctx.get("price_start") or 0),
                     phases, min_a, max_a,
+                    battery=self._battery(now_epoch, hour0, net_left, int(s.get("deadline") or 0)),
                 )
                 grid_total = [round(a + b, 4) for a, b in zip(grid_total, grid_part)]
                 info = [{**s, "end": pinfo["end"], "charged_kwh": pinfo["kwh"], "warning": pinfo["warning"], "full_by": pinfo["plan"]}]
@@ -1209,6 +1228,7 @@ class EvRuntime(_VictronMixin):
                 "full_by": (
                     {"current_a": s["full_by"].get("current_a"), "tight": bool(s["full_by"].get("tight")),
                      "windows": [[iso(a), iso(b)] for a, b in s["full_by"].get("windows") or []],
+                     "battery_windows": [[iso(a), iso(b)] for a, b in s["full_by"].get("battery_windows") or []],
                      "estimate": bool(s["full_by"].get("estimate"))}
                     if s.get("full_by") else None
                 ),
@@ -1279,13 +1299,18 @@ class EvRuntime(_VictronMixin):
         p_grid = float(plan.get("grid_kw") or ev.power_kw(max_a, phases))
         left = self.need_left() or 0.0
         grid = evc.grid_profile(plan["windows"], hour0, hours, now_epoch, p_grid, min(plan["grid_kwh"], left))
+        # (as of 2026.11.4) the dear quarters out of the house battery: usage
+        # for the battery forecast, so the charge plan fills it up again
+        batt = evc.grid_profile(plan.get("battery_windows") or [], hour0, hours, now_epoch, p_grid,
+                                min(float(plan.get("battery_kwh") or 0.0), left))
         solar, _ = ev.session_profile(
             {"start": now_epoch, "kwh": plan["solar_kwh"], "mode": ev.MODE_SOLAR}, now_epoch, hour0, hours, net,
             phases, min_a, max_a, int(plan["deadline"]),
         )
-        part = [round(a + b, 4) for a, b in zip(grid, solar)]
+        part = [round(a + b + c, 4) for a, b, c in zip(grid, batt, solar)]
         info = {
-            **s, "end": plan["end"], "charged_kwh": round(got + plan["solar_kwh"] + plan["grid_kwh"], 2),
+            **s, "end": plan["end"],
+            "charged_kwh": round(got + plan["solar_kwh"] + plan["grid_kwh"] + float(plan.get("battery_kwh") or 0.0), 2),
             "warning": ev.WARNING_SHORT if plan["short_kwh"] > 0.05 else None,
         }
         return part, grid, [info]
@@ -1315,6 +1340,9 @@ class EvRuntime(_VictronMixin):
                 "soc": flow.get("soc"),
                 "done": bool(flow.get("done")),
                 "windows": [[iso(a), iso(b)] for a, b in flow.get("windows") or []],
+                # (as of 2026.11.4) dear quarters out of the house battery
+                "battery_windows": [[iso(a), iso(b)] for a, b in flow.get("battery_windows") or []],
+                "battery_kwh": plan.get("battery_kwh"),
                 "solar_kwh": plan.get("solar_kwh"),
                 "grid_kwh": plan.get("grid_kwh"),
                 "short_kwh": plan.get("short_kwh"),

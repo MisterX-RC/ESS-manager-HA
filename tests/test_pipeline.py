@@ -4816,9 +4816,11 @@ check("victron: ... also when it starts a minute after plugging in (its auto sta
 
 # full by: its own speed, an hour early, tight (2026.10.29)
 _fb = evc.plan_full_by(_t0, _dl, 10.0, [0.0] * 30, _t0, _pr, _ps, 3, 6, 16)
-check("full by: 10 kWh by 07:00 from 18:00 -> done by 06:00 at the lowest current that fits (6 A), calm",
-      _fb["current_a"] == 6 and not _fb["tight"] and _fb["short_kwh"] == 0.0
-      and _fb["ready_by"] == _dl - 3600 and _fb["end"] <= _dl - 3600 and abs(_fb["grid_kw"] - 4.14) < 1e-9)
+check("full by: 10 kWh by 07:00 from 18:00 -> done by 06:00 at the current that costs least (2026.11.4: 15 A fits it in the 4 cheapest quarters; of equal cost the lower)",
+      _fb["current_a"] == 15 and not _fb["tight"] and _fb["short_kwh"] == 0.0
+      and _fb["ready_by"] == _dl - 3600 and _fb["end"] <= _dl - 3600 and abs(_fb["grid_kw"] - evc.power_kw(15, 3)) < 1e-9)
+_fb_flat = evc.plan_full_by(_t0, _dl, 4.0, [0.0] * 30, _t0, [0.25] * len(_pr), _ps, 3, 6, 16)
+check("full by: flat prices - every current costs the same, the lowest (6 A): calm", _fb_flat["current_a"] == 6)
 _fb2 = evc.plan_full_by(_t0, _t0 + 4 * 3600, 30.0, [0.0] * 30, _t0, _pr, _ps, 3, 6, 16)
 check("full by: 30 kWh in 4 hours (done in 3) -> a higher current: 15 A (10.35 kW x 3 h)",
       not _fb2["tight"] and _fb2["current_a"] >= 15 and _fb2["short_kwh"] == 0.0)
@@ -5434,6 +5436,30 @@ _s_at = _s_data.attribute((1.0, 0.0))
 check("savings: today so far, and the attribute per day",
       _s_at["today"] is not None and len(_s_at["days"]) == 2 and _s_at["history_days"] == 2 and len(_s_at["days"][0]) == 9)
 
+
+
+# 2026.11.4: a "full by" charge takes dear quarters out of the house battery when it can be filled up again cheaper
+_bt0 = 1_800_000_000 - 1_800_000_000 % 3600
+_bpr = [0.40] * 8 + [0.20] * 40      # 2 dear hours now, then cheap
+_bopt = evc.battery_option(_bt0, _bt0, [-0.5] * 12, _bt0 + 4 * 3600, 20.0, 9.0, 30.0, 6.0, 0.855)
+check("battery option: the budget = the lowest level on the house alone above the floor, the room = max speed - house",
+      abs(_bopt["budget_kwh"] - (20.0 - 4 * 0.5 - 9.0)) < 1e-6 and _bopt["room_kw"][0] == 5.5)
+_bpl = evc.plan_deadline(_bt0, _bt0 + 2 * 3600, 4.0, [0.0] * 12, _bt0, [0.40] * 8, _bt0, 1.38, 3.68, None, 3.68, _bopt)
+check("battery option: only the 2 dear hours to the deadline - the grid would cost 0.40, refilling later isn't known: grid",
+      _bpl["battery_kwh"] == 0.0 and _bpl["grid_kwh"] == 4.0)
+_bpl2 = evc.plan_deadline(_bt0, _bt0 + 2 * 3600, 4.0, [0.0] * 12, _bt0, _bpr, _bt0, 1.38, 3.68, None, 3.68, _bopt)
+check("battery option: refilled later at 0.20 / 0.855 = 0.234 < 0.40 - out of the house battery, at the refill cost",
+      _bpl2["battery_kwh"] == 4.0 and _bpl2["grid_kwh"] == 0.0 and _bpl2["windows"] == [] and _bpl2["battery_windows"]
+      and abs(_bpl2["cost"] - 4.0 * 0.20 / 0.855) < 0.02)
+_bsmall = dict(_bopt, budget_kwh=2.0)
+_bpl3 = evc.plan_deadline(_bt0, _bt0 + 2 * 3600, 4.0, [0.0] * 12, _bt0, _bpr, _bt0, 1.38, 3.68, None, 3.68, _bsmall)
+check("battery option: no more than the budget - the rest from the grid", _bpl3["battery_kwh"] <= 2.0 + 1e-6 and _bpl3["grid_kwh"] >= 2.0 - 1e-6)
+_bnoroom = dict(_bopt, room_kw=[1.0] * 12)
+_bpl4 = evc.plan_deadline(_bt0, _bt0 + 2 * 3600, 4.0, [0.0] * 12, _bt0, _bpr, _bt0, 1.38, 3.68, None, 3.68, _bnoroom)
+check("battery option: not where the battery can't give the car's power next to the house", _bpl4["battery_kwh"] == 0.0)
+check("victron: a battery window -> the charger on Manual (the grid setpoint isn't raised)",
+      evc.charger_target({"choice": "deadline", "need_kwh": 4, "windows": [], "battery_windows": [[0, 900]], "plan": {"current_a": 16}}, 100, 6, 16)
+      == {"mode": "manual", "charge": True, "current": 16, "why": "battery_window"})
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

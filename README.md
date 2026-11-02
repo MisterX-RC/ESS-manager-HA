@@ -587,8 +587,10 @@ possible**, **Slowly now** or **Full by a time**.
   solar surplus - and whatever the solar forecast can't deliver in time
   is **bought in the cheapest quarters before the deadline** ("doesn't
   matter": within the prices known), in Manual mode, in blocks of at least
-  half an hour. ESS Manager picks the speed itself (as of 2026.10.29): the
-  **lowest current** that still gets it in on time - a calm charge where
+  half an hour. ESS Manager picks the speed itself: the current that
+  **costs least** (as of 2026.11.4 - a faster charge can fit in the cheap
+  quarters where a slow one needs dear ones; up to then the lowest current
+  that made it) and of equal cost the **lowest** - a calm charge where
   there's time - and it plans to be done **an hour before** the time given
   (full by 10:00 = done by 09:00). When even the maximum current doesn't
   make it, it charges at the maximum right away and says how far it gets
@@ -596,6 +598,19 @@ possible**, **Slowly now** or **Full by a time**.
   is bought when and at what current, and when it's full. The plan is worked out again every cycle (new prices, a
   different solar forecast, what's charged so far); a grid window that's
   running finishes.
+- **Dear quarters out of the house battery** *(as of 2026.11.4)*: per
+  quarter the car's energy can also come out of the house battery, at what
+  it costs to fill it up again - the cheapest price after that quarter
+  divided by the charge x discharge efficiency (e.g. 0.20 / 0.855 = 0.23).
+  Where that's cheaper than the grid at that moment (an evening peak), the
+  car charges from the battery: the charger on Manual at the plan's
+  current, the grid setpoint **not** raised. Only as much as the battery
+  can give without going below its minimum + Safety buffer on the house
+  alone until the deadline, and only where its max discharge speed minus
+  the house still covers the car's power. That energy counts as usage in
+  the battery forecast, so the charge plan fills it up again in the
+  cheapest hours. On the EV card these quarters show in green ("House
+  battery"). The card's own preview while sliding shows the grid only.
 - **During a grid window the house battery stays out of it**: with direct
   control, the grid setpoint sent goes up by what the car takes (measured),
   so the grid supplies the car and the battery does what it was going to
@@ -671,8 +686,8 @@ Until then the predictions come from the charging energy, as before.
 
 **Planned "full by" sessions.** A planned session can be "full by" as well
 (on the card, or predicted from the log): it's forecast with its own plan
-(the lowest current that gets it in an hour before its time, sun first, the
-cheapest hours; where the prices for then aren't known yet, a calm charge
+(the current that costs least and gets it in an hour before its time, sun
+first, the cheapest hours, dear quarters out of the house battery; where the prices for then aren't known yet, a calm charge
 from its start), and the battery forecast leaves its grid part out. **Plugged
 in during a planned session** - one predicted from the log or from the
 charging energy, edited or added on the card - its plan is taken over right
