@@ -120,7 +120,7 @@ const I18N = {
     ev_h_solar_sub: "solar surplus only", ev_h_by_sub: "sun first, rest cheapest",
     ev_full_day: "Full on", ev_r_before_start: "The full-by time is before the start - pick a later day or time.", ev_when_full: "Full when", ev_d_today: "Today", ev_d_tomorrow: "Tomorrow", ev_d_any: "Doesn't matter", ev_full_at: "Full at",
     ev_soc_now: "State of charge now", ev_soc_plug: "State of charge when plugged in",
-    ev_r_need: "Needed", ev_r_sun: (t) => `Sun before ${t}`, ev_r_grid: (w) => (w ? `Grid · ${w}` : "Grid"), ev_r_speed: "Speed (chosen itself)",
+    ev_r_need: "Needed", ev_r_sun: (t) => `Sun before ${t}`, ev_r_grid: (w) => (w ? `Grid · ${w}` : "Grid"), ev_r_speed: "Speed (costs least)",
     ev_r_end: "Full at about", ev_r_margin: (a, b) => `Planned to be done by ${a}: an hour to spare before ${b}.`,
     ev_r_tight_t: (t) => `Full by ${t} doesn't fit`, ev_r_tight: (need, max, reach, end) => `Needed ${need}. At full power (${max}) you get ± ${reach} by then. Full at about ${end}.`,
     ev_r_tight_go: "Start charges at full power", ev_r_past: "That time has passed.",
@@ -312,7 +312,7 @@ const I18N = {
     ev_h_solar_sub: "alleen zon-overschot", ev_h_by_sub: "zon eerst, rest goedkoopst",
     ev_full_day: "Vol op", ev_r_before_start: "De vol-om-tijd ligt voor de start - kies een latere dag of tijd.", ev_when_full: "Wanneer vol", ev_d_today: "Vandaag", ev_d_tomorrow: "Morgen", ev_d_any: "Maakt niet uit", ev_full_at: "Vol om",
     ev_soc_now: "Laadstand nu", ev_soc_plug: "Laadstand bij aansluiten",
-    ev_r_need: "Nodig", ev_r_sun: (t) => `Zon voor ${t}`, ev_r_grid: (w) => (w ? `Net · ${w}` : "Net"), ev_r_speed: "Snelheid (zelf gekozen)",
+    ev_r_need: "Nodig", ev_r_sun: (t) => `Zon voor ${t}`, ev_r_grid: (w) => (w ? `Net · ${w}` : "Net"), ev_r_speed: "Snelheid (goedkoopst)",
     ev_r_end: "Vol rond", ev_r_margin: (a, b) => `Gepland klaar om ${a}: een uur speling voor ${b}.`,
     ev_r_tight_t: (t) => `Vol om ${t} lukt niet`, ev_r_tight: (need, max, reach, end) => `Nodig ${need}. Op vol vermogen (${max}) haal je tot dan ± ${reach}. Vol rond ${end}.`,
     ev_r_tight_go: "Start laadt dan op vol vermogen", ev_r_past: "Die tijd is al voorbij.",
@@ -2643,17 +2643,58 @@ class EssManagerEvCard extends EssChartCard {
     let soc = cs.soc_now != null ? Math.round(cs.soc_now) : null;
     if (soc == null && s && s.start_soc != null) soc = Math.round(s.start_soc);
     const target = cs.target_soc != null ? Math.round(cs.target_soc) : car ? Math.round(Number(car.target_soc) || 80) : 80;
-    return {
+    // (as of 2026.11.7) the day from the deadline itself: "tomorrow" chosen
+    // last evening is today after midnight (up to then the panel showed the
+    // day after, and saving would have moved the deadline a day)
+    let day = cs.day;
+    if (cs.deadline && cs.day !== "any") {
+      const today = localMidnight(this._hass, Date.now());
+      const dl = localMidnight(this._hass, Date.parse(cs.deadline));
+      let d = today;
+      for (let i = 0; i < 3; i++) {
+        if (d === dl) day = ["today", "tomorrow", "after"][i];
+        d = nextMidnight(this._hass, d);
+      }
+    }
+    const out = {
       sid: cs.id,
       active: !!cs.choice,
       how: choice,
       car: car ? car.id : "",
       current: Math.round(cs.current_a || (choice === "calm" ? ev.min_current : ev.max_current)),
-      day: cs.day || (new Date().getHours() >= 12 ? "tomorrow" : "today"),
+      day: day || (new Date().getHours() >= 12 ? "tomorrow" : "today"),
       hour,
       soc: soc != null ? soc : Math.max(target - 30, 0),
       target,
       kwh: Math.round((Number(cs.need_kwh) || Number(s && s.kwh) || 10) * 2) / 2,
+    };
+    out.orig = this._planKey(out);
+    return out;
+  }
+
+  _planKey(p) {
+    return JSON.stringify([p.how, p.day, p.hour, p.soc, p.target, p.kwh, p.car, p.active]);
+  }
+
+  // The integration's plan for the plugged-in car (as of 2026.11.7), while
+  // the panel shows its own choice unchanged - in the shape of _planBlock
+  _flowPlan(ev, p) {
+    const nu = this._nu(ev);
+    const cs = nu && nu.cs;
+    if (!cs || cs.choice !== "deadline" || !p.active || p.how !== "deadline" || p.orig !== this._planKey(p)) return null;
+    if (cs.tight || !Array.isArray(cs.window_kwh)) return null;
+    const ms = (w) => (w || []).map(([a, b]) => [Date.parse(a), Date.parse(b)]);
+    const amps = cs.plan_current_a || ev.max_current;
+    return {
+      real: true,
+      windows: ms(cs.windows), windowKwh: cs.window_kwh, windowCost: cs.window_cost || [],
+      bwindows: ms(cs.battery_windows), bwindowKwh: cs.battery_window_kwh || [], bwindowCost: cs.battery_window_cost || [],
+      solar: Number(cs.solar_kwh) || 0, grid: Number(cs.grid_kwh) || 0, battery: Number(cs.battery_kwh) || 0,
+      amps, kw: Number(cs.grid_kw) || evPower(amps, ev.phases || 3),
+      end: cs.end ? Date.parse(cs.end) : null,
+      readyBy: cs.ready_by ? Date.parse(cs.ready_by) : null,
+      deadline: cs.deadline ? Date.parse(cs.deadline) : null,
+      any: cs.day === "any",
     };
   }
 
@@ -2724,7 +2765,8 @@ class EssManagerEvCard extends EssChartCard {
   }
 
   _planResult(ev, p) {
-    const r = this._planPreview(ev, p);
+    const real = this._flowPlan(ev, p);
+    const r = real ? { ...real, need: this._planNeed(ev, p) } : this._planPreview(ev, p);
     const phases = ev.phases || 3;
     if (p.how === "asap" || p.how === "calm") {
       return `<div class="result">${ICON_CLOCK("var(--ev)")}<div>${esc(this._t("ev_r_fixed")(this._kwh(r.need), this._when(r.end)))}</div></div>`;
@@ -2747,11 +2789,15 @@ class EssManagerEvCard extends EssChartCard {
       [this._t("ev_r_sun")(by), this._kwh(r.solar)],
       [this._t("ev_r_grid")(this._windowsText(r.windows)), this._kwh(r.grid)],
     ];
-    if (r.grid > 0.05) rows.push([this._t("ev_r_speed"), `${r.amps} A · ${this._kw(r.kw)}`]);
+    if (r.battery > 0.05) rows.push([this._t("ev_legend_batt")(r.amps) + " · " + this._windowsText(r.bwindows), this._kwh(r.battery)]);
+    if (r.grid + (r.battery || 0) > 0.05) rows.push([this._t("ev_r_speed"), `${r.amps} A · ${this._kw(r.kw)}`]);
     let html = `<div class="resgrid">${rows.map(([k, v]) => `<div class="rr"><span class="dim">${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}`;
     html += `<div class="rr tot"><span>${esc(this._t("ev_r_end"))}</span><span>${esc(this._when(r.end))}</span></div>`;
     if (!r.any) html += `<div class="hint">${esc(this._t("ev_r_margin")(this._time(r.readyBy), this._time(r.deadline)))}</div>`;
-    return html + "</div>";
+    html += "</div>";
+    // (as of 2026.11.7) the charge plan, as in a planned session's panel
+    if (!r.any && r.deadline) html += this._planBlock(real || this._previewParts(r), Date.now());
+    return html;
   }
 
   _seg(attr, items, cur, cols) {

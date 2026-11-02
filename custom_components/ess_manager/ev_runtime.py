@@ -1365,6 +1365,13 @@ class EvRuntime(_VictronMixin):
                 "target_soc": flow.get("target_soc"),
                 "soc_now": self._soc_now(),
                 "plan_current_a": plan.get("current_a"),
+                # (as of 2026.11.7) the charge plan in the card: per window kWh and cost
+                "window_kwh": plan.get("window_kwh"),
+                "window_cost": plan.get("window_cost"),
+                "battery_window_kwh": plan.get("battery_window_kwh"),
+                "battery_window_cost": plan.get("battery_window_cost"),
+                "cost": plan.get("cost"),
+                "grid_kw": plan.get("grid_kw"),
                 "ready_by": iso(plan.get("ready_by")),
                 "tight": bool(plan.get("tight")),
                 "reach_kwh": plan.get("reach_kwh"),

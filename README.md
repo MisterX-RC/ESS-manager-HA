@@ -751,7 +751,11 @@ per window the time, the current, the kWh and the average price, with the
 estimated cost below. A saved session that's opened unchanged shows the
 integration's own plan; as soon as something is changed the card's preview
 ("preview") until it's saved. The session's line shows its first charge
-window instead of the plug-in time, with the number of blocks. The card uses the service `ess_manager.ev_charge_plan` (`choice`: asap / calm /
+window instead of the plug-in time, with the number of blocks. The
+plugged-in car's panel shows the same charge plan (as of 2026.11.6): the
+integration's own plan while the choice is unchanged, the preview once
+it's changed; its day comes from the deadline itself, so "tomorrow" chosen
+in the evening shows as today after midnight. The card uses the service `ess_manager.ev_charge_plan` (`choice`: asap / calm /
 solar / deadline, `day`: today / tomorrow / after / any, `hour`: "07:00", `soc` or
 `kwh`, `target_soc`, `current_a` for asap/calm, `car`) - also usable in
 automations.

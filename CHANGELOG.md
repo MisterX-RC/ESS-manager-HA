@@ -24,6 +24,22 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   the same, a change made on the charger itself (stopped by hand) is still
   left alone.
 
+### EV card - the plugged-in car's panel
+- **The right day after midnight.** "Tomorrow" chosen in the evening is
+  today after midnight: the panel now takes the day from the deadline
+  itself (up to now it showed the day after - Wednesday instead of Tuesday
+  - and its preview planned for that day; saving would have moved the
+  deadline a day).
+- **The integration's own plan** while the panel shows the car's choice
+  unchanged, with the **charge plan** (prices, windows, kWh and price per
+  window, cost) as in a planned session's panel; changed, the card's
+  preview. A battery row when quarters come out of the house battery.
+- "Snelheid (zelf gekozen)" is now "Snelheid (goedkoopst)": it's the
+  current that costs least, not one you picked.
+- The charger's session on the Status sensor's `ev` attribute has
+  `window_kwh`, `window_cost`, `battery_window_kwh`, `battery_window_cost`,
+  `cost` and `grid_kw`.
+
 ## [2026.11.5] - 2026-11-02
 
 ### EV card - the charge plan of a "full by"
