@@ -587,11 +587,11 @@ possible**, **Slowly now** or **Full by a time**.
   solar surplus - and whatever the solar forecast can't deliver in time
   is **bought in the cheapest quarters before the deadline** ("doesn't
   matter": within the prices known), in Manual mode, in blocks of at least
-  half an hour. ESS Manager picks the speed itself: the current that
-  **costs least** (as of 2026.11.4 - a faster charge can fit in the cheap
-  quarters where a slow one needs dear ones; up to then the lowest current
-  that made it) and of equal cost the **lowest** - a calm charge where
-  there's time - and it plans to be done **an hour before** the time given
+  half an hour. ESS Manager picks the speed itself, **calm by
+  preference** (as of 2026.11.7): the **lowest current that costs at most
+  2 ct/kWh more** than the cheapest plan. Where a calm charge needs really
+  dear quarters (a faster charge fits in the cheap ones) it's the faster
+  current; when the calm one doesn't make it in time, a higher one. It plans to be done **an hour before** the time given
   (full by 10:00 = done by 09:00). When even the maximum current doesn't
   make it, it charges at the maximum right away and says how far it gets
   (red on the card). The answer says how much comes from the sun, how much
@@ -689,7 +689,7 @@ Until then the predictions come from the charging energy, as before.
 
 **Planned "full by" sessions.** A planned session can be "full by" as well
 (on the card, or predicted from the log): it's forecast with its own plan
-(the current that costs least and gets it in an hour before its time, sun
+(calm by preference - the lowest current at most 2 ct/kWh dearer than the cheapest - done an hour before its time, sun
 first, the cheapest hours, dear quarters out of the house battery; where the prices for then aren't known yet, a calm charge
 from its start), and the battery forecast leaves its grid part out. **Plugged
 in during a planned session** - one predicted from the log or from the

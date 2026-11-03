@@ -12,6 +12,20 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.7] - 2026-11-03
+
+### Victron EV charging station - "full by" charges calm by preference
+- The current is now the **lowest that costs at most 2 ct/kWh more** than
+  the cheapest plan (up to now: the cheapest, of equal cost the lowest).
+  The night of 2-3 November (10.1 kWh by 10:00) that's 6 A for EUR 2.22
+  instead of 16 A for EUR 2.14. Where calm charging needs really dear
+  quarters (a peak, a short night) it's still the faster current, and when
+  the calm one doesn't make it in time a higher one, as before.
+- Dear quarters still come out of the house battery when refilling it
+  later is cheaper - the cost comparison includes them.
+- The card's preview follows the same rule; "Snelheid" now reads
+  "rustig waar het weinig kost".
+
 ## [2026.11.6] - 2026-11-03
 
 ### Victron EV charging station

@@ -120,7 +120,7 @@ const I18N = {
     ev_h_solar_sub: "solar surplus only", ev_h_by_sub: "sun first, rest cheapest",
     ev_full_day: "Full on", ev_r_before_start: "The full-by time is before the start - pick a later day or time.", ev_when_full: "Full when", ev_d_today: "Today", ev_d_tomorrow: "Tomorrow", ev_d_any: "Doesn't matter", ev_full_at: "Full at",
     ev_soc_now: "State of charge now", ev_soc_plug: "State of charge when plugged in",
-    ev_r_need: "Needed", ev_r_sun: (t) => `Sun before ${t}`, ev_r_grid: (w) => (w ? `Grid \u00b7 ${w}` : "Grid"), ev_r_speed: "Speed (costs least)",
+    ev_r_need: "Needed", ev_r_sun: (t) => `Sun before ${t}`, ev_r_grid: (w) => (w ? `Grid \u00b7 ${w}` : "Grid"), ev_r_speed: "Speed (calm where it costs little)",
     ev_r_end: "Full at about", ev_r_margin: (a, b) => `Planned to be done by ${a}: an hour to spare before ${b}.`,
     ev_r_tight_t: (t) => `Full by ${t} doesn't fit`, ev_r_tight: (need, max, reach, end) => `Needed ${need}. At full power (${max}) you get \u00b1 ${reach} by then. Full at about ${end}.`,
     ev_r_tight_go: "Start charges at full power", ev_r_past: "That time has passed.",
@@ -312,7 +312,7 @@ const I18N = {
     ev_h_solar_sub: "alleen zon-overschot", ev_h_by_sub: "zon eerst, rest goedkoopst",
     ev_full_day: "Vol op", ev_r_before_start: "De vol-om-tijd ligt voor de start - kies een latere dag of tijd.", ev_when_full: "Wanneer vol", ev_d_today: "Vandaag", ev_d_tomorrow: "Morgen", ev_d_any: "Maakt niet uit", ev_full_at: "Vol om",
     ev_soc_now: "Laadstand nu", ev_soc_plug: "Laadstand bij aansluiten",
-    ev_r_need: "Nodig", ev_r_sun: (t) => `Zon voor ${t}`, ev_r_grid: (w) => (w ? `Net \u00b7 ${w}` : "Net"), ev_r_speed: "Snelheid (goedkoopst)",
+    ev_r_need: "Nodig", ev_r_sun: (t) => `Zon voor ${t}`, ev_r_grid: (w) => (w ? `Net \u00b7 ${w}` : "Net"), ev_r_speed: "Snelheid (rustig waar het weinig kost)",
     ev_r_end: "Vol rond", ev_r_margin: (a, b) => `Gepland klaar om ${a}: een uur speling voor ${b}.`,
     ev_r_tight_t: (t) => `Vol om ${t} lukt niet`, ev_r_tight: (need, max, reach, end) => `Nodig ${need}. Op vol vermogen (${max}) haal je tot dan \u00b1 ${reach}. Vol rond ${end}.`,
     ev_r_tight_go: "Start laadt dan op vol vermogen", ev_r_past: "Die tijd is al voorbij.",
@@ -2489,20 +2489,25 @@ function evPlanDeadline(nowMs, deadlineMs, need, net, hour0Ms, prices, priceStar
   return { windows, solar, grid, short: Math.max(need - got, 0), end, cost };
 }
 
+const EV_CALM_MARGIN = 0.02;
+
 function evPlanFullBy(nowMs, deadlineMs, need, net, hour0Ms, prices, priceStartMs, phases, minA, maxA, marginMs) {
   const readyBy = Math.max(deadlineMs - marginMs, nowMs);
   const pMin = evPower(minA, phases);
   const pMax = evPower(maxA, phases);
-  // (as of 2026.11.4) the current that costs least, of equal cost the
-  // lowest - like plan_full_by (the house battery's dear quarters are left
-  // to the integration: the panel shows the grid)
-  let best = null;
+  // (the house battery's dear quarters are left to the integration: the
+  // panel shows the grid) (as of 2026.11.7) calm by preference: the lowest current that costs at
+  // most EV_CALM_MARGIN per kWh more than the cheapest - like plan_full_by
+  const fits = [];
   for (let a = Math.round(minA); a <= Math.round(maxA); a++) {
     const kw = evPower(a, phases);
     const plan = evPlanDeadline(nowMs, readyBy, need, net, hour0Ms, prices, priceStartMs, pMin, pMax, kw);
-    if (plan.short <= 0.05 && (!best || plan.cost < best.cost - 0.005)) best = { ...plan, amps: a, kw, tight: false, readyBy, deadline: deadlineMs, reach: need };
+    if (plan.short <= 0.05) fits.push({ ...plan, amps: a, kw, tight: false, readyBy, deadline: deadlineMs, reach: need });
   }
-  if (best) return best;
+  if (fits.length) {
+    const allowed = Math.min(...fits.map((f) => f.cost)) + EV_CALM_MARGIN * Math.max(need, 0) + 1e-9;
+    return fits.find((f) => f.cost <= allowed);
+  }
   const reach = Math.min((pMax * Math.max(deadlineMs - nowMs, 0)) / HOUR_MS, Math.max(need, 0));
   const end = pMax > 0 ? nowMs + (Math.max(need, 0) / pMax) * HOUR_MS : null;
   return { windows: end ? [[nowMs, end]] : [], solar: 0, grid: need, short: need - reach, end, amps: Math.round(maxA), kw: pMax, tight: true, readyBy, deadline: deadlineMs, reach };

@@ -4816,7 +4816,7 @@ check("victron: ... also when it starts a minute after plugging in (its auto sta
 
 # full by: its own speed, an hour early, tight (2026.10.29)
 _fb = evc.plan_full_by(_t0, _dl, 10.0, [0.0] * 30, _t0, _pr, _ps, 3, 6, 16)
-check("full by: 10 kWh by 07:00 from 18:00 -> done by 06:00 at the current that costs least (2026.11.4: 15 A fits it in the 4 cheapest quarters; of equal cost the lower)",
+check("full by: 10 kWh by 07:00 from 18:00 -> done by 06:00 - 15 A fits it in the 4 cheapest quarters; a calmer one needs dear quarters, more than 2 ct/kWh extra (2026.11.7)",
       _fb["current_a"] == 15 and not _fb["tight"] and _fb["short_kwh"] == 0.0
       and _fb["ready_by"] == _dl - 3600 and _fb["end"] <= _dl - 3600 and abs(_fb["grid_kw"] - evc.power_kw(15, 3)) < 1e-9)
 _fb_flat = evc.plan_full_by(_t0, _dl, 4.0, [0.0] * 30, _t0, [0.25] * len(_pr), _ps, 3, 6, 16)
@@ -5467,6 +5467,21 @@ check("charge plan: kWh per window adds up to grid / battery, cost per window to
       and abs(sum(_bpl3["window_cost"]) + sum(_bpl3["battery_window_cost"]) - _bpl3["cost"]) < 0.02
       and len(_bpl3["window_kwh"]) == len(_bpl3["windows"]) and len(_bpl3["battery_window_kwh"]) == len(_bpl3["battery_windows"]))
 check("charge plan: the last window only as far as needed", abs(sum(_fb["window_kwh"]) - _fb["grid_kwh"]) < 0.01)
+
+# 2026.11.7: "full by" calm by preference - the lowest current at most 2 ct/kWh dearer than the cheapest plan
+_cm_mon = [0.251,0.246,0.24,0.235,0.244,0.241,0.234,0.23,0.233,0.23,0.227,0.229,0.228,0.229,0.229,0.224,0.232,0.228,0.225,0.223,0.23,0.232,0.228,0.217,0.229,0.225,0.239,0.25,0.25,0.275,0.283,0.294,0.323,0.318,0.31,0.3,0.312,0.3,0.28,0.259,0.262,0.247,0.227,0.221,0.22,0.216,0.215,0.22,0.224,0.215,0.213,0.21,0.224,0.216,0.208,0.217,0.177,0.2,0.197,0.225,0.223,0.23,0.228,0.252,0.25,0.278,0.28,0.294,0.28,0.289,0.294,0.308,0.316,0.315,0.315,0.315,0.313,0.309,0.306,0.3,0.309,0.295,0.291,0.277,0.268,0.25,0.246,0.226,0.257,0.247,0.244,0.231,0.236,0.233,0.227,0.219]
+_cm_tue = [0.22,0.216,0.21,0.207,0.217,0.211,0.207,0.204,0.204,0.219,0.219,0.222,0.223,0.223,0.223,0.222,0.223,0.223,0.224,0.225,0.218,0.22,0.221,0.232,0.222,0.247,0.274,0.282,0.293,0.3,0.3,0.303,0.325,0.306,0.291,0.287,0.306,0.283,0.264,0.235] + [0.24] * 56
+_cm_ps = 1_793_574_000 - 1_793_574_000 % 900
+_cm_now = _cm_ps + 19 * 3600
+_cm = evc.plan_full_by(_cm_now, _cm_ps + 34 * 3600, 10.1, [0.0] * 40, _cm_now, _cm_mon + _cm_tue, _cm_ps, 1, 6, 16)
+_cm16 = evc.plan_deadline(_cm_now, _cm_ps + 33 * 3600, 10.1, [0.0] * 40, _cm_now, _cm_mon + _cm_tue, _cm_ps,
+                          evc.power_kw(6, 1), evc.power_kw(16, 1), None, evc.power_kw(16, 1))
+check("full by calm: the night of 2-3 Nov (10.1 kWh, 1 phase, by 10:00): 6 A costs < 2 ct/kWh more than 16 A - calm",
+      _cm["current_a"] == 6 and not _cm["tight"] and _cm["cost"] <= _cm16["cost"] + 0.02 * 10.1 + 1e-6 and _cm["cost"] > _cm16["cost"])
+_cm_tight = evc.plan_full_by(_cm_now, _cm_ps + 27 * 3600, 10.1, [0.0] * 40, _cm_now, _cm_mon + _cm_tue, _cm_ps, 1, 6, 16)
+check("full by calm: ... unless it doesn't fit - by 03:00 a higher current", _cm_tight["current_a"] > 6 and not _cm_tight["tight"])
+_cm_b = evc.plan_full_by(_bt0, _bt0 + 3 * 3600, 4.0, [0.0] * 12, _bt0, _bpr, _bt0, 1, 6, 16, battery=_bopt)
+check("full by calm: the dear quarters still out of the house battery when that's cheaper", _cm_b["battery_kwh"] > 0)
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

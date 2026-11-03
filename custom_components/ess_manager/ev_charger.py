@@ -387,6 +387,11 @@ def plan_deadline(
     }
 
 
+# "full by" charges calm by preference (as of 2026.11.7): a lower current may
+# cost this much more per kWh than the cheapest plan (EUR/kWh)
+CALM_MARGIN = 0.02
+
+
 def plan_full_by(
     now_epoch: int,
     deadline_epoch: int,
@@ -422,12 +427,19 @@ def plan_full_by(
     if keep and keep_a:
         lo = max(lo, min(int(keep_a), hi))
     plan = None
+    fits: list[dict[str, Any]] = []
     for amps in range(lo, hi + 1):
         kw = power_kw(amps, phases)
         trial = plan_deadline(now_epoch, ready_by, need_kwh, net, hour0_epoch, prices, price_start_epoch, p_min, p_max, keep, kw,
                               battery, keep_battery)
-        if trial["short_kwh"] <= 0.05 and (plan is None or trial["cost"] < plan["cost"] - 0.005):
-            plan = {**trial, "current_a": amps, "grid_kw": kw, "tight": False}
+        if trial["short_kwh"] <= 0.05:
+            fits.append({**trial, "current_a": amps, "grid_kw": kw, "tight": False})
+    if fits:
+        # (as of 2026.11.7) calm by preference: the lowest current that costs
+        # at most CALM_MARGIN per kWh more than the cheapest plan
+        cheapest = min(f["cost"] for f in fits)
+        allowed = cheapest + CALM_MARGIN * max(need_kwh, 0.0) + 1e-9
+        plan = next(f for f in fits if f["cost"] <= allowed)
     if plan is None:
         # not even at the max: right away at the max, as much as fits
         quarters = list(range(now_epoch - now_epoch % UNIT, max(deadline_epoch, now_epoch), UNIT))
