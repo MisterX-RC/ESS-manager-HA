@@ -3559,7 +3559,9 @@ class EssManagerEvCard extends EssChartCard {
         this._dragging = false;
       });
       el.addEventListener("input", () => {
-        apply(Number(el.value));
+        // apply may hand back the value it was held to (as of 2026.11.7)
+        const held = apply(Number(el.value));
+        if (held != null && held !== Number(el.value)) el.value = String(held);
         this._live(ev);
       });
       el.addEventListener("change", () => this._rerender());
@@ -3597,9 +3599,14 @@ class EssManagerEvCard extends EssChartCard {
       root.querySelectorAll("input[data-ps]").forEach((el) => {
         const key = el.getAttribute("data-ps");
         sliding(el, (v) => {
+          // (as of 2026.11.7) the state of charge stops at the target and
+          // the target at the state of charge - neither pushes the other
+          // (up to then the target went up with the state of charge, and
+          // stayed there when it came back)
+          if (key === "soc" && v > p.target) v = p.target;
+          if (key === "target" && v < p.soc) v = p.soc;
           p[key] = v;
-          if (key === "soc" && v > p.target) p.target = v;
-          if (key === "target" && v < p.soc) p.soc = v;
+          return v;
         });
       });
     }
@@ -3651,11 +3658,13 @@ class EssManagerEvCard extends EssChartCard {
     root.querySelectorAll("input[data-s]").forEach((el) => {
       const key = el.getAttribute("data-s");
       sliding(el, (v) => {
+        // (as of 2026.11.7) the state of charge stops at the target and the target at the state of charge
+        if (key === "start_soc" && e.target_soc != null && v > e.target_soc) v = e.target_soc;
+        if (key === "target_soc" && e.start_soc != null && v < e.start_soc) v = e.start_soc;
         e[key] = v;
-        if (key === "start_soc" && e.target_soc != null && v > e.target_soc) e.target_soc = v;
-        if (key === "target_soc" && e.start_soc != null && v < e.start_soc) e.start_soc = v;
         const car = this._car(ev, e.car);
         if (car && car.capacity_kwh && key !== "current_a") e.kwh = this._editKwh(ev, e);
+        return v;
       });
     });
   }

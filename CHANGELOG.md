@@ -30,6 +30,14 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   02:00 is 7 A out of the battery 18:00-21:15, then the grid 22:00-01:00
   (EUR 2.38), where the grid alone needs 11 A (EUR 2.48).
 
+### EV card - state of charge and target
+- **The state of charge stops at the target** (and the target at the state
+  of charge): to set a higher state of charge, raise the target first. Up
+  to now sliding the state of charge above the target pushed the target up
+  with it, and it stayed there when the state of charge came back - a
+  target of 89% nobody had chosen. In the plugged-in car's panel and in a
+  planned session's panel.
+
 ## [2026.11.6] - 2026-11-03
 
 ### Victron EV charging station
