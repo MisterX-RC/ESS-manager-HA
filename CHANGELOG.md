@@ -25,6 +25,10 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   later is cheaper - the cost comparison includes them.
 - The card's preview follows the same rule; "Snelheid" now reads
   "rustig waar het weinig kost".
+- Laid down in a test: with the house battery taking the evening peak the
+  car no longer has to be squeezed into the few cheap hours - 10 kWh by
+  02:00 is 7 A out of the battery 18:00-21:15, then the grid 22:00-01:00
+  (EUR 2.38), where the grid alone needs 11 A (EUR 2.48).
 
 ## [2026.11.6] - 2026-11-03
 

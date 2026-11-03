@@ -5483,6 +5483,21 @@ check("full by calm: ... unless it doesn't fit - by 03:00 a higher current", _cm
 _cm_b = evc.plan_full_by(_bt0, _bt0 + 3 * 3600, 4.0, [0.0] * 12, _bt0, _bpr, _bt0, 1, 6, 16, battery=_bopt)
 check("full by calm: the dear quarters still out of the house battery when that's cheaper", _cm_b["battery_kwh"] > 0)
 
+# 2026.11.7: with the house battery taking the evening peak, the car no longer has to be
+# squeezed into the few cheap hours - calm, out of the battery first, then on in the night it fills up
+_cb_ps = 1_800_000_000 - 1_800_000_000 % 86400
+_cb_pr = [0.25] * 72 + [0.30] * 16 + [0.24] * 8 + [0.21] * 24 + [0.23] * 8 + [0.30] * 16 + [0.25] * 48
+_cb_now, _cb_dl = _cb_ps + 18 * 3600, _cb_ps + 26 * 3600
+_cb_bat = evc.battery_option(_cb_now, _cb_now, [-0.4] * 40, _cb_dl, 25.0, 10.5, 30.0, 6.0, 0.855)
+_cb_grid = evc.plan_full_by(_cb_now, _cb_dl, 10.0, [0.0] * 40, _cb_now, _cb_pr, _cb_ps, 1, 6, 16)
+_cb = evc.plan_full_by(_cb_now, _cb_dl, 10.0, [0.0] * 40, _cb_now, _cb_pr, _cb_ps, 1, 6, 16, battery=_cb_bat)
+check("full by calm + battery: grid only 11 A (the peak or fast in the cheap hours); with the battery 7 A and cheaper",
+      _cb_grid["current_a"] == 11 and _cb["current_a"] == 7 and _cb["cost"] < _cb_grid["cost"])
+check("full by calm + battery: out of the battery in the evening peak first, then the grid in the night, done an hour early",
+      _cb["battery_kwh"] > 4.0 and _cb["grid_kwh"] > 4.0 and abs(_cb["battery_kwh"] + _cb["grid_kwh"] - 10.0) < 0.01
+      and _cb["battery_windows"][0][0] == _cb_now and _cb["battery_windows"][-1][1] <= _cb_ps + 22 * 3600
+      and _cb["windows"][0][0] >= _cb_ps + 22 * 3600 and _cb["end"] <= _cb_dl - 3600)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:
