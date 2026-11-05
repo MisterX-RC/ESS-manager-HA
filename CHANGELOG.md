@@ -12,6 +12,21 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.9] - 2026-11-05
+
+### Heat pump - the house hour by hour
+- **The floor's delay over far more hours.** The house model now looks 36
+  hours back at the heat put in (up to now 12) and tries time constants up
+  to 24 hours (up to now 6). A concrete floor heated in a block of a few
+  hours gives that heat off over many hours; with the shorter delay the
+  self-check's day simulation drifted more than 2 degC (installation A:
+  2.3 degC against at most 0.6). The fit still picks the best one itself;
+  the model stays in shadow until the self-check passes.
+- **Why there is no COP model**: `house_model.cop_check` in the diagnostics
+  counts the COP sensor's hours that fell out (no outdoor temperature,
+  hardly any heating - hot water or standby -, a COP outside 1-10, not
+  running the whole hour) and the hours used, against the 48 needed.
+
 ## [2026.11.8] - 2026-11-05
 
 ### Savings card - the battery's stock

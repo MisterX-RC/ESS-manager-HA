@@ -898,14 +898,21 @@ the heat pump page in Configure, as of 2026.10.17:
 
 - **Step 1, the forecast**: the model also learns how the indoor
   temperature follows the outdoor temperature, wind, sun and the heat put
-  in - with the floor's delay (its time constant it finds itself) and,
+  in - with the floor's delay (its time constant it finds itself: as of
+  2026.11.9 from 1 up to 24 hours, the heat of the last 36 hours - a
+  concrete floor heated in a block of a few hours gives its heat off over
+  far more hours than the 6 h / 12 h it looked at before) and,
   with the optional **COP sensor**, the COP by the outdoor temperature (so
   it counts the heat, not only the electricity). *(as of 2026.10.38)* Only
   hours the COP sensor never dropped below 1 count - the heat pump ran the
   whole hour: a COP sensor reads 0 while the heat pump is off, so the mean
   of an hour it ran for part of is far too low. With fewer than 48 such
   hours there's no COP model yet; floor control then uses its measured
-  heat / electricity. It forecasts the indoor
+  heat / electricity. *(as of 2026.11.9)* `house_model.cop_check` in the
+  diagnostics says how many of the COP sensor's hours fell out and why: no
+  outdoor temperature, hardly any heating that hour (hot water or standby -
+  the heating meter didn't count it), a COP outside 1-10, or not running the
+  whole hour. It forecasts the indoor
   temperature and the heating per hour for 48 hours, the heat pump emulated
   keeping the house on its usual temperature per hour. **Self-check**: every
   day the newest 14 heating days are played again with their measured

@@ -309,7 +309,7 @@ class HeatPumpRuntime:
 
     # -- the house hour by hour (as of 2026.10.17) ---------------------------------
     def q_hist(self, hour0_epoch: int, t_out: Optional[float]) -> list[float]:
-        """The heat of the 11 hours before hour0 (oldest first) - as the
+        """The heat of the hours before hour0 (LAG_HOURS - 1, oldest first) - as the
         house model counts it (heat with a COP model, else electricity)."""
         house = self.house or {}
         model, copm = house.get("model"), house.get("cop")
@@ -353,6 +353,8 @@ class HeatPumpRuntime:
             "model": hm,
             "cop": ({"c0": copm["c0"], "c1": copm["c1"], "at_7": round(hh.cop_at(copm, 7.0), 2),
                      "at_minus_2": round(hh.cop_at(copm, -2.0), 2), "hours": copm["n"]} if copm else None),
+            # (as of 2026.11.9) why there is (no) COP model - which hours fell out
+            "cop_check": house.get("cop_check"),
             "steer": self.steer,
         }
         # measured: the last 24 hours

@@ -5583,6 +5583,34 @@ check("stock: the days filled in order, the stock carried from one to the next (
 _st_att = _st_data.attribute((1.0, 0.0))["stock"]
 check("stock: what's in the battery now and its average price, for the card", _st_att["kwh"] > 0 and 0.05 < _st_att["avg"] < 0.2)
 
+# 2026.11.9: a concrete floor gives a heating block's heat off over many hours - the house model looks 36 h back
+import math as _fm
+_fl_w = [_fm.exp(-j / 12.0) for j in range(36)]
+_fl_w = [x / sum(_fl_w) for x in _fl_w]
+_fl_t0 = 1_800_000_000 - 1_800_000_000 % 86400
+_fl_in, _fl_out, _fl_q = {}, {}, {}
+_fl_t = 20.5
+for _i in range(24 * 40):
+    _h = _fl_t0 + _i * 3600
+    _hod = _i % 24
+    _fl_out[_h] = 6.0 + 3.0 * _fm.sin(2 * _fm.pi * (_hod - 9) / 24)
+    _fl_q[_h] = 1.2 if 2 <= _hod < 6 else 0.0          # a 4-hour block at night
+    _fl_in[_h] = round(_fl_t, 3)
+    _lag = sum(_fl_w[j] * _fl_q.get(_h - j * 3600, 0.0) for j in range(36))
+    _fl_t = _fl_t - 0.004 * (_fl_t - _fl_out[_h]) + 0.08 * _lag
+_fl_m = heatpump_house.fit_house(_fl_in, _fl_out, _fl_q)
+check("house model: a slow floor (time constant 12 h) is found - up to 2026.11.9 at most 6 h and 12 h back",
+      _fl_m is not None and _fl_m["tau"] == 12.0 and _fl_m["r2"] > 0.95)
+_fl_d = sorted(_fl_in)[-48]
+_fl_day = [(_fl_out[_fl_d + i * 3600], None, None) for i in range(24)]
+_fl_hist = [_fl_q[_fl_d - j * 3600] for j in range(35, 0, -1)]
+_fl_temps, _ = heatpump_house.simulate(_fl_m, _fl_in[_fl_d], _fl_day, None, _fl_hist, None, fixed_q=[_fl_q[_fl_d + i * 3600] for i in range(24)])
+check("house model: a day played again with the measured heat follows the indoor temperature",
+      max(abs(_fl_temps[i] - _fl_in[_fl_d + i * 3600]) for i in range(24)) < 0.05)
+check("house model: why there's no COP model - the hours that fall out are counted",
+      heatpump_house.cop_check({1: 3.5, 2: 0.0, 3: 3.0, 4: 3.2}, {1: 5, 2: 5, 3: 5}, {1: 0.5, 2: 0.5, 3: 0.0}, {1: 2.0})
+      == {"hours": 4, "no_outdoor": 1, "no_heating": 1, "out_of_range": 1, "not_whole_hour": 0, "used": 1, "needed": 48})
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

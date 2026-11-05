@@ -24,8 +24,11 @@ from datetime import date, datetime, timedelta, tzinfo
 from typing import Any, Optional
 
 HOUR = 3600
-LAG_HOURS = 12                  # the floor's delay: the heat of the last 12 hours
-LAG_TAUS = [1.0, 2.0, 3.0, 4.0, 6.0]  # its time constant (h), the best fit chosen
+# the floor's delay (as of 2026.11.9 36 hours back and up to 24 h - up to
+# then 12 and 6: a concrete floor heated in a block of a few hours gives its
+# heat off over far more hours, and the day's simulation drifted)
+LAG_HOURS = 36                  # the heat of the last 36 hours
+LAG_TAUS = [1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 18.0, 24.0]  # its time constant (h), the best fit chosen
 MIN_HOUSE_ROWS = 150            # hours to fit on
 MAX_OUT = 18.0                  # degC outdoor at most (summer hours say little)
 MIN_COP_HOURS = 48
@@ -104,6 +107,28 @@ def fit_cop(cop: dict[int, float], outdoor: dict[int, float], heat: dict[int, fl
     c1 = sum((t - mx) * (c - my) for t, c in pts) / sxx if sxx > 1e-9 else 0.0
     c0 = my - c1 * mx
     return {"c0": round(c0, 3), "c1": round(c1, 4), "n": n}
+
+
+def cop_check(cop: dict[int, float], outdoor: dict[int, float], heat: dict[int, float],
+              cop_min: Optional[dict[int, float]] = None) -> dict[str, int]:
+    """Why there is (no) COP model (as of 2026.11.9, for the diagnostics):
+    the COP sensor's hours, and how many fall out - no outdoor temperature,
+    hardly any heating that hour (hot water / standby), a COP outside 1-10,
+    not running the whole hour (its minimum below 1) - and what's left."""
+    out = {"hours": len(cop), "no_outdoor": 0, "no_heating": 0, "out_of_range": 0, "not_whole_hour": 0,
+           "used": 0, "needed": MIN_COP_HOURS}
+    for h, c in cop.items():
+        if h not in outdoor:
+            out["no_outdoor"] += 1
+        elif heat.get(h, 0.0) <= 0.1:
+            out["no_heating"] += 1
+        elif not 1.0 < c < 10.0:
+            out["out_of_range"] += 1
+        elif cop_min is not None and (cop_min.get(h) or 0.0) < 1.0:
+            out["not_whole_hour"] += 1
+        else:
+            out["used"] += 1
+    return out
 
 
 def cop_at(copm: Optional[dict[str, Any]], tout: Optional[float]) -> float:
@@ -345,6 +370,7 @@ def learn(
     the newest TEST_DAYS heating days and checked on those (out of sample),
     then fitted again on everything for the forecast. {cop, model, review}."""
     copm = fit_cop(cop, outdoor, heat, cop_min) if cop else None
+    check = cop_check(cop, outdoor, heat, cop_min) if cop else None
     test_days = []
     d = today - timedelta(days=1)
     while len(test_days) < TEST_DAYS and (today - d).days <= 60:
@@ -352,7 +378,7 @@ def learn(
         if series and sum(series["q"]) >= TEST_HEAT_KWH:
             test_days.append(series)
         d -= timedelta(days=1)
-    result: dict[str, Any] = {"cop": copm, "model": None, "review": None}
+    result: dict[str, Any] = {"cop": copm, "cop_check": check, "model": None, "review": None}
     if test_days:
         cutoff = min(day["hours"][0] for day in test_days)
         older = {h: v for h, v in indoor.items() if h < cutoff}
