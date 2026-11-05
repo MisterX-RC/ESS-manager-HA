@@ -548,7 +548,8 @@ class EssManagerSavingsSensor(CoordinatorEntity[EssManagerCoordinator], SensorEn
             rows.append(data["today"]["row"])
         if not rows:
             return None
-        return round(sum((r[6] - r[8]) - (r[2] - r[4]) for r in rows), 2)
+        # (as of 2026.11.8) plus the change of the battery's stock
+        return round(sum((r[6] - r[8]) - (r[2] - r[4]) + (r[9] if len(r) > 9 else 0.0) for r in rows), 2)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

@@ -12,6 +12,27 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.8] - 2026-11-05
+
+### Savings card - the battery's stock
+- **Energy put in the battery counts on the day it comes out, at what it
+  cost to put in.** Up to now a day the battery was filled for the next day
+  showed as a loss (4 November: -EUR 0.89 with about 8 kWh more in the
+  battery at the end of the day) and the day it was used as a big saving.
+  The integration now keeps what's in the battery (state of charge x
+  capacity) and what it cost: grid charging at the buy price incl of that
+  quarter, solar at the bare sell price of that quarter (what it would have
+  brought in without the battery - the missed sale and the stock cancel
+  out, nothing counts twice). What comes out goes at the average of what's
+  in it, losses included. A day's saving gets the change of the stock.
+- The card shows it in the **with ESS Manager** box ("naar de accu" / "uit
+  de accu") and below the chart "In de accu: 25,0 kWh · gem. EUR 0,284/kWh".
+- The **Savings this month** sensor counts it too; its attribute has
+  `stock` (kWh, value, avg) and per day a 10th value, the stock's change.
+- Needs the state of charge sensor's 5-minute statistics (state_class
+  measurement); without them the days stay as before. The days stored
+  before are worked out again as far as the recorder still has them.
+
 ## [2026.11.7] - 2026-11-03
 
 ### Victron EV charging station - "full by" charges calm by preference

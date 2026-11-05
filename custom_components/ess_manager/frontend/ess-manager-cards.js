@@ -4588,6 +4588,8 @@ const SV_TEXT = {
     empty: "No savings yet - the first day is added tonight.",
     no_data: "No data for this period.",
     cost_with: "with battery", cost_without: "without battery",
+    stock_in: "into the battery", stock_out: "out of the battery",
+    stock_now: (k, p) => `In the battery: ${k} kWh \u00b7 avg. ${p}/kWh (what it cost to put in)`,
   },
   nl: {
     title: "Besparing", saved: "bespaard", cost_more: "duurder", day: "Dag", week: "Week", month: "Maand", year: "Jaar", rolling: "365 d",
@@ -4603,6 +4605,8 @@ const SV_TEXT = {
     empty: "Nog geen besparing - de eerste dag komt er vannacht bij.",
     no_data: "Geen gegevens voor deze periode.",
     cost_with: "met accu", cost_without: "zonder accu",
+    stock_in: "naar de accu", stock_out: "uit de accu",
+    stock_now: (k, p) => `In de accu: ${k} kWh \u00b7 gem. ${p}/kWh (wat het kostte om erin te zetten)`,
   },
 };
 const SV_CSS = `
@@ -4684,8 +4688,11 @@ class EssManagerSavingsCard extends EssChartCard {
     const todayIso = isoDate(this._hass, Date.now());
     const lang = hassLang(this._hass);
     const byDate = Object.fromEntries(rows.map((r) => [r[0], r]));
-    const sum = (list) => list.reduce((a, r) => { for (let k = 1; k < 9; k++) a[k] += Number(r[k]) || 0; return a; }, [null, 0, 0, 0, 0, 0, 0, 0, 0]);
-    const saving = (t) => (t[6] - t[8]) - (t[2] - t[4]);
+    // (as of 2026.11.8) r[9]: the change of the battery's stock - energy
+    // stored counts on the day it's used, at what it cost to put in
+    const sum = (list) => list.reduce((a, r) => { for (let k = 1; k < 10; k++) a[k] += Number(r[k]) || 0; return a; }, [null, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const costWith = (t) => (t[2] - t[4]) - (Number(t[9]) || 0);
+    const saving = (t) => (t[6] - t[8]) - costWith(t);
     const noon = (d) => Date.parse(`${d}T12:00:00Z`);
     const fmt = (d, o) => new Intl.DateTimeFormat(lang, { timeZone: "UTC", ...o }).format(noon(d));
     const monthBars = (months, lo, hi, withYear) => {
@@ -4754,11 +4761,12 @@ class EssManagerSavingsCard extends EssChartCard {
     const tabs = ["day", "week", "month", "year", "rolling"]
       .map((p) => `<button type="button" data-p="${p}" aria-selected="${p === period}">${esc(this._s(p))}</button>`).join("");
     const priceTxt = (eur, kwh) => (kwh > 0.05 ? formatPrice(f, eur / kwh) : null);
-    const box = (label, cost, imp, bought, exp, sold, color, bg) => `<div class="sv-box"${bg ? ` style="background:${bg}"` : ""}>
+    const box = (label, cost, imp, bought, exp, sold, color, bg, stock) => `<div class="sv-box"${bg ? ` style="background:${bg}"` : ""}>
         <div class="dim" style="font-size:12px">${esc(label)}</div>
         <div class="v"${color ? ` style="color:${color}"` : ""}>${esc(f.money(cost))}</div>
         <div class="sv-ln"><span class="dim">\u2193 ${esc(this._s("bought"))}</span><span>${esc(f.num(imp, imp < 10 ? 1 : 0))} kWh</span><span class="dim">${esc(this._s("at"))}</span><b${color ? ` style="color:${color}"` : ""}>${esc(priceTxt(bought, imp) || "\u2013")}</b></div>
         <div class="sv-ln"><span class="dim">\u2191 ${esc(this._s("sold"))}</span><span>${esc(f.num(exp, exp < 10 ? 1 : 0))} kWh</span><span class="dim">${exp > 0.05 ? esc(this._s("at")) : ""}</span><b${color ? ` style="color:${color}"` : ""}>${exp > 0.05 ? esc(priceTxt(sold, exp)) : `<span class="dim" style="font-weight:400;font-size:12px">${esc(this._s("no_sale"))}</span>`}</b></div>
+        ${stock != null && Math.abs(stock) >= 0.005 ? `<div class="sv-ln"><span class="dim">\u25d0 ${esc(this._s(stock > 0 ? "stock_in" : "stock_out"))}</span><span></span><span></span><b${color ? ` style="color:${color}"` : ""}>${esc(f.money(-stock))}</b></div>` : ""}
       </div>`;
 
     // the chart
@@ -4806,7 +4814,7 @@ class EssManagerSavingsCard extends EssChartCard {
       const r = b[2];
       const left = clamp(X0 + this._tip * bw - 60, 0, W - 190);
       const lines = r
-        ? `<div class="row"><span class="k">${esc(this._s("cost_with"))}</span><b>${esc(f.money(r[2] - r[4]))}</b></div><div class="row"><span class="k">${esc(this._s("cost_without"))}</span><b>${esc(f.money(r[6] - r[8]))}</b></div>`
+        ? `<div class="row"><span class="k">${esc(this._s("cost_with"))}</span><b>${esc(f.money(costWith(r)))}</b></div><div class="row"><span class="k">${esc(this._s("cost_without"))}</span><b>${esc(f.money(r[6] - r[8]))}</b></div>`
         : "";
       tip = `<div class="tip" style="display:flex;left:${r1(left)}px;top:0"><div class="row"><b>${esc(b[3])}</b></div><div class="row"><span class="k">${esc(this._s(b[1] >= 0 ? "saved" : "cost_more"))}</span><b>${esc(f.money(Math.abs(b[1])))}</b></div>${lines}</div>`;
     }
@@ -4829,11 +4837,12 @@ class EssManagerSavingsCard extends EssChartCard {
       </div>
       ${inPeriod.length ? `<div class="sv-cmp">
         ${box(this._s("without"), t[6] - t[8], t[5], t[6], t[7], t[8], null, null)}
-        ${box(this._s("with"), t[2] - t[4], t[1], t[2], t[3], t[4], opt.saving_color, tint(opt.saving_color, 0.1))}
+        ${box(this._s("with"), costWith(t), t[1], t[2], t[3], t[4], opt.saving_color, tint(opt.saving_color, 0.1), Number(t[9]) || 0)}
       </div>` : `<div class="sv-note" style="font-size:13px;margin:14px 0">${esc(this._s("no_data"))}</div>`}
       ${bars.length && inPeriod.length ? `<div class="sv-chart"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${svg}</svg>${tip}
         <div class="hit" style="position:absolute;left:${X0}px;top:0;width:${r1(W - X0)}px;height:${H}px"></div></div>
       <div class="sv-legend"><span><i style="background:${opt.saving_color}"></i>${esc(this._s("legend_saving"))}</span><span><i style="background:${opt.loss_color}"></i>${esc(this._s("legend_loss"))}</span><span style="margin-left:auto">${esc(this._s("tap"))}</span></div>` : ""}
+      ${sv.stock && sv.stock.avg != null ? `<div class="sv-note" style="font-size:12.5px">${esc(this._s("stock_now")(f.num(sv.stock.kwh, 1), formatPrice(f, sv.stock.avg)))}</div>` : ""}
       <div class="sv-note">${esc(this._s("note")(sv.history_days))}</div>`;
     setCardContent(this, css, html);
     for (const btn of this.shadowRoot.querySelectorAll(".sv-tabs button")) {

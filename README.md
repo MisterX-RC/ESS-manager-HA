@@ -1906,6 +1906,30 @@ bought at the buy price incl taxes and transport (see [Prices including
 taxes](#prices-including-taxes)), sold at the bare price. The battery's
 losses are in it by themselves: only measured energy counts.
 
+**The battery's stock** (as of 2026.11.8). Energy put in the battery counts
+on the day it comes out, at what it cost to put in - up to then a day the
+battery was filled cheaply for the next day showed as a loss, and the next
+day as a big saving. The integration keeps what's in the battery (its state
+of charge x capacity) and what that cost: grid charging at the buy price
+incl of that quarter (the part of the charge the grid gave as much as:
+min(charged, import)), solar at the bare sell price of that quarter - what
+it would have brought in without the battery, so the missed sale and the
+stock cancel out and nothing counts twice. What comes out goes at the
+average of what's in it; cheaper energy put in later pulls the average
+down, weighted by how much. Losses come out of the value without energy
+for them (the state of charge rises less than was charged, falls more than
+was given), so they count too. A day's saving = cost without - cost with +
+the change of the stock: a day the battery is filled cheaply comes out at
+about 0, the day it gives the energy back gets the price saved minus what
+it cost. The card shows the change in the **with ESS Manager** box ("into
+the battery" / "out of the battery") and below the chart what's in the
+battery now and its average price. Over a month it's the same money; only
+the days are fairer. It needs the state of charge sensor's statistics
+(state_class measurement); without them the days are as before. The stock
+starts at the first day the recorder still has, valued at that day's
+average buy price; the days stored before 2026.11.8 are worked out again
+as far as the recorder still has them.
+
 At the top the saving in the period - **Day** (just the totals, no bars:
 within a day the money goes out while charging and the saving comes when
 the battery is used, which bars per hour would show as losses), **Week**
@@ -1914,8 +1938,9 @@ average per day), **Year** (a bar per month) or **365 d** (365 days up to
 today, a bar per month) - and how much less
 that is than without the battery. Below it **without battery** and **with
 ESS Manager** side by side: what it cost, the kWh bought and sold and the
-average price per kWh of each. A day that cost more with the battery (e.g.
-losses on a day with flat prices) is a red bar below zero. Tap a bar for
+average price per kWh of each (with ESS Manager: including the change of
+the battery's stock). A day that cost more with the battery (e.g. losses
+on a day with flat prices) is a red bar below zero. Tap a bar for
 that day: the saving and the cost with and without. Below the tabs the
 arrows go back and forth a day, week, month, year or 365 days, like on the
 Energy dashboard (back as far as there are stored days).

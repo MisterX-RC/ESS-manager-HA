@@ -170,7 +170,7 @@ from .const import (
 from .controller import ControlSettings, EssController
 from .energy_source import async_get_energy_prefs
 from .statistics_source import async_fetch_hourly_means, async_fetch_state_changes, async_fetch_hourly_sums, async_last_recorded_state
-from .statistics_source import async_fetch_5min_changes, async_fetch_numeric_states, recorder_keep_days
+from .statistics_source import async_fetch_5min_changes, async_fetch_5min_soc, async_fetch_numeric_states, recorder_keep_days
 from .usage_forecast import (
     _week_sample,
     HISTORY_NONE,
@@ -2093,11 +2093,27 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             fetch_stats = lambda ids, start, end: async_fetch_5min_changes(self.hass, ids, start, end)  # noqa: E731
             price_entity = conf.get(CONF_PRICE_ENTITY)
             fetch_prices = lambda start, end: async_fetch_numeric_states(self.hass, price_entity, start, end)  # noqa: E731
+            # (as of 2026.11.8) the battery's stock follows its state of charge
+            soc_id = conf.get(CONF_BATTERY_SOC_ENTITY)
+            capacity = self.get_number(NUM_BATTERY_CAPACITY_KWH, 30.0)
+
+            async def fetch_soc(start: datetime, end: datetime) -> dict[int, float]:
+                # no statistics for it (no state_class) or none to be had: no stock, the rest as before
+                try:
+                    return await async_fetch_5min_soc(self.hass, soc_id, start, end, capacity)
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.debug("ESS Manager (%s): no state of charge statistics for the savings: %s", self.entry.title, err)
+                    return {}
+            eff = (
+                _efficiency(conf.get(CONF_CHARGE_EFFICIENCY_PERCENT, DEFAULT_CHARGE_EFFICIENCY_PERCENT)),
+                _efficiency(conf.get(CONF_DISCHARGE_EFFICIENCY_PERCENT, DEFAULT_DISCHARGE_EFFICIENCY_PERCENT)),
+            )
             if fill:
                 keep = recorder_keep_days(self.hass)
-                if await self.savings.async_fill(now, keep, sources, fetch_stats, fetch_prices, self._savings_buy_of):
+                if await self.savings.async_fill(now, keep, sources, fetch_stats, fetch_prices, self._savings_buy_of,
+                                                 fetch_soc, eff):
                     await self.savings_store.async_save(self.savings.as_store())
-            await self.savings.async_today(now, sources, fetch_stats, prices_today, self._savings_buy_of)
+            await self.savings.async_today(now, sources, fetch_stats, prices_today, self._savings_buy_of, fetch_soc, eff)
         except Exception as err:  # noqa: BLE001 - the savings card must never stop the planning
             _LOGGER.warning("ESS Manager (%s): savings not worked out this time: %s", self.entry.title, err)
             self.savings.today_at = now.timestamp()

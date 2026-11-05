@@ -167,6 +167,28 @@ async def async_fetch_5min_changes(hass: HomeAssistant, ids: Iterable[str], star
     return result
 
 
+async def async_fetch_5min_soc(hass: HomeAssistant, statistic_id: str, start: datetime, end: datetime,
+                               capacity_kwh: float) -> dict[int, float]:
+    """The battery's content per 5-minute slot (kWh: the state of charge's
+    short-term statistics' `mean` x capacity), keyed by the slot's start -
+    for the savings card's battery stock (2026.11.8). Empty when the state
+    of charge sensor has no statistics (no state_class)."""
+    if not statistic_id:
+        return {}
+    raw = await get_instance(hass).async_add_executor_job(
+        statistics_during_period, hass, start, end, {statistic_id}, "5minute", None, {"mean"}
+    )
+    out: dict[int, float] = {}
+    for row in raw.get(statistic_id, []):
+        value = row.get("mean")
+        if value is None:
+            continue
+        row_start = row.get("start")
+        epoch = int(row_start) if isinstance(row_start, (int, float)) else int(dt_util.as_utc(row_start).timestamp())
+        out[epoch] = max(min(float(value), 100.0), 0.0) / 100.0 * float(capacity_kwh)
+    return out
+
+
 async def async_fetch_numeric_states(hass: HomeAssistant, entity_id: str, start: datetime, end: datetime) -> list[tuple[float, float]]:
     """The recorded numeric states of an entity [(epoch, value)], oldest
     first, the state at `start` included - the price sensor's quarter

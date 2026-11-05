@@ -5434,7 +5434,7 @@ check("savings: without price history a day with kept prices is filled, one with
 _sa.run(_s_data.async_today(_s_now, _s_src, _s_fetch, [0.2] * 96, lambda p, ds: p))
 _s_at = _s_data.attribute((1.0, 0.0))
 check("savings: today so far, and the attribute per day",
-      _s_at["today"] is not None and len(_s_at["days"]) == 2 and _s_at["history_days"] == 2 and len(_s_at["days"][0]) == 9)
+      _s_at["today"] is not None and len(_s_at["days"]) == 2 and _s_at["history_days"] == 2 and len(_s_at["days"][0]) == 10)
 
 
 
@@ -5497,6 +5497,91 @@ check("full by calm + battery: out of the battery in the evening peak first, the
       _cb["battery_kwh"] > 4.0 and _cb["grid_kwh"] > 4.0 and abs(_cb["battery_kwh"] + _cb["grid_kwh"] - 10.0) < 0.01
       and _cb["battery_windows"][0][0] == _cb_now and _cb["battery_windows"][-1][1] <= _cb_ps + 22 * 3600
       and _cb["windows"][0][0] >= _cb_ps + 22 * 3600 and _cb["end"] <= _cb_dl - 3600)
+
+# 2026.11.8: the battery's stock - energy put in counts on the day it comes out, at what it cost
+_st_d0 = 1_800_000_000 - 1_800_000_000 % 86400
+_st_src = {"import": ["i"], "export": ["e"], "battery_charge": ["c"], "battery_discharge": ["d"]}
+def _st_day(d0, charge_q=None, solar_q=None, give_q=None):
+    """house 0.1 kWh per slot; charge_q: 1 kWh per slot from the grid; solar_q: 1 kWh of sun per slot
+    into the battery (and the house on the sun too); give_q: the battery gives the house"""
+    st = {"i": {}, "e": {}, "c": {}, "d": {}}
+    for k in range(288):
+        t, q = d0 + k * 300, k // 3
+        st["i"][t] = st["e"][t] = st["c"][t] = st["d"][t] = 0.0
+        if charge_q is not None and charge_q <= q < charge_q + 4:
+            st["i"][t] = 1.1; st["c"][t] = 1.0
+        elif solar_q is not None and solar_q <= q < solar_q + 4:
+            st["c"][t] = 1.0
+        elif give_q is not None and give_q <= q < give_q + 4:
+            st["d"][t] = 0.1
+        else:
+            st["i"][t] = 0.1
+    return st
+def _st_soc(d0, st, e0, ce=0.95, de=0.95):
+    out, e = {}, e0
+    for k in range(288):
+        t = d0 + k * 300
+        e += st["c"][t] * ce - st["d"][t] / de
+        out[t] = e
+    return out, e
+_st_buy = [0.10] * 96
+_st_buy[60:64] = [0.40] * 4
+_st_sell = [0.05] * 96
+_st_s1 = _st_day(_st_d0, charge_q=8)                 # night: 12 kWh from the grid at 0.10
+_st_soc1, _st_e1 = _st_soc(_st_d0, _st_s1, 10.0)
+_st_stock = {}
+_st_r1 = savings.total(savings.day_rows(_st_d0, 96, _st_d0 + 86400, _st_s1, _st_src, _st_buy, _st_sell, None, _st_soc1, _st_stock, (0.95, 0.95)))
+_st_p1 = savings.priced(_st_r1, (1.0, 0.0))
+_st_old1 = _st_p1["cost_without"] - _st_p1["cost_with"]
+check("stock: the day the battery is filled from the grid comes out at about 0 (not minus what was bought)",
+      _st_old1 < -1.0 and abs(_st_p1["saving"]) < 0.01 and abs(_st_p1["stock"] - 1.2) < 0.01)
+check("stock: started at the first state of charge, at the day's average buy price; then what's charged",
+      abs(_st_stock["e"] - _st_e1) < 1e-6 and _st_stock["xg"] > 10.0)
+_st_d1 = _st_d0 + 86400
+_st_s2 = _st_day(_st_d1, give_q=60)                  # the dear hour (0.40) from the battery
+_st_soc2, _st_e2 = _st_soc(_st_d1, _st_s2, _st_e1)
+_st_avg = (_st_stock["xp"] + _st_stock["xs"]) / _st_stock["e"]
+_st_r2 = savings.total(savings.day_rows(_st_d1, 96, _st_d1 + 86400, _st_s2, _st_src, _st_buy, _st_sell, None, _st_soc2, _st_stock, (0.95, 0.95)))
+_st_p2 = savings.priced(_st_r2, (1.0, 0.0))
+_st_out = (_st_e1 - _st_e2) * _st_avg
+check("stock: the day it's given back gets the price saved minus what it cost (losses included)",
+      abs(_st_p2["saving"] - (1.2 * 0.40 - _st_out)) < 0.005 and _st_out > 1.2 * _st_avg)
+_st_s3 = _st_day(_st_d1, solar_q=40)                 # midday: 4 kWh of sun into the battery
+_st_soc3, _ = _st_soc(_st_d1, _st_s3, 5.0)
+_st_k3 = {}
+_st_r3 = savings.total(savings.day_rows(_st_d1, 96, _st_d1 + 86400, _st_s3, _st_src, _st_buy, _st_sell, None, _st_soc3, _st_k3, (0.95, 0.95)))
+_st_p3 = savings.priced(_st_r3, (1.0, 0.0))
+check("stock: sun into the battery goes in at the bare sell price - the missed sale and the stock cancel out",
+      abs(_st_p3["stock"] - 4 * 3 * 0.05) < 1e-6 and abs(_st_p3["saving"]) < 1e-6)
+_st_p1l = savings.priced(_st_r1, (1.21, 0.131))
+check("stock: the line incl taxes on the grid part of the stock too - the grid charge day stays about 0",
+      abs(_st_p1l["saving"]) < 0.01)
+check("stock: without a state of charge nothing changes (no stock)",
+      savings.priced(savings.total(savings.day_rows(_st_d0, 96, _st_d0 + 86400, _st_s1, _st_src, _st_buy, _st_sell)), (1.0, 0.0))["stock"] == 0.0)
+_st_leg = savings.SavingsData()
+_st_leg.restore({"days": {"2026-11-01": [1.0] * 8}})
+check("stock: a day stored before 2026.11.8 is kept (no stock) and marked to be worked out again",
+      len(_st_leg.days["2026-11-01"]) == 11 and "2026-11-01" in _st_leg.legacy)
+_st_now = datetime.fromtimestamp(_st_d0 + 2 * 86400 + 7200, tz=_stz.utc)
+async def _st_fetch(ids, start, end):
+    out = {k: {} for k in ids}
+    for k in ids:
+        out[k].update(_st_s1[k]); out[k].update(_st_s2[k])
+    return out
+async def _st_fetch_soc(start, end):
+    return {**_st_soc1, **_st_soc2}
+async def _st_prices(start, end):
+    return [(start.timestamp(), 0.10)]
+_st_data = savings.SavingsData()
+_st_data.restore({"days": {(_st_now.date() - timedelta(days=2)).isoformat(): [0.0] * 8}, "prices": {
+    (_st_now.date() - timedelta(days=2)).isoformat(): _st_buy, (_st_now.date() - timedelta(days=1)).isoformat(): _st_buy}})
+_sa.run(_st_data.async_fill(_st_now, 2, _st_src, _st_fetch, _st_prices, lambda p, ds: p, _st_fetch_soc, (0.95, 0.95)))
+_st_days = _st_data.attribute((1.0, 0.0))["days"]
+check("stock: the days filled in order, the stock carried from one to the next (and the old day worked out again)",
+      len(_st_days) == 2 and abs(_st_days[0][9] - 1.2) < 0.01 and -0.2 < _st_days[1][9] < -0.1
+      and _st_data.stock["date"] == (_st_now.date() - timedelta(days=1)).isoformat() and not _st_data.legacy)
+_st_att = _st_data.attribute((1.0, 0.0))["stock"]
+check("stock: what's in the battery now and its average price, for the card", _st_att["kwh"] > 0 and 0.05 < _st_att["avg"] < 0.2)
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
