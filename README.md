@@ -912,7 +912,21 @@ the heat pump page in Configure, as of 2026.10.17:
   diagnostics says how many of the COP sensor's hours fell out and why: no
   outdoor temperature, hardly any heating that hour (hot water or standby -
   the heating meter didn't count it), a COP outside 1-10, or not running the
-  whole hour. It forecasts the indoor
+  whole hour.
+  *(as of 2026.11.10)* **Heat meter**: with the heat pump's heat meter (kWh
+  of heat - heating and hot water together, e.g. the Qube's "thermic yield
+  total") and the meter of **all its electricity** (separate metering
+  only), the model counts the heat that really went into the house: each
+  hour's heat by the heating's share of the heat pump's electricity
+  (heating electricity / all electricity - an hour of only hot water counts
+  0, only heating all of it, a mixed hour shared out). The COP then comes
+  from the meters (the heating's heat / its electricity per hour, hours with
+  at least 0.2 kWh of heating) - no whole running hours needed. Without the
+  total meter every hour with heating counts whole. The floor's delay is
+  chosen on how well the model plays the last heating days again (the
+  indoor temperature over each whole day, with the measured heat) - not on
+  the step of one hour, where a sensor's 0.1 degC and the noise favour a
+  short delay; `model.day_error_c` is that error. It forecasts the indoor
   temperature and the heating per hour for 48 hours, the heat pump emulated
   keeping the house on its usual temperature per hour. **Self-check**: every
   day the newest 14 heating days are played again with their measured

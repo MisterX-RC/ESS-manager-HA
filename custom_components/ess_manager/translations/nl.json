@@ -132,12 +132,16 @@
           "hp_indoor_entity": "Binnentemperatuur (optioneel - zonder: de eigen temperatuur van de thermostaat)",
           "hp_setpoint_entity": "Gewenste temperatuur - een thermostaat (climate) of een sensor/number (optioneel)",
           "hp_cop_entity": "COP van de warmtepomp (optioneel)",
+          "hp_thermal_entity": "Warmtemeter van de warmtepomp - verwarming en warm water samen, kWh (optioneel)",
+          "hp_electric_total_entity": "Alle stroom van de warmtepomp, kWh (optioneel, bij de warmtemeter)",
           "hp_buffer_enabled": "Stap 2: sturen - ESS Manager mag de thermostaat zetten (aan en uit op de warmtepompkaart)",
           "hp_hourly_enabled": "Stap 1: het huis per uur - de voorspelling gaat mee in de planning zodra die zich bewezen heeft",
           "floor_enabled": "Vloersturing: ESS Manager zet het retour-setpoint en de warmtevraag (eigen pagina volgt)"
         },
         "data_description": {
           "hp_cop_entity": "Daarmee leert het model de COP per buitentemperatuur: wat een kWh warmte op welk uur kost.",
+          "hp_thermal_entity": "Daarmee rekent het huismodel met de warmte die echt het huis in ging, en komt de COP uit de meters. Warm water gaat er per uur af: de warmte telt naar het aandeel van de verwarming in de stroom van de warmtepomp.",
+          "hp_electric_total_entity": "Alle stroom van de warmtepomp (verwarmen, warm water, koelen, stand-by) - voor het aandeel van de verwarming in de warmte van elk uur. Zonder deze telt elk uur met verwarming helemaal mee.",
           "hp_buffer_enabled": "Heeft stap 1 nodig en een thermostaat (climate-entiteit). Op de kaart: sturen aan/uit, een dag- en nachttemperatuur met hun tijden, en hoeveel warmer of koeler het huis als buffer mag worden (warmer in goedkope of zonnige uren, koeler in dure) - de buffer pas als stap 1 zijn zelftest heeft gehaald. Een wijziging met de hand op de thermostaat gaat voor tot de volgende dag/nacht-wissel.",
           "hp_hourly_enabled": "Leert hoe de binnentemperatuur het weer en de ingebrachte warmte volgt (met de vertraging van de vloer) en voorspelt die 48 uur vooruit. Elke dag toetst het zichzelf aan de metingen; alleen als het de energie per uur beter plaatst dan het gebruikelijke patroon gebruikt de planning het - en het valt vanzelf terug als het slechter wordt.",
           "floor_enabled": "Heeft stap 1 nodig en een thermostaat (climate-entiteit, een generic_thermostat op een hulpschakelaar). Begint in de stand 'meekijken': er verandert niets tot je op de warmtepompkaart een hogere stand kiest en de zelftests geslaagd zijn."
@@ -377,12 +381,16 @@
           "hp_indoor_entity": "Binnentemperatuur (optioneel - zonder: de eigen temperatuur van de thermostaat)",
           "hp_setpoint_entity": "Gewenste temperatuur - een thermostaat (climate) of een sensor/number (optioneel)",
           "hp_cop_entity": "COP van de warmtepomp (optioneel)",
+          "hp_thermal_entity": "Warmtemeter van de warmtepomp - verwarming en warm water samen, kWh (optioneel)",
+          "hp_electric_total_entity": "Alle stroom van de warmtepomp, kWh (optioneel, bij de warmtemeter)",
           "hp_buffer_enabled": "Stap 2: sturen - ESS Manager mag de thermostaat zetten (aan en uit op de warmtepompkaart)",
           "hp_hourly_enabled": "Stap 1: het huis per uur - de voorspelling gaat mee in de planning zodra die zich bewezen heeft",
           "floor_enabled": "Vloersturing: ESS Manager zet het retour-setpoint en de warmtevraag (eigen pagina volgt)"
         },
         "data_description": {
           "hp_cop_entity": "Daarmee leert het model de COP per buitentemperatuur: wat een kWh warmte op welk uur kost.",
+          "hp_thermal_entity": "Daarmee rekent het huismodel met de warmte die echt het huis in ging, en komt de COP uit de meters. Warm water gaat er per uur af: de warmte telt naar het aandeel van de verwarming in de stroom van de warmtepomp.",
+          "hp_electric_total_entity": "Alle stroom van de warmtepomp (verwarmen, warm water, koelen, stand-by) - voor het aandeel van de verwarming in de warmte van elk uur. Zonder deze telt elk uur met verwarming helemaal mee.",
           "hp_buffer_enabled": "Heeft stap 1 nodig en een thermostaat (climate-entiteit). Op de kaart: sturen aan/uit, een dag- en nachttemperatuur met hun tijden, en hoeveel warmer of koeler het huis als buffer mag worden (warmer in goedkope of zonnige uren, koeler in dure) - de buffer pas als stap 1 zijn zelftest heeft gehaald. Een wijziging met de hand op de thermostaat gaat voor tot de volgende dag/nacht-wissel.",
           "hp_hourly_enabled": "Leert hoe de binnentemperatuur het weer en de ingebrachte warmte volgt (met de vertraging van de vloer) en voorspelt die 48 uur vooruit. Elke dag toetst het zichzelf aan de metingen; alleen als het de energie per uur beter plaatst dan het gebruikelijke patroon gebruikt de planning het - en het valt vanzelf terug als het slechter wordt.",
           "floor_enabled": "Heeft stap 1 nodig en een thermostaat (climate-entiteit, een generic_thermostat op een hulpschakelaar). Begint in de stand 'meekijken': er verandert niets tot je op de warmtepompkaart een hogere stand kiest en de zelftests geslaagd zijn."

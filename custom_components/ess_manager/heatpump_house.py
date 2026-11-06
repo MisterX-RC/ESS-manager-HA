@@ -109,6 +109,53 @@ def fit_cop(cop: dict[int, float], outdoor: dict[int, float], heat: dict[int, fl
     return {"c0": round(c0, 3), "c1": round(c1, 4), "n": n}
 
 
+def heating_heat(thermal: dict[int, float], heat_el: dict[int, float], total_el: Optional[dict[int, float]]) -> dict[int, float]:
+    """The heat that went into the house per hour (as of 2026.11.10): the
+    heat pump's heat meter counts heating and hot water together, so each
+    hour's heat goes by the share of the heating in its electricity -
+    heating electricity / all its electricity (an hour of only hot water:
+    0, only heating: all of it; a mixed hour shared out). Without the total
+    meter every hour with heating counts whole."""
+    out: dict[int, float] = {}
+    for h, th in thermal.items():
+        el = heat_el.get(h)
+        if el is None or th is None:
+            continue
+        if el <= 0.0:
+            out[h] = 0.0
+            continue
+        share = 1.0
+        if total_el is not None:
+            tot = total_el.get(h)
+            if tot is None:
+                continue
+            share = min(el / tot, 1.0) if tot > 0.0 else 1.0
+        out[h] = max(th, 0.0) * share
+    return out
+
+
+def fit_cop_meters(heat_th: dict[int, float], heat_el: dict[int, float], outdoor: dict[int, float]) -> Optional[dict[str, Any]]:
+    """COP = c0 + c1 x outdoor from the heat and electricity meters (as of
+    2026.11.10): per hour the heating's heat / its electricity, hours with at
+    least 0.2 kWh of heating - no need for whole running hours."""
+    pts = []
+    for h, el in heat_el.items():
+        th = heat_th.get(h)
+        if el is None or el < 0.2 or th is None or h not in outdoor:
+            continue
+        c = th / el
+        if 1.0 < c < 10.0:
+            pts.append((outdoor[h], c))
+    if len(pts) < MIN_COP_HOURS:
+        return None
+    n = len(pts)
+    mx = sum(t for t, _ in pts) / n
+    my = sum(c for _, c in pts) / n
+    sxx = sum((t - mx) ** 2 for t, _ in pts)
+    c1 = sum((t - mx) * (c - my) for t, c in pts) / sxx if sxx > 1e-9 else 0.0
+    return {"c0": round(my - c1 * mx, 3), "c1": round(c1, 4), "n": n, "source": "meters"}
+
+
 def cop_check(cop: dict[int, float], outdoor: dict[int, float], heat: dict[int, float],
               cop_min: Optional[dict[int, float]] = None) -> dict[str, int]:
     """Why there is (no) COP model (as of 2026.11.9, for the diagnostics):
@@ -171,14 +218,24 @@ def fit_house(
     sun: Optional[dict[int, float]] = None,
     cool: Optional[dict[int, float]] = None,
     copm: Optional[dict[str, Any]] = None,
+    heat_th: Optional[dict[int, float]] = None,
 ) -> Optional[dict[str, Any]]:
     """dT(indoor, next hour) = a - k x d + g x heat(lagged) - kw x wind x d +
     ks x sun, d = indoor - outdoor, the heat delayed by the floor (kernel,
     its time constant the best fit). With a COP model the heat is the heat
-    pump's heat (electricity x COP), else its electricity. None with fewer
-    than MIN_HOUSE_ROWS hours or unlikely values."""
+    pump's heat (electricity x COP), else its electricity; `heat_th` (as of
+    2026.11.10): the measured heat per hour, used where it's there. None
+    with fewer than MIN_HOUSE_ROWS hours or unlikely values.
+
+    The time constant (as of 2026.11.10) is the one whose model plays the
+    last heating days again best (the indoor temperature over each whole
+    day, with the measured heat) - not the one that fits the step of one
+    hour best: over one hour the temperature moves hundredths of a degree
+    and the noise favours a short delay, while over a day a short delay
+    drifts."""
     if copm:
-        heat = {h: q * cop_at(copm, outdoor.get(h)) for h, q in heat.items()}
+        heat = {h: (heat_th[h] if heat_th and h in heat_th else q * cop_at(copm, outdoor.get(h))) for h, q in heat.items()}
+    windows = _sim_windows(indoor, outdoor, heat)
     best = None
     for tau in LAG_TAUS:
         w = kernel(tau)
@@ -196,11 +253,13 @@ def fit_house(
         if coef is None or not 0.001 <= coef[1] <= 0.2 or coef[2] <= 0:
             continue
         sse = sum((y - sum(c * v for c, v in zip(coef, x))) ** 2 for x, y in zip(xs, ys))
-        if best is None or sse < best[0]:
-            best = (sse, tau, coef, use_wind, use_sun, ys, len(rows))
+        score = _sim_score(coef, tau, use_wind, use_sun, windows, indoor, outdoor, heat, wind, sun)
+        key = (score if score is not None else float("inf"), sse)
+        if best is None or key < best[0]:
+            best = (key, tau, coef, use_wind, use_sun, ys, len(rows), sse, score)
     if best is None:
         return None
-    sse, tau, coef, use_wind, use_sun, ys, n = best
+    _, tau, coef, use_wind, use_sun, ys, n, sse, score = best
     ymean = sum(ys) / len(ys)
     sst = sum((y - ymean) ** 2 for y in ys)
     i = 3
@@ -217,7 +276,56 @@ def fit_house(
         "kw": round(kw, 6) if kw is not None else None, "ks": round(ks, 5) if ks is not None else None,
         "tau": tau, "n": n, "r2": round(1 - sse / sst, 3) if sst > 0 else None,
         "qmax": round(max(qmax, 0.1), 3), "thermal": bool(copm),
+        "day_error_c": round(score, 3) if score is not None else None,
     }
+
+
+SIM_DAYS = 10                   # the heating days the time constant is chosen on
+
+
+def _sim_windows(indoor, outdoor, heat) -> list[int]:
+    """The start hours of the last SIM_DAYS whole 24-hour stretches (back
+    from the newest indoor hour) with heating and everything measured."""
+    if not indoor:
+        return []
+    last = max(indoor) - 24 * HOUR
+    out = []
+    start = last
+    while len(out) < SIM_DAYS and start > last - 60 * 86400:
+        hours = range(start, start + 24 * HOUR, HOUR)
+        ok = all(indoor.get(h) is not None and outdoor.get(h) is not None and heat.get(h) is not None for h in hours)
+        ok = ok and all(heat.get(start - j * HOUR) is not None for j in range(1, LAG_HOURS))
+        if ok and sum(heat[h] for h in hours) >= TEST_HEAT_KWH:
+            out.append(start)
+        start -= 24 * HOUR
+    return out
+
+
+def _sim_score(coef, tau, use_wind, use_sun, windows, indoor, outdoor, heat, wind, sun) -> Optional[float]:
+    """Mean indoor temperature error (degC) of playing the windows again with
+    the measured heat - the model as fitted for this time constant."""
+    if not windows:
+        return None
+    i = 3
+    kw = ks = 0.0
+    if use_wind:
+        kw = coef[i]
+        i += 1
+    if use_sun:
+        ks = coef[i]
+    model = {"a": coef[0], "k": coef[1], "g": coef[2], "kw": kw, "ks": ks, "tau": tau, "qmax": 1e9, "thermal": False}
+    err = 0.0
+    n = 0
+    for start in windows:
+        hours = list(range(start, start + 24 * HOUR, HOUR))
+        inputs = [(outdoor[h], (wind or {}).get(h) if use_wind else None, (sun or {}).get(h) if use_sun else None) for h in hours]
+        hist = [heat[start - j * HOUR] for j in range(LAG_HOURS - 1, 0, -1)]
+        temps, _ = simulate(model, indoor[start], inputs, None, hist, None, fixed_q=[heat[h] for h in hours])
+        for k, h in enumerate(hours[1:], start=1):
+            if k < len(temps):
+                err += abs(temps[k] - indoor[h])
+                n += 1
+    return err / n if n else None
 
 
 def simulate(
@@ -365,11 +473,16 @@ def learn(
     profile: Optional[list[float]],
     shape: list[float],
     cop_min: Optional[dict[int, float]] = None,
+    heat_th: Optional[dict[int, float]] = None,
 ) -> dict[str, Any]:
     """The daily round: the COP model, the house fitted on the hours before
     the newest TEST_DAYS heating days and checked on those (out of sample),
-    then fitted again on everything for the forecast. {cop, model, review}."""
-    copm = fit_cop(cop, outdoor, heat, cop_min) if cop else None
+    then fitted again on everything for the forecast. {cop, model, review}.
+    `heat_th` (as of 2026.11.10, heating_heat): the measured heat into the
+    house per hour - the COP from the meters, the house fitted on it."""
+    copm = fit_cop_meters(heat_th, heat, outdoor) if heat_th else None
+    if copm is None:
+        copm = fit_cop(cop, outdoor, heat, cop_min) if cop else None
     check = cop_check(cop, outdoor, heat, cop_min) if cop else None
     test_days = []
     d = today - timedelta(days=1)
@@ -382,10 +495,10 @@ def learn(
     if test_days:
         cutoff = min(day["hours"][0] for day in test_days)
         older = {h: v for h, v in indoor.items() if h < cutoff}
-        fit_old = fit_house(older, outdoor, heat, wind, sun, cool, copm)
+        fit_old = fit_house(older, outdoor, heat, wind, sun, cool, copm, heat_th)
         if fit_old:
             result["review"] = review(fit_old, copm, test_days, profile, shape, tz)
-    result["model"] = fit_house(indoor, outdoor, heat, wind, sun, cool, copm)
+    result["model"] = fit_house(indoor, outdoor, heat, wind, sun, cool, copm, heat_th)
     if result["review"] is None:
         result["review"] = {"days": len(test_days), "hour_error_kwh": None, "pattern_error_kwh": None,
                             "temp_error_c": None, "passed": False}

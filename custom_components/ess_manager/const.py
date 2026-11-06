@@ -226,6 +226,11 @@ CONF_HP_SETPOINT_ENTITY = "hp_setpoint_entity"
 # as of 2026.10.17: the heat pump's COP sensor (optional), and whether ESS
 # Manager may preheat the house by raising the thermostat (off unless switched on)
 CONF_HP_COP_ENTITY = "hp_cop_entity"
+# as of 2026.11.10: the heat pump's heat meter (kWh of heat, heating and hot
+# water together) and the meter of all its electricity - the heat that went
+# into the house per hour = heat x heating electricity / all electricity
+CONF_HP_THERMAL_ENTITY = "hp_thermal_entity"
+CONF_HP_ELECTRIC_TOTAL_ENTITY = "hp_electric_total_entity"
 # the two steps (as of 2026.10.17): 1. the house hour by hour (forecast; the
 # planning uses it once it passed its self-check), 2. steering the thermostat
 # (day/night temperature, the house as a buffer) - switched on and off on the

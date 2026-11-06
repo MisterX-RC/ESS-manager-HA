@@ -5611,6 +5611,26 @@ check("house model: why there's no COP model - the hours that fall out are count
       heatpump_house.cop_check({1: 3.5, 2: 0.0, 3: 3.0, 4: 3.2}, {1: 5, 2: 5, 3: 5}, {1: 0.5, 2: 0.5, 3: 0.0}, {1: 2.0})
       == {"hours": 4, "no_outdoor": 1, "no_heating": 1, "out_of_range": 1, "not_whole_hour": 0, "used": 1, "needed": 48})
 
+# 2026.11.10: the heat meter - heating's share of the heat, the COP from the meters, the delay chosen on a whole day
+check("heat meter: an hour of only hot water counts 0, only heating whole, a mixed hour by the heating's share of the electricity",
+      heatpump_house.heating_heat({1: 3.0, 2: 4.0, 3: 2.0, 4: 1.0}, {1: 0.0, 2: 1.0, 3: 0.5, 4: 0.3}, {1: 1.0, 2: 1.02, 3: 1.0})
+      == {1: 0.0, 2: 4.0 * (1.0 / 1.02), 3: 1.0})
+check("heat meter: without the total meter every hour with heating counts whole",
+      heatpump_house.heating_heat({1: 3.0, 2: 4.0}, {1: 0.0, 2: 1.0}, None) == {1: 0.0, 2: 4.0})
+_cm_el = {h: 0.8 for h in range(60)}
+_cm_th = {h: 0.8 * (3.0 + 0.1 * (h % 10)) for h in range(60)}
+_cm_out = {h: float(h % 10) for h in range(60)}
+_cm_m = heatpump_house.fit_cop_meters(_cm_th, _cm_el, _cm_out)
+check("heat meter: the COP from the meters per hour, no whole running hours needed (COP 3.0 + 0.1 per degC)",
+      _cm_m is not None and abs(_cm_m["c0"] - 3.0) < 1e-6 and abs(_cm_m["c1"] - 0.1) < 1e-6 and _cm_m["n"] == 60)
+_fl_m2 = heatpump_house.fit_house(_fl_in, _fl_out, _fl_q)
+check("house model: the delay chosen on playing whole heating days again - its error is in the model",
+      _fl_m2["day_error_c"] is not None and _fl_m2["day_error_c"] < 0.05 and _fl_m2["tau"] == 12.0)
+_fl_th = {h: v * 3.5 for h, v in _fl_q.items()}
+_fl_m3 = heatpump_house.fit_house(_fl_in, _fl_out, _fl_q, None, None, None, {"c0": 3.5, "c1": 0.0, "n": 60}, _fl_th)
+check("house model: with the measured heat the floor's gain is per kWh of heat (3.5 x smaller than per kWh of electricity)",
+      _fl_m3 is not None and abs(_fl_m3["g"] * 3.5 - _fl_m2["g"]) < 1e-3 and _fl_m3["thermal"])
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

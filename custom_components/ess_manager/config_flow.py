@@ -67,6 +67,8 @@ from .const import (
     CONF_HP_OUTDOOR_ENTITY,
     CONF_HP_SETPOINT_ENTITY,
     CONF_HP_COP_ENTITY,
+    CONF_HP_THERMAL_ENTITY,
+    CONF_HP_ELECTRIC_TOTAL_ENTITY,
     CONF_HP_BUFFER_ENABLED,
     DEFAULT_HP_BUFFER_ENABLED,
     CONF_FLOOR_COOL_CLIMATE_ENTITY,
@@ -535,6 +537,14 @@ def _hp_schema(defaults: dict[str, Any], meter: str) -> vol.Schema:
             ),
             # as of 2026.10.17
             vol.Optional(CONF_HP_COP_ENTITY, default=defaults.get(CONF_HP_COP_ENTITY)): _optional_entity_selector(),
+        }
+    )
+    if meter == HP_METER_SEPARATE:
+        # as of 2026.11.10: the heat meter (heating + hot water) and all of the heat pump's electricity
+        fields[vol.Optional(CONF_HP_THERMAL_ENTITY, default=defaults.get(CONF_HP_THERMAL_ENTITY))] = _optional_entity_selector()
+        fields[vol.Optional(CONF_HP_ELECTRIC_TOTAL_ENTITY, default=defaults.get(CONF_HP_ELECTRIC_TOTAL_ENTITY))] = _optional_entity_selector()
+    fields.update(
+        {
             vol.Optional(
                 CONF_HP_HOURLY_ENABLED, default=defaults.get(CONF_HP_HOURLY_ENABLED, DEFAULT_HP_HOURLY_ENABLED)
             ): selector.BooleanSelector(),
@@ -813,6 +823,8 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
         CONF_HP_INDOOR_ENTITY,
         CONF_HP_SETPOINT_ENTITY,
         CONF_HP_COP_ENTITY,
+        CONF_HP_THERMAL_ENTITY,
+        CONF_HP_ELECTRIC_TOTAL_ENTITY,
         CONF_FLOOR_SLAB_ENTITY,
         CONF_FLOOR_COOL_SWITCH_ENTITY,
         CONF_FLOOR_COOL_CLIMATE_ENTITY,

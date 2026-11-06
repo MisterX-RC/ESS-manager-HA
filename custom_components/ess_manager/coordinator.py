@@ -54,6 +54,8 @@ from .const import (
     CONF_HP_HEAT_ENTITIES,
     CONF_HP_INDOOR_ENTITY,
     CONF_HP_COP_ENTITY,
+    CONF_HP_THERMAL_ENTITY,
+    CONF_HP_ELECTRIC_TOTAL_ENTITY,
     CONF_NIGHT_LIMIT_ENABLED,
     CONF_NIGHT_CHARGE_SPEED_KW,
     CONF_NIGHT_DISCHARGE_SPEED_KW,
@@ -1161,7 +1163,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         start = datetime.combine(today - timedelta(days=heatpump.THERMAL_DAYS), datetime.min.time(), tzinfo=tz)
         end = datetime.combine(today, datetime.min.time(), tzinfo=tz)
         solar_ids = list((self._energy_dashboard_sources or {}).get("solar", []))
-        sums = await async_fetch_hourly_sums(self.hass, [*heat, *cool, *solar_ids], start, end)
+        # (as of 2026.11.10) the heat meter and all of the heat pump's electricity
+        th_id = conf.get(CONF_HP_THERMAL_ENTITY) if hp_meter(conf) == HP_METER_SEPARATE else None
+        el_tot_id = conf.get(CONF_HP_ELECTRIC_TOTAL_ENTITY) if th_id else None
+        sums = await async_fetch_hourly_sums(self.hass, [i for i in [*heat, *cool, *solar_ids, th_id, el_tot_id] if i], start, end)
         cop_id = conf.get(CONF_HP_COP_ENTITY)
         mean_ids = [indoor_id if from_stats else None, conf.get(CONF_HP_OUTDOOR_ENTITY), conf.get(CONF_HP_WIND_ENTITY), cop_id]
         means = await async_fetch_hourly_means(self.hass, [m for m in mean_ids if m], start, end)
@@ -1196,6 +1201,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except Exception as err:  # noqa: BLE001 - no minimum: the COP fit as before
                 _LOGGER.debug("ESS Manager: COP minimum not read: %s", err)
         cool_only = heatpump.add_series(*[deltas.get(e, {}) for e in cool]) if cool else None
+        # the heat that went into the house per hour (as of 2026.11.10): the
+        # heat meter's heat by the heating's share of the electricity
+        heat_th = None
+        if th_id and deltas.get(th_id):
+            heat_th = heatpump_house.heating_heat(deltas[th_id], heat_only, deltas.get(el_tot_id) if el_tot_id else None)
         model = self.hp.model
         profile = (heatpump.indoor_profile(self.hp.indoor_days, heatpump.heating_dates(model, self.hp.journal))
                    if model and self.hp.indoor_days else None)
@@ -1203,7 +1213,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             heatpump_house.learn,
             means.get(indoor_id) or {}, means.get(conf.get(CONF_HP_OUTDOOR_ENTITY)) or {}, heat_only, wind, sun,
             cool_only, means.get(cop_id) if cop_id else None, tz, today, profile, heatpump.hourly_shape(self.hp.journal, today),
-            cop_min,
+            cop_min, heat_th,
         )
         self.hp.house = {**learned, "day": today.isoformat()}
         rev = learned.get("review") or {}

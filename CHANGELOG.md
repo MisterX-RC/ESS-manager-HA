@@ -12,6 +12,25 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.10] - 2026-11-06
+
+### Heat pump - the house hour by hour
+- **The heat meter** (new, optional, heat pump page in Configure, separate
+  metering): the heat pump's heat meter (heating and hot water together,
+  e.g. the Qube's `energy_total_thermic`) and the meter of all its
+  electricity. The house model then counts the heat that really went into
+  the house - each hour's heat by the heating's share of the electricity,
+  so hot water is taken off - and the COP comes from the meters, hour by
+  hour, without needing whole running hours (installation A: 3 usable hours
+  of the COP sensor, 48 needed).
+- **The floor's delay chosen on a whole day**: 2026.11.9 let it go up to
+  24 h, but the fit kept picking 2 h - it chose on the step of one hour,
+  where the temperature moves hundredths of a degree and the noise wins.
+  Now the delay whose model plays the last 10 heating days again best (the
+  indoor temperature over the whole day, with the measured heat) is taken;
+  `model.day_error_c` shows that error. The model stays in shadow until the
+  self-check passes.
+
 ## [2026.11.9] - 2026-11-05
 
 ### Heat pump - the house hour by hour

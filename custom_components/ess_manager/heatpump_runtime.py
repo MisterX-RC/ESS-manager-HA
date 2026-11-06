@@ -352,7 +352,8 @@ class HeatPumpRuntime:
             "fitted_day": house.get("day"),
             "model": hm,
             "cop": ({"c0": copm["c0"], "c1": copm["c1"], "at_7": round(hh.cop_at(copm, 7.0), 2),
-                     "at_minus_2": round(hh.cop_at(copm, -2.0), 2), "hours": copm["n"]} if copm else None),
+                     "at_minus_2": round(hh.cop_at(copm, -2.0), 2), "hours": copm["n"],
+                     "source": copm.get("source", "cop_sensor")} if copm else None),
             # (as of 2026.11.9) why there is (no) COP model - which hours fell out
             "cop_check": house.get("cop_check"),
             "steer": self.steer,
