@@ -1681,6 +1681,10 @@ attach to an issue instead of copying YAML out of Developer tools:
   action, the setpoint, the status or a control error changed, with time,
   SOC and price - what it did last night and why. Kept in memory, so it
   starts empty after a restart.
+- *(as of 2026.11.13)* **the floor's learning hours** (`floor_records`):
+  every hour the heat pump ran for the floor with its averages (supply,
+  return, thermal power, room, running seconds) - what floor control's
+  emission model is fitted on.
 
 ESS Manager stores no passwords or tokens, so nothing is blanked out; the
 file does contain your energy data and entity names - share it with whom

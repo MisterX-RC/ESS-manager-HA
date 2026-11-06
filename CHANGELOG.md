@@ -12,6 +12,15 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.13] - 2026-11-06
+
+### Diagnostics
+- **The floor's learning hours** (`floor_records`): every hour the heat
+  pump ran for the floor, with its averages of supply, return, thermal
+  power, room and running seconds - what floor control's emission model
+  (U) is fitted on. Installation A: the model stays at an error of 41 %
+  (25 of 30 hours, 25 % needed) and the hours themselves weren't visible.
+
 ## [2026.11.12] - 2026-11-06
 
 ### Heat pump - the house hour by hour

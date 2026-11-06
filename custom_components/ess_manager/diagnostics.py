@@ -145,5 +145,16 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         "heat_pump_steering": getattr(coordinator, "hp_steering_on", None),
     }
     result["decisions_24h"] = _jsonable(coordinator.decision_history())
+    # the floor's learning hours (as of 2026.11.13): every hour the heat pump
+    # ran for the floor, with its averages - what the emission model (U) is
+    # fitted on, to see why it fits or doesn't
+    floor = getattr(coordinator, "floor", None)
+    if floor is not None:
+        keys = ("h", "run_s", "th_kwh", "t_sup", "t_ret", "p_th", "t_room", "t_slab", "room", "sp", "p_target")
+        result["floor_records"] = {
+            "keys": list(keys),
+            "rows": [[_jsonable(r.get(k)) for k in keys] for r in (floor.records or []) if (r.get("run_s") or 0) > 0
+                     or (r.get("th_kwh") or 0) > 0],
+        }
     result["data"] = _jsonable(coordinator.data)
     return result
