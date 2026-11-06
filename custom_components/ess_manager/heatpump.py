@@ -1041,7 +1041,8 @@ def house_effect(
         return {"kind": "deficit", "hours": DEFICIT_HOURS, "kwh": round(-diff * per_degree, 2), **base}
     t = indoor
     hours = 0
-    for i, (tout, wind, sun) in enumerate(hourly[:MAX_COAST_HOURS]):
+    for i, row in enumerate(hourly[:MAX_COAST_HOURS]):
+        tout, wind, sun = row[0], row[1], row[2]
         ref = usual[i] if use_usual and i < len(usual) else ref0
         if t <= ref or tout is None:
             break

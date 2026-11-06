@@ -201,13 +201,61 @@ def _rows(indoor, outdoor, heat, cool, w):
     return rows
 
 
-def _x(h, d, lag, wind, sun, use_wind, use_sun):
+def _x(h, d, lag, wind, sun, use_wind, use_sun, gains=None, use_gains=False):
     x = [1.0, -d, lag]
     if use_wind:
         x.append(-(wind.get(h) or 0.0) * d)
     if use_sun:
         x.append(sun.get(h) or 0.0)
+    if use_gains:
+        x.append(gains.get(h) or 0.0)
     return x
+
+
+def gains_profile(gains: dict[int, float], tz: tzinfo, today: date, days: int = 14) -> Optional[list[float]]:
+    """The house's own electricity per local hour of the day (as of
+    2026.11.11): the mean of the last `days` days - what the forecast counts
+    on for ironing, cooking and the rest."""
+    start = datetime.combine(today - timedelta(days=days), datetime.min.time(), tzinfo=tz).timestamp()
+    sums = [0.0] * 24
+    counts = [0] * 24
+    for h, v in gains.items():
+        if h >= start and v is not None:
+            hr = datetime.fromtimestamp(h, tz).hour
+            sums[hr] += v
+            counts[hr] += 1
+    if min(counts) < 3:
+        return None
+    return [round(sums[i] / counts[i], 3) for i in range(24)]
+
+
+SPIKE_SIGMAS = 4.0              # an hour this far off the fit (robust spread) is left out - ironing, the oven
+
+
+def _solve_rows(xs: list[list[float]], ys: list[float]) -> Optional[list[float]]:
+    k = len(xs[0])
+    ata = [[sum(x[i] * x[j] for x in xs) for j in range(k)] for i in range(k)]
+    atb = [sum(x[i] * y for x, y in zip(xs, ys)) for i in range(k)]
+    return _solve(ata, atb)
+
+
+def _fit_robust(xs: list[list[float]], ys: list[float]) -> tuple[Optional[list[float]], list[int]]:
+    """Least squares, then once more without the hours that are far off it
+    (as of 2026.11.11): a room that jumps a few degrees while ironing and
+    falls back right after isn't the house - left in, it bends the fit for
+    every normal hour. (coefficients, the indexes kept)"""
+    coef = _solve_rows(xs, ys)
+    if coef is None:
+        return None, list(range(len(ys)))
+    res = [y - sum(c * v for c, v in zip(coef, x)) for x, y in zip(xs, ys)]
+    mad = sorted(abs(r) for r in res)[len(res) // 2]
+    if mad <= 0:
+        return coef, list(range(len(ys)))
+    keep = [i for i, r in enumerate(res) if abs(r) <= SPIKE_SIGMAS * 1.4826 * mad]
+    if len(keep) < max(MIN_HOUSE_ROWS, len(ys) // 2):
+        return coef, list(range(len(ys)))
+    coef2 = _solve_rows([xs[i] for i in keep], [ys[i] for i in keep])
+    return (coef2 or coef), keep
 
 
 def fit_house(
@@ -219,6 +267,7 @@ def fit_house(
     cool: Optional[dict[int, float]] = None,
     copm: Optional[dict[str, Any]] = None,
     heat_th: Optional[dict[int, float]] = None,
+    gains: Optional[dict[int, float]] = None,
 ) -> Optional[dict[str, Any]]:
     """dT(indoor, next hour) = a - k x d + g x heat(lagged) - kw x wind x d +
     ks x sun, d = indoor - outdoor, the heat delayed by the floor (kernel,
@@ -232,7 +281,11 @@ def fit_house(
     day, with the measured heat) - not the one that fits the step of one
     hour best: over one hour the temperature moves hundredths of a degree
     and the noise favours a short delay, while over a day a short delay
-    drifts."""
+    drifts.
+
+    `gains` (as of 2026.11.11): the house's own electricity per hour (all of
+    it minus the heat pump and the car) - nearly all of it ends up as heat
+    indoors (ironing, cooking, appliances): its own term `kg`."""
     if copm:
         heat = {h: (heat_th[h] if heat_th and h in heat_th else q * cop_at(copm, outdoor.get(h))) for h, q in heat.items()}
     windows = _sim_windows(indoor, outdoor, heat)
@@ -244,31 +297,34 @@ def fit_house(
             continue
         use_wind = bool(wind) and sum(1 for r in rows if wind.get(r[0]) is not None) >= 0.7 * len(rows)
         use_sun = bool(sun) and sum(1 for r in rows if sun.get(r[0]) is not None) >= 0.7 * len(rows)
-        xs = [_x(h, d, lag, wind, sun, use_wind, use_sun) for h, _, d, lag in rows]
+        use_gains = bool(gains) and sum(1 for r in rows if gains.get(r[0]) is not None) >= 0.7 * len(rows)
+        xs = [_x(h, d, lag, wind, sun, use_wind, use_sun, gains, use_gains) for h, _, d, lag in rows]
         ys = [dy for _, dy, _, _ in rows]
-        k = len(xs[0])
-        ata = [[sum(x[i] * x[j] for x in xs) for j in range(k)] for i in range(k)]
-        atb = [sum(x[i] * y for x, y in zip(xs, ys)) for i in range(k)]
-        coef = _solve(ata, atb)
+        coef, keep = _fit_robust(xs, ys)
         if coef is None or not 0.001 <= coef[1] <= 0.2 or coef[2] <= 0:
             continue
+        xs = [xs[i] for i in keep]
+        ys = [ys[i] for i in keep]
         sse = sum((y - sum(c * v for c, v in zip(coef, x))) ** 2 for x, y in zip(xs, ys))
-        score = _sim_score(coef, tau, use_wind, use_sun, windows, indoor, outdoor, heat, wind, sun)
+        score = _sim_score(coef, tau, use_wind, use_sun, windows, indoor, outdoor, heat, wind, sun, gains if use_gains else None)
         key = (score if score is not None else float("inf"), sse)
         if best is None or key < best[0]:
-            best = (key, tau, coef, use_wind, use_sun, ys, len(rows), sse, score)
+            best = (key, tau, coef, use_wind, use_sun, ys, len(rows), sse, score, use_gains, len(rows) - len(keep))
     if best is None:
         return None
-    _, tau, coef, use_wind, use_sun, ys, n, sse, score = best
+    _, tau, coef, use_wind, use_sun, ys, n, sse, score, use_gains, dropped = best
     ymean = sum(ys) / len(ys)
     sst = sum((y - ymean) ** 2 for y in ys)
     i = 3
-    kw = ks = None
+    kw = ks = kg = None
     if use_wind:
         kw = coef[i]
         i += 1
     if use_sun:
         ks = coef[i]
+        i += 1
+    if use_gains:
+        kg = coef[i]
     on = sorted(v for v in heat.values() if v > 0.05)
     qmax = on[int(0.95 * (len(on) - 1))] if on else 0.0
     return {
@@ -277,6 +333,8 @@ def fit_house(
         "tau": tau, "n": n, "r2": round(1 - sse / sst, 3) if sst > 0 else None,
         "qmax": round(max(qmax, 0.1), 3), "thermal": bool(copm),
         "day_error_c": round(score, 3) if score is not None else None,
+        "kg": round(kg, 5) if kg is not None else None,
+        "spikes_left_out": dropped,
     }
 
 
@@ -301,7 +359,17 @@ def _sim_windows(indoor, outdoor, heat) -> list[int]:
     return out
 
 
-def _sim_score(coef, tau, use_wind, use_sun, windows, indoor, outdoor, heat, wind, sun) -> Optional[float]:
+def smooth3(values: list[Optional[float]]) -> list[Optional[float]]:
+    """The median of each hour and its neighbours (as of 2026.11.11): a
+    one-hour jump of the room (ironing) doesn't count as the house."""
+    out: list[Optional[float]] = []
+    for i, v in enumerate(values):
+        win = [x for x in values[max(i - 1, 0):i + 2] if x is not None]
+        out.append(sorted(win)[len(win) // 2] if v is not None and win else v)
+    return out
+
+
+def _sim_score(coef, tau, use_wind, use_sun, windows, indoor, outdoor, heat, wind, sun, gains=None) -> Optional[float]:
     """Mean indoor temperature error (degC) of playing the windows again with
     the measured heat - the model as fitted for this time constant."""
     if not windows:
@@ -313,17 +381,21 @@ def _sim_score(coef, tau, use_wind, use_sun, windows, indoor, outdoor, heat, win
         i += 1
     if use_sun:
         ks = coef[i]
-    model = {"a": coef[0], "k": coef[1], "g": coef[2], "kw": kw, "ks": ks, "tau": tau, "qmax": 1e9, "thermal": False}
+        i += 1
+    kg = coef[i] if gains else 0.0
+    model = {"a": coef[0], "k": coef[1], "g": coef[2], "kw": kw, "ks": ks, "kg": kg, "tau": tau, "qmax": 1e9, "thermal": False}
     err = 0.0
     n = 0
     for start in windows:
         hours = list(range(start, start + 24 * HOUR, HOUR))
-        inputs = [(outdoor[h], (wind or {}).get(h) if use_wind else None, (sun or {}).get(h) if use_sun else None) for h in hours]
+        inputs = [(outdoor[h], (wind or {}).get(h) if use_wind else None, (sun or {}).get(h) if use_sun else None,
+                   (gains or {}).get(h)) for h in hours]
         hist = [heat[start - j * HOUR] for j in range(LAG_HOURS - 1, 0, -1)]
         temps, _ = simulate(model, indoor[start], inputs, None, hist, None, fixed_q=[heat[h] for h in hours])
-        for k, h in enumerate(hours[1:], start=1):
-            if k < len(temps):
-                err += abs(temps[k] - indoor[h])
+        measured = smooth3([indoor.get(h) for h in hours])
+        for k in range(1, len(hours)):
+            if k < len(temps) and measured[k] is not None:
+                err += abs(temps[k] - measured[k])
                 n += 1
     return err / n if n else None
 
@@ -346,12 +418,16 @@ def simulate(
     w = kernel(model["tau"])
     a, k, g = model["a"], model["k"], model["g"]
     kw, ks = model.get("kw") or 0.0, model.get("ks") or 0.0
+    kg = model.get("kg") or 0.0
     hist = list(q_hist or [])[-(LAG_HOURS - 1):]
     hist = [0.0] * (LAG_HOURS - 1 - len(hist)) + hist  # thermal heat, oldest first
     temps = [t0]
     q_el_out = []
     t = t0
-    for i, (tout, wind, sun) in enumerate(inputs):
+    for i, row in enumerate(inputs):
+        tout, wind, sun = row[0], row[1], row[2]
+        # (as of 2026.11.11) the house's own electricity, when given
+        gain = (row[3] if len(row) > 3 else None) or 0.0
         if tout is None:
             break
         wind = wind or 0.0
@@ -363,14 +439,14 @@ def simulate(
             q = q_el * cop
         else:
             tgt = target[i] if target and i < len(target) else t
-            loss = k * (tgt - tout) + kw * wind * (tgt - tout) - ks * sun - a
+            loss = k * (tgt - tout) + kw * wind * (tgt - tout) - ks * sun - kg * gain - a
             need = loss + KP * (tgt - t)            # degC this hour
             q = (need - g * prev) / (g * w[0])      # what this hour's heat has to add
             q = max(0.0, min(q, model["qmax"]))
             q_el = q / cop
         lag = w[0] * q + prev
         d = t - tout
-        t = t + a - k * d - kw * wind * d + ks * sun + g * lag
+        t = t + a - k * d - kw * wind * d + ks * sun + kg * gain + g * lag
         hist.append(q)
         hist = hist[-(LAG_HOURS - 1):]
         temps.append(round(t, 3))
@@ -380,7 +456,7 @@ def simulate(
 
 # -- the self-check -----------------------------------------------------------------
 def day_series(
-    d: date, tz: tzinfo, indoor, outdoor, heat, wind, sun
+    d: date, tz: tzinfo, indoor, outdoor, heat, wind, sun, gains=None
 ) -> Optional[dict[str, Any]]:
     """One day's hourly inputs for the self-check (None when incomplete)."""
     start = int(datetime(d.year, d.month, d.day, tzinfo=tz).timestamp())
@@ -398,7 +474,7 @@ def day_series(
         "d": d.isoformat(),
         "hours": hours,
         "indoor": temps,
-        "inputs": [(outdoor[h], (wind or {}).get(h), (sun or {}).get(h)) for h in hours],
+        "inputs": [(outdoor[h], (wind or {}).get(h), (sun or {}).get(h), (gains or {}).get(h)) for h in hours],
         "q": [heat[h] for h in hours],
         "q_hist": hist,
     }
@@ -444,7 +520,8 @@ def review(
             pat_err += abs(pat_q - q)
             n_hours += 1
         temps, _ = simulate(model, day["indoor"][0], day["inputs"], None, hist_th, copm, fixed_q=day["q"])
-        for i, v in enumerate(day["indoor"]):
+        # against the room's trend, not a one-hour jump (as of 2026.11.11)
+        for i, v in enumerate(smooth3(day["indoor"])):
             if v is not None and i < len(temps):
                 temp_err += abs(temps[i] - v)
                 n_temp += 1
@@ -474,6 +551,7 @@ def learn(
     shape: list[float],
     cop_min: Optional[dict[int, float]] = None,
     heat_th: Optional[dict[int, float]] = None,
+    gains: Optional[dict[int, float]] = None,
 ) -> dict[str, Any]:
     """The daily round: the COP model, the house fitted on the hours before
     the newest TEST_DAYS heating days and checked on those (out of sample),
@@ -487,7 +565,7 @@ def learn(
     test_days = []
     d = today - timedelta(days=1)
     while len(test_days) < TEST_DAYS and (today - d).days <= 60:
-        series = day_series(d, tz, indoor, outdoor, heat, wind, sun)
+        series = day_series(d, tz, indoor, outdoor, heat, wind, sun, gains)
         if series and sum(series["q"]) >= TEST_HEAT_KWH:
             test_days.append(series)
         d -= timedelta(days=1)
@@ -495,10 +573,10 @@ def learn(
     if test_days:
         cutoff = min(day["hours"][0] for day in test_days)
         older = {h: v for h, v in indoor.items() if h < cutoff}
-        fit_old = fit_house(older, outdoor, heat, wind, sun, cool, copm, heat_th)
+        fit_old = fit_house(older, outdoor, heat, wind, sun, cool, copm, heat_th, gains)
         if fit_old:
             result["review"] = review(fit_old, copm, test_days, profile, shape, tz)
-    result["model"] = fit_house(indoor, outdoor, heat, wind, sun, cool, copm, heat_th)
+    result["model"] = fit_house(indoor, outdoor, heat, wind, sun, cool, copm, heat_th, gains)
     if result["review"] is None:
         result["review"] = {"days": len(test_days), "hour_error_kwh": None, "pattern_error_kwh": None,
                             "temp_error_c": None, "passed": False}

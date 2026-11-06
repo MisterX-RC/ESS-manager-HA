@@ -5631,6 +5631,32 @@ _fl_m3 = heatpump_house.fit_house(_fl_in, _fl_out, _fl_q, None, None, None, {"c0
 check("house model: with the measured heat the floor's gain is per kWh of heat (3.5 x smaller than per kWh of electricity)",
       _fl_m3 is not None and abs(_fl_m3["g"] * 3.5 - _fl_m2["g"]) < 1e-3 and _fl_m3["thermal"])
 
+# 2026.11.11: the house's own electricity (ironing, cooking) and one-hour jumps of the room
+_gn_in, _gn_g = {}, {}
+_gn_t = 20.5
+_gn_list = sorted(_fl_out)
+for _i, _h in enumerate(_gn_list):
+    _hod = _i % 24
+    _gn_g[_h] = 2.0 if (_i // 24) % 3 == 0 and 19 <= _hod < 21 else 0.2     # ironing every third evening
+    _gn_in[_h] = round(_gn_t, 3)
+    _lag = sum(_fl_w[j] * _fl_q.get(_h - j * 3600, 0.0) for j in range(36))
+    _gn_t = _gn_t - 0.004 * (_gn_t - _fl_out[_h]) + 0.08 * _lag + 0.15 * _gn_g[_h]
+_gn_m = heatpump_house.fit_house(_gn_in, _fl_out, _fl_q, None, None, None, None, None, _gn_g)
+_gn_m0 = heatpump_house.fit_house(_gn_in, _fl_out, _fl_q)
+check("house model: the house's own electricity as heat - ironing explained (kg ~0.15 degC per kWh), the day played again closely",
+      _gn_m is not None and abs(_gn_m["kg"] - 0.15) < 0.01 and _gn_m["day_error_c"] < 0.05
+      and (_gn_m0 is None or _gn_m0["day_error_c"] is None or _gn_m0["day_error_c"] > 3 * _gn_m["day_error_c"]))
+_sp_in = dict(_fl_in)
+for _j, _h in enumerate(sorted(_sp_in)[100::97]):
+    _sp_in[_h] += 2.5                         # the room jumps for an hour (an iron next to the sensor)
+_sp_m = heatpump_house.fit_house(_sp_in, _fl_out, _fl_q)
+check("house model: one-hour jumps of the room are left out of the fit - the floor's gain stays right",
+      _sp_m is not None and _sp_m["spikes_left_out"] >= 9 and abs(_sp_m["g"] - _fl_m2["g"]) < 0.01)
+check("house model: the room's trend - a one-hour jump doesn't count", heatpump_house.smooth3([20.0, 20.1, 23.0, 20.2, 20.2]) == [20.1, 20.1, 20.2, 20.2, 20.2])
+_gp = heatpump_house.gains_profile({_h: (_gn_g[_h]) for _h in _gn_list}, _stz.utc,
+                                   datetime.fromtimestamp(_gn_list[-1], tz=_stz.utc).date())
+check("house model: the usual own electricity per hour for the forecast", _gp is not None and len(_gp) == 24 and _gp[19] > _gp[3])
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

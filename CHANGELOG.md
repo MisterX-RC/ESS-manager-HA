@@ -30,6 +30,18 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   indoor temperature over the whole day, with the measured heat) is taken;
   `model.day_error_c` shows that error. The model stays in shadow until the
   self-check passes.
+- **The house's own electricity as heat**: nearly all the household's
+  electricity ends up as heat indoors (ironing, cooking, appliances). The
+  model gets it as an input of its own (`model.kg`, degC per kWh): the
+  household usage from the Energy dashboard minus the heat pump and the
+  car, per hour. For the forecast the usual amount per hour of the day
+  (the last 14 days, `gains_profile`).
+- **One-hour jumps of the room left out**: an hour far off the fit (4x the
+  robust spread) - the room jumping a few degrees while ironing and
+  falling back right after - is left out and the fit done again
+  (`model.spikes_left_out`); the self-check and the choice of the delay
+  compare with the room's trend (the median of each hour and its
+  neighbours), not with a one-hour jump.
 
 ## [2026.11.9] - 2026-11-05
 

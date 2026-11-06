@@ -926,7 +926,14 @@ the heat pump page in Configure, as of 2026.10.17:
   chosen on how well the model plays the last heating days again (the
   indoor temperature over each whole day, with the measured heat) - not on
   the step of one hour, where a sensor's 0.1 degC and the noise favour a
-  short delay; `model.day_error_c` is that error. It forecasts the indoor
+  short delay; `model.day_error_c` is that error. The **house's own
+  electricity** counts as heat too (ironing, cooking, appliances - the
+  household usage from the Energy dashboard minus the heat pump and the
+  car, `model.kg` degC per kWh; for the forecast its usual amount per hour
+  of the day), and an hour far off the fit - the room jumping a few
+  degrees while ironing and falling back right after - is left out of it
+  (`model.spikes_left_out`); the self-check compares with the room's trend
+  (the median of each hour and its neighbours). It forecasts the indoor
   temperature and the heating per hour for 48 hours, the heat pump emulated
   keeping the house on its usual temperature per hour. **Self-check**: every
   day the newest 14 heating days are played again with their measured

@@ -1166,7 +1166,19 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # (as of 2026.11.10) the heat meter and all of the heat pump's electricity
         th_id = conf.get(CONF_HP_THERMAL_ENTITY) if hp_meter(conf) == HP_METER_SEPARATE else None
         el_tot_id = conf.get(CONF_HP_ELECTRIC_TOTAL_ENTITY) if th_id else None
-        sums = await async_fetch_hourly_sums(self.hass, [i for i in [*heat, *cool, *solar_ids, th_id, el_tot_id] if i], start, end)
+        # (as of 2026.11.11) the household's electricity: its own heat indoors
+        src = self._energy_dashboard_sources
+        if src is None:
+            try:
+                src = energy_prefs_to_sources(await async_get_energy_prefs(self.hass))
+            except Exception as err:  # noqa: BLE001 - no Energy dashboard: no own heat
+                _LOGGER.debug("ESS Manager: no Energy dashboard for the house's own heat: %s", err)
+                src = {}
+        src = src or {}
+        house_ids = [*src.get("import", []), *src.get("export", []), *src.get("battery_charge", []), *src.get("battery_discharge", [])]
+        ev_id = ev_energy_entity(conf)
+        sums = await async_fetch_hourly_sums(
+            self.hass, [i for i in [*heat, *cool, *solar_ids, th_id, el_tot_id, *house_ids, ev_id] if i], start, end)
         cop_id = conf.get(CONF_HP_COP_ENTITY)
         mean_ids = [indoor_id if from_stats else None, conf.get(CONF_HP_OUTDOOR_ENTITY), conf.get(CONF_HP_WIND_ENTITY), cop_id]
         means = await async_fetch_hourly_means(self.hass, [m for m in mean_ids if m], start, end)
@@ -1206,6 +1218,18 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         heat_th = None
         if th_id and deltas.get(th_id):
             heat_th = heatpump_house.heating_heat(deltas[th_id], heat_only, deltas.get(el_tot_id) if el_tot_id else None)
+        gains = None
+        if src.get("import"):
+            gains = {}
+            hp_el = heatpump.add_series(*[deltas.get(e, {}) for e in [*heat, *cool]])
+            ev_el = deltas.get(ev_id, {}) if ev_id else {}
+            for h in hp_el:
+                used = _week_sample(sums, src.get("import", []), src.get("export", []), solar_ids,
+                                                   src.get("battery_charge", []), src.get("battery_discharge", []), h)
+                if used is not None:
+                    gains[h] = round(max(used - hp_el.get(h, 0.0) - (ev_el.get(h) or 0.0), 0.0), 3)
+            if not gains:
+                gains = None
         model = self.hp.model
         profile = (heatpump.indoor_profile(self.hp.indoor_days, heatpump.heating_dates(model, self.hp.journal))
                    if model and self.hp.indoor_days else None)
@@ -1213,9 +1237,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             heatpump_house.learn,
             means.get(indoor_id) or {}, means.get(conf.get(CONF_HP_OUTDOOR_ENTITY)) or {}, heat_only, wind, sun,
             cool_only, means.get(cop_id) if cop_id else None, tz, today, profile, heatpump.hourly_shape(self.hp.journal, today),
-            cop_min, heat_th,
+            cop_min, heat_th, gains,
         )
-        self.hp.house = {**learned, "day": today.isoformat()}
+        self.hp.house = {**learned, "day": today.isoformat(),
+                         # the usual own electricity per local hour, for the forecast (as of 2026.11.11)
+                         "gains_profile": heatpump_house.gains_profile(gains, tz, today) if gains else None}
         rev = learned.get("review") or {}
         _LOGGER.info(
             "ESS Manager (%s): house model %s - self-check over %s days: hour error %s kWh (pattern %s), indoor %s degC%s",
@@ -1671,6 +1697,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         hourly = heatpump.hourly_weather(
             self._hp_hourly, weather, hour0, FORECAST_HOURS, tz, self._hp_wind_factor, hourly_sun[offset:]
         )
+        gp = (self.hp.house or {}).get("gains_profile")
+        if gp and len(gp) == 24:
+            # the house's own electricity per hour ahead (as of 2026.11.11): its usual amount at that hour
+            hourly = [(*row, gp[datetime.fromtimestamp(hour0 + i * 3600, tz).hour]) for i, row in enumerate(hourly)]
         # on a worker thread (as of 2026.10.20): the energy signature's fit (a
         # grid search over up to two years of days), the forecast and the
         # hour-by-hour model are pure Python and too heavy for the event loop
