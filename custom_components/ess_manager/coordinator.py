@@ -72,6 +72,9 @@ from .const import (
     CONF_FLOOR_RETURN_ENTITY,
     CONF_FLOOR_SETPOINT_ENTITY,
     CONF_FLOOR_SLAB_ENTITY,
+    CONF_FLOOR_QUBE_DEVICE,
+    QUBE_STATUS_KEY,
+    QUBE_VALVE_KEY,
     CONF_FLOOR_SUPPLY_ENTITY,
     FLOOR_REQUIRED,
     CONF_HP_HOURLY_ENABLED,
@@ -1360,6 +1363,25 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             and all(conf.get(k) for k in FLOOR_REQUIRED)
         )
 
+    def _qube_entities(self, device_id: Optional[str]) -> dict[str, str]:
+        """The Qube device's status and three-way valve sensors, by their
+        translation key (as of 2026.11.13) - looked up again every 10 minutes."""
+        if not device_id:
+            return {}
+        cached = getattr(self, "_qube_cache", None)
+        now = time.monotonic()
+        if cached and cached[0] == device_id and now - cached[1] < 600:
+            return cached[2]
+        found: dict[str, str] = {}
+        try:
+            for ent in er.async_entries_for_device(er.async_get(self.hass), device_id):
+                if ent.translation_key in (QUBE_STATUS_KEY, QUBE_VALVE_KEY) and not ent.disabled_by:
+                    found[ent.translation_key] = ent.entity_id
+        except Exception:  # noqa: BLE001 - best effort
+            found = {}
+        self._qube_cache = (device_id, now, found)
+        return found
+
     def _temp_state(self, entity_id: Optional[str]) -> Optional[float]:
         value = _get_float_state(self.hass, entity_id, default=None) if entity_id else None
         if value is not None:
@@ -1468,7 +1490,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "model": {k: (self.floor.model or {}).get(k) for k in ("u", "delta", "p_min", "p_max", "n", "err", "ok", "slab")},
                 "min_hours": fc.MIN_EMIT_HOURS, "response": {"n": 0, "err": None, "ok": False, "min_hours": fc.MIN_RESPONSE_HOURS},
                 "now": {"reason": "cooling"}, "next": [], "select": self.floor_mode_entity_id,
-                "recent": [{k: r.get(k) for k in ("h", "th_kwh", "plan_kwh", "sp", "run_s", "room", "slab")}
+                "recent": [{k: r.get(k) for k in ("h", "th_kwh", "plan_kwh", "sp", "run_s", "room", "slab", "heat_s", "dhw_s")}
                            for r in self.floor.records if r["h"] >= hour0 - 24 * 3600],
             }
         sp_id = conf[CONF_FLOOR_SETPOINT_ENTITY]
@@ -1483,6 +1505,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "p_th": _state_in_unit(self.hass, conf.get(CONF_FLOOR_POWER_ENTITY), ("W",), 0.001),
             "sp": sp_actual,
         }
+        # the Qube's status and three-way valve (as of 2026.11.13)
+        qube = self._qube_entities(conf.get(CONF_FLOOR_QUBE_DEVICE))
+        for key, role in (("hp_state", QUBE_STATUS_KEY), ("valve", QUBE_VALVE_KEY)):
+            st = self.hass.states.get(qube[role]) if qube.get(role) else None
+            # unavailable stays a state: not heating (the device is configured)
+            readings[key] = st.state if st is not None else None
         demand_id = conf[CONF_FLOOR_DEMAND_ENTITY]
         demand_on = self._is_on(demand_id)
         helper_on = self._is_on(conf.get(CONF_FLOOR_HELPER_ENTITY))
@@ -1575,7 +1603,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 sp_i = fc.return_setpoint(model, min(max(q, p_min), p_max), t_ref, lo, hi, sp_step) if (t_ref is not None and q > 0.05) else None
                 nxt.append({"h": hour0 + i * 3600, "kwh": q, "sp": sp_i, "temp": plan["temps"][i + 1] if i + 1 < len(plan["temps"]) else None})
         recent = [
-            {k: r.get(k) for k in ("h", "th_kwh", "plan_kwh", "sp", "run_s", "room", "slab")}
+            {k: r.get(k) for k in ("h", "th_kwh", "plan_kwh", "sp", "run_s", "room", "slab", "heat_s", "dhw_s")}
             for r in floor.records if r["h"] >= hour0 - 24 * 3600
         ]
         return {
@@ -1591,7 +1619,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "plan_kw": plan_kw, "p_target": step["p_target"], "would_heat": step["on"], "reason": step["reason"],
                 "debt_kwh": step["debt"], "demand_on": demand_on, "thermostat_on": helper_on,
                 "sp": sp_actual, "sp_planned": sp_planned, "baseline_sp": floor.baseline_sp,
-                **{k: readings[k] for k in ("pump", "t_sup", "t_ret", "t_slab", "p_th")},
+                **{k: readings[k] for k in ("pump", "t_sup", "t_ret", "t_slab", "p_th", "hp_state", "valve")},
                 "target": setpoint, "room": indoor,
             },
             "next": nxt,

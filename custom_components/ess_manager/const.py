@@ -251,6 +251,13 @@ CONF_FLOOR_RETURN_ENTITY = "floor_return_entity"
 CONF_FLOOR_PUMP_ENTITY = "floor_pump_entity"
 CONF_FLOOR_POWER_ENTITY = "floor_thermal_power_entity"
 CONF_FLOOR_SLAB_ENTITY = "floor_slab_entity"
+# the Qube heat pump as a device (as of 2026.11.13, optional): its status and
+# three-way valve sensors found by their translation key - only the minutes
+# the compressor really heats the floor count for floor control's learning
+CONF_FLOOR_QUBE_DEVICE = "floor_qube_device"
+QUBE_DOMAIN = "qube_heatpump"
+QUBE_STATUS_KEY = "status_heatpump"        # standby, compressor_startup, heating, heating_dhw, ...
+QUBE_VALVE_KEY = "threeway_valve_status"   # ch / dhw
 # cooling (as of 2026.10.23): the changeover switch (on = cooling) and/or a
 # cooling thermostat (calling for cooling, as of 2026.10.24) - floor control steps aside
 CONF_FLOOR_COOL_SWITCH_ENTITY = "floor_cool_switch_entity"

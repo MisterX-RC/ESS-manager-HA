@@ -52,6 +52,13 @@ STAGES = (STAGE_OFF, *MODES, STAGE_COOLING)
 
 PUMP_RUNNING_PCT = 5.0
 SETTLE_S = 600               # the water needs this long to come back from the floor
+# with the heat pump's status known (as of 2026.11.13, a Qube as a device):
+# only minutes it heats the floor count, from HEAT_SETTLE_S after the
+# compressor got there - the pump already ran, the water is the floor's
+HEAT_SETTLE_S = 180
+HP_HEATING = "heating"
+HP_HOT_WATER = ("heating_dhw", "anti_legionella")
+VALVE_HOT_WATER = "dhw"
 MIN_RUN_S = 45 * 60          # compressor: at least this long on ...
 MIN_OFF_S = 20 * 60          # ... and off
 SP_LIMITS = (20.0, 35.0)     # return setpoint, degC (within the entity's own range)
@@ -79,6 +86,10 @@ def fit_emission(records: list[dict[str, Any]]) -> dict[str, Any]:
     hours. The reference is the floor sensor when most hours have it, else
     the room. Checked on the newest quarter of the hours (fitted on the
     rest); `ok` when enough hours and a small enough error."""
+    # as of 2026.11.13: once hours come with the heat pump's status (heat_s),
+    # only those - the hours before it counted its waits and hot water too
+    if any("heat_s" in r for r in records):
+        records = [r for r in records if "heat_s" in r]
     rows = [r for r in records if (r.get("run_s") or 0) >= 1800 and r.get("p_th") and r.get("t_sup") is not None
             and r.get("t_ret") is not None]
     slab = len(rows) >= MIN_EMIT_HOURS and sum(1 for r in rows if r.get("t_slab") is not None) >= 0.8 * len(rows)
@@ -228,6 +239,7 @@ class FloorRuntime:
         self.records: list[dict[str, Any]] = []
         self.acc: Optional[dict[str, Any]] = None
         self.pump_since: Optional[float] = None
+        self.heat_since: Optional[float] = None
         self.last_ts: Optional[float] = None
         self.model: dict[str, Any] = {}
         self.model_hour: Optional[int] = None
@@ -270,8 +282,24 @@ class FloorRuntime:
             self.acc = {"h": hour, "run_s": 0.0, "all_s": 0.0, "th_kwh": 0.0, "plan_kwh": 0.0}
         a = self.acc
         pump = r.get("pump")
-        not_floor = cooling or r.get("demand") is False
+        # the heat pump's own status and three-way valve (as of 2026.11.13,
+        # None without a Qube device): hot water isn't the floor's heat, and
+        # neither its start-up nor the waits after reaching the return setpoint
+        # (heat demand stays on) are running for the floor
+        hp_state, valve = r.get("hp_state"), r.get("valve")
+        hot_water = valve == VALVE_HOT_WATER or hp_state in HP_HOT_WATER
+        not_floor = cooling or r.get("demand") is False or hot_water
         running = pump is not None and pump >= PUMP_RUNNING_PCT and not not_floor
+        heating = hp_state is None or hp_state == HP_HEATING
+        if running and heating:
+            self.heat_since = self.heat_since or now_ts
+        else:
+            self.heat_since = None
+        if hp_state is not None:
+            if hot_water:
+                a["dhw_s"] = a.get("dhw_s", 0.0) + dt
+            elif hp_state == HP_HEATING and not cooling:
+                a["heat_s"] = a.get("heat_s", 0.0) + dt
         if not_floor:
             r = {**r, "p_th": None}
         if cooling:
@@ -295,7 +323,8 @@ class FloorRuntime:
         if r.get("t_slab") is not None:
             a["slab_all_sum"] = a.get("slab_all_sum", 0.0) + r["t_slab"] * dt
             a["slab_all_s"] = a.get("slab_all_s", 0.0) + dt
-        settled = running and now_ts - self.pump_since >= SETTLE_S
+        settled = running and now_ts - self.pump_since >= SETTLE_S and heating and (
+            hp_state is None or now_ts - self.heat_since >= HEAT_SETTLE_S)
         if settled and all(r.get(k) is not None for k in ("t_sup", "t_ret", "p_th")):
             a["run_s"] += dt
             for k in ("t_sup", "t_ret", "p_th", "t_room", "t_slab"):
@@ -324,6 +353,9 @@ class FloorRuntime:
             rec["slab"] = round(a["slab_all_sum"] / a["slab_all_s"], 2)
         if a.get("pt_s"):
             rec["p_target"] = round(a["pt_sum"] / a["pt_s"], 3)
+        for k in ("heat_s", "dhw_s"):
+            if k in a:
+                rec[k] = round(a[k])
         self.records.append(rec)
         self.records = self.records[-RECORD_HOURS:]
 

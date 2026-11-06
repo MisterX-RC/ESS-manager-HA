@@ -184,12 +184,14 @@
           "floor_pump_entity": "Circulatiepomp (%)",
           "floor_thermal_power_entity": "Thermisch vermogen van de warmtepomp (W of kW)",
           "floor_slab_entity": "Vloertemperatuur in de dekvloer (optioneel)",
+          "floor_qube_device": "Qube-warmtepomp (apparaat, optioneel)",
           "floor_cool_switch_entity": "Koelen: de omschakelaar (aan = koelen, optioneel)",
           "floor_cool_climate_entity": "Koelen: de koelthermostaat (vraagt om koeling = koelen, optioneel)"
         },
         "data_description": {
           "floor_pump_entity": "De aanvoer- en retoursensor tonen het vloerwater alleen als de pomp draait - andere metingen worden overgeslagen.",
           "floor_slab_entity": "Een sensor in de dekvloer tussen twee leidingen. Wordt in plaats van de kamertemperatuur gebruikt als referentie voor de vloer zodra de meeste stookuren hem hebben - het model leert zichzelf opnieuw.",
+          "floor_qube_device": "Zijn warmtepompstatus en driewegklep: alleen de minuten dat de compressor echt de vloer verwarmt (status verwarmen, klep op CV) tellen mee om de vloer te leren - niet het opstarten, het wachten nadat hij het retour-setpoint haalde, of warm water.",
           "floor_cool_switch_entity": "Zolang de warmtepomp koelt, laat de vloersturing hem helemaal met rust - de warmtevraag hoort dan bij het koelen. Het retour-setpoint gaat één keer terug naar de oude waarde, en er wordt niets geleerd.",
           "floor_cool_climate_entity": "Telt als koelen zolang deze thermostaat om koeling vraagt (actie 'cooling') - dat gebeurt voordat je koelautomatisering de warmtevraag aanzet, dus de vloersturing kan de warmtevraag van het koelen nooit voor verwarmen aanzien. Op 'cool' maar inactief telt niet."
         }
@@ -433,12 +435,14 @@
           "floor_pump_entity": "Circulatiepomp (%)",
           "floor_thermal_power_entity": "Thermisch vermogen van de warmtepomp (W of kW)",
           "floor_slab_entity": "Vloertemperatuur in de dekvloer (optioneel)",
+          "floor_qube_device": "Qube-warmtepomp (apparaat, optioneel)",
           "floor_cool_switch_entity": "Koelen: de omschakelaar (aan = koelen, optioneel)",
           "floor_cool_climate_entity": "Koelen: de koelthermostaat (vraagt om koeling = koelen, optioneel)"
         },
         "data_description": {
           "floor_pump_entity": "De aanvoer- en retoursensor tonen het vloerwater alleen als de pomp draait - andere metingen worden overgeslagen.",
           "floor_slab_entity": "Een sensor in de dekvloer tussen twee leidingen. Wordt in plaats van de kamertemperatuur gebruikt als referentie voor de vloer zodra de meeste stookuren hem hebben - het model leert zichzelf opnieuw.",
+          "floor_qube_device": "Zijn warmtepompstatus en driewegklep: alleen de minuten dat de compressor echt de vloer verwarmt (status verwarmen, klep op CV) tellen mee om de vloer te leren - niet het opstarten, het wachten nadat hij het retour-setpoint haalde, of warm water.",
           "floor_cool_switch_entity": "Zolang de warmtepomp koelt, laat de vloersturing hem helemaal met rust - de warmtevraag hoort dan bij het koelen. Het retour-setpoint gaat één keer terug naar de oude waarde, en er wordt niets geleerd.",
           "floor_cool_climate_entity": "Telt als koelen zolang deze thermostaat om koeling vraagt (actie 'cooling') - dat gebeurt voordat je koelautomatisering de warmtevraag aanzet, dus de vloersturing kan de warmtevraag van het koelen nooit voor verwarmen aanzien. Op 'cool' maar inactief telt niet."
         }

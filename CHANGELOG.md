@@ -14,6 +14,20 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.11.13] - 2026-11-06
 
+### Heat pump - floor control
+- **The Qube as a device** (new, optional, the floor control page in
+  Configure): its heat pump status and three-way valve sensors are found by
+  themselves (translation keys `status_heatpump`, `threeway_valve_status`).
+  Only the minutes it really heats the floor count for learning the floor
+  and checking the return setpoint: status *heating*, valve on CH, from 3
+  minutes after the compressor got there. Installation A: with the return
+  setpoint at 28 degC the Qube heats ~5 minutes and waits ~15 while heat
+  demand stays on and the pump runs - those waits counted as running with
+  0 kW, and the hot water run at 14:00 inside a heating run counted too.
+- Once hours come with the status, the floor's emission model is learned
+  from those only - the older hours had the waits and hot water in them
+  (it starts counting again).
+
 ### Diagnostics
 - **The floor's learning hours** (`floor_records`): every hour the heat
   pump ran for the floor, with its averages of supply, return, thermal

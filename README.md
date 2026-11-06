@@ -1019,6 +1019,16 @@ running (and settled for 10 minutes) count. A **floor sensor** in the
 screed (optional, between two pipes, about half way down) is used as the
 reference instead of the room once most running hours have it.
 
+*(as of 2026.11.13)* With a **Qube heat pump** chosen as a device (the
+`qube_heatpump` integration, optional, on the floor control page) its
+*Heat pump status* and *Three-way valve status* sensors are found by
+themselves, and only the minutes it really heats the floor count: status
+*heating* with the valve on CH, from 3 minutes after the compressor got
+there. Its start-up, the waits after it reached the return setpoint (heat
+demand stays on, the pump runs, no heat) and hot water - also inside a
+heating run - don't. Once hours come with the status, the floor is learned
+from those only (`floor_records` in the diagnostics: `heat_s`, `dhw_s`).
+
 **Setting it up:**
 
 1. Let your `generic_thermostat` switch a helper instead of the heat
@@ -1083,8 +1093,8 @@ reference instead of the room once most running hours have it.
    and the thermostat as the wanted temperature); the next page asks for the
    return setpoint, the heat demand switch, the thermostat's helper, the
    supply / return temperatures, the circulation pump (%), the thermal power,
-   optionally the floor sensor and - with cooling - the changeover switch
-   and/or the cooling thermostat.
+   optionally the floor sensor, the Qube as a device and - with cooling -
+   the changeover switch and/or the cooling thermostat.
 
 **Cooling.** The heat pump's heat demand switch also starts cooling (with
 the changeover switch on). While the changeover is on, or the cooling

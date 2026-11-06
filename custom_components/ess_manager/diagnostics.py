@@ -150,7 +150,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     # fitted on, to see why it fits or doesn't
     floor = getattr(coordinator, "floor", None)
     if floor is not None:
-        keys = ("h", "run_s", "th_kwh", "t_sup", "t_ret", "p_th", "t_room", "t_slab", "room", "sp", "p_target")
+        keys = ("h", "run_s", "th_kwh", "t_sup", "t_ret", "p_th", "t_room", "t_slab", "room", "sp", "p_target", "heat_s", "dhw_s")
         result["floor_records"] = {
             "keys": list(keys),
             "rows": [[_jsonable(r.get(k)) for k in keys] for r in (floor.records or []) if (r.get("run_s") or 0) > 0

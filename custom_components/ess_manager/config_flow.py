@@ -55,6 +55,8 @@ from .const import (
     CONF_EV_CHARGER,
     CONF_EV_NOTIFY,
     CONF_EV_VICTRON_DEVICE,
+    CONF_FLOOR_QUBE_DEVICE,
+    QUBE_DOMAIN,
     DEFAULT_EV_CHARGER,
     EV_CHARGER_SENSORS,
     EV_CHARGER_VICTRON,
@@ -573,6 +575,10 @@ def _floor_schema(defaults: dict[str, Any]) -> vol.Schema:
             req(CONF_FLOOR_PUMP_ENTITY, None): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             req(CONF_FLOOR_POWER_ENTITY, None): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(CONF_FLOOR_SLAB_ENTITY, default=defaults.get(CONF_FLOOR_SLAB_ENTITY)): _optional_entity_selector(),
+            # as of 2026.11.13: the Qube as a device - its status and three-way valve
+            vol.Optional(CONF_FLOOR_QUBE_DEVICE, default=defaults.get(CONF_FLOOR_QUBE_DEVICE)): vol.Maybe(
+                selector.DeviceSelector(selector.DeviceSelectorConfig(integration=QUBE_DOMAIN))
+            ),
             vol.Optional(CONF_FLOOR_COOL_SWITCH_ENTITY, default=defaults.get(CONF_FLOOR_COOL_SWITCH_ENTITY)): _optional_entity_selector(
                 ["switch", "input_boolean", "binary_sensor"]
             ),

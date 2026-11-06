@@ -4493,6 +4493,34 @@ for m in range(0, 61):
 check("floor: heat demand off (hot water) - no running hours, no heat into the floor, the plan counts",
       len(_frd.records) == 1 and _frd.records[0]["run_s"] == 0 and _frd.records[0]["th_kwh"] == 0
       and "t_sup" not in _frd.records[0] and abs(_frd.records[0]["plan_kwh"] - 1.0) < 0.05)
+# 2026.11.13: the Qube's status and three-way valve - heat demand stays on while the Qube waits after
+# reaching its return setpoint (standby, the pump runs, no heat) and while it makes hot water
+_frq = fcm.FloorRuntime()
+for m in range(-15, 121):
+    if m < 0:
+        st, vl, pth, ts, tr = "standby", "ch", 0.0, 27.0, 27.0
+    elif m < 60:   # hour 1: start-up 5 min, heating 20, standby 15, start-up 5, heating 15
+        ph = m % 40
+        st = "compressor_startup" if ph < 5 else ("heating" if ph < 25 else "standby")
+        vl, pth = "ch", (4.0 if st == "heating" else 0.0)
+        ts, tr = (31.0, 27.0) if st == "heating" else (28.0, 27.5)
+    else:          # hour 2: heating 30 min, then hot water 30 min
+        st, vl = ("heating", "ch") if m < 90 else ("heating_dhw", "dhw")
+        pth, ts, tr = (4.0, 31.0, 27.0) if m < 90 else (6.0, 50.0, 45.0)
+    _frq.sample(_h0 + m * 60, {"pump": 60.0, "t_sup": ts, "t_ret": tr, "t_room": 20.5, "t_slab": None, "p_th": pth,
+                               "sp": 28.0, "demand": True, "hp_state": st, "valve": vl}, None, 2.0)
+_q1, _q2 = _frq.records[-2], _frq.records[-1]
+check("floor + Qube: only the minutes it heats the floor count - not its start-up, the waits after the return setpoint, hot water",
+      _q1["t_sup"] == 31.0 and _q1["t_ret"] == 27.0 and _q1["p_th"] == 4.0
+      and 25 * 60 <= _q1["run_s"] <= 30 * 60 and abs(_q1["heat_s"] - 35 * 60) <= 60 and _q1.get("dhw_s", 0) == 0
+      and abs(_q1["th_kwh"] - 4.0 * 35 / 60) < 0.1
+      and _q2["t_sup"] == 31.0 and _q2["p_th"] == 4.0 and abs(_q2["dhw_s"] - 30 * 60) <= 60
+      and abs(_q2["th_kwh"] - 4.0 * 30 / 60) < 0.1 and _q2["run_s"] <= 30 * 60)
+_old_rows = [{"h": i, "run_s": 3000, "p_th": 4.0, "t_sup": 40.0, "t_ret": 36.0, "t_room": 20.0} for i in range(40)]
+_new_rows = [{"h": 100 + i, "run_s": 3000, "p_th": 4.0, "t_sup": 31.0, "t_ret": 27.0, "t_room": 20.0, "heat_s": 3000} for i in range(10)]
+check("floor + Qube: once hours have the status, the older hours (waits and hot water in them) no longer count",
+      fcm.fit_emission(_old_rows)["n"] == 40 and fcm.fit_emission(_old_rows + _new_rows)["n"] == 10
+      and abs(fcm.fit_emission(_old_rows + _new_rows)["u"] - 4.0 / 9.0) < 0.01)
 # the heat demand switch, and switching the demand source clears what the old one gave
 _rtd = heatpump_runtime.HeatPumpRuntime()
 _rtd.merge([{"d": "2026-10-10", "e": 3.0, "t": 9.0}], _hp_today)
