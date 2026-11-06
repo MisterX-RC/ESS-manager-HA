@@ -1239,7 +1239,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             cool_only, means.get(cop_id) if cop_id else None, tz, today, profile, heatpump.hourly_shape(self.hp.journal, today),
             cop_min, heat_th, gains,
         )
-        self.hp.house = {**learned, "day": today.isoformat(),
+        self.hp.house = {**learned, "day": today.isoformat(), "key": self._hp_house_key(conf),
                          # the usual own electricity per local hour, for the forecast (as of 2026.11.11)
                          "gains_profile": heatpump_house.gains_profile(gains, tz, today) if gains else None}
         rev = learned.get("review") or {}
@@ -1249,6 +1249,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             rev.get("hour_error_kwh"), rev.get("pattern_error_kwh"), rev.get("temp_error_c"),
             " - used for the planning" if rev.get("passed") else "",
         )
+
+    def _hp_house_key(self, conf: dict[str, Any]) -> str:
+        """What the house model is learned from (as of 2026.11.11)."""
+        return "|".join([
+            heatpump_house.MODEL_VERSION, self._hp_indoor_source(conf)[0] or "",
+            conf.get(CONF_HP_THERMAL_ENTITY) or "", conf.get(CONF_HP_ELECTRIC_TOTAL_ENTITY) or "",
+            conf.get(CONF_HP_COP_ENTITY) or "",
+        ])
 
     def _hp_setpoint(self, conf: dict[str, Any]) -> Optional[float]:
         entity_id = conf.get(CONF_HP_SETPOINT_ENTITY)
@@ -1647,6 +1655,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("ESS Manager: heat pump statistics not read: %s", err)
         # the house's cooling rate: once a day
         other_sensor = bool(self.hp.thermal) and self.hp.thermal.get("src") != self._hp_indoor_source(conf)[0]
+        # (as of 2026.11.11) also when the house model's inputs or its version changed - a heat
+        # meter set in Configure, a new model - instead of the next day
+        house_key = self._hp_house_key(conf)
+        if conf.get(CONF_HP_HOURLY_ENABLED) and (self.hp.house or {}).get("key") != house_key:
+            other_sensor = True
         if (self.hp.thermal_day != today.isoformat() or other_sensor) and (now.timestamp() - self._hp_thermal_tried_at) > 3600:
             self._hp_thermal_tried_at = now.timestamp()
             try:

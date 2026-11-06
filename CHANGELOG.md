@@ -12,6 +12,15 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.11] - 2026-11-06
+
+### Heat pump - the house hour by hour
+- **Learns again right away** when what the house model is built from
+  changes - the indoor sensor, the heat meter, the total electricity meter,
+  the COP sensor, or a new version of the model - instead of the next day
+  (installation A: the heat meter set in the morning, the model still the
+  one of that night).
+
 ## [2026.11.10] - 2026-11-06
 
 ### Heat pump - the house hour by hour
