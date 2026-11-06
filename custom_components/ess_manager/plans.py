@@ -2521,7 +2521,10 @@ def compose_forecast_adjusted(
             value -= high_levels[h]
         hold_overlap = max(min(hour_end, hold_end) - max(hour_start, hold_start), 0)
         if hold_overlap > 0:
-            value = upper_limit_kwh
+            # held full: at least the top - not pulled down to it when the
+            # (unclipped) forecast is already over it, which the clipping
+            # after it turned into a dip of the overshoot (as of 2026.11.15)
+            value = max(value, upper_limit_kwh)
         values.append(round(value, 2))
     return values
 

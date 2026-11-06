@@ -3567,7 +3567,15 @@ check("full charge + balancing: the plan carries its hold (after the session, 2 
       _fs_plan["phase"] == "scheduled" and _fs_plan["hold_start_unit"] == _fs_plan["end_unit"]
       and _fs_plan["hold_end_unit"] == _fs_plan["end_unit"] + 8 and len(_fs_plan["blocks"]) == 1
       and _fs_card["hold_until"][11:16] == "%02d:%02d" % divmod(_fs_plan["hold_end_unit"] * 15, 60)
-      and all(_fs_fc[h] == 30.0 for h in range(_fs_h0, _fs_h1 + 1)))
+      and all(_fs_fc[h] >= 30.0 for h in range(_fs_h0, _fs_h1 + 1)))
+# 2026.11.15: over the planned hold the unclipped forecast can be above the top (the session's kWh on a
+# battery that was fuller than planned) - pinning it down to the top made the clipped line dip by the
+# overshoot and come back (installation A, 7 Nov 04:00-06:00)
+_fs_over = plans.compose_forecast_adjusted([38.4] * 12, {"active": False}, {"active": False}, 0, datetime(2026, 11, 7, 0, 0),
+                                           full=_fs_plan, upper_limit_kwh=30.0)
+_fs_clip, _ = forecasting.clip_at_capacity(_fs_over, 30.0, 30.0)
+check("full charge + balancing: over the hold the line stays at the top - no dip when the forecast is above it",
+      min(_fs_clip) >= 29.99 and all(v >= 30.0 for v in _fs_over))
 _fs_hold = plans.compute_full_charge_plan({**_fs_plan, "phase": "scheduled"}, _fs_plan["start_unit"], datetime(2026, 11, 7, 0, 0) + timedelta(minutes=15 * _fs_plan["start_unit"]),
                                           14, 20.0, 70.0, 120, 30.0, 21.0, 31.5, [1.0] * 48, 7.0, _fs_price, [21.0] * 12, 52.0, 55.8,
                                           charge_efficiency=1.0, charge_rates=[1.75] * 48, min_charge_units=2)

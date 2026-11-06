@@ -12,6 +12,17 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.15] - 2026-11-06
+
+### Fixed
+- **Battery forecast dip over the balancing wait**: over the planned hold
+  the forecast was set to exactly 100 %, also where the forecast before
+  clipping was already above it (the session's kWh on a battery fuller
+  than planned). Clipping it at 100 % afterwards turned that into a drop of
+  the overshoot and a jump back (installation A: 30 -> 21.6 -> 30 kWh at
+  04:00-06:00, in the purple "from the grid" stretch). Over the hold it's
+  now at least 100 %, so the line stays at the top.
+
 ## [2026.11.14] - 2026-11-06
 
 ### Full charge (balancing)
