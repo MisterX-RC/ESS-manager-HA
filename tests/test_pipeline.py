@@ -3520,26 +3520,59 @@ def _fcp(prev, high, unit=84, now=_fc_now, batt=6.06, soc=40.4):
                                           _fc_price, [batt] * 72, 52.5, 55.2, charge_efficiency=1.0,
                                           charge_rates=_fc_rates, min_charge_units=2)
 _fc30 = _fcp(None, 33.0)
-check("full charge: worked out with 33 kWh max (capacity 30): 27 kWh, the first block now",
-      _fc30["phase"] == "scheduled" and _fc30["start_unit"] == 84 and _fc30["high_threshold_kwh"] == 33.0
-      and _fc30["end_unit"] == 88 and len(_fc30["blocks"]) == 2
-      and _fc30["end_at"] == int(datetime(2026, 10, 13, 22, 0).timestamp()))
+# 2026.11.14: one session with the 2-hour balancing wait after it - not the cheap hour now plus the
+# night: the 27 kWh in one go in the 0.12 night, the hold right after it
+check("full charge: worked out with 33 kWh max (capacity 30): 27 kWh as one session, the hold after it",
+      _fc30["phase"] == "scheduled" and _fc30["start_unit"] == 96 and _fc30["high_threshold_kwh"] == 33.0
+      and _fc30["end_unit"] == 166 and len(_fc30["blocks"]) == 1
+      and _fc30["hold_start_unit"] == 166 and _fc30["hold_end_unit"] == 174
+      and _fc30["end_at"] == int(datetime(2026, 10, 14, 17, 30).timestamp()))
 _fc15 = _fcp(_fc30, 16.5)
 check("full charge: the capacity is now 15 (max 16.5): planned again, not started with 27 kWh",
       _fc15["phase"] == "scheduled" and _fc15["deficit_kwh"] == round(16.5 - 6.06, 3) and _fc15["high_threshold_kwh"] == 16.5)
-_fcc = _fcp(_fc15, 16.5)
-_fcc_card = display.card_plans(_fcc, {"active": False}, {"active": False}, {"active": False}, {"active": False}, 84,
-                               _fc_now, 6.06, 15.0)["buy"]
+# (as of 2026.11.14 the session starts at midnight, after the 0.10 hour - checked when it starts)
+_fc_mid = datetime(2026, 10, 14, 0, 0)
+_fcc = _fcp(_fc15, 16.5, unit=96, now=_fc_mid)
+_fcc_card = display.card_plans(_fcc, {"active": False}, {"active": False}, {"active": False}, {"active": False}, 96,
+                               _fc_mid, 6.06, 15.0)["buy"]
 check("full charge: the charging phase keeps the blocks - the card shows this session (all its blocks, to the level it ends at - 2026.10.33), not the whole charge",
       _fcc["phase"] == "charging" and _fcc["block_kwh"] == _fc15["block_kwh"] and _fcc["blocks"] == _fc15["blocks"]
       and _fcc_card["energy_kwh"] == round(_fc15["planned_kwh"], 2)
       and _fcc_card["target_level_kwh"] == round(min(_fc15["blocks"][-1]["target_level_kwh"], 15.0), 2)
-      and display.charge_display(_fcc, {"active": False}, {"active": False}, {"active": False}, 84, _fc_now)[0]
+      and display.charge_display(_fcc, {"active": False}, {"active": False}, {"active": False}, 96, _fc_mid)[0]
       == round(_fc15["block_kwh"], 2))
 check("full charge: a stored session of another day (its end time passed) isn't picked up again at the same time of day",
       _fcp({**_fcc, "end_at": int(datetime(2026, 10, 12, 22, 0).timestamp())}, 16.5)["phase"] == "scheduled")
 check("full charge: a stored charging session without the new fields (older version) still runs on",
-      _fcp({k: v for k, v in _fcc.items() if k not in ("high_threshold_kwh", "end_at")}, 16.5)["phase"] == "charging")
+      _fcp({k: v for k, v in _fcc.items() if k not in ("high_threshold_kwh", "end_at")}, 16.5, unit=96, now=_fc_mid)["phase"] == "charging")
+
+# 2026.11.14: the full charge planned with its balancing wait - a 1-hour charge needs a 3-hour stretch:
+# the cheapest single hour (0.10) followed by 0.40 hours loses to a flat 0.15 stretch, the house's usage
+# over the hold counted at the buy price
+_fs_price = [0.30] * 8 + [0.10] * 4 + [0.40] * 8 + [0.30] * 4 + [0.15] * 12 + [0.30] * 12
+_fs = plans._full_session_window(_fs_price, [1.75] * 48, [1.0] * 12, 0, 0, 48, 7.0, 1.0, 8)
+check("full charge + balancing: a 1-hour charge gets a 3-hour stretch - the flat 0.15 one, not the cheap hour before 0.40",
+      _fs == (24, 4) and plans._full_session_window(_fs_price, [1.75] * 48, [0.0] * 12, 0, 0, 48, 7.0, 1.0, 8) == (8, 4)
+      and plans._full_session_window(_fs_price, [1.75] * 48, [1.0] * 12, 0, 0, 6, 7.0, 1.0, 8) == (0, 4)
+      and plans._full_session_window(_fs_price, [1.75] * 48, [1.0] * 12, 0, 0, 3, 7.0, 1.0, 8) is None)
+_fs_plan = plans.compute_full_charge_plan(None, 0, datetime(2026, 11, 7, 0, 0), 14, 20.0, 70.0, 120, 30.0, 21.0, 31.5,
+                                          [1.0] * 48, 7.0, _fs_price, [21.0] * 12, 52.0, 55.8, charge_efficiency=1.0,
+                                          charge_rates=[1.75] * 48, min_charge_units=2)
+_fs_card = display.card_plans(_fs_plan, {"active": False}, {"active": False}, {"active": False}, {"active": False}, 0,
+                              datetime(2026, 11, 7, 0, 0), 21.0, 30.0)["buy"]
+_fs_fc = plans.compose_forecast_adjusted([21.0] * 12, {"active": False}, {"active": False}, 0, datetime(2026, 11, 7, 0, 0),
+                                         full=_fs_plan, upper_limit_kwh=30.0)
+_fs_h0, _fs_h1 = _fs_plan["hold_start_unit"] // 4, (_fs_plan["hold_end_unit"] - 1) // 4
+check("full charge + balancing: the plan carries its hold (after the session, 2 hours), the card and the forecast show it",
+      _fs_plan["phase"] == "scheduled" and _fs_plan["hold_start_unit"] == _fs_plan["end_unit"]
+      and _fs_plan["hold_end_unit"] == _fs_plan["end_unit"] + 8 and len(_fs_plan["blocks"]) == 1
+      and _fs_card["hold_until"][11:16] == "%02d:%02d" % divmod(_fs_plan["hold_end_unit"] * 15, 60)
+      and all(_fs_fc[h] == 30.0 for h in range(_fs_h0, _fs_h1 + 1)))
+_fs_hold = plans.compute_full_charge_plan({**_fs_plan, "phase": "scheduled"}, _fs_plan["start_unit"], datetime(2026, 11, 7, 0, 0) + timedelta(minutes=15 * _fs_plan["start_unit"]),
+                                          14, 20.0, 70.0, 120, 30.0, 21.0, 31.5, [1.0] * 48, 7.0, _fs_price, [21.0] * 12, 52.0, 55.8,
+                                          charge_efficiency=1.0, charge_rates=[1.75] * 48, min_charge_units=2)
+check("full charge + balancing: the charging phase keeps the planned hold",
+      _fs_hold["phase"] == "charging" and _fs_hold["hold_end_unit"] == _fs_plan["hold_end_unit"])
 
 # ---------------------------------------------------------------------------
 # 2026.10.16: heat pump model (heatpump.py, heatpump_runtime.py)

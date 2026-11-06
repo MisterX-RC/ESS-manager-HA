@@ -12,6 +12,21 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.14] - 2026-11-06
+
+### Full charge (balancing)
+- **The balancing wait is planned with the charge**: a full charge's grid
+  session is one stretch of charge quarters with the "Full charge max
+  hold" right after it - a 1-hour charge with a 2-hour hold needs a 3-hour
+  stretch. Chosen on the charge at the buy price plus the house's usage
+  over the hold at the buy price (the house runs on the grid while the
+  battery is held full). Installation A: the hold fell 15:00-17:00 with
+  prices rising to the evening peak, because the cheapest charge quarters
+  came right before it. Up to now the session could be split over the
+  cheapest quarters in blocks.
+- The Buy block on the card: "then balancing at 100 % until ... at the
+  latest"; the forecast holds the battery at 100 % over the planned hold.
+
 ## [2026.11.13] - 2026-11-06
 
 ### Heat pump - floor control

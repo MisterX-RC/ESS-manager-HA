@@ -34,6 +34,7 @@ const I18N = {
     left: (d) => `${d} left`, no_sell: "No sale planned", no_buy: "No charge planned",
     spike: "Spike", negative: "Negative price", balancing: "Balancing", balancing_max: (d) => `max ${d}`, cell_diff: "Cell voltage difference", pack_voltage: "Battery voltage",
     more_blocks: (n) => `+${n}`, more_blocks_tip: (n) => `and ${n} more ${n === 1 ? "block" : "blocks"}`,
+    balance_after: (t) => `then balancing at 100 % until ${t} at the latest`,
     active: "Active", inactive: "Inactive", below: "below", auto_control: "Automatic control",
     h: "h", min: "min", ago: (h) => `-${h} h`, now: "now", settings: "Settings",
     // battery card
@@ -233,6 +234,7 @@ const I18N = {
     left: (d) => `nog ${d}`, no_sell: "Geen sale gepland", no_buy: "Geen laadactie gepland",
     spike: "Piek", negative: "Negatieve prijs", balancing: "Balanceren", balancing_max: (d) => `max ${d}`, cell_diff: "Celspanningsverschil", pack_voltage: "Accuspanning",
     more_blocks: (n) => `+${n}`, more_blocks_tip: (n) => `en nog ${n} ${n === 1 ? "blok" : "blokken"}`,
+    balance_after: (t) => `daarna balanceren op 100 % tot uiterlijk ${t}`,
     active: "Actief", inactive: "Inactief", below: "onder", auto_control: "Automatische aansturing",
     h: "u", min: "min", ago: (h) => `-${h} u`, now: "nu", settings: "Instellingen",
     battery_title: "Batterijprognose", today: "vandaag", horizon: "planningshorizon",
@@ -2063,6 +2065,7 @@ class EssManagerStatusCard extends HTMLElement {
       ${holding ? this._balanceStat(plan) : `<div class="stat">${icon("bolt", color, 16)}<b>${this._num(energy, 1)}</b><span class="dim unit">kWh</span><span class="dim arrow">→</span>${
         soc == null ? "" : `${batteryIcon(soc, color)}<b>${this._num(soc, 0)} %</b>`
       }</div>`}
+      ${!holding && plan.hold_until ? `<div class="dim" style="font-size:12px;margin-top:4px">${esc(this._t("balance_after")(this._time(plan.hold_until)))}</div>` : ""}
     </div>`;
   }
 

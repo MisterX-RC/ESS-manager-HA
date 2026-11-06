@@ -371,6 +371,9 @@ def card_plans(
             )
         buy["phase"] = full["phase"]
         _add_blocks(buy, full, cur_unit, now)
+        # the balancing wait planned after it (as of 2026.11.14)
+        if full.get("hold_end_unit") is not None:
+            buy["hold_until"] = _unit_datetime(now, cur_unit, int(full["hold_end_unit"])).isoformat()
     elif neg.get("active") and cur_unit < neg.get("charge_end_unit", -1):
         target = (neg.get("level_at_start_kwh") or 0) + (neg.get("achievable_charge_kwh") or 0)
         buy = _card_side(

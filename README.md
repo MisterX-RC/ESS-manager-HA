@@ -1620,10 +1620,17 @@ battery back into overshoot, the plan quietly waits for that; if not, the
 charging logic schedules a fresh grid-charge session at the cheapest
 available window to complete the balance.
 
-A grid-charge session for a full charge can be split over the cheapest
-quarters before it's needed, in blocks; the cards and the Charge amount
-sensor show the block that's planned or running, and the rest is planned
-again after it. A session is worked out afresh when the capacity or max
+*(as of 2026.11.14)* A grid-charge session for a full charge is planned
+**together with its balancing wait**: one stretch of charge quarters with
+the "Full charge max hold" right after it - a charge of 1 hour with a
+2-hour hold needs a 3-hour stretch. The stretch is chosen on the charge at
+the buy price plus the house's usage over the hold at the buy price (the
+battery is held full then, the house runs on the grid), so the hold no
+longer lands in the evening peak because the cheapest charge quarter came
+right before it. The Buy block on the card says until when it balances at
+the latest, and the forecast holds the battery at 100 % over it. (Up to
+2026.11.13 the session could be split over the cheapest quarters in
+blocks, and the hold fell wherever the battery happened to get full.) A session is worked out afresh when the capacity or max
 SOC it was sized against changes, and a stored session ends at its own end
 time (as of 2026.10.14).
 

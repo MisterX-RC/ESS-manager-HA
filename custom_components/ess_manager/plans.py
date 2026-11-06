@@ -2500,8 +2500,11 @@ def compose_forecast_adjusted(
 
 
     full_holding = full.get("active") and full.get("phase") == "holding"
-    hold_start = full.get("hold_start_unit", 0) if full_holding else 0
-    hold_end = full.get("hold_end_unit", 0) if full_holding else 0
+    # the planned balancing wait after a scheduled / charging session too
+    # (as of 2026.11.14): the battery is held full then
+    full_hold_planned = full.get("active") and full.get("phase") in ("scheduled", "charging") and "hold_end_unit" in full
+    hold_start = full.get("hold_start_unit", 0) if (full_holding or full_hold_planned) else 0
+    hold_end = full.get("hold_end_unit", 0) if (full_holding or full_hold_planned) else 0
 
     values: list[float] = []
     delta = 0.0
@@ -2528,6 +2531,53 @@ def compose_forecast_adjusted(
 # ---------------------------------------------------------------------------
 # The cell voltage differential (mV) below which the cells count as balanced.
 BALANCE_THRESHOLD_MV = 10.0
+
+
+def _full_session_window(
+    prices: list[float],
+    rates: list[float],
+    usage: list[float],
+    hour0_unit: int,
+    search_start: int,
+    search_end: int,
+    target_kwh: float,
+    charge_efficiency: float,
+    hold_units: int,
+) -> Optional[tuple[int, int]]:
+    """The full charge as one session with its balancing wait right after
+    it (as of 2026.11.14): (start unit, charge units) of the cheapest
+    stretch of charge quarters (as many as `target_kwh` needs at `rates`,
+    what the grid adds per quarter) followed by `hold_units` hold quarters,
+    the charge ending by `search_end`. Cost: the charge at buy / charge
+    efficiency per kWh added, plus the house's usage over the hold (it
+    comes from the grid then - the battery is held full) at buy. A hold
+    past the known prices counts at the last known price. None when no
+    start fits (the target can't be reached before `search_end`)."""
+    ce = charge_efficiency if charge_efficiency > 0 else 1.0
+    n = min(len(prices), len(rates))
+    if n == 0 or target_kwh <= 0:
+        return None
+
+    def usage_q(u: int) -> float:
+        h = (u - hour0_unit) // 4
+        return max(float(usage[h]), 0.0) / 4 if 0 <= h < len(usage) and usage[h] is not None else 0.0
+
+    best: Optional[tuple[float, int, int]] = None
+    for start in range(max(search_start, 0), min(search_end, n)):
+        got = cost = 0.0
+        u = start
+        while got < target_kwh - 1e-6 and u < min(search_end, n):
+            r = max(float(rates[u]), 0.0)
+            got += r
+            cost += prices[u] * r / ce
+            u += 1
+        if got < target_kwh - 1e-6:
+            break  # later starts reach even less before the deadline
+        for v in range(u, u + hold_units):
+            cost += prices[min(v, len(prices) - 1)] * usage_q(v)
+        if best is None or cost < best[0] - 1e-9:
+            best = (cost, start, u - start)
+    return (best[1], best[2]) if best else None
 
 
 def compute_full_charge_plan(
@@ -2715,7 +2765,7 @@ def compute_full_charge_plan(
         carried = {
             key: prev[key]
             for key in ("block_kwh", "planned_kwh", "blocks", "relying_on_peak_unit", "retry_after_timeout",
-                        "high_threshold_kwh", "end_at")
+                        "high_threshold_kwh", "end_at", "hold_start_unit", "hold_end_unit")
             if key in prev
         }
         return {
@@ -2886,7 +2936,31 @@ def compute_full_charge_plan(
     # whether this session's target was actually capped.
     best_start = _best_price_window(all_price, search_start, search_end, units_needed, cheapest=True)
     blocks_fields: dict = {}
+    hold_units = max(math.ceil(max_hold_minutes / 15), 1)
+    session = None
     if charge_rates is not None:
+        # as of 2026.11.14: one session with the balancing wait after it -
+        # the charge and the hold (the house from the grid meanwhile) chosen
+        # together, see _full_session_window
+        session = _full_session_window(
+            all_price, charge_rates, usage, _hour0_start_unit(cur_unit, now), search_start, search_end,
+            target_kwh, charge_efficiency, hold_units,
+        )
+    if session is not None:
+        s0, n0 = session
+        hour0 = _hour0_start_unit(cur_unit, now)
+        blocks = _charge_blocks(list(range(s0, s0 + n0)), charge_rates, target_kwh, battery_forecast,
+                                battery_now_kwh, cur_unit, hour0, float("inf"))
+        if blocks:
+            blocks_fields = _blocks_plan(blocks[:1], target_kwh)
+            best_start = blocks_fields["start_unit"]
+            units_needed = blocks_fields["units_needed"]
+            effective_charge_per_unit = blocks_fields["effective_charge_per_unit"]
+            for key in ("target_energy_kwh", "grid_rates"):
+                blocks_fields.pop(key, None)
+            blocks_fields["hold_start_unit"] = best_start + units_needed
+            blocks_fields["hold_end_unit"] = best_start + units_needed + hold_units
+    elif charge_rates is not None:
         # As of 2026.10.6: the cheapest quarters before the deadline, in
         # blocks of at least the Minimum charge duration; the first block is
         # the session, the rest is planned again after it.
