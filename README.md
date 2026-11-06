@@ -937,15 +937,19 @@ the heat pump page in Configure, as of 2026.10.17:
   temperature and the heating per hour for 48 hours, the heat pump emulated
   keeping the house on its usual temperature per hour. **Self-check**: every
   day the newest 14 heating days are played again with their measured
-  weather, with a model fitted on the days before them: is the energy put
+  weather, cross-validated: split into 3 groups, each group played with a
+  model fitted on all other hours (so it never saw those days) - is the energy put
   in the right hours (compared with the usual hourly pattern, both scaled
   to the measured day total) and does the house follow the measured
   temperature with the measured heating? When the energy per hour is
   clearly better (at most 90 % of the pattern's error) and the indoor
   temperature within 0.6 °C, the battery planning places the heat pump's
   hours by the model (each day's kWh stays the energy signature's); when
-  that's no longer so it falls back to the pattern by itself. Nothing to
-  switch by hand.
+  that's no longer so it falls back to the pattern by itself. A **drift
+  guard** watches the newest 4 heating days on their own, with a model of
+  only the hours before them: no better than the pattern there, or the room
+  more than 1 °C off, and the model doesn't pass even when the
+  cross-validation does (`review.recent`). Nothing to switch by hand.
 - **Step 2, steering** (needs step 1 and a thermostat - a climate entity):
   on the card a steering switch, a day and a night temperature with the
   hours they start, and a buffer range. Steering on: the thermostat follows

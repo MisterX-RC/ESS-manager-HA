@@ -26,7 +26,7 @@ from typing import Any, Optional
 HOUR = 3600
 # what the model is built from changes with these (as of 2026.11.11): a new
 # version learns again right away instead of the next day
-MODEL_VERSION = "2026.11.10"
+MODEL_VERSION = "2026.11.12"
 # the floor's delay (as of 2026.11.9 36 hours back and up to 24 h - up to
 # then 12 and 6: a concrete floor heated in a block of a few hours gives its
 # heat off over far more hours, and the day's simulation drifted)
@@ -42,6 +42,17 @@ MIN_TEST_DAYS = 10              # ... at least this many
 TEST_HEAT_KWH = 1.0             # a day with at least this much heating counts as a test day
 GATE_RATIO = 0.9                # hourly energy error at most 90% of the pattern's
 GATE_TEMP_C = 0.6               # and the indoor temperature within this on average
+# the self-check as of 2026.11.12: cross-validation - the test days in FOLDS
+# groups, each group checked with a model fitted on all other hours - so the
+# model is judged on many heating days, not only on the few before the
+# newest two weeks (early in the season hardly any)
+FOLDS = 3
+# and a drift guard: the newest RECENT_DAYS heating days checked with a model
+# fitted only on the hours before them - clearly worse there (no better than
+# the pattern, or the room further off than RECENT_TEMP_C) and it doesn't pass
+RECENT_DAYS = 4
+RECENT_MIN_DAYS = 3
+RECENT_TEMP_C = 1.0
 FORECAST_HOURS = 48
 BOOST_C = 1.0                   # preheating: a degree more
 BOOST_WINDOWS = (2, 3, 4)       # hours
@@ -495,6 +506,19 @@ def review(
     hour (both scaled to the measured day total - only the placement counts)
     against the usual pattern, and the indoor temperature with the measured
     heating against the measured one. `passed` = good enough to plan with."""
+    return _verdict(_review_sums(model, copm, days, profile, shape, tz))
+
+
+def _review_sums(
+    model: dict[str, Any],
+    copm: Optional[dict[str, Any]],
+    days: list[dict[str, Any]],
+    profile: Optional[list[float]],
+    shape: list[float],
+    tz: tzinfo,
+) -> list[float]:
+    """The error sums of review(): [sim, pattern, hours, temp, temp hours,
+    days] - added up over the cross-validation's groups."""
     sim_err = pat_err = temp_err = 0.0
     n_hours = n_temp = n_days = 0
     for day in days:
@@ -529,11 +553,17 @@ def review(
                 temp_err += abs(temps[i] - v)
                 n_temp += 1
         n_days += 1
+    return [sim_err, pat_err, n_hours, temp_err, n_temp, n_days]
+
+
+def _verdict(sums: list[float], min_days: int = MIN_TEST_DAYS) -> dict[str, Any]:
+    sim_err, pat_err, n_hours, temp_err, n_temp, n_days = sums
+    n_days = int(n_days)
     sim_mae = round(sim_err / n_hours, 3) if n_hours else None
     pat_mae = round(pat_err / n_hours, 3) if n_hours else None
     temp_mae = round(temp_err / n_temp, 2) if n_temp else None
     passed = (
-        n_days >= MIN_TEST_DAYS and sim_mae is not None and pat_mae is not None and temp_mae is not None
+        n_days >= min_days and sim_mae is not None and pat_mae is not None and temp_mae is not None
         and sim_mae <= GATE_RATIO * pat_mae and temp_mae <= GATE_TEMP_C
     )
     return {"days": n_days, "hour_error_kwh": sim_mae, "pattern_error_kwh": pat_mae,
@@ -556,9 +586,10 @@ def learn(
     heat_th: Optional[dict[int, float]] = None,
     gains: Optional[dict[int, float]] = None,
 ) -> dict[str, Any]:
-    """The daily round: the COP model, the house fitted on the hours before
-    the newest TEST_DAYS heating days and checked on those (out of sample),
-    then fitted again on everything for the forecast. {cop, model, review}.
+    """The daily round: the COP model, the house checked on the newest
+    TEST_DAYS heating days out of sample (as of 2026.11.12 cross-validated,
+    with a drift guard on the newest days - _cross_review), then fitted on
+    everything for the forecast. {cop, model, review}.
     `heat_th` (as of 2026.11.10, heating_heat): the measured heat into the
     house per hour - the COP from the meters, the house fitted on it."""
     copm = fit_cop_meters(heat_th, heat, outdoor) if heat_th else None
@@ -574,16 +605,58 @@ def learn(
         d -= timedelta(days=1)
     result: dict[str, Any] = {"cop": copm, "cop_check": check, "model": None, "review": None}
     if test_days:
-        cutoff = min(day["hours"][0] for day in test_days)
-        older = {h: v for h, v in indoor.items() if h < cutoff}
-        fit_old = fit_house(older, outdoor, heat, wind, sun, cool, copm, heat_th, gains)
-        if fit_old:
-            result["review"] = review(fit_old, copm, test_days, profile, shape, tz)
+        result["review"] = _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm,
+                                         heat_th, gains, profile, shape, tz)
     result["model"] = fit_house(indoor, outdoor, heat, wind, sun, cool, copm, heat_th, gains)
     if result["review"] is None:
         result["review"] = {"days": len(test_days), "hour_error_kwh": None, "pattern_error_kwh": None,
-                            "temp_error_c": None, "passed": False}
+                            "temp_error_c": None, "passed": False, "method": "cross", "recent": None}
     return result
+
+
+def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_th, gains,
+                  profile, shape, tz) -> Optional[dict[str, Any]]:
+    """The self-check (as of 2026.11.12): cross-validation over FOLDS groups
+    of the test days (spread over time: day i in group i mod FOLDS), each
+    group played with a model that never saw its days; plus the drift guard
+    on the newest RECENT_DAYS days (a model from only the hours before
+    them). None when no group could be fitted."""
+    total = [0.0] * 6
+    folds_fitted = 0
+    for f in range(FOLDS):
+        group = [d for i, d in enumerate(test_days) if i % FOLDS == f]
+        if not group:
+            continue
+        leave_out = {h for d in group for h in d["hours"]}
+        rest = {h: v for h, v in indoor.items() if h not in leave_out}
+        m = fit_house(rest, outdoor, heat, wind, sun, cool, copm, heat_th, gains)
+        if not m:
+            continue
+        folds_fitted += 1
+        total = [a + b for a, b in zip(total, _review_sums(m, copm, group, profile, shape, tz))]
+    if not folds_fitted:
+        return None
+    rev = _verdict(total)
+    rev["method"] = "cross"
+    rev["folds"] = folds_fitted
+    # the drift guard: test_days are newest first
+    recent_days = test_days[:RECENT_DAYS]
+    recent = None
+    cutoff = min(d["hours"][0] for d in recent_days)
+    m_old = fit_house({h: v for h, v in indoor.items() if h < cutoff}, outdoor, heat, wind, sun, cool,
+                      copm, heat_th, gains)
+    if m_old:
+        r = _verdict(_review_sums(m_old, copm, recent_days, profile, shape, tz), RECENT_MIN_DAYS)
+        if r["days"] >= RECENT_MIN_DAYS and r["hour_error_kwh"] is not None:
+            drift = (r["hour_error_kwh"] > r["pattern_error_kwh"]
+                     or (r["temp_error_c"] is not None and r["temp_error_c"] > RECENT_TEMP_C))
+            recent = {"days": r["days"], "hour_error_kwh": r["hour_error_kwh"],
+                      "pattern_error_kwh": r["pattern_error_kwh"], "temp_error_c": r["temp_error_c"],
+                      "drift": drift}
+    rev["recent"] = recent
+    if recent and recent["drift"]:
+        rev["passed"] = False
+    return rev
 
 
 def stage_of(model: Optional[dict[str, Any]], rev: Optional[dict[str, Any]], steering: bool) -> str:

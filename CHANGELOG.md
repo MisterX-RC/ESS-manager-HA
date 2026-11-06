@@ -12,6 +12,23 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.12] - 2026-11-06
+
+### Heat pump - the house hour by hour
+- **Self-check cross-validated**: the newest 14 heating days split into 3
+  groups (spread over time), each played with a model fitted on all other
+  hours - it never saw those days. Up to now the check used a model of
+  only the hours before those two weeks, and early in the season there was
+  hardly any heating in them (installation A: heating since late October,
+  the check failing on a model that had barely seen the heat pump run).
+  The gate stays the same (10 days, 90 % of the pattern's error, 0.6 °C).
+- **Drift guard**: the newest 4 heating days are also played with a model
+  of only the hours before them; no better than the usual pattern there,
+  or the room more than 1 °C off, and the model doesn't pass - the battery
+  planning keeps the pattern until it settles (`review.recent`, a line on
+  the heat pump card).
+- The model learns again right away with this version.
+
 ## [2026.11.11] - 2026-11-06
 
 ### Heat pump - the house hour by hour

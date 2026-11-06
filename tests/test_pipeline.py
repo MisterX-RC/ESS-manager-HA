@@ -3995,6 +3995,24 @@ check("house hourly: with too few test days the self-check doesn't pass - shadow
       _hfew["review"]["days"] < _hh.MIN_TEST_DAYS and not _hfew["review"]["passed"]
       and _hh.stage_of(None, None, True) == "learning" and _hh.stage_of(_hfit, {"passed": False}, True) == "shadow"
       and _hh.stage_of(_hfit, {"passed": True}, False) == "used" and _hh.stage_of(_hfit, {"passed": True}, True) == "steering")
+# 2026.11.12: the self-check cross-validated (3 groups, each checked with a model that never saw
+# its days) plus a drift guard on the newest days
+check("house self-check: cross-validated over 3 groups, the newest days checked on their own too - no drift",
+      _hrev.get("method") == "cross" and _hrev.get("folds") == 3 and _hrev["recent"] is not None
+      and _hrev["recent"]["days"] == _hh.RECENT_DAYS and not _hrev["recent"]["drift"])
+# early in the season: 18 days of history - before the newest 14 heating days too few hours to fit
+# on (the old chronological check had nothing), cross-validated there are
+_hearly = {h: v for h, v in _hi.items() if h > max(_hi) - 18 * 86400}
+_hrev_e = _hh.learn(_hearly, _ho, _hq, _hw, _hs, None, _hc, _tzA, _hday, _hprof, [1 / 24] * 24)["review"]
+check("house self-check: early in the season (18 days) cross-validation still judges - and passes",
+      _hrev_e["days"] >= _hh.MIN_TEST_DAYS and _hrev_e["passed"] and _hrev_e["hour_error_kwh"] is not None)
+# the house changes on the newest days (the heat pump's heat lands 10 hours later than measured):
+# the model of the days before plays them clearly worse - not used
+_hlast = max(_hi) - 4 * 86400
+_hq_drift = {h: (_hq.get(h - 10 * 3600, 0.0) if h > _hlast else q) for h, q in _hq.items()}
+_hrev_d = _hh.learn(_hi, _ho, _hq_drift, _hw, _hs, None, _hc, _tzA, _hday, _hprof, [1 / 24] * 24)["review"]
+check("house self-check: the newest days run clearly worse - the drift guard stops it",
+      _hrev_d["recent"] is not None and _hrev_d["recent"]["drift"] and not _hrev_d["passed"])
 _h0h = int(datetime(2026, 12, 15, 8, tzinfo=_tzA).timestamp())
 _hin = [(2 + 3 * _m.sin((datetime.fromtimestamp(_h0h + i * 3600, _tzA).hour - 9) / 24 * 2 * _m.pi), 3.0, 0.0) for i in range(48)]
 _htg = _hh.targets(_hprof, None, _h0h, 48, _tzA)

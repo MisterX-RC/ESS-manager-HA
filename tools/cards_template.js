@@ -164,6 +164,7 @@ const I18N = {
     hp_stage_used: "Hour-by-hour model: used for the planning", hp_stage_steering: "Hour-by-hour model: used, steering the thermostat",
     hp_review: (d, a, b, t) => `Self-check over ${d} heating days: energy per hour ±${a} kWh (usual pattern ±${b}), indoor ±${t} °C.`,
     hp_review_wait: (d) => `Self-check waits for enough heating days (${d} of 10).`,
+    hp_review_drift: (d, a, b) => `The newest ${d} heating days run worse (±${a} kWh per hour, pattern ±${b}) - the usual pattern stays until it settles.`,
     hp_measured_in: "measured", hp_expected_in: "expected", hp_target_in: "target", hp_heat_kwh: "heating kWh", hp_heat_meas: "kWh measured", hp_heat_exp: "kWh expected",
     hp_plan_boost: (a, b) => `Warmer ${a}–${b}`, hp_plan_dip: (a, b) => `cooler ${a}–${b}`, hp_plan_saving: (v) => `saves about ${v}`,
     hp_cop_t: "COP at 7 / −2 °C", hp_cop_unit: "learned from the COP sensor", hp_floor_t: "Floor delay", hp_floor_unit: "time constant",
@@ -355,6 +356,7 @@ const I18N = {
     hp_stage_used: "Uurmodel: gebruikt voor de planning", hp_stage_steering: "Uurmodel: gebruikt, stuurt de thermostaat",
     hp_review: (d, a, b, t) => `Zelfcontrole over ${d} stookdagen: energie per uur ±${a} kWh (gebruikelijk patroon ±${b}), binnen ±${t} °C.`,
     hp_review_wait: (d) => `Zelfcontrole wacht op genoeg stookdagen (${d} van 10).`,
+    hp_review_drift: (d, a, b) => `De nieuwste ${d} stookdagen lopen slechter (±${a} kWh per uur, patroon ±${b}) - het vaste patroon blijft tot het weer klopt.`,
     hp_measured_in: "gemeten", hp_expected_in: "verwacht", hp_target_in: "doel", hp_heat_kwh: "verwarming kWh", hp_heat_meas: "kWh gemeten", hp_heat_exp: "kWh verwacht",
     hp_plan_boost: (a, b) => `Warmer ${a}–${b}`, hp_plan_dip: (a, b) => `koeler ${a}–${b}`, hp_plan_saving: (v) => `bespaart ongeveer ${v}`,
     hp_cop_t: "COP bij 7 / −2 °C", hp_cop_unit: "geleerd van de COP-sensor", hp_floor_t: "Vertraging vloer", hp_floor_unit: "tijdconstante",
@@ -4075,6 +4077,9 @@ class EssManagerHeatPumpCard extends EssChartCard {
     let html = `<div class="hp-banner${hm.stage === "used" || hm.stage === "steering" ? " house" : ""}">${icon("home", "var(--hp)", 18)}<div><b>${esc(stageText)}</b>`;
     if (rev.hour_error_kwh != null) {
       html += `<br>${esc(this._t("hp_review")(rev.days, this._num(rev.hour_error_kwh, 2), this._num(rev.pattern_error_kwh, 2), this._num(rev.temp_error_c, 1)))}`;
+      // the drift guard (2026.11.12)
+      const rc = rev.recent;
+      if (rc && rc.drift) html += `<br>${esc(this._t("hp_review_drift")(rc.days, this._num(rc.hour_error_kwh, 2), this._num(rc.pattern_error_kwh, 2)))}`;
     } else if (hm.stage !== "learning") {
       html += `<br>${esc(this._t("hp_review_wait")(rev.days || 0))}`;
     }
