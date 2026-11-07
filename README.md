@@ -958,6 +958,25 @@ the heat pump page in Configure, as of 2026.10.17:
   only the hours before them: no better than the pattern there, or the room
   more than 1 °C off, and the model doesn't pass even when the
   cross-validation does (`review.recent`). Nothing to switch by hand.
+  **The thermostat learned from the house** *(as of 2026.11.20)*: with a
+  thermostat (a climate entity as the wanted temperature) ESS Manager reads
+  its history every day and keeps each switch of its heat demand
+  (`hvac_action`) with the room and wanted temperature at that moment. From
+  those it learns at how many degrees below the wanted temperature the
+  thermostat switches on and how far above it switches off (for a
+  `generic_thermostat` that comes out as its `cold_tolerance` and
+  `hot_tolerance`), and a minimum run or pause when it keeps one - no
+  settings, any make. Switches within 15 minutes of a setpoint or mode
+  change don't count (the change made them, not the room); at least 10 each
+  way are needed. The heat pump's heat per hour of demand is learned
+  alongside (more when it's colder outside). The house model then plays the
+  hours quarter by quarter with that on/off behaviour instead of a smooth
+  controller, so the heat lands in the hours it really does. Both are played
+  in the self-check, and the thermostat is only used when it places the hours
+  better (`review.thermostat`: both errors and `used`). A thermostat that
+  modulates shows its switches scattered (`kind: modulating`) and the
+  smooth controller stays. What was learned: `house_model.thermostat`; the
+  switches themselves are in the diagnostics (`thermostat_events`).
 - **Step 2, steering** (needs step 1 and a thermostat - a climate entity):
   on the card a steering switch, a day and a night temperature with the
   hours they start, and a buffer range. Steering on: the thermostat follows

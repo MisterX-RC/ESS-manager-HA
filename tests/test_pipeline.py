@@ -5816,6 +5816,115 @@ _gp = heatpump_house.gains_profile({_h: (_gn_g[_h]) for _h in _gn_list}, _stz.ut
                                    datetime.fromtimestamp(_gn_list[-1], tz=_stz.utc).date())
 check("house model: the usual own electricity per hour for the forecast", _gp is not None and len(_gp) == 24 and _gp[19] > _gp[3])
 
+# 2026.11.20: the thermostat learned from the house - its switch thresholds from the climate
+# entity's history, the house played quarter by quarter with it
+thermostat = _load("thermostat")
+check("thermostat: only hvac_action counts as its demand",
+      thermostat.demand("heat", {"hvac_action": "heating"}) is True and thermostat.demand("heat", {"hvac_action": "idle"}) is False
+      and thermostat.demand("heat", {"current_temperature": 19, "temperature": 21}) is None and thermostat.demand("unavailable", {}) is None)
+_te = thermostat.switch_events([
+    (0, "heat", False, 20.5, 21.0),
+    (1000, "heat", True, 20.8, 21.0),       # on at -0.2: clean (no change before)
+    (5000, "heat", False, 21.1, 21.0),      # off at +0.1 after 4000 s: clean
+    (6000, "heat", False, 21.0, 22.0),      # the setpoint goes up ...
+    (6100, "heat", True, 21.0, 22.0),       # ... and it switches on: the change did that
+    (9000, "off", False, 21.5, 22.0),       # switched off by hand: the mode
+])
+check("thermostat: switches found, the ones a setpoint or mode change made aren't clean",
+      [e[:2] + e[5:] for e in _te] == [[1000, 1, 1], [5000, 0, 1], [6100, 1, 0], [9000, 0, 0]]
+      and _te[0][4] is None and _te[1][4] == 4000 and _te[2][4] == 1100)
+check("thermostat: switches merged by moment, old ones go",
+      [e[0] for e in thermostat.merge_events([[10, 1, 20, 21, None, 1], [90000 * 70, 0, 21, 21, 5, 1]],
+                                             [[90000 * 70, 0, 21.1, 21, 5, 1]], 90000 * 70)] == [90000 * 70])
+_tnow = 100 * 86400
+_tev = []
+for _i in range(30):
+    _tev.append([_tnow - _i * 7200, 1, 20.8 + (0.1 if _i % 7 == 0 else 0.0), 21.0, 3000, 1])
+    _tev.append([_tnow - _i * 7200 - 3600, 0, 21.1, 21.0, 2000 + _i * 97, 1])
+_tl = thermostat.learn(_tev, _tnow)
+check("thermostat: on at -0.2 and off at +0.1 learned, a kept minimum pause seen (not the run)",
+      _tl["kind"] == "on_off" and _tl["on_c"] == -0.2 and _tl["off_c"] == 0.1 and _tl["mid_c"] == -0.05
+      and _tl["min_pause_s"] == 3000 and _tl["min_run_s"] is None)
+_tsc = [[_tnow - _i * 3600, _i % 2, 21.0 + _rnd.Random(_i).uniform(-1.0, 1.0), 21.0, 1800, 1] for _i in range(60)]
+check("thermostat: scattered switches - a modulating thermostat, too few - still learning",
+      thermostat.learn(_tsc, _tnow)["kind"] == "modulating" and thermostat.learn(_tev[:8], _tnow)["kind"] == "learning")
+check("thermostat: the demand seconds per hour",
+      thermostat.on_seconds([(0, False), (900, True), (2700, False), (4000, None)], 0, 7200) == {0: 1800})
+_tpw = thermostat.power({_h * 3600: (2.0 - 0.05 * (_h % 10)) * 0.75 for _h in range(40)},
+                        {_h * 3600: 2700 for _h in range(40)}, {_h * 3600: float(_h % 10) for _h in range(40)}, 40 * 3600)
+check("thermostat: the heat pump's power per hour of demand, more when colder",
+      _tpw is not None and abs(_tpw["b"] + 0.05) < 1e-6 and abs(_tpw["a"] - 2.0) < 1e-6
+      and abs(thermostat.power_at(_tpw, 4.0) - 1.8) < 1e-6)
+
+
+import math as _tmath  # noqa: E402
+
+
+def _th_house(days=40, seed=5, onc=-0.2, offc=0.1, pw=9.0):
+    """A house whose heat pump is switched by an on/off thermostat (played per quarter)."""
+    rnd = _rnd.Random(seed)
+    w = _hh.kernel(3.0)
+    start = int(datetime(2026, 10, 10, tzinfo=_tzA).timestamp())
+    ind, out, heat, cop, sp_h, on_h, rows = {}, {}, {}, {}, {}, {}, [(start, "heat", False, 20.3, 19.5)]
+    t, hist, on = 20.3, [0.0] * 35, False
+    for i in range(days * 24):
+        h = start + i * 3600
+        lt = datetime.fromtimestamp(h, _tzA)
+        tout = 4 + 4 * _tmath.sin(i // 24 * 0.5) + 3 * _tmath.sin((lt.hour - 9) / 24 * 2 * _tmath.pi) + rnd.gauss(0, 0.5)
+        sp = 21.0 if 7 <= lt.hour < 22 else 19.5
+        prev = sum(w[j] * hist[-j] for j in range(1, 36))
+        qsum = tsum = ons = 0.0
+        for qi in range(4):
+            ts = h + qi * 900
+            sens = round(t + rnd.gauss(0, 0.02), 1)
+            if qi == 0 and lt.hour in (7, 22):
+                rows.append((ts - 60, "heat", on, sens, sp))
+            rows.append((ts, "heat", on, sens, sp))
+            if on and sens >= sp + offc:
+                on = False
+                rows.append((ts + 1, "heat", False, sens, sp))
+            elif not on and sens <= sp + onc:
+                on = True
+                rows.append((ts + 1, "heat", True, sens, sp))
+            qq = pw * (1 + 0.03 * (5 - tout) / 5) if on else 0.0
+            d = t - tout
+            t += (0.03 - 0.02 * d + 0.12 * (w[0] * qq + prev)) / 4 + rnd.gauss(0, 0.005)
+            qsum += qq
+            tsum += t
+            ons += 900 if on else 0
+        c = 3.5 + 0.08 * tout
+        ind[h], out[h], heat[h], cop[h] = round(tsum / 4, 2), round(tout, 2), round(qsum / 4 / c, 3), round(c, 2)
+        sp_h[h], on_h[h] = sp, int(ons)
+        hist = (hist + [qsum / 4])[-35:]
+    return ind, out, heat, cop, sp_h, on_h, rows
+
+
+_ti, _to, _tq, _tc, _tsp, _ton, _trows = _th_house()
+_tlearned = thermostat.learn(thermostat.switch_events(_trows), max(_ti))
+_tday = datetime.fromtimestamp(max(_ti), _tzA).date()
+_tprof = [19.5] * 7 + [21.0] * 15 + [19.5] * 2
+_tr0 = _hh.learn(_ti, _to, _tq, None, None, None, _tc, _tzA, _tday, _tprof, [1 / 24] * 24)
+_tr1 = _hh.learn(_ti, _to, _tq, None, None, None, _tc, _tzA, _tday, _tprof, [1 / 24] * 24,
+                 thermo=_tlearned, on_s=_ton, setpoint=_tsp)
+check("thermostat house: its thresholds learned from the switches",
+      _tlearned["kind"] == "on_off" and _tlearned["on_c"] == -0.2 and _tlearned["off_c"] == 0.1)
+check("thermostat house: played per quarter with the thermostat the hours land clearly better - used",
+      _tr1["review"]["thermostat"]["used"] and _tr1["review"]["hour_error_kwh"] < 0.6 * _tr0["review"]["hour_error_kwh"]
+      and _tr1["review"]["thermostat"]["controller_hour_error_kwh"] == _tr0["review"]["hour_error_kwh"]
+      and (_tr1["model"].get("thermostat") or {}).get("on_c") == -0.2 and _tr0["model"].get("thermostat") is None
+      and _tr1["thermostat"]["power_el"]["b"] < 0)
+_tsim_t, _tsim_q = _hh.simulate(_tr1["model"], 20.8, [(3.0, None, None)] * 24, [21.0 - 0.05] * 24, [0.0] * 35, _tr1["cop"])
+check("thermostat house: the forecast heats in blocks (on/off), the room in the band",
+      sum(1 for q in _tsim_q if q < 0.01) >= 3 and max(_tsim_q) > 1.5 * (sum(_tsim_q) / len(_tsim_q))
+      and all(20.4 < x < 21.6 for x in _tsim_t[3:]))
+# a thermostat that places the hours worse (thresholds that don't fit the house) is not used
+_tbad = {**_tlearned, "on_c": -1.5, "off_c": 1.5, "mid_c": 0.0}
+_tr2 = _hh.learn(_ti, _to, _tq, None, None, None, _tc, _tzA, _tday, _tprof, [1 / 24] * 24,
+                 thermo=_tbad, on_s=_ton, setpoint=_tsp)
+check("thermostat house: a thermostat that places the hours worse stays out of the model",
+      not _tr2["review"]["thermostat"]["used"] and _tr2["model"].get("thermostat") is None
+      and _tr2["review"]["hour_error_kwh"] == _tr0["review"]["hour_error_kwh"])
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

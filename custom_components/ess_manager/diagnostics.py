@@ -156,5 +156,13 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "rows": [[_jsonable(r.get(k)) for k in keys] for r in (floor.records or []) if (r.get("run_s") or 0) > 0
                      or (r.get("th_kwh") or 0) > 0],
         }
+    # the thermostat's switches (as of 2026.11.20): what its thresholds are learned from
+    hp = getattr(coordinator, "hp", None)
+    events = ((getattr(hp, "thermo", None) or {}).get("events") or []) if hp is not None else []
+    if events:
+        result["thermostat_events"] = {
+            "keys": ["ts", "on", "room", "wanted", "before_s", "clean"],
+            "rows": [_jsonable(e) for e in events[-200:]],
+        }
     result["data"] = _jsonable(coordinator.data)
     return result

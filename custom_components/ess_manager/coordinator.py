@@ -30,6 +30,7 @@ from . import ev_charger as evc, ev_notify as evn
 from . import heatpump
 from .heatpump_runtime import HeatPumpRuntime
 from . import heatpump_house
+from . import thermostat
 from . import accuracy
 from .accuracy_runtime import AccuracyRuntime
 from .problems import ProblemTracker, below_minimum
@@ -1147,6 +1148,18 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         if sp_days:
             self.hp.set_setpoints(sp_days, now.astimezone(tz).date())
+        # (as of 2026.11.20) its switches, wanted temperature and demand per hour: the thermostat learned
+        try:
+            now_hour = int(now.timestamp()) // 3600 * 3600
+            first = int(start.timestamp()) // 3600 * 3600 + 3600  # the first hour may be partly before the read
+            rows = [(int(st.last_updated.timestamp()), st.state, thermostat.demand(st.state, dict(st.attributes)),
+                     self._climate_temp(st.attributes.get("current_temperature")),
+                     self._climate_temp(st.attributes.get("temperature"))) for st in states]
+            sp_hours = {h: v for h, v in heatpump.step_hourly_means(wanted, first, now_hour).items() if h >= first}
+            on_hours = {h: v for h, v in thermostat.on_seconds([(r[0], r[2]) for r in rows], first, now_hour).items() if h >= first}
+            self.hp.add_thermostat(thermostat.switch_events(rows), sp_hours, on_hours, now.timestamp())
+        except Exception as err:  # noqa: BLE001 - the house model goes on without it
+            _LOGGER.debug("ESS Manager: thermostat switches not read: %s", err)
         temps = [(int(st.last_updated.timestamp()), self._climate_temp(st.attributes.get("current_temperature"))) for st in states]
         self.hp.add_indoor_hours(
             heatpump.step_hourly_means(temps, int(start.timestamp()), int(now.timestamp()) // 3600 * 3600), now.timestamp()
@@ -1236,11 +1249,17 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         model = self.hp.model
         profile = (heatpump.indoor_profile(self.hp.indoor_days, heatpump.heating_dates(model, self.hp.journal))
                    if model and self.hp.indoor_days else None)
+        # the thermostat learned from its switches (as of 2026.11.20) - a climate entity as the wanted temperature
+        thermo = on_s = sp_hours = None
+        if (conf.get(CONF_HP_SETPOINT_ENTITY) or "").startswith("climate."):
+            thermo = thermostat.learn(self.hp.thermo.get("events") or [], dt_util.utcnow().timestamp())
+            on_s = self.hp.thermostat_series("on") or None
+            sp_hours = self.hp.thermostat_series("sp") or None
         learned = await self.hass.async_add_executor_job(
             heatpump_house.learn,
             means.get(indoor_id) or {}, means.get(conf.get(CONF_HP_OUTDOOR_ENTITY)) or {}, heat_only, wind, sun,
             cool_only, means.get(cop_id) if cop_id else None, tz, today, profile, heatpump.hourly_shape(self.hp.journal, today),
-            cop_min, heat_th, gains,
+            cop_min, heat_th, gains, thermo, on_s, sp_hours,
         )
         self.hp.house = {**learned, "day": today.isoformat(), "key": self._hp_house_key(conf),
                          # the usual own electricity per local hour, for the forecast (as of 2026.11.11)

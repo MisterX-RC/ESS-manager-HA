@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 from . import heatpump as hp
 from . import heatpump_house as hh
+from . import thermostat as th
 
 # days the card shows; the forecast itself covers every hour it can
 CARD_DAYS = 5
@@ -61,6 +62,10 @@ class HeatPumpRuntime:
         # hour recorded live {epoch: kWh}
         self.house: Optional[dict[str, Any]] = None
         self.heat_hist: dict[str, float] = {}
+        # the thermostat's switches, wanted temperature and heat demand
+        # seconds per hour (as of 2026.11.20, thermostat.py) - read from the
+        # recorder daily, kept here beyond its ~10 days
+        self.thermo: dict[str, Any] = {"events": [], "sp": {}, "on": {}}
         # steering (as of 2026.10.17): {last_set, override_until}
         self.steer: dict[str, Any] = {}
         self._heat_acc: Optional[list[float]] = None
@@ -88,6 +93,8 @@ class HeatPumpRuntime:
         self.house = data.get("house")
         self.heat_hist = dict(data.get("heat_hist") or {})
         self.steer = dict(data.get("steer") or {})
+        t = data.get("thermo") or {}
+        self.thermo = {"events": list(t.get("events") or []), "sp": dict(t.get("sp") or {}), "on": dict(t.get("on") or {})}
         self.dirty = True
 
     def as_store(self) -> dict[str, Any]:
@@ -108,6 +115,7 @@ class HeatPumpRuntime:
             "house": self.house,
             "heat_hist": self.heat_hist,
             "steer": self.steer,
+            "thermo": self.thermo,
         }
 
     def reset(self, key: str) -> None:
@@ -128,6 +136,7 @@ class HeatPumpRuntime:
         self.setpoints = {}
         self.house = None
         self.heat_hist = {}
+        self.thermo = {"events": [], "sp": {}, "on": {}}
         self.dirty = True
 
     # -- data in ---------------------------------------------------------------
@@ -186,6 +195,21 @@ class HeatPumpRuntime:
             self.indoor_hist.setdefault(str(int(h)), v)
         cutoff = now_epoch - (hp.THERMAL_DAYS + 2) * 86400
         self.indoor_hist = {k: v for k, v in self.indoor_hist.items() if int(k) >= cutoff}
+
+    def add_thermostat(self, events: list[list], sp_hours: dict[int, float], on_hours: dict[int, int],
+                       now_epoch: float) -> None:
+        """The thermostat's history as read from the recorder: switches merged,
+        the hours' wanted temperature and demand seconds replaced (the newest
+        reading of an hour wins); older than THERMAL_DAYS + 2 days goes."""
+        self.thermo["events"] = th.merge_events(self.thermo.get("events") or [], events, now_epoch)
+        cutoff = now_epoch - (hp.THERMAL_DAYS + 2) * 86400
+        for name, hours in (("sp", sp_hours), ("on", on_hours)):
+            kept = {k: v for k, v in (self.thermo.get(name) or {}).items() if int(k) >= cutoff}
+            kept.update({str(int(h)): v for h, v in hours.items()})
+            self.thermo[name] = kept
+
+    def thermostat_series(self, name: str) -> dict[int, float]:
+        return {int(k): v for k, v in (self.thermo.get(name) or {}).items()}
 
     def indoor_series(self) -> dict[int, float]:
         return {int(k): v for k, v in self.indoor_hist.items()}
@@ -357,6 +381,8 @@ class HeatPumpRuntime:
             # (as of 2026.11.9) why there is (no) COP model - which hours fell out
             "cop_check": house.get("cop_check"),
             "steer": self.steer,
+            # the thermostat learned from the house (as of 2026.11.20)
+            "thermostat": house.get("thermostat"),
         }
         # measured: the last 24 hours
         out["measured"] = [[int(k), v] for k, v in sorted(self.indoor_hist.items(), key=lambda kv: int(kv[0]))

@@ -12,6 +12,29 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.20] - 2026-11-07
+
+### Heat pump - house model
+- **The thermostat learned from the house**: the climate entity's history
+  is read daily and every switch of its heat demand kept (room and wanted
+  temperature at that moment, how long the run or pause before lasted).
+  From those the switch-on and switch-off thresholds relative to the
+  wanted temperature are learned (a generic thermostat's cold and hot
+  tolerance), plus a minimum run or pause when the thermostat keeps one -
+  no settings, any make (new `thermostat.py`). Switches within 15 minutes
+  of a setpoint or mode change are left out; 10 each way needed. A
+  modulating thermostat (scattered switches) is recognised and left alone.
+- The heat pump's heat per hour of demand is learned (per outdoor
+  temperature when there are enough mostly-on hours).
+- The house model plays the hours **quarter by quarter** with that on/off
+  thermostat (and the real wanted temperatures in the self-check), so the
+  heat lands in the hours it really does. The self-check plays both ways
+  and keeps the thermostat only when it places the hours better
+  (`review.thermostat`). `MODEL_VERSION` 2026.11.20: relearned right after
+  the update.
+- Diagnostics: `thermostat_events` (the last 200 switches);
+  `house_model.thermostat` shows what was learned.
+
 ## [2026.11.19] - 2026-11-07
 
 ### Status card

@@ -23,10 +23,12 @@ import math
 from datetime import date, datetime, timedelta, tzinfo
 from typing import Any, Optional
 
+from . import thermostat
+
 HOUR = 3600
 # what the model is built from changes with these (as of 2026.11.11): a new
 # version learns again right away instead of the next day
-MODEL_VERSION = "2026.11.12"
+MODEL_VERSION = "2026.11.20"
 # the floor's delay (as of 2026.11.9 36 hours back and up to 24 h - up to
 # then 12 and 6: a concrete floor heated in a block of a few hours gives its
 # heat off over far more hours, and the day's simulation drifted)
@@ -422,14 +424,23 @@ def simulate(
     q_hist: Optional[list[float]] = None,
     copm: Optional[dict[str, Any]] = None,
     fixed_q: Optional[list[float]] = None,
+    on0: Optional[bool] = None,
 ) -> tuple[list[float], list[float]]:
     """(indoor temperature at the start of each hour + one more, heating
     electricity per hour). `inputs` = (outdoor, wind, sun) per hour; `target`
     = the indoor temperature the emulated heat pump keeps (feed-forward of the
     heat loss at that temperature + KP of the gap); `q_hist` = the heat of the
     hours before (oldest first); `fixed_q` = electricity per hour instead of
-    the controller (to check the house against measured heating)."""
+    the controller (to check the house against measured heating).
+    As of 2026.11.20, with a learned on/off thermostat in the model
+    (`thermostat`, see thermostat.py): the hours played quarter by quarter -
+    the demand switches on below wanted + on_c and off above wanted + off_c
+    (wanted = target - mid_c), heating at the heat pump's learned power while
+    on; `on0` = whether it asked for heat at the start (None: from the room)."""
     w = kernel(model["tau"])
+    th = model.get("thermostat") if fixed_q is None else None
+    on = on0
+    since = 10 ** 9  # s since the thermostat last switched
     a, k, g = model["a"], model["k"], model["g"]
     kw, ks = model.get("kw") or 0.0, model.get("ks") or 0.0
     kg = model.get("kg") or 0.0
@@ -451,6 +462,37 @@ def simulate(
         if fixed_q is not None:
             q_el = fixed_q[i] if i < len(fixed_q) and fixed_q[i] is not None else 0.0
             q = q_el * cop
+        elif th:
+            tgt = target[i] if target and i < len(target) else t
+            sp = tgt - th["mid_c"]
+            pw = thermostat.power_at(th["power"], tout)
+            if model.get("thermal") and th["power"].get("units") != "th":
+                pw *= cop  # the power learned as electricity, the model in heat
+            pw = min(pw, model["qmax"])
+            min_run = min(th.get("min_run_s") or 0, HOUR)
+            min_pause = min(th.get("min_pause_s") or 0, HOUR)
+            if on is None:
+                on = t <= sp + th["on_c"]
+            q_sum = 0.0
+            tq = t
+            for _ in range(4):
+                qq = pw if on else 0.0
+                dq = tq - tout
+                tq += (a - k * dq - kw * wind * dq + ks * sun + kg * gain + g * (w[0] * qq + prev)) / 4.0
+                q_sum += qq
+                since += thermostat.QUARTER
+                if on and tq >= sp + th["off_c"] and since >= min_run:
+                    on, since = False, 0
+                elif not on and tq <= sp + th["on_c"] and since >= min_pause:
+                    on, since = True, 0
+            q = q_sum / 4.0
+            q_el = q / cop
+            t = tq
+            hist.append(q)
+            hist = hist[-(LAG_HOURS - 1):]
+            temps.append(round(t, 3))
+            q_el_out.append(round(q_el, 4))
+            continue
         else:
             tgt = target[i] if target and i < len(target) else t
             loss = k * (tgt - tout) + kw * wind * (tgt - tout) - ks * sun - kg * gain - a
@@ -470,7 +512,7 @@ def simulate(
 
 # -- the self-check -----------------------------------------------------------------
 def day_series(
-    d: date, tz: tzinfo, indoor, outdoor, heat, wind, sun, gains=None
+    d: date, tz: tzinfo, indoor, outdoor, heat, wind, sun, gains=None, setpoint=None
 ) -> Optional[dict[str, Any]]:
     """One day's hourly inputs for the self-check (None when incomplete)."""
     start = int(datetime(d.year, d.month, d.day, tzinfo=tz).timestamp())
@@ -491,6 +533,8 @@ def day_series(
         "inputs": [(outdoor[h], (wind or {}).get(h), (sun or {}).get(h), (gains or {}).get(h)) for h in hours],
         "q": [heat[h] for h in hours],
         "q_hist": hist,
+        # the thermostat's wanted temperature per hour (as of 2026.11.20), None when unknown
+        "sp": [(setpoint or {}).get(h) for h in hours],
     }
 
 
@@ -518,7 +562,11 @@ def _review_sums(
     tz: tzinfo,
 ) -> list[float]:
     """The error sums of review(): [sim, pattern, hours, temp, temp hours,
-    days] - added up over the cross-validation's groups."""
+    days] - added up over the cross-validation's groups. With a thermostat
+    in the model (as of 2026.11.20) the day is played with its real wanted
+    temperatures where they're known, starting with the demand on when the
+    hour before heated."""
+    th = model.get("thermostat")
     sim_err = pat_err = temp_err = 0.0
     n_hours = n_temp = n_days = 0
     for day in days:
@@ -528,13 +576,18 @@ def _review_sums(
         cop_hist = [cop_at(copm, day["inputs"][0][0])] * len(day["q_hist"]) if model.get("thermal") else [1.0] * len(day["q_hist"])
         hist_th = [q * c for q, c in zip(day["q_hist"], cop_hist)]
         level = sum(v for v in day["indoor"] if v is not None) / sum(1 for v in day["indoor"] if v is not None)
-        if profile:
+        sps = day.get("sp") or []
+        on0 = None
+        if th and sps and all(v is not None for v in sps):
+            target = [v + th["mid_c"] for v in sps]
+            on0 = (day["q_hist"][-1] or 0.0) > 0.05
+        elif profile:
             hours_local = [datetime.fromtimestamp(h, tz).hour for h in day["hours"]]
             mean_p = sum(profile) / 24.0
             target = [profile[x] - mean_p + level for x in hours_local]
         else:
             target = [level] * len(day["hours"])
-        _, q_sim = simulate(model, day["indoor"][0], day["inputs"], target, hist_th, copm)
+        _, q_sim = simulate(model, day["indoor"][0], day["inputs"], target, hist_th, copm, on0=on0)
         s = sum(q_sim)
         if len(q_sim) < len(day["q"]):
             continue
@@ -585,13 +638,21 @@ def learn(
     cop_min: Optional[dict[int, float]] = None,
     heat_th: Optional[dict[int, float]] = None,
     gains: Optional[dict[int, float]] = None,
+    thermo: Optional[dict[str, Any]] = None,
+    on_s: Optional[dict[int, int]] = None,
+    setpoint: Optional[dict[int, float]] = None,
 ) -> dict[str, Any]:
     """The daily round: the COP model, the house checked on the newest
     TEST_DAYS heating days out of sample (as of 2026.11.12 cross-validated,
     with a drift guard on the newest days - _cross_review), then fitted on
     everything for the forecast. {cop, model, review}.
     `heat_th` (as of 2026.11.10, heating_heat): the measured heat into the
-    house per hour - the COP from the meters, the house fitted on it."""
+    house per hour - the COP from the meters, the house fitted on it.
+    `thermo` / `on_s` / `setpoint` (as of 2026.11.20): the learned thermostat
+    (thermostat.learn), its heat demand seconds and wanted temperature per
+    hour - an on/off thermostat is tried in the self-check and kept in the
+    model when it places the hours better (`thermostat` in the result: what
+    was learned, with the heat pump's power while asking)."""
     copm = fit_cop_meters(heat_th, heat, outdoor) if heat_th else None
     if copm is None:
         copm = fit_cop(cop, outdoor, heat, cop_min) if cop else None
@@ -599,15 +660,29 @@ def learn(
     test_days = []
     d = today - timedelta(days=1)
     while len(test_days) < TEST_DAYS and (today - d).days <= 60:
-        series = day_series(d, tz, indoor, outdoor, heat, wind, sun, gains)
+        series = day_series(d, tz, indoor, outdoor, heat, wind, sun, gains, setpoint)
         if series and sum(series["q"]) >= TEST_HEAT_KWH:
             test_days.append(series)
         d -= timedelta(days=1)
     result: dict[str, Any] = {"cop": copm, "cop_check": check, "model": None, "review": None}
+    th = None
+    if thermo is not None:
+        th = dict(thermo)
+        if th.get("kind") == thermostat.KIND_ON_OFF and on_s:
+            now_epoch = max(on_s)
+            pw = thermostat.power(heat, on_s, outdoor, now_epoch)
+            th["power_el"] = {**pw, "units": "el"} if pw else None
+            pw = thermostat.power(heat_th, on_s, outdoor, now_epoch) if heat_th else None
+            th["power_th"] = {**pw, "units": "th"} if pw else None
+        result["thermostat"] = th
+    try_th = th if th and th.get("kind") == thermostat.KIND_ON_OFF and (th.get("power_el") or th.get("power_th")) else None
     if test_days:
         result["review"] = _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm,
-                                         heat_th, gains, profile, shape, tz)
+                                         heat_th, gains, profile, shape, tz, try_th)
     result["model"] = fit_house(indoor, outdoor, heat, wind, sun, cool, copm, heat_th, gains)
+    rev = result["review"] or {}
+    if result["model"] and try_th and (rev.get("thermostat") or {}).get("used"):
+        result["model"] = with_thermostat(result["model"], try_th) or result["model"]
     if result["review"] is None:
         result["review"] = {"days": len(test_days), "hour_error_kwh": None, "pattern_error_kwh": None,
                             "temp_error_c": None, "passed": False, "method": "cross", "recent": None}
@@ -615,14 +690,23 @@ def learn(
 
 
 def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_th, gains,
-                  profile, shape, tz) -> Optional[dict[str, Any]]:
+                  profile, shape, tz, thermo=None) -> Optional[dict[str, Any]]:
     """The self-check (as of 2026.11.12): cross-validation over FOLDS groups
     of the test days (spread over time: day i in group i mod FOLDS), each
     group played with a model that never saw its days; plus the drift guard
     on the newest RECENT_DAYS days (a model from only the hours before
-    them). None when no group could be fitted."""
+    them). None when no group could be fitted.
+    `thermo` (as of 2026.11.20): a learned on/off thermostat with the heat
+    pump's power (power_el / power_th); each group is then also played with
+    it, and it's used (`rev["thermostat"]["used"]`) when it places the hours
+    better than the smooth controller."""
     total = [0.0] * 6
+    total_th = [0.0] * 6
     folds_fitted = 0
+
+    def with_th(m):
+        return with_thermostat(m, thermo)
+
     for f in range(FOLDS):
         group = [d for i, d in enumerate(test_days) if i % FOLDS == f]
         if not group:
@@ -634,17 +718,32 @@ def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_
             continue
         folds_fitted += 1
         total = [a + b for a, b in zip(total, _review_sums(m, copm, group, profile, shape, tz))]
+        mt = with_th(m)
+        if mt:
+            total_th = [a + b for a, b in zip(total_th, _review_sums(mt, copm, group, profile, shape, tz))]
     if not folds_fitted:
         return None
-    rev = _verdict(total)
+    rev_ctrl = _verdict(total)
+    use_th = False
+    th_info = None
+    if thermo and total_th[2]:
+        rev_th = _verdict(total_th)
+        use_th = (rev_th["hour_error_kwh"] is not None and rev_ctrl["hour_error_kwh"] is not None
+                  and rev_th["hour_error_kwh"] < rev_ctrl["hour_error_kwh"])
+        th_info = {"hour_error_kwh": rev_th["hour_error_kwh"], "temp_error_c": rev_th["temp_error_c"],
+                   "controller_hour_error_kwh": rev_ctrl["hour_error_kwh"], "used": use_th}
+    rev = _verdict(total_th) if use_th else rev_ctrl
     rev["method"] = "cross"
     rev["folds"] = folds_fitted
+    rev["thermostat"] = th_info
     # the drift guard: test_days are newest first
     recent_days = test_days[:RECENT_DAYS]
     recent = None
     cutoff = min(d["hours"][0] for d in recent_days)
     m_old = fit_house({h: v for h, v in indoor.items() if h < cutoff}, outdoor, heat, wind, sun, cool,
                       copm, heat_th, gains)
+    if m_old and use_th:
+        m_old = with_th(m_old)
     if m_old:
         r = _verdict(_review_sums(m_old, copm, recent_days, profile, shape, tz), RECENT_MIN_DAYS)
         if r["days"] >= RECENT_MIN_DAYS and r["hour_error_kwh"] is not None:
@@ -657,6 +756,20 @@ def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_
     if recent and recent["drift"]:
         rev["passed"] = False
     return rev
+
+
+def with_thermostat(model: dict[str, Any], thermo: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    """The model with the learned thermostat in it (as of 2026.11.20) - the
+    heat pump's power in the model's units where measured (the heat meter
+    for a model in heat), else as electricity (simulate turns it into heat
+    with the COP). None without a thermostat or power."""
+    if not thermo:
+        return None
+    pw = (thermo.get("power_th") if model.get("thermal") else None) or thermo.get("power_el")
+    if not pw:
+        return None
+    keep = {k: thermo.get(k) for k in ("on_c", "off_c", "mid_c", "min_run_s", "min_pause_s")}
+    return {**model, "thermostat": {**keep, "power": pw}}
 
 
 def stage_of(model: Optional[dict[str, Any]], rev: Optional[dict[str, Any]], steering: bool) -> str:
