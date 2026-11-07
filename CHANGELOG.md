@@ -35,6 +35,13 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 - Diagnostics: `thermostat_events` (the last 200 switches);
   `house_model.thermostat` shows what was learned.
 
+### Status card
+- **Planning panel readable on glass themes** (liquid glass and the like,
+  whose card colour is see-through): the panel now has its own blur and a
+  solid underlay (the theme's background colour) beneath the card colour,
+  and the dimmed backdrop around it is a little darker and blurred - the
+  cards underneath no longer show through the text.
+
 ## [2026.11.19] - 2026-11-07
 
 ### Status card

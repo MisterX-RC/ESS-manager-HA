@@ -2324,8 +2324,8 @@ class EssManagerStatusCard extends HTMLElement {
          block a low bar */
       .block .short, .stat .short { display: none; }
       .blocks > .block:not(.none) { cursor: pointer; }
-      .pp-overlay { position: fixed; inset: 0; z-index: 9; background: rgba(0,0,0,.55); display: flex; align-items: flex-end; justify-content: center; }
-      .pp-sheet { width: 100%; max-width: 560px; max-height: 82vh; overflow: auto; background: var(--ha-card-background, var(--card-background-color, #26282e)); color: var(--primary-text-color, #e8e8e8); border-radius: 18px 18px 0 0; padding: 12px 16px 18px; box-shadow: 0 -8px 30px rgba(0,0,0,.45); }
+      .pp-overlay { position: fixed; inset: 0; z-index: 9; background: rgba(0,0,0,.65); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); display: flex; align-items: flex-end; justify-content: center; }
+      .pp-sheet { width: 100%; max-width: 560px; max-height: 82vh; overflow: auto; background-color: var(--primary-background-color, #1c1c1e); background-image: linear-gradient(var(--ha-card-background, var(--card-background-color, #26282e)), var(--ha-card-background, var(--card-background-color, #26282e))); -webkit-backdrop-filter: blur(24px) saturate(1.3); backdrop-filter: blur(24px) saturate(1.3); color: var(--primary-text-color, #e8e8e8); border-radius: 18px 18px 0 0; padding: 12px 16px 18px; box-shadow: 0 -8px 30px rgba(0,0,0,.45); }
       .pp-grab { width: 40px; height: 4px; border-radius: 2px; background: rgba(127,127,127,.5); margin: 0 auto 10px; }
       .pp-head { display: flex; align-items: center; margin-bottom: 10px; }
       .pp-head b { flex: 1; font-size: 16px; }
