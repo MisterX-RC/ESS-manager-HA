@@ -3610,6 +3610,22 @@ check("full charge: the session planned half an hour longer for the slower last 
       _fs_plan["end_unit"] - _fs_plan["start_unit"] == plans._full_session_window(
           _fs_price, [1.75] * 48, [1.0] * 12, 0, 0, 48, _fs_plan["target_kwh"], 1.0, 8)[1] + plans.FULL_TAPER_UNITS)
 
+# 2026.11.16: quarters the sun is forecast to cover the house in are taken from the grid too (0 kWh) when
+# cheap and the battery doesn't get full that day - an unplanned washing machine then comes from the grid
+_sg_hold = [0.3] * 4 + [0.0] * 8 + [0.3] * 12            # 01:00-03:00 the sun covers the house
+_sg_buy = [0.40] * 11 + [0.45] + [0.52] * 12              # 02:45 at 0.45, the evening 0.52
+_sg_grid = {"grid_units": [2, 3], "grid_unit_kwh": [0.3, 0.3], "grid_kwh": 0.6}
+_sg = plans._surplus_grid_use(_sg_grid, _sg_hold, [1.4] * 24, _sg_buy, [], [20.0] * 6, 0, 0, 30.0, 0.9, 0.95)
+_sg_full = plans._surplus_grid_use(_sg_grid, _sg_hold, [1.4] * 24, _sg_buy, [], [20.0, 25.0, 30.0, 29.0, 28.0, 27.0],
+                                   0, 0, 30.0, 0.9, 0.95)
+_sg_dear = plans._surplus_grid_use(_sg_grid, _sg_hold, [1.4] * 24, [0.30] + [0.40] * 3 + [0.60] * 20, [], [20.0] * 6,
+                                   0, 0, 30.0, 0.9, 0.95)
+check("grid use: the sunny quarters in between come from the grid too (0 kWh), up to the price limit (0.40 / 0.855)",
+      _sg["grid_units"] == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11] and _sg["grid_kwh"] == 0.6
+      and _sg["grid_unit_kwh"][:2] == [0.3, 0.3] and sum(_sg["grid_unit_kwh"]) == 0.6)
+check("grid use: not on a day the sun fills the battery (a load out of it is refilled for free), not above the limit",
+      _sg_full == _sg_grid and _sg_dear["grid_units"] == [2, 3])
+
 # ---------------------------------------------------------------------------
 # 2026.10.16: heat pump model (heatpump.py, heatpump_runtime.py)
 # ---------------------------------------------------------------------------

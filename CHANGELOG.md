@@ -12,6 +12,19 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.16] - 2026-11-07
+
+### The house from the grid at low prices
+- **Sunny quarters too**: with grid use planned, the quarters the sun is
+  forecast to (nearly - up to 0.05 kWh) cover the house in are taken from
+  the grid too, at 0 kWh, when cheap (at most the plan's own price limit
+  for taking the house from the grid: the lowest charge price after the
+  losses in and out) and the sun alone doesn't fill the battery that day.
+  The setpoint loop keeps the battery at 0 W, so a real surplus still
+  charges it - but an unplanned load or less sun than forecast comes from
+  the grid instead of out of the battery (installation B, 7 Nov: 13:15-14:45
+  at 0.22-0.24 left to the battery, grid use only at 12:00 and 15:00).
+
 ## [2026.11.15] - 2026-11-07
 
 ### Fixed

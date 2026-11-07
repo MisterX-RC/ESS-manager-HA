@@ -154,7 +154,14 @@ Five planning engines, all documented in detail in the code
    the grid can still become a charge when that's cheaper. Solar left over
    still goes into the battery. A short solar gap (up to an hour) between
    two such quarters comes along: a 15-minute forecast average can hide a
-   peak above the sun. Meanwhile the Status is **House from grid** and, with
+   peak above the sun. *(As of 2026.11.16)* with grid use planned, the
+   quarters the sun is forecast to (nearly, up to 0.05 kWh) cover the house
+   in are taken from the grid too, at 0 kWh, when they're cheap - at most
+   the price below which the plan takes the house from the grid at all -
+   and the sun alone doesn't fill the battery that day: an unplanned load
+   (the washing machine) or less sun than forecast then comes from the
+   grid at that low price instead of out of the battery; a real surplus
+   still charges it. Meanwhile the Status is **House from grid** and, with
    direct control, the grid setpoint follows the battery's measured power
    **every 15 seconds** (a fast loop that only does this - the rest of the
    cycle stays once a minute): the last setpoint plus 60% of what the
