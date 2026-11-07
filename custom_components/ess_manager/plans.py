@@ -2534,6 +2534,13 @@ def compose_forecast_adjusted(
 # ---------------------------------------------------------------------------
 # The cell voltage differential (mV) below which the cells count as balanced.
 BALANCE_THRESHOLD_MV = 10.0
+# as of 2026.11.15: the last part of a full charge goes slower (the charger
+# tapers near 100 %) - a session is planned this many quarters longer ...
+FULL_TAPER_UNITS = 2
+# ... and a charging session whose window ran out with the battery this full
+# charges on until it's full (then the balancing wait), at most this long
+NEAR_FULL_SOC = 95.0
+FULL_GRACE_UNITS = 4
 
 
 def _full_session_window(
@@ -2546,6 +2553,7 @@ def _full_session_window(
     target_kwh: float,
     charge_efficiency: float,
     hold_units: int,
+    taper_units: int = 0,
 ) -> Optional[tuple[int, int]]:
     """The full charge as one session with its balancing wait right after
     it (as of 2026.11.14): (start unit, charge units) of the cheapest
@@ -2576,10 +2584,12 @@ def _full_session_window(
             u += 1
         if got < target_kwh - 1e-6:
             break  # later starts reach even less before the deadline
-        for v in range(u, u + hold_units):
+        # the slower last part (FULL_TAPER_UNITS) and the hold after it: the
+        # house from the grid then
+        for v in range(u, u + taper_units + hold_units):
             cost += prices[min(v, len(prices) - 1)] * usage_q(v)
         if best is None or cost < best[0] - 1e-9:
-            best = (cost, start, u - start)
+            best = (cost, start, u - start + taper_units)
     return (best[1], best[2]) if best else None
 
 
@@ -2632,7 +2642,13 @@ def compute_full_charge_plan(
         planned_for = prev.get("high_threshold_kwh")
         if planned_for is not None and abs(float(planned_for) - high_threshold_kwh) > 0.01:
             replan = True
-        if prev.get("end_at") is not None and now.timestamp() >= prev["end_at"]:
+        # (as of 2026.11.15 not while a charging session is nearly full and
+        # within its grace - it charges on to full, see below)
+        near_full_grace = (
+            prev.get("phase") == "charging" and soc_now_percent >= NEAR_FULL_SOC and prev.get("end_at") is not None
+            and now.timestamp() < prev["end_at"] + FULL_GRACE_UNITS * 900
+        )
+        if prev.get("end_at") is not None and now.timestamp() >= prev["end_at"] and not near_full_grace:
             prev = {"active": False, "phase": None, "retry_after_timeout": prev.get("retry_after_timeout", False)}
     if buy_price is not None:
         all_price = buy_price  # only ever used to pick the (buy) window
@@ -2747,6 +2763,12 @@ def compute_full_charge_plan(
             return _start_holding()
         if prev.get("start_unit", -1) <= cur_unit < prev.get("end_unit", -1):
             return prev
+        # the window ran out just short of full (as of 2026.11.15): charge on
+        # to full - then the balancing wait - instead of leaving it at 98 %
+        # (installation A, 7 Nov: planned to 04:00, full at 04:27, no hold)
+        if (soc_now_percent >= NEAR_FULL_SOC and prev.get("end_unit", -1) <= cur_unit
+                < prev.get("end_unit", -1) + FULL_GRACE_UNITS):
+            return {**prev, "grace": True}
         # This session's window ran out without reaching full - a real
         # possibility now that a single session's energy is capped (see
         # session_cap_kwh below), for chargers too slow to finish in one
@@ -2771,6 +2793,11 @@ def compute_full_charge_plan(
                         "high_threshold_kwh", "end_at", "hold_start_unit", "hold_end_unit")
             if key in prev
         }
+        # a real charging session starts: it earns a clean attempt at the
+        # balancing wait (as of 2026.11.15 the "don't hold again right away"
+        # flag of a timed-out hold is cleared here - it kept the battery from
+        # holding once this session got it full)
+        carried["retry_after_timeout"] = False
         return {
             **carried,
             "active": True,
@@ -2947,7 +2974,7 @@ def compute_full_charge_plan(
         # together, see _full_session_window
         session = _full_session_window(
             all_price, charge_rates, usage, _hour0_start_unit(cur_unit, now), search_start, search_end,
-            target_kwh, charge_efficiency, hold_units,
+            target_kwh, charge_efficiency, hold_units, FULL_TAPER_UNITS,
         )
     if session is not None:
         s0, n0 = session

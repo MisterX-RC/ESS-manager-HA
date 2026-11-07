@@ -12,9 +12,19 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
-## [2026.11.15] - 2026-11-06
+## [2026.11.15] - 2026-11-07
 
 ### Fixed
+- **Full charge without its balancing wait**: a session planned to 04:00
+  had the battery full at 04:27 (the last part goes slower) - the window
+  had run out, and the "don't hold again right away" flag of the day
+  before's timed-out hold kept it from balancing; it charged again at
+  06:54 and planned yet another full charge (installation A, 7 Nov). Now:
+  - a session is planned half an hour longer for the slower last part;
+  - a session whose window runs out at 95 % or more charges on to full
+    (at most an hour), then holds;
+  - a charging session starting clears that flag - it earns a clean
+    attempt at the balancing wait.
 - **Battery forecast dip over the balancing wait**: over the planned hold
   the forecast was set to exactly 100 %, also where the forecast before
   clipping was already above it (the session's kWh on a battery fuller

@@ -3521,12 +3521,13 @@ def _fcp(prev, high, unit=84, now=_fc_now, batt=6.06, soc=40.4):
                                           charge_rates=_fc_rates, min_charge_units=2)
 _fc30 = _fcp(None, 33.0)
 # 2026.11.14: one session with the 2-hour balancing wait after it - not the cheap hour now plus the
-# night: the 27 kWh in one go in the 0.12 night, the hold right after it
+# night: the 27 kWh in one go in the 0.12 night, the hold right after it (as of 2026.11.15 the session
+# half an hour longer for the slower last part)
 check("full charge: worked out with 33 kWh max (capacity 30): 27 kWh as one session, the hold after it",
       _fc30["phase"] == "scheduled" and _fc30["start_unit"] == 96 and _fc30["high_threshold_kwh"] == 33.0
-      and _fc30["end_unit"] == 166 and len(_fc30["blocks"]) == 1
-      and _fc30["hold_start_unit"] == 166 and _fc30["hold_end_unit"] == 174
-      and _fc30["end_at"] == int(datetime(2026, 10, 14, 17, 30).timestamp()))
+      and _fc30["end_unit"] == 168 and len(_fc30["blocks"]) == 1
+      and _fc30["hold_start_unit"] == 168 and _fc30["hold_end_unit"] == 176
+      and _fc30["end_at"] == int(datetime(2026, 10, 14, 18, 0).timestamp()))
 _fc15 = _fcp(_fc30, 16.5)
 check("full charge: the capacity is now 15 (max 16.5): planned again, not started with 27 kWh",
       _fc15["phase"] == "scheduled" and _fc15["deficit_kwh"] == round(16.5 - 6.06, 3) and _fc15["high_threshold_kwh"] == 16.5)
@@ -3581,6 +3582,33 @@ _fs_hold = plans.compute_full_charge_plan({**_fs_plan, "phase": "scheduled"}, _f
                                           charge_efficiency=1.0, charge_rates=[1.75] * 48, min_charge_units=2)
 check("full charge + balancing: the charging phase keeps the planned hold",
       _fs_hold["phase"] == "charging" and _fs_hold["hold_end_unit"] == _fs_plan["hold_end_unit"])
+
+# 2026.11.15 (installation A, 7 Nov): the session was planned to 04:00, the battery was full at 04:27 -
+# the window had run out, and the "don't hold again right away" flag of the timed-out hold the day
+# before kept it from balancing; it charged again at 06:54 and planned another full charge
+_gr_now = datetime(2026, 11, 7, 1, 15)
+_gr_sched = {**_fs_plan, "start_unit": 5, "end_unit": 16, "hold_start_unit": 16, "hold_end_unit": 24,
+             "retry_after_timeout": True, "end_at": int(datetime(2026, 11, 7, 4, 0).timestamp())}
+def _grp(prev, unit, soc, volt=53.5):
+    now = datetime(2026, 11, 7, 0, 0) + timedelta(minutes=15 * unit)
+    return plans.compute_full_charge_plan(prev, unit, now, 14, 20.0, soc, 120, 30.0, 30.0 * soc / 100, 31.5,
+                                          [1.0] * 48, 7.0, _fs_price, [21.0] * 12, volt, 55.8, charge_efficiency=1.0,
+                                          charge_rates=[1.75] * 48, min_charge_units=2)
+_gr_c = _grp(_gr_sched, 5, 73.0)
+_gr_late = _grp(_gr_c, 17, 98.0)
+_gr_full = _grp(_gr_late, 18, 99.6)
+_gr_low = _grp(_gr_c, 17, 80.0)
+_gr_over = _grp(_gr_c, 21, 98.0)
+check("full charge: a session starting clears the 'no hold right away' flag of a timed-out hold",
+      _gr_c["phase"] == "charging" and _gr_c["retry_after_timeout"] is False)
+check("full charge: the window ran out at 98 % - it charges on to full, then the balancing wait",
+      _gr_late["phase"] == "charging" and _gr_late.get("grace") and _gr_full["phase"] == "holding"
+      and _gr_low["phase"] != "charging" and _gr_over["phase"] != "charging")
+check("full charge: full after its window, outside the grace too - the fresh evaluation now holds (no flag)",
+      _grp({k: v for k, v in _gr_c.items()}, 22, 99.7)["phase"] == "holding")
+check("full charge: the session planned half an hour longer for the slower last part",
+      _fs_plan["end_unit"] - _fs_plan["start_unit"] == plans._full_session_window(
+          _fs_price, [1.75] * 48, [1.0] * 12, 0, 0, 48, _fs_plan["target_kwh"], 1.0, 8)[1] + plans.FULL_TAPER_UNITS)
 
 # ---------------------------------------------------------------------------
 # 2026.10.16: heat pump model (heatpump.py, heatpump_runtime.py)

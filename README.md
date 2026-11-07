@@ -1627,7 +1627,10 @@ the "Full charge max hold" right after it - a charge of 1 hour with a
 the buy price plus the house's usage over the hold at the buy price (the
 battery is held full then, the house runs on the grid), so the hold no
 longer lands in the evening peak because the cheapest charge quarter came
-right before it. The Buy block on the card says until when it balances at
+right before it. *(As of 2026.11.15)* The session is planned half an hour
+longer for the slower last part, and a session whose window runs out at
+95 % or more charges on to full (at most an hour) before the balancing
+wait starts. The Buy block on the card says until when it balances at
 the latest, and the forecast holds the battery at 100 % over it. (Up to
 2026.11.13 the session could be split over the cheapest quarters in
 blocks, and the hold fell wherever the battery happened to get full.) A session is worked out afresh when the capacity or max
