@@ -45,6 +45,11 @@ const I18N = {
     min_label: (p) => `min ${p} %`, max_label: (p) => `max ${p} %`,
     // plans (battery + price card)
     plan_sell: "Sell", plan_buy: "Buy", plan_spike: "Spike", plan_negative: "Negative price",
+    pp_title: "Planning", pp_close: "Close", pp_none: "Nothing planned", pp_now: "now", pp_next: "next",
+    pp_charge: "Charge", pp_sell: "Sale", pp_grid: "From the grid", pp_full_charge: "Full charge", pp_balancing: "Balancing",
+    pp_spike_charge: "Spike: charge", pp_spike_sell: "Spike: sale", pp_negative_charge: "Negative price: charge",
+    pp_negative_sell: "Negative price: discharge first", pp_solar_export: "Solar export",
+    balance_until: (t) => `balancing until ${t}`,
     plan_grid: "From the grid", no_grid: "No grid use planned", grid_kept: "kWh kept in the battery", grid_kept_short: "kWh kept", none_short: "none",
     grid_sun: "sun covers the house", grid_sun_tip: "The sun is forecast to cover the house - an unplanned load or a peak comes from the grid, not from the battery.", grid_more_tip: (n) => `and ${n} more ${n === 1 ? "block" : "blocks"}`,
     plan_full: "Full charge", plan_charged: "Charged", plan_sold: "Sold",
@@ -245,6 +250,11 @@ const I18N = {
     soc: "SOC", without_plans: "Zonder plannen", solar: "Zon", usage: "Verbruik", price: "Prijs",
     min_label: (p) => `min ${p} %`, max_label: (p) => `max ${p} %`,
     plan_sell: "Verkoop", plan_buy: "Laden", plan_spike: "Piek", plan_negative: "Negatieve prijs",
+    pp_title: "Planning", pp_close: "Sluiten", pp_none: "Niets gepland", pp_now: "nu", pp_next: "volgende",
+    pp_charge: "Laden", pp_sell: "Verkoop", pp_grid: "Uit het net", pp_full_charge: "Volle lading", pp_balancing: "Balanceren",
+    pp_spike_charge: "Piek: laden", pp_spike_sell: "Piek: verkoop", pp_negative_charge: "Negatieve prijs: laden",
+    pp_negative_sell: "Negatieve prijs: vooraf ontladen", pp_solar_export: "Teruglevering",
+    balance_until: (t) => `balanceren tot ${t}`,
     plan_grid: "Uit het net", no_grid: "Geen net-gebruik gepland", grid_kept: "kWh blijft in de accu", grid_kept_short: "kWh bewaard", none_short: "geen",
     grid_sun: "zon dekt het huis", grid_sun_tip: "Volgens de voorspelling dekt de zon het huis - een onverwacht verbruik of een piek komt uit het net, niet uit de accu.", grid_more_tip: (n) => `en nog ${n} ${n === 1 ? "blok" : "blokken"}`,
     plan_full: "Vol laden", plan_charged: "Geladen", plan_sold: "Verkocht",
@@ -2073,6 +2083,72 @@ class EssManagerStatusCard extends HTMLElement {
     </div>`;
   }
 
+  // The planning panel (as of 2026.11.19): every plan from now on in time
+  // order (card_plans.all), a 24-hour timeline on top; a sheet over the
+  // page, closed with the cross, a tap outside it or Escape.
+  _renderPanel(attrs, opt) {
+    const root = this.shadowRoot;
+    let el = root.querySelector(".pp-overlay");
+    if (!this._panelOpen) {
+      if (el) el.remove();
+      return;
+    }
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "pp-overlay";
+      root.appendChild(el);
+      el.addEventListener("click", (ev) => {
+        if (ev.target === el || ev.target.closest(".pp-x")) { this._panelOpen = false; this._renderPanel(attrs, opt); }
+      });
+      if (!this._escHandler) {
+        this._escHandler = (ev) => { if (ev.key === "Escape" && this._panelOpen) { this._panelOpen = false; this._renderPanel(attrs, opt); } };
+        window.addEventListener("keydown", this._escHandler);
+      }
+    }
+    const f = formats(this._hass);
+    const items = ((attrs.card_plans || {}).all || []).filter((i) => new Date(i.stop).getTime() > Date.now());
+    const colors = {
+      charge: opt.buy_color, sell: opt.sell_color, grid: opt.grid_color, full_charge: BALANCE_COLOR, balancing: BALANCE_COLOR,
+      spike_charge: opt.spike_color, spike_sell: opt.spike_color, negative_charge: opt.negative_color,
+      negative_sell: opt.negative_color, solar_export: opt.export_color,
+    };
+    const now = Date.now();
+    const span = 24 * 3600000;
+    const segs = items.map((i) => {
+      const a = Math.max(new Date(i.start).getTime(), now);
+      const b = Math.min(new Date(i.stop).getTime(), now + span);
+      if (b <= a) return "";
+      return `<span style="left:${(((a - now) / span) * 100).toFixed(2)}%;width:${Math.max(((b - a) / span) * 100, 0.6).toFixed(2)}%;background:${colors[i.kind]}"></span>`;
+    }).join("");
+    let rows = "";
+    let day = null;
+    items.forEach((i, n) => {
+      const d = this._weekday(i.start);
+      const dkey = new Date(i.start).toDateString();
+      if (dkey !== day) {
+        day = dkey;
+        rows += `<div class="pp-day">${esc(d)}</div>`;
+      }
+      const bits = [];
+      if (i.kind === "grid") bits.push((i.kwh || 0) >= 0.05 ? `${this._num(i.kwh, 1)} ${this._t("grid_kept_short")}` : this._t("grid_sun"));
+      else if (i.kwh != null && i.kwh > 0) bits.push(`${this._num(i.kwh, 1)} kWh`);
+      if (i.price != null && i.kind !== "grid") bits.push(f.money(i.price));
+      if (i.hold_until) bits.push(this._t("balance_until")(this._time(i.hold_until)));
+      const tag = i.running ? this._t("pp_now") : n === 0 ? this._t("pp_next") : "";
+      const c = colors[i.kind] || "#888";
+      rows += `<div class="pp-item${i.running ? " run" : ""}" style="--c:${c}"><span class="pp-chip"></span><span class="pp-time">${esc(this._time(i.start))} \u2013 ${esc(this._time(i.stop))}</span><span class="pp-what"><b>${esc(this._t("pp_" + i.kind))}</b> <span class="dim">${esc(bits.join(" \u00b7 "))}</span></span><span class="pp-end">${
+        tag ? `<span class="pp-tag">${esc(tag)}</span>` : i.soc != null ? `\u2192 ${this._num(i.soc, 0)} %` : ""
+      }</span></div>`;
+    });
+    el.innerHTML = `<div class="pp-sheet" role="dialog" aria-label="${esc(this._t("pp_title"))}">
+      <div class="pp-grab"></div>
+      <div class="pp-head"><b>${esc(this._t("pp_title"))}</b><button class="pp-x" aria-label="${esc(this._t("pp_close"))}">\u2715</button></div>
+      <div class="pp-tl">${segs}</div>
+      <div class="pp-ax"><span>${esc(this._t("now"))}</span><span>+6 ${esc(this._t("h"))}</span><span>+12 ${esc(this._t("h"))}</span><span>+18 ${esc(this._t("h"))}</span><span>+24 ${esc(this._t("h"))}</span></div>
+      ${rows || `<div class="empty">${esc(this._t("pp_none"))}</div>`}
+    </div>`;
+  }
+
   // The house from the grid (as of 2026.11.17): the current or next window
   // of grid use - its times, a bar that fills while it runs, what it keeps
   // in the battery; "+n" for the later windows (their times as a tooltip).
@@ -2247,6 +2323,25 @@ class EssManagerStatusCard extends HTMLElement {
          200 px gets compact lines; on a phone under each other, an empty
          block a low bar */
       .block .short, .stat .short { display: none; }
+      .blocks > .block:not(.none) { cursor: pointer; }
+      .pp-overlay { position: fixed; inset: 0; z-index: 9; background: rgba(0,0,0,.55); display: flex; align-items: flex-end; justify-content: center; }
+      .pp-sheet { width: 100%; max-width: 560px; max-height: 82vh; overflow: auto; background: var(--ha-card-background, var(--card-background-color, #26282e)); color: var(--primary-text-color, #e8e8e8); border-radius: 18px 18px 0 0; padding: 12px 16px 18px; box-shadow: 0 -8px 30px rgba(0,0,0,.45); }
+      .pp-grab { width: 40px; height: 4px; border-radius: 2px; background: rgba(127,127,127,.5); margin: 0 auto 10px; }
+      .pp-head { display: flex; align-items: center; margin-bottom: 10px; }
+      .pp-head b { flex: 1; font-size: 16px; }
+      .pp-x { border: none; background: rgba(127,127,127,.18); color: inherit; width: 30px; height: 30px; border-radius: 999px; cursor: pointer; font-size: 14px; }
+      .pp-tl { position: relative; height: 12px; border-radius: 6px; background: rgba(127,127,127,.25); overflow: hidden; }
+      .pp-tl span { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+      .pp-ax { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color, #a0a0a0); margin: 3px 0 6px; }
+      .pp-day { font-size: 12px; color: var(--secondary-text-color, #a0a0a0); text-transform: uppercase; letter-spacing: .06em; margin: 10px 0 6px; }
+      .pp-item { display: grid; grid-template-columns: 10px 96px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 8px; background: rgba(127,127,127,.12); margin-bottom: 6px; font-size: 13px; }
+      .pp-item.run { box-shadow: inset 0 0 0 1.5px var(--c); }
+      .pp-chip { width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
+      .pp-what { min-width: 0; }
+      .pp-what b { font-weight: 600; }
+      .pp-end { white-space: nowrap; }
+      .pp-tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; color: var(--c); background: color-mix(in srgb, var(--c) 20%, transparent); }
+      @container card (max-width: 380px) { .pp-item { grid-template-columns: 10px 84px minmax(0, 1fr); } .pp-end { grid-column: 2 / -1; } }
       .blocks.three { display: flex; gap: 10px; }
       .blocks.three > .block { flex: 1 1 0; min-width: 0; container-type: inline-size; }
       .blocks.three > .block.none { flex: 0 0 72px; align-items: center; justify-content: center; padding: 10px 6px; }
@@ -2309,6 +2404,13 @@ class EssManagerStatusCard extends HTMLElement {
     }
     const setbtn = changed ? this.shadowRoot.querySelector(".setbtn") : null;
     if (setbtn) setbtn.addEventListener("click", () => this._openSettings());
+    // the planning panel (as of 2026.11.19): a planned block or its "+n" opens it
+    if (changed) {
+      for (const el of this.shadowRoot.querySelectorAll(".blocks > .block:not(.none)")) {
+        el.addEventListener("click", () => { this._panelOpen = true; this._renderPanel(attrs, opt); });
+      }
+    }
+    if (this._panelOpen) this._renderPanel(attrs, opt);
     this._fitHeader();
     // and again once the browser has laid the card out at its real width
     requestAnimationFrame(() => this._fitHeader());

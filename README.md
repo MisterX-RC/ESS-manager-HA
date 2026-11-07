@@ -1872,7 +1872,14 @@ sale and a charge are never planned at the same time, so at most two are
 wide; a block narrower than about 200 px gets compact lines ("5,1 🔋 67 %",
 "0,2 kWh kept"). On a phone (up to 380 px) they're under each other, an
 empty block a low bar. `show_grid: false` in the card's YAML hides the
-grid block. Each shows the start (with the day when
+grid block. *(As of 2026.11.19)* tapping a planned block (or its "+2") opens
+the **planning panel**: every plan from now on in time order - charges,
+sales, the house from the grid, the full charge (with until when it
+balances) and the balancing wait, spike and negative price plans, solar
+export - with the time, the kWh, the average price and the battery level
+after it, grouped by day, "now" / "next" on the running and next one, and
+a timeline of the coming 24 hours on top. Closed with the cross, a tap
+outside it or Escape. Each shows the start (with the day when
 it hasn't started yet) and stop time, a bar with the duration and - once
 the window runs - how far it is, measured on the energy (it fills as the
 battery moves towards the plan's target, and says how long is left; hover

@@ -3073,6 +3073,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 },
             )
 
+            # every plan in time order, for the card's planning panel (as of 2026.11.19)
+            card_plans["all"] = display.plan_overview(
+                self._full_charge_plan, self._negative_price_plan, self._spike_plan, self._low_charge_plan,
+                self._high_discharge_plan, current_price_unit, now, capacity_kwh, plan_buy, plan_sell,
+            )
+
             return {
                 "battery_forecast_adjusted": battery_forecast_adjusted,
                 "battery_forecast_adjusted_uncapped": battery_forecast_adjusted_uncapped,

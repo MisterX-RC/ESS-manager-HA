@@ -3629,6 +3629,31 @@ _sg_ch3, _sg_h3 = _sgs([(24, 1.0, True)], [27.0, 28.5, 29.9, 29.0, 28.0, 27.0])
 check("grid use: no shortfall - nothing from the grid; the battery near the top - only what still fits under it",
       _sg_h2 == [] and _sg_ch2 == [] and len(_sg_h3) < len(_sg_h))
 
+# 2026.11.19: every plan in time order for the status card's planning panel
+_po_now = datetime(2026, 11, 7, 22, 0)
+_po_low = {"active": True, "start_unit": 98, "end_unit": 101, "blocks": [
+    {"start_unit": 98, "end_unit": 101, "kwh": 5.1, "target_level_kwh": 20.0},
+    {"start_unit": 112, "end_unit": 114, "kwh": 3.4, "target_level_kwh": 23.0}],
+    "grid_units": [89, 90, 101, 102, 103, 104], "grid_unit_kwh": [0.1, 0.1, 0.0, 0.0, 0.2, 0.2]}
+_po_spike = {"active": True, "charge_start_unit": 120, "charge_end_unit": 122, "charge_needed_kwh": 2.0,
+             "charge_target_level_kwh": 28.0, "discharge_start_unit": 140, "discharge_end_unit": 142,
+             "discharge_target_kwh": 4.0}
+_po_neg = {"active": True, "discharge_start_unit": 150, "discharge_end_unit": 152, "discharge_needed_kwh": 3.0,
+           "target_after_discharge_kwh": 10.0, "charge_start_unit": 154, "charge_end_unit": 158,
+           "achievable_charge_kwh": 8.0, "level_at_start_kwh": 10.0, "solar_export_start_unit": 152,
+           "solar_export_end_unit": 154}
+_po_full = {"active": True, "phase": "scheduled", "start_unit": 130, "end_unit": 132, "hold_end_unit": 140,
+            "blocks": [{"start_unit": 130, "end_unit": 132, "kwh": 3.0, "target_level_kwh": 31.0}]}
+_po = display.plan_overview(_po_full, _po_neg, _po_spike, _po_low, {"active": False}, 88, _po_now, 30.0,
+                            [0.20 + 0.001 * u for u in range(192)], [0.10] * 192)
+_po_kinds = [i["kind"] for i in _po]
+check("planning panel: every plan in time order - grid, charges, spike, full charge (with its hold), negative price",
+      _po_kinds == ["grid", "charge", "grid", "charge", "spike_charge", "full_charge", "spike_sell", "negative_sell",
+                    "solar_export", "negative_charge"]
+      and _po[0]["start"].startswith("2026-11-07T22:15") and abs(_po[0]["kwh"] - 0.2) < 1e-9
+      and _po[1]["soc"] == 67 and _po[2]["kwh"] == 0.4 and _po[5]["hold_until"].startswith("2026-11-08T11:00")
+      and _po[5]["soc"] == 100 and _po[6]["price"] == 0.10 and _po[1]["price"] == round(0.20 + 0.001 * 99, 4))
+
 # ---------------------------------------------------------------------------
 # 2026.10.16: heat pump model (heatpump.py, heatpump_runtime.py)
 # ---------------------------------------------------------------------------

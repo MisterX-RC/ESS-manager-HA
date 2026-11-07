@@ -12,6 +12,17 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.19] - 2026-11-07
+
+### Status card
+- **Planning panel**: tap a planned block (or its "+n") and a panel slides
+  up with every plan from now on in time order - charges, sales, the house
+  from the grid, full charge (with its balancing time) and the balancing
+  wait, spike and negative price plans, solar export - each with its time,
+  kWh, average price and the battery level after it, grouped by day, "now"
+  / "next" marked, and a 24-hour timeline on top. New: `card_plans.all`
+  (display.plan_overview).
+
 ## [2026.11.18] - 2026-11-07
 
 ### Status card

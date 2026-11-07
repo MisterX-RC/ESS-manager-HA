@@ -442,3 +442,97 @@ def grid_use_windows(low: dict, cur_unit: int, now) -> list[dict]:
     windows for the charts."""
     kwh = dict(zip(low.get("grid_units") or [], low.get("grid_unit_kwh") or []))
     return unit_windows(list(low.get("grid_units") or []), kwh, cur_unit, now)
+
+def plan_overview(
+    full: dict,
+    neg: dict,
+    spike: dict,
+    low: dict,
+    high: dict,
+    cur_unit: int,
+    now: datetime,
+    capacity_kwh: float,
+    buy: Optional[list] = None,
+    sell: Optional[list] = None,
+) -> list[dict]:
+    """Every plan from now on, in time order (as of 2026.11.19 - the status
+    card's planning panel): [{kind, start, stop, kwh, soc, price, ...}].
+    Kinds: charge, sell (the low charge / high discharge blocks), grid (the
+    house from the grid), full_charge (its blocks; the last with hold_until)
+    and balancing (the wait at 100 %), spike_charge / spike_sell,
+    negative_charge / negative_sell / solar_export. soc: the battery level
+    after it (%), price: the average buy (or, for a sale, sell) price."""
+    full, neg, spike, low, high = (x or {} for x in (full, neg, spike, low, high))
+    items: list[dict] = []
+
+    def avg(prices, a, b):
+        vals = [prices[u] for u in range(max(a, 0), b) if prices and u < len(prices) and prices[u] is not None]
+        return round(sum(vals) / len(vals), 4) if vals else None
+
+    def add(kind, a, b, kwh=None, level=None, selling=False, **extra):
+        a, b = int(a), int(b)
+        if b <= cur_unit or b <= a:
+            return
+        item = {
+            "kind": kind,
+            "start": _unit_datetime(now, cur_unit, a).isoformat(),
+            "stop": _unit_datetime(now, cur_unit, b).isoformat(),
+            "kwh": round(float(kwh), 2) if kwh is not None else None,
+            "soc": (round(min(max(level / capacity_kwh * 100.0, 0.0), 100.0)) if level is not None and capacity_kwh else None),
+            "price": avg(sell if selling else buy, a, b),
+            "running": a <= cur_unit < b,
+        }
+        item.update(extra)
+        items.append(item)
+
+    for b in low.get("blocks") or ([] if not low.get("active") else
+                                   [{"start_unit": low["start_unit"], "end_unit": low["end_unit"],
+                                     "kwh": low.get("block_kwh", low.get("target_kwh")),
+                                     "target_level_kwh": low.get("target_energy_kwh")}]):
+        if low.get("active"):
+            add("charge", b["start_unit"], b["end_unit"], b.get("kwh"), b.get("target_level_kwh"))
+    for b in high.get("blocks") or ([] if not high.get("active") else
+                                    [{"start_unit": high["start_unit"], "end_unit": high["end_unit"],
+                                      "kwh": high.get("block_kwh", high.get("target_kwh")),
+                                      "target_level_kwh": high.get("target_energy_kwh")}]):
+        if high.get("active"):
+            add("sell", b["start_unit"], b["end_unit"], b.get("kwh"), b.get("target_level_kwh"), selling=True)
+    kwh = dict(zip(low.get("grid_units") or [], low.get("grid_unit_kwh") or []))
+    units = sorted(u for u in (low.get("grid_units") or []) if u >= cur_unit)
+    run: list = []
+    for u in units + [None]:
+        if run and (u is None or u != run[-1] + 1):
+            add("grid", run[0], run[-1] + 1, sum(kwh.get(x, 0.0) for x in run))
+            run = []
+        if u is not None:
+            run.append(u)
+    if full.get("active"):
+        if full.get("phase") == "holding":
+            add("balancing", full.get("hold_start_unit", cur_unit), full.get("hold_end_unit", cur_unit + 1),
+                level=capacity_kwh)
+        elif full.get("phase") in ("scheduled", "charging"):
+            blocks = full.get("blocks") or [{"start_unit": full["start_unit"], "end_unit": full["end_unit"],
+                                             "kwh": full.get("block_kwh", full.get("target_kwh"))}]
+            for i, b in enumerate(blocks):
+                extra = {}
+                if i == len(blocks) - 1 and full.get("hold_end_unit") is not None:
+                    extra["hold_until"] = _unit_datetime(now, cur_unit, int(full["hold_end_unit"])).isoformat()
+                add("full_charge", b["start_unit"], b["end_unit"], b.get("kwh"),
+                    min(float(b.get("target_level_kwh") or capacity_kwh), capacity_kwh), **extra)
+    if spike.get("active"):
+        if spike.get("charge_needed_kwh", 0) > 0:
+            add("spike_charge", spike["charge_start_unit"], spike["charge_end_unit"], spike.get("charge_needed_kwh"),
+                spike.get("charge_target_level_kwh"))
+        level = spike.get("charge_target_level_kwh")
+        add("spike_sell", spike["discharge_start_unit"], spike["discharge_end_unit"], spike.get("discharge_target_kwh"),
+            (level - spike.get("discharge_target_kwh", 0)) if level is not None else None, selling=True)
+    if neg.get("active"):
+        if neg.get("discharge_needed_kwh", 0) > 0:
+            add("negative_sell", neg["discharge_start_unit"], neg["discharge_end_unit"], neg.get("discharge_needed_kwh"),
+                neg.get("target_after_discharge_kwh"), selling=True)
+        add("negative_charge", neg["charge_start_unit"], neg["charge_end_unit"], neg.get("achievable_charge_kwh"),
+            (neg.get("level_at_start_kwh") or 0) + (neg.get("achievable_charge_kwh") or 0))
+        if neg.get("solar_export_end_unit", 0) > neg.get("solar_export_start_unit", 0):
+            add("solar_export", neg["solar_export_start_unit"], neg["solar_export_end_unit"], selling=True)
+    items.sort(key=lambda i: (i["start"], i["stop"]))
+    return items
