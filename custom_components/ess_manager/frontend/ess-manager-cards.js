@@ -45,6 +45,8 @@ const I18N = {
     min_label: (p) => `min ${p} %`, max_label: (p) => `max ${p} %`,
     // plans (battery + price card)
     plan_sell: "Sell", plan_buy: "Buy", plan_spike: "Spike", plan_negative: "Negative price",
+    plan_grid: "From the grid", no_grid: "No grid use planned", grid_kept: "kWh kept in the battery",
+    grid_sun: "sun covers the house", grid_sun_tip: "The sun is forecast to cover the house - an unplanned load or a peak comes from the grid, not from the battery.", grid_more_tip: (n) => `and ${n} more ${n === 1 ? "block" : "blocks"}`,
     plan_full: "Full charge", plan_charged: "Charged", plan_sold: "Sold",
     // price card
     price_title: "Electricity price", buy_price: "buy", incl_transport: "incl. transport", sell_price: "sell", incl_tax: "incl", excl_tax: "excl", switch_view: "Tap to switch between buy and sell prices",
@@ -243,6 +245,8 @@ const I18N = {
     soc: "SOC", without_plans: "Zonder plannen", solar: "Zon", usage: "Verbruik", price: "Prijs",
     min_label: (p) => `min ${p} %`, max_label: (p) => `max ${p} %`,
     plan_sell: "Verkoop", plan_buy: "Laden", plan_spike: "Piek", plan_negative: "Negatieve prijs",
+    plan_grid: "Uit het net", no_grid: "Geen net-gebruik gepland", grid_kept: "kWh blijft in de accu",
+    grid_sun: "zon dekt het huis", grid_sun_tip: "Volgens de voorspelling dekt de zon het huis - een onverwacht verbruik of een piek komt uit het net, niet uit de accu.", grid_more_tip: (n) => `en nog ${n} ${n === 1 ? "blok" : "blokken"}`,
     plan_full: "Vol laden", plan_charged: "Geladen", plan_sold: "Verkocht",
     price_title: "Stroomprijs", buy_price: "inkoop", incl_transport: "incl. transport", sell_price: "verkoop", incl_tax: "incl", excl_tax: "excl", switch_view: "Tik om te wisselen tussen inkoop- en verkoopprijzen",
     cheapest: "goedkoopst", most_expensive: "duurst", per_kwh: "/kWh",
@@ -2069,6 +2073,36 @@ class EssManagerStatusCard extends HTMLElement {
     </div>`;
   }
 
+  // The house from the grid (as of 2026.11.17): the current or next window
+  // of grid use - its times, a bar that fills while it runs, what it keeps
+  // in the battery; "+n" for the later windows (their times as a tooltip).
+  _gridBlock(windows, opt) {
+    const color = opt.grid_color;
+    const head = `<div class="head"><span class="name" style="color:${color}">${icon("home", color, 16, 2.2)}${esc(this._t("plan_grid"))}</span></div>`;
+    const now = Date.now();
+    const list = (windows || []).filter((w) => new Date(w.stop).getTime() > now);
+    if (!list.length) {
+      return `<div class="block grid-block" style="border-color:transparent">${head}<div class="empty">${esc(this._t("no_grid"))}</div></div>`;
+    }
+    const w = list[0];
+    const start = new Date(w.start).getTime();
+    const stop = new Date(w.stop).getTime();
+    const running = start <= now;
+    const more = list.length - 1;
+    const tip = more ? [this._t("grid_more_tip")(more)].concat(list.slice(1).map((b) => `${this._weekday(b.start)} ${this._time(b.start)}\u2013${this._time(b.stop)}`)).join("\n") : "";
+    const fill = running && stop > start ? Math.min(Math.max((now - start) / (stop - start), 0), 1) * 100 : 0;
+    const inBar = running ? this._t("left")(this._duration((stop - now) / 60000)) : this._duration((stop - start) / 60000);
+    const kwh = Number(w.kwh) || 0;
+    const stat = kwh >= 0.05
+      ? `<div class="stat">${icon("home", color, 16)}<b>${this._num(kwh, 1)}</b><span class="dim">${esc(this._t("grid_kept"))}</span></div>`
+      : `<div class="stat" title="${esc(this._t("grid_sun_tip"))}">${icon("sun", color, 16)}<span class="dim">${esc(this._t("grid_sun"))}</span></div>`;
+    return `<div class="block grid-block" style="border-color:transparent">${head}
+      <div class="times"><span>${running ? "" : `<span class="dim">${esc(this._weekday(w.start))}</span> `}${esc(this._time(w.start))}</span><span>${esc(this._time(w.stop))}${more ? ` <span class="dim" title="${esc(tip)}">${esc(this._t("more_blocks")(more))}</span>` : ""}</span></div>
+      <div class="bar" style="background:${tint(color, 0.22)}"><div class="fill" style="width:${fill.toFixed(1)}%;background:${color}"></div><div class="bartext">${esc(inBar)}</div></div>
+      ${stat}
+    </div>`;
+  }
+
   // While balancing: the cell voltage differential against its target, the
   // value in the balance colour until it's below it.
   // The holding phase's stat row: the cell voltage difference and the goal
@@ -2207,7 +2241,12 @@ class EssManagerStatusCard extends HTMLElement {
       .top.tight .setbtn { width: 30px; height: 30px; padding: 0; }
       .top.tight .setbtn .lbl { display: none; }
       .blocks, .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-      @container (max-width: 380px) { .blocks, .tiles { grid-template-columns: minmax(0, 1fr); } }
+      /* three blocks (as of 2026.11.17): side by side when there's room, the
+         grid block under the other two when narrower, all under each other
+         on a phone */
+      .blocks.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      @container (max-width: 620px) { .blocks.three { grid-template-columns: repeat(2, minmax(0, 1fr)); } .blocks.three .grid-block { grid-column: 1 / -1; } }
+      @container (max-width: 380px) { .blocks, .tiles, .blocks.three { grid-template-columns: minmax(0, 1fr); } }
       @container (min-width: 381px) and (max-width: 480px) { .stat { gap: 4px; padding: 7px 6px; } .stat b { font-size: 14px; } .stat .dim { font-size: 11px; } .arrow { padding: 0; } }
       @container (min-width: 381px) and (max-width: 440px) { .stat .unit { display: none; } }
       .block { display: flex; flex-direction: column; gap: 7px; border: 2px solid transparent; border-radius: 10px; padding: 10px; background: rgba(127,127,127,.12); }
@@ -2236,9 +2275,11 @@ class EssManagerStatusCard extends HTMLElement {
       .timeline { display: flex; height: 14px; border-radius: 999px; overflow: hidden; }
       .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color, #a0a0a0); margin-top: -8px; }
     `;
+    // the grid block when the integration plans grid use (the attribute is there)
+    const gridOn = Array.isArray(attrs.grid_use) && attrs.grid_use_enabled !== false && this._config.show_grid !== false;
     const changed = setCardContent(this, css, `
       <div class="top"><span class="title">${esc(opt.title)}</span><span class="status"><i style="background:${dot}"></i>${esc(statusText(this._hass, stateObj.state))}</span>${settings}${toggle}</div>
-      <div class="blocks">${this._block("sell", plans.sell, opt)}${this._block("buy", plans.buy, opt)}</div>
+      <div class="blocks${gridOn ? " three" : ""}">${this._block("sell", plans.sell, opt)}${this._block("buy", plans.buy, opt)}${gridOn ? this._gridBlock(attrs.grid_use, opt) : ""}</div>
       <div class="tiles">${this._planTile("spike", attrs.spike_plan, opt)}${this._planTile("negative", attrs.negative_price_plan, opt)}</div>
       ${timeline}
     `);

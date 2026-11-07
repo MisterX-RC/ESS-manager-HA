@@ -3282,6 +3282,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "battery_forecast_adjusted_uncapped": battery_forecast_adjusted_uncapped,
             "solar_surplus": solar_surplus,
             "grid_use": grid_use,
+            "grid_use_enabled": bool(conf.get(CONF_ENABLE_GRID_USE_PLAN)),
             "solar_export_expected": export_expected,
             "negative_price_plan": self._negative_price_plan,
             "spike_plan": self._spike_plan,

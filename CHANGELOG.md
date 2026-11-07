@@ -12,6 +12,18 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.17] - 2026-11-07
+
+### Status card
+- **A "From the grid" block** next to Sell and Buy (with the house from the
+  grid at low prices switched on): the current or next window the house
+  is taken from the grid, a bar that fills while it runs, "+2" for the
+  later windows (their times as a tooltip), and what it keeps in the
+  battery - or "sun covers the house" (a peak then comes from the grid).
+  Three side by side on a wide card, the grid block under the other two
+  when narrower, all under each other on a phone. `show_grid: false` hides
+  it. New attribute `grid_use_enabled`.
+
 ## [2026.11.16] - 2026-11-07
 
 ### The house from the grid at low prices

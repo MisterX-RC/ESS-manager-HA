@@ -56,6 +56,8 @@ STATUS_ATTRIBUTES = [
     "solar_surplus",
     # the house from the grid at low prices (as of 2026.10.41)
     "grid_use",
+    # whether it's switched on (as of 2026.11.17 - the status card's grid block)
+    "grid_use_enabled",
     "solar_export_expected",
     "negative_price_plan",
     "spike_plan",

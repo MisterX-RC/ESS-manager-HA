@@ -1860,7 +1860,14 @@ options; hover it for its name) and next to it **Settings**, which opens
 the ESS Manager device page with all its numbers, switches and sensors
 (written out when there's room, just the cog on a narrow card; only shown
 to admins). Below, two blocks side by side: **Sell**
-on the left, **Buy** on the right. Each shows the start (with the day when
+on the left, **Buy** on the right - *(as of 2026.11.17)* with the house from
+the grid at low prices switched on a third, **From the grid**: the current
+or next window the house is taken from the grid (start and stop, "+2" for
+the later ones - hover it for their times, a bar that fills while it
+runs), and what it keeps in the battery or "sun covers the house" (then a
+peak comes from the grid). Three side by side on a wide card, the grid
+block under the other two when narrower, all under each other on a phone;
+`show_grid: false` in the card's YAML hides it. Each shows the start (with the day when
 it hasn't started yet) and stop time, a bar with the duration and - once
 the window runs - how far it is, measured on the energy (it fills as the
 battery moves towards the plan's target, and says how long is left; hover
