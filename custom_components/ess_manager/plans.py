@@ -542,6 +542,29 @@ def _schedule_charge(
     for u in sorted(held, key=lambda u: -hold_cost(u)):
         if all(delivered_before(chosen, d, held - {u}) >= need - 1e-6 for d, need, _ in met):
             held.discard(u)
+    # as of 2026.11.16: with a shortfall to plan for, every quarter at or below
+    # the price limit is taken from the grid too - also where no requirement
+    # needs it and where the sun is forecast to cover the house (0 kWh there)
+    # - as long as the battery stays under the top in every later hour: an
+    # unplanned load (a washing machine, a peak) or less sun than forecast
+    # then comes from the grid at that low price instead of out of the
+    # battery; a real surplus still charges it (the setpoint loop keeps the
+    # battery at 0 W). The cheapest first.
+    if hold_rates and met:
+        added[:] = [0.0] * len(added)
+        for u in chosen:
+            for h in range(hour_of(u), len(added)):
+                added[h] += rates[u]
+        for u in held:
+            for h in range(hour_of(u), len(added)):
+                added[h] += hrate(u)
+        if base:
+            refresh()
+        for u in sorted(range(cur_unit, n), key=lambda u: (buy[u], u)):
+            if u in chosen or u in held or buy[u] > hold_max + 1e-9:
+                continue
+            if fits(u, hrate(u)):
+                hold(u)
     if holds_out is not None:
         holds_out.extend(sorted(held))
     return sorted(chosen)
@@ -608,74 +631,6 @@ def _grid_use_fields(holds: list[int], hold_rates: Optional[list[float]]) -> dic
     held = set(units)
     kwh = [round(hold_rates[u], 4) if u in held else 0.0 for u in filled]
     return {"grid_units": filled, "grid_unit_kwh": kwh, "grid_kwh": round(sum(kwh), 3)}
-
-
-# a quarter the sun (nearly) covers the house in: at most this much (battery
-# side, kWh) from the battery forecast (as of 2026.11.16)
-SURPLUS_GRID_MAX_KWH = 0.05
-
-
-def _surplus_grid_use(
-    grid: dict,
-    hold_rates: Optional[list[float]],
-    rates: list[float],
-    buy: list[float],
-    blocks: list[dict],
-    forecast: list[float],
-    cur_unit: int,
-    hour0_unit: int,
-    upper_limit_kwh: float,
-    charge_efficiency: float,
-    hold_factor: float,
-) -> dict:
-    """The quarters the sun is forecast to (nearly - SURPLUS_GRID_MAX_KWH)
-    cover the house in, taken from the grid too (as of 2026.11.16, at 0 kWh): the setpoint loop keeps the battery
-    at 0 W, so a real surplus still charges it - but an unplanned load (the
-    washing machine) or less sun than forecast comes from the grid instead
-    of the battery. Only where it's cheap - at most the price below which
-    the plan takes the house from the grid at all (the lowest charge price
-    after the losses in and out) - and not on a day the sun alone is
-    forecast to fill the battery (then such a load out of the battery is
-    refilled by a surplus that would go to the grid). Only with grid use
-    planned."""
-    if not grid or not hold_rates:
-        return grid
-    ce = charge_efficiency if charge_efficiency > 0 else 1.0
-    n = min(len(buy), len(rates), len(hold_rates))
-    known = [buy[u] for u in range(cur_unit, n) if rates[u] > 1e-6]
-    if not known or hold_factor <= 0:
-        return grid
-    hold_max = min(known) / (ce * hold_factor)
-    # a day the sun alone takes the battery to the top in an hour it covers
-    # the house: its surplus goes to the grid then (the planned charges are
-    # fitted under the top by the planning, so only the sun fills it)
-    held = dict(zip(grid.get("grid_units", []), grid.get("grid_unit_kwh", [])))
-    units: set[int] = set()
-    for b in blocks or []:
-        units.update(range(int(b["start_unit"]), int(b["end_unit"])))
-    day0 = hour0_unit // 96
-    full_day: dict[int, bool] = {}
-    for h, level in enumerate(forecast):
-        if level is None:
-            continue
-        day = (hour0_unit // 4 + h) // 24 - day0
-        sunny = any(0 <= hour0_unit + 4 * h + q < len(hold_rates) and hold_rates[hour0_unit + 4 * h + q] <= 1e-6
-                    for q in range(4))
-        full_day[day] = full_day.get(day, False) or (sunny and level >= upper_limit_kwh - 0.05)
-    out = set(grid.get("grid_units", []))
-    for u in range(cur_unit, n):
-        if hold_rates[u] > SURPLUS_GRID_MAX_KWH or u in out or u in units:
-            continue
-        h = (u - hour0_unit) // 4
-        if h < 0 or h >= len(forecast):
-            continue
-        if buy[u] <= hold_max + 1e-9 and not full_day.get((hour0_unit // 4 + h) // 24 - day0, False):
-            out.add(u)
-    if len(out) == len(grid.get("grid_units", [])):
-        return grid
-    units_sorted = sorted(out)
-    kwh = [held.get(u, 0.0) for u in units_sorted]
-    return {**grid, "grid_units": units_sorted, "grid_unit_kwh": kwh}
 
 
 def _blocks_plan(blocks: list[dict], total_kwh: float) -> dict:
@@ -1540,8 +1495,6 @@ def compute_low_charge_plan(
         hold_map = dict(zip(grid.get("grid_units", []), grid.get("grid_unit_kwh", [])))
         blocks = _charge_blocks(units, charge_rates, max(total_kwh - grid.get("grid_kwh", 0.0), 0.0), forecast,
                                 battery_now_kwh, cur_unit, hour0_unit, upper_limit_kwh, holds=hold_map)
-        grid = _surplus_grid_use(grid, hold_rates, charge_rates, buy, blocks, forecast, cur_unit, hour0_unit,
-                                 upper_limit_kwh, charge_efficiency, hold_factor)
         if not blocks:
             # everything needed after the known prices: planned when they come
             # (or met by taking the house from the grid, as of 2026.10.41)
@@ -1815,8 +1768,6 @@ def _soft_low_charge(
             hold_map = dict(zip(grid.get("grid_units", []), grid.get("grid_unit_kwh", [])))
             blocks = _charge_blocks(units, charge_rates, max(total_kwh - grid.get("grid_kwh", 0.0), 0.0), forecast,
                                     battery_now_kwh, cur_unit, hour0_unit, upper_limit_kwh, holds=hold_map)
-            grid = _surplus_grid_use(grid, hold_rates, charge_rates, buy, blocks, forecast, cur_unit, hour0_unit,
-                                     upper_limit_kwh, charge_efficiency, hold_factor)
             if not blocks:
                 if need_hard > 0 or grid:
                     return {"active": False, "breach_unit": breach_unit, "deferred_kwh": target_kwh, **grid}

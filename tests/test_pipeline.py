@@ -3610,21 +3610,24 @@ check("full charge: the session planned half an hour longer for the slower last 
       _fs_plan["end_unit"] - _fs_plan["start_unit"] == plans._full_session_window(
           _fs_price, [1.75] * 48, [1.0] * 12, 0, 0, 48, _fs_plan["target_kwh"], 1.0, 8)[1] + plans.FULL_TAPER_UNITS)
 
-# 2026.11.16: quarters the sun is forecast to cover the house in are taken from the grid too (0 kWh) when
-# cheap and the battery doesn't get full that day - an unplanned washing machine then comes from the grid
-_sg_hold = [0.3] * 4 + [0.0] * 8 + [0.3] * 12            # 01:00-03:00 the sun covers the house
-_sg_buy = [0.40] * 11 + [0.45] + [0.52] * 12              # 02:45 at 0.45, the evening 0.52
-_sg_grid = {"grid_units": [2, 3], "grid_unit_kwh": [0.3, 0.3], "grid_kwh": 0.6}
-_sg = plans._surplus_grid_use(_sg_grid, _sg_hold, [1.4] * 24, _sg_buy, [], [20.0] * 6, 0, 0, 30.0, 0.9, 0.95)
-_sg_full = plans._surplus_grid_use(_sg_grid, _sg_hold, [1.4] * 24, _sg_buy, [], [20.0, 25.0, 30.0, 29.0, 28.0, 27.0],
-                                   0, 0, 30.0, 0.9, 0.95)
-_sg_dear = plans._surplus_grid_use(_sg_grid, _sg_hold, [1.4] * 24, [0.30] + [0.40] * 3 + [0.60] * 20, [], [20.0] * 6,
-                                   0, 0, 30.0, 0.9, 0.95)
-check("grid use: the sunny quarters in between come from the grid too (0 kWh), up to the price limit (0.40 / 0.855)",
-      _sg["grid_units"] == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11] and _sg["grid_kwh"] == 0.6
-      and _sg["grid_unit_kwh"][:2] == [0.3, 0.3] and sum(_sg["grid_unit_kwh"]) == 0.6)
-check("grid use: not on a day the sun fills the battery (a load out of it is refilled for free), not above the limit",
-      _sg_full == _sg_grid and _sg_dear["grid_units"] == [2, 3])
+# 2026.11.16: with a shortfall to plan for, every quarter at or below the price limit is taken from the
+# grid (also sunny ones, at 0 kWh) as long as the battery stays under the top - unplanned loads and peaks
+# then come from the grid at the low price; no shortfall, no grid use
+_sg_rates = [1.4] * 24
+_sg_buy = [0.20] * 12 + [0.30] * 12
+_sg_hold = [0.25] * 4 + [0.0] * 4 + [0.25] * 16           # 01:00-02:00 the sun covers the house
+def _sgs(reqs, base, cap=30.0):
+    out: list = []
+    ch = plans._schedule_charge(reqs, _sg_rates, _sg_buy, _sg_buy, 0, 24, 1.75, 0.9, 2, base, 0, cap,
+                                hold_rates=_sg_hold, hold_factor=0.95, holds_out=out)
+    return ch, out
+_sg_ch, _sg_h = _sgs([(24, 1.0, True)], [20.0, 19.0, 18.0, 17.0, 16.0, 15.0])
+check("grid use: with a shortfall every cheap quarter (0.20 <= 0.20 / 0.855) from the grid, sunny ones too, the dear ones not",
+      set(_sg_h) | set(_sg_ch) >= set(range(12)) and {4, 5, 6, 7} <= set(_sg_h) and not set(_sg_h) & set(range(12, 24)))
+_sg_ch2, _sg_h2 = _sgs([], [20.0, 19.0, 18.0, 17.0, 16.0, 15.0])
+_sg_ch3, _sg_h3 = _sgs([(24, 1.0, True)], [27.0, 28.5, 29.9, 29.0, 28.0, 27.0])
+check("grid use: no shortfall - nothing from the grid; the battery near the top - only what still fits under it",
+      _sg_h2 == [] and _sg_ch2 == [] and len(_sg_h3) < len(_sg_h))
 
 # ---------------------------------------------------------------------------
 # 2026.10.16: heat pump model (heatpump.py, heatpump_runtime.py)
@@ -5344,12 +5347,12 @@ _gs = plans._schedule_charge([(8, 2.4, True)], [0.45] * 8, _gs_buy, _gs_buy, 0, 
                              hold_rates=[0.25] * 8, hold_factor=0.9, holds_out=_gs_holds)
 check("grid use: the house from the grid at 0.24, the cheapest quarters charge on top, never both in a quarter; "
       "0.26 is above 0.21 / (0.9 x 0.9) = 0.259 - not from the grid, charged (needed)",
-      _gs == [4, 5, 6, 7] and _gs_holds == [1, 2, 3])
+      _gs == [4, 5, 6, 7] and _gs_holds == [0, 1, 2, 3])   # (as of 2026.11.16 every cheap quarter: 0 too)
 _gs_small: list = []
 plans._schedule_charge([(8, 1.0, True)], [0.45] * 8, _gs_buy, _gs_buy, 0, 8, 0.5, 0.9, 1, [], 0, 100.0,
                        hold_rates=[0.25] * 8, hold_factor=0.9, holds_out=_gs_small)
-check("grid use: a small need - only the house from the grid, in the cheapest quarters, no charge",
-      _gs_small == [0, 1, 4, 5])
+check("grid use: a small need - only the house from the grid (as of 2026.11.16 every quarter under the limit), no charge",
+      _gs_small == [0, 1, 2, 3, 4, 5])
 _gs_cap: list = []
 plans._schedule_charge([(8, 1.4, True)], [0.0] * 8, _gs_buy, _gs_buy, 0, 8, 0.5, 0.9, 1, [9.6, 9.6], 0, 10.0,
                        hold_rates=[0.25] * 8, hold_factor=0.9, holds_out=_gs_cap)
