@@ -45,7 +45,7 @@ const I18N = {
     min_label: (p) => `min ${p} %`, max_label: (p) => `max ${p} %`,
     // plans (battery + price card)
     plan_sell: "Sell", plan_buy: "Buy", plan_spike: "Spike", plan_negative: "Negative price",
-    plan_grid: "From the grid", no_grid: "No grid use planned", grid_kept: "kWh kept in the battery",
+    plan_grid: "From the grid", no_grid: "No grid use planned", grid_kept: "kWh kept in the battery", grid_kept_short: "kWh kept", none_short: "none",
     grid_sun: "sun covers the house", grid_sun_tip: "The sun is forecast to cover the house - an unplanned load or a peak comes from the grid, not from the battery.", grid_more_tip: (n) => `and ${n} more ${n === 1 ? "block" : "blocks"}`,
     plan_full: "Full charge", plan_charged: "Charged", plan_sold: "Sold",
     // price card
@@ -245,7 +245,7 @@ const I18N = {
     soc: "SOC", without_plans: "Zonder plannen", solar: "Zon", usage: "Verbruik", price: "Prijs",
     min_label: (p) => `min ${p} %`, max_label: (p) => `max ${p} %`,
     plan_sell: "Verkoop", plan_buy: "Laden", plan_spike: "Piek", plan_negative: "Negatieve prijs",
-    plan_grid: "Uit het net", no_grid: "Geen net-gebruik gepland", grid_kept: "kWh blijft in de accu",
+    plan_grid: "Uit het net", no_grid: "Geen net-gebruik gepland", grid_kept: "kWh blijft in de accu", grid_kept_short: "kWh bewaard", none_short: "geen",
     grid_sun: "zon dekt het huis", grid_sun_tip: "Volgens de voorspelling dekt de zon het huis - een onverwacht verbruik of een piek komt uit het net, niet uit de accu.", grid_more_tip: (n) => `en nog ${n} ${n === 1 ? "blok" : "blokken"}`,
     plan_full: "Vol laden", plan_charged: "Geladen", plan_sold: "Verkocht",
     price_title: "Stroomprijs", buy_price: "inkoop", incl_transport: "incl. transport", sell_price: "verkoop", incl_tax: "incl", excl_tax: "excl", switch_view: "Tik om te wisselen tussen inkoop- en verkoopprijzen",
@@ -2035,7 +2035,7 @@ class EssManagerStatusCard extends HTMLElement {
       chipInfo ? `<span class="chip" style="background:${tint(chipInfo[1], 0.18)};color:${chipInfo[1]}">${icon(chipInfo[2], chipInfo[1], 12, 2.4)}${esc(chipInfo[0])}</span>` : ""
     }</div>`;
     if (!plan) {
-      return `<div class="block" style="border-color:transparent">${head}<div class="empty">${esc(this._t(sell ? "no_sell" : "no_buy"))}</div></div>`;
+      return `<div class="block none" style="border-color:transparent">${head}<div class="empty"><span class="long">${esc(this._t(sell ? "no_sell" : "no_buy"))}</span><span class="short">${esc(this._t("none_short"))}</span></div></div>`;
     }
     const minutes = (new Date(plan.stop) - new Date(plan.start)) / 60000;
     const energy = plan.energy_kwh || 0;
@@ -2082,7 +2082,7 @@ class EssManagerStatusCard extends HTMLElement {
     const now = Date.now();
     const list = (windows || []).filter((w) => new Date(w.stop).getTime() > now);
     if (!list.length) {
-      return `<div class="block grid-block" style="border-color:transparent">${head}<div class="empty">${esc(this._t("no_grid"))}</div></div>`;
+      return `<div class="block grid-block none" style="border-color:transparent">${head}<div class="empty"><span class="long">${esc(this._t("no_grid"))}</span><span class="short">${esc(this._t("none_short"))}</span></div></div>`;
     }
     const w = list[0];
     const start = new Date(w.start).getTime();
@@ -2094,7 +2094,7 @@ class EssManagerStatusCard extends HTMLElement {
     const inBar = running ? this._t("left")(this._duration((stop - now) / 60000)) : this._duration((stop - start) / 60000);
     const kwh = Number(w.kwh) || 0;
     const stat = kwh >= 0.05
-      ? `<div class="stat">${icon("home", color, 16)}<b>${this._num(kwh, 1)}</b><span class="dim">${esc(this._t("grid_kept"))}</span></div>`
+      ? `<div class="stat">${icon("home", color, 16)}<b>${this._num(kwh, 1)}</b><span class="dim long">${esc(this._t("grid_kept"))}</span><span class="dim short">${esc(this._t("grid_kept_short"))}</span></div>`
       : `<div class="stat" title="${esc(this._t("grid_sun_tip"))}">${icon("sun", color, 16)}<span class="dim">${esc(this._t("grid_sun"))}</span></div>`;
     return `<div class="block grid-block" style="border-color:transparent">${head}
       <div class="times"><span>${running ? "" : `<span class="dim">${esc(this._weekday(w.start))}</span> `}${esc(this._time(w.start))}</span><span>${esc(this._time(w.stop))}${more ? ` <span class="dim" title="${esc(tip)}">${esc(this._t("more_blocks")(more))}</span>` : ""}</span></div>
@@ -2230,7 +2230,7 @@ class EssManagerStatusCard extends HTMLElement {
     }
 
     const css = `
-      ha-card { padding: 16px; display: flex; flex-direction: column; gap: 14px; container-type: inline-size; }
+      ha-card { padding: 16px; display: flex; flex-direction: column; gap: 14px; container-type: inline-size; container-name: card; }
       .top .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
       .top { display: flex; align-items: center; gap: 10px; }
       .title { font-family: var(--ha-card-header-font-family, inherit); font-size: var(--ha-card-header-font-size, 24px); font-weight: var(--ha-card-header-font-weight, 500); letter-spacing: -0.012em; line-height: 1.2; flex-grow: 1; }
@@ -2241,14 +2241,34 @@ class EssManagerStatusCard extends HTMLElement {
       .top.tight .setbtn { width: 30px; height: 30px; padding: 0; }
       .top.tight .setbtn .lbl { display: none; }
       .blocks, .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-      /* three blocks (as of 2026.11.17): side by side when there's room, the
-         grid block under the other two when narrower, all under each other
-         on a phone */
-      .blocks.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      @container (max-width: 620px) { .blocks.three { grid-template-columns: repeat(2, minmax(0, 1fr)); } .blocks.three .grid-block { grid-column: 1 / -1; } }
-      @container (max-width: 380px) { .blocks, .tiles, .blocks.three { grid-template-columns: minmax(0, 1fr); } }
-      @container (min-width: 381px) and (max-width: 480px) { .stat { gap: 4px; padding: 7px 6px; } .stat b { font-size: 14px; } .stat .dim { font-size: 11px; } .arrow { padding: 0; } }
-      @container (min-width: 381px) and (max-width: 440px) { .stat .unit { display: none; } }
+      @container card (max-width: 380px) { .blocks, .tiles { grid-template-columns: minmax(0, 1fr); } }
+      /* three blocks (as of 2026.11.18): one row, a block without a plan a
+         narrow strip, the planned ones share the rest; a block narrower than
+         200 px gets compact lines; on a phone under each other, an empty
+         block a low bar */
+      .block .short, .stat .short { display: none; }
+      .blocks.three { display: flex; gap: 10px; }
+      .blocks.three > .block { flex: 1 1 0; min-width: 0; container-type: inline-size; }
+      .blocks.three > .block.none { flex: 0 0 72px; align-items: center; justify-content: center; padding: 10px 6px; }
+      .blocks.three > .block.none .long { display: none; }
+      .blocks.three > .block.none .short { display: inline; }
+      .blocks.three > .block.none .head { flex-direction: column; }
+      .blocks.three > .block.none .name { flex-direction: column; gap: 6px; font-size: 11px; text-align: center; white-space: normal; flex-grow: 0; }
+      .blocks.three > .block.none .empty { padding: 0; font-size: 11px; }
+      @container (max-width: 200px) {
+        .stat { flex-wrap: wrap; row-gap: 2px; justify-content: center; }
+        .stat .unit, .stat .arrow, .stat .long { display: none; }
+        .stat .short { display: inline; }
+      }
+      @container card (max-width: 380px) {
+        .blocks.three { flex-direction: column; }
+        .blocks.three > .block, .blocks.three > .block.none { flex: none; }
+        .blocks.three > .block.none { flex-direction: row; justify-content: space-between; padding: 8px 10px; }
+        .blocks.three > .block.none .head { flex-direction: row; }
+        .blocks.three > .block.none .name { flex-direction: row; font-size: 13px; }
+      }
+      @container card (min-width: 381px) and (max-width: 480px) { .stat { gap: 4px; padding: 7px 6px; } .stat b { font-size: 14px; } .stat .dim { font-size: 11px; } .arrow { padding: 0; } }
+      @container card (min-width: 381px) and (max-width: 440px) { .stat .unit { display: none; } }
       .block { display: flex; flex-direction: column; gap: 7px; border: 2px solid transparent; border-radius: 10px; padding: 10px; background: rgba(127,127,127,.12); }
       .head { display: flex; align-items: center; gap: 6px; }
       .name { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; flex-grow: 1; }

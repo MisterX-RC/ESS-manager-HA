@@ -1865,9 +1865,14 @@ the grid at low prices switched on a third, **From the grid**: the current
 or next window the house is taken from the grid (start and stop, "+2" for
 the later ones - hover it for their times, a bar that fills while it
 runs), and what it keeps in the battery or "sun covers the house" (then a
-peak comes from the grid). Three side by side on a wide card, the grid
-block under the other two when narrower, all under each other on a phone;
-`show_grid: false` in the card's YAML hides it. Each shows the start (with the day when
+peak comes from the grid). The three stay in one row: *(as of
+2026.11.18)* a block without a plan shrinks to a narrow strip (its icon,
+name and "none") and the planned ones share the rest of the width - a
+sale and a charge are never planned at the same time, so at most two are
+wide; a block narrower than about 200 px gets compact lines ("5,1 🔋 67 %",
+"0,2 kWh kept"). On a phone (up to 380 px) they're under each other, an
+empty block a low bar. `show_grid: false` in the card's YAML hides the
+grid block. Each shows the start (with the day when
 it hasn't started yet) and stop time, a bar with the duration and - once
 the window runs - how far it is, measured on the energy (it fills as the
 battery moves towards the plan's target, and says how long is left; hover

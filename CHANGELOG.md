@@ -12,6 +12,16 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.18] - 2026-11-07
+
+### Status card
+- **Sliding widths**: Sell, Buy and From the grid stay in one row; a block
+  without a plan shrinks to a narrow strip (icon, name, "none") and the
+  planned ones share the rest. A block narrower than about 200 px gets
+  compact lines (no "kWh" and arrow: "5,1 🔋 67 %"; "0,2 kWh kept"). On a
+  phone (up to 380 px) under each other, an empty block a low bar. Up to
+  2026.11.17 the grid block went under the other two below 620 px.
+
 ## [2026.11.17] - 2026-11-07
 
 ### Status card
