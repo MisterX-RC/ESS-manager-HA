@@ -15,7 +15,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ## [2026.11.22] - 2026-11-08
 
 ### Tests
-- `tests/ha` rebuilt to 20 Home Assistant tests (no change to the
+- `tests/ha` rebuilt to 26 Home Assistant tests (no change to the
   integration itself): start-up (also waiting for the solar forecast), the
   Victron charging station (also a grid window keeping the house battery
   out), the zappi, a sensors-only charger on top of a grid charge, the
@@ -25,7 +25,11 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   noticed, a problem notice coming and going, the Helios solar forecast,
   prices incl taxes (manual), the dashboard cards, a DST day, the
   thermostat learned from the climate history, floor control with the
-  Qube's status - in the Europe/Amsterdam time zone.
+  Qube's status, heat pump steering (day/night, a change by hand, off),
+  number settings restored before the first plan, the savings of today,
+  the 09:00 question about the car with a tap on "No", the forecast check,
+  the house from the grid following the battery - in the Europe/Amsterdam
+  time zone.
 
 ## [2026.11.21] - 2026-11-08
 
