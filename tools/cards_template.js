@@ -48,7 +48,7 @@ const I18N = {
     pp_title: "Planning", pp_close: "Close", pp_none: "Nothing planned", pp_now: "now", pp_next: "next",
     pp_charge: "Charge", pp_sell: "Sale", pp_grid: "From the grid", pp_full_charge: "Full charge", pp_balancing: "Balancing",
     pp_spike_charge: "Spike: charge", pp_spike_sell: "Spike: sale", pp_negative_charge: "Negative price: charge",
-    pp_negative_sell: "Negative price: discharge first", pp_solar_export: "Solar export",
+    pp_negative_sell: "Negative price: discharge first", pp_solar_export: "Solar export", pp_surplus: "Solar surplus",
     balance_until: (t) => `balancing until ${t}`,
     plan_grid: "From the grid", no_grid: "No grid use planned", grid_kept: "kWh kept in the battery", grid_kept_short: "kWh kept", none_short: "none",
     grid_sun: "sun covers the house", grid_sun_tip: "The sun is forecast to cover the house - an unplanned load or a peak comes from the grid, not from the battery.", grid_more_tip: (n) => `and ${n} more ${n === 1 ? "block" : "blocks"}`,
@@ -256,7 +256,7 @@ const I18N = {
     pp_title: "Planning", pp_close: "Sluiten", pp_none: "Niets gepland", pp_now: "nu", pp_next: "volgende",
     pp_charge: "Laden", pp_sell: "Verkoop", pp_grid: "Uit het net", pp_full_charge: "Volle lading", pp_balancing: "Balanceren",
     pp_spike_charge: "Piek: laden", pp_spike_sell: "Piek: verkoop", pp_negative_charge: "Negatieve prijs: laden",
-    pp_negative_sell: "Negatieve prijs: vooraf ontladen", pp_solar_export: "Teruglevering",
+    pp_negative_sell: "Negatieve prijs: vooraf ontladen", pp_solar_export: "Teruglevering", pp_surplus: "Zonoverschot",
     balance_until: (t) => `balanceren tot ${t}`,
     plan_grid: "Uit het net", no_grid: "Geen net-gebruik gepland", grid_kept: "kWh blijft in de accu", grid_kept_short: "kWh bewaard", none_short: "geen",
     grid_sun: "zon dekt het huis", grid_sun_tip: "Volgens de voorspelling dekt de zon het huis - een onverwacht verbruik of een piek komt uit het net, niet uit de accu.", grid_more_tip: (n) => `en nog ${n} ${n === 1 ? "blok" : "blokken"}`,
@@ -1903,6 +1903,8 @@ class EssManagerCardEditor extends HTMLElement {
 // SOC; an active spike or negative price plan shows in the block it drives
 // (chip + outline). Below: spike and negative price status, the control
 // toggle and a slim timeline of the Battery action sensor's history.
+// the solar surplus in the planning panel (as of 2026.11.21) - the price card's default colour
+const SURPLUS_COLOR = "rgb(242, 201, 76)";
 const STATUS_DEFAULTS = {
   title: "ESS Manager",
   automation: "",
@@ -2126,11 +2128,18 @@ class EssManagerStatusCard extends HTMLElement {
       }
     }
     const f = formats(this._hass);
-    const items = ((attrs.card_plans || {}).all || []).filter((i) => new Date(i.stop).getTime() > Date.now());
+    const plans = ((attrs.card_plans || {}).all || []).filter((i) => new Date(i.stop).getTime() > Date.now());
+    // (as of 2026.11.21) the solar surplus too, as on the price chart - not a plan, so not "next"
+    const surplus = (attrs.solar_surplus || []).filter((s) => new Date(s.stop).getTime() > Date.now()).map((s) => ({
+      kind: "surplus", start: s.start, stop: s.stop, kwh: s.kwh, reason: s.reason, info: true,
+      running: new Date(s.start).getTime() <= Date.now(),
+    }));
+    const items = [...plans, ...surplus].sort((a, b) => new Date(a.start) - new Date(b.start));
+    const firstPlan = items.findIndex((i) => !i.info);
     const colors = {
       charge: opt.buy_color, sell: opt.sell_color, grid: opt.grid_color, full_charge: BALANCE_COLOR, balancing: BALANCE_COLOR,
       spike_charge: opt.spike_color, spike_sell: opt.spike_color, negative_charge: opt.negative_color,
-      negative_sell: opt.negative_color, solar_export: opt.export_color,
+      negative_sell: opt.negative_color, solar_export: opt.export_color, surplus: SURPLUS_COLOR,
     };
     const now = Date.now();
     const span = 24 * 3600000;
@@ -2151,10 +2160,14 @@ class EssManagerStatusCard extends HTMLElement {
       }
       const bits = [];
       if (i.kind === "grid") bits.push((i.kwh || 0) >= 0.05 ? `${this._num(i.kwh, 1)} ${this._t("grid_kept_short")}` : this._t("grid_sun"));
+      else if (i.kind === "surplus") {
+        bits.push(this._t(i.reason === "rate" ? "surplus_rate" : "surplus_full"));
+        if (i.kwh) bits.push(this._t("surplus_kwh")(this._num(i.kwh, 1)));
+      }
       else if (i.kwh != null && i.kwh > 0) bits.push(`${this._num(i.kwh, 1)} kWh`);
-      if (i.price != null && i.kind !== "grid") bits.push(f.money(i.price));
+      if (i.price != null && i.kind !== "grid" && i.kind !== "surplus") bits.push(f.money(i.price));
       if (i.hold_until) bits.push(this._t("balance_until")(this._time(i.hold_until)));
-      const tag = i.running ? this._t("pp_now") : n === 0 ? this._t("pp_next") : "";
+      const tag = i.running ? this._t("pp_now") : n === firstPlan ? this._t("pp_next") : "";
       const c = colors[i.kind] || "#888";
       rows += `<div class="pp-item${i.running ? " run" : ""}" style="--c:${c}"><span class="pp-chip"></span><span class="pp-time">${esc(this._time(i.start))} – ${esc(this._time(i.stop))}</span><span class="pp-what"><b>${esc(this._t("pp_" + i.kind))}</b> <span class="dim">${esc(bits.join(" · "))}</span></span><span class="pp-end">${
         tag ? `<span class="pp-tag">${esc(tag)}</span>` : i.soc != null ? `→ ${this._num(i.soc, 0)} %` : ""

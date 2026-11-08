@@ -14,6 +14,12 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.11.21] - 2026-11-08
 
+### Status card
+- The **planning panel** also lists the expected **solar surplus**, as on
+  the price chart: its time, why (battery full / more than it can take)
+  and the kWh to the grid, in yellow on the timeline. It's not a plan, so
+  "next" stays on the next plan.
+
 ### Battery forecast card
 - The **price in the tooltip** follows the price card's choice: buy
   (incl taxes) or sell (excl), labelled "Price · incl" / "Price · excl" -

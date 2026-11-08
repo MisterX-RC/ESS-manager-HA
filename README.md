@@ -1901,7 +1901,9 @@ grid block. *(As of 2026.11.19)* tapping a planned block (or its "+2") opens
 the **planning panel**: every plan from now on in time order - charges,
 sales, the house from the grid, the full charge (with until when it
 balances) and the balancing wait, spike and negative price plans, solar
-export - with the time, the kWh, the average price and the battery level
+export, and *(as of 2026.11.21)* the expected solar surplus as on the price
+chart (battery full or more than it can take, with the kWh to the grid) -
+with the time, the kWh, the average price and the battery level
 after it, grouped by day, "now" / "next" on the running and next one, and
 a timeline of the coming 24 hours on top. Closed with the cross, a tap
 outside it or Escape. Each shows the start (with the day when
