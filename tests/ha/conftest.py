@@ -36,6 +36,13 @@ def auto_enable_custom_integrations(enable_custom_integrations):
 
 
 @pytest.fixture(autouse=True)
+async def amsterdam(hass):
+    """The house is in the Netherlands: its time zone (DST, the price day)."""
+    await hass.config.async_set_time_zone("Europe/Amsterdam")
+    yield
+
+
+@pytest.fixture(autouse=True)
 def no_recorder(monkeypatch):
     """No statistics: every recorder read returns nothing."""
     from custom_components.ess_manager import coordinator as coord

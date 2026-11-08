@@ -12,6 +12,21 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.22] - 2026-11-08
+
+### Tests
+- `tests/ha` rebuilt to 20 Home Assistant tests (no change to the
+  integration itself): start-up (also waiting for the solar forecast), the
+  Victron charging station (also a grid window keeping the house battery
+  out), the zappi, a sensors-only charger on top of a grid charge, the
+  charger settings page, the diagnostics download, a restart keeping
+  sessions and the thermostat history, a cheap moment charging (also under
+  the night limit), an unreadable SOC as a fail-safe idle, a frozen SOC
+  noticed, a problem notice coming and going, the Helios solar forecast,
+  prices incl taxes (manual), the dashboard cards, a DST day, the
+  thermostat learned from the climate history, floor control with the
+  Qube's status - in the Europe/Amsterdam time zone.
+
 ## [2026.11.21] - 2026-11-08
 
 ### EV - myenergi zappi

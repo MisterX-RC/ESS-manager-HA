@@ -156,3 +156,41 @@ async def test_zappi_charger(hass, freezer):
     assert calls == [("select", "select_option", {"entity_id": mode, "option": "Stopped"})]
     await coordinator.async_refresh()
     assert len(calls) == 1
+
+
+async def test_victron_grid_window_keeps_the_battery_out(hass, freezer):
+    """A "full by" grid window: the car's power goes on top of the grid setpoint
+    (as of 2026.10.27), so the house battery doesn't feed the car."""
+    from datetime import datetime
+
+    tz = dt_util.get_default_time_zone()
+    freezer.move_to(dt_util.as_utc(datetime(2026, 11, 9, 14, 1, tzinfo=tz)))
+    now = dt_util.now()
+    base_states(hass, now)
+    q = (now.hour * 60 + now.minute) // 15
+    today = [0.40] * 96
+    for i in range(q, q + 8):
+        today[i] = 0.10                     # the next two hours cheap
+    hass.states.async_set("sensor.price", "0.10", {"today": today, "tomorrow": [0.40] * 96, "tomorrow_valid": True,
+                                                  "unit_of_measurement": "EUR/kWh"})
+    device, ids = charger_device(hass, "victron_gx", VICTRON)
+    hass.states.async_set(ids["ev_status"], "connected")
+    hass.states.async_set(ids["ev_v_power"], "0", {"unit_of_measurement": "W"})
+    hass.states.async_set(ids["ev_v_energy"], "500.0", {"unit_of_measurement": "kWh"})
+    hass.states.async_set(ids["ev_mode"], "auto", {"options": ["manual", "auto", "scheduled"]})
+    hass.states.async_set(ids["ev_current"], "6", {"min": 6, "max": 16})
+    hass.states.async_set(ids["ev_charge"], "off")
+    entry, coordinator = await _setup(hass, {"ev_charger": "victron", "ev_victron_device": device,
+                                             "ev_energy_entity": ids["ev_v_energy"], "ev_power_entity": ids["ev_v_power"]})
+    calls: list = []
+    for d, sv in (("select", "select_option"), ("number", "set_value"), ("switch", "turn_on"), ("switch", "turn_off")):
+        record_calls(hass, d, sv, calls)
+    # full by 20:00, 4 kWh (60 -> 80 % of 20 kWh): the cheap quarters now
+    coordinator.ev.set_plan({"choice": "deadline", "day": "today", "hour": "20:00", "soc": 60}, int(now.timestamp()))
+    await coordinator.async_refresh()
+    flow = coordinator.ev.flow
+    assert flow["windows"] and flow["windows"][0][0] <= now.timestamp() < flow["windows"][0][1]
+    assert ("switch", "turn_on", {"entity_id": ids["ev_charge"]}) in calls
+    hass.states.async_set(ids["ev_v_power"], "3000", {"unit_of_measurement": "W"})
+    await coordinator.async_refresh()
+    assert coordinator._ev_offset_w == 3000.0
