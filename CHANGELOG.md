@@ -16,10 +16,11 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ### EV - plugged in during a planned session
 - With a car whose battery size is known, the notification that the
-  planned session is taken over **asks for the state of charge now**
-  (a reply field "State of charge" next to Yes / Something else): the
-  answer sets what's needed to the plan's target and the plan stays; Yes
-  keeps the planned kWh as before.
+  planned session is taken over talks in the **state of charge** the car
+  shows instead of kWh: "from 60 % to 80 %. Is it at 60 %? Tap Yes, or
+  fill in its state of charge" (a reply field "State of charge" next to
+  Yes / Something else; without a planned state of charge it just asks).
+  The answer sets what's needed to the plan's target and the plan stays.
 
 ### Status card
 - The **planning panel** also lists the expected **solar surplus**, as on

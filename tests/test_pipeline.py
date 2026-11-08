@@ -5019,7 +5019,7 @@ _tA2, _vaA2 = _vrtA.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 100.0, victr
 _qA = _vrtA.outbox[0]["payload"]
 check("plug-in during it: its plan taken over right away (full by 07:00, 12 kWh), the phone only asks whether it's right",
       _vrtA.flow["choice"] == "deadline" and _vrtA.flow["deadline"] == _dlA and _vrtA.flow["need_kwh"] == 12.0
-      and "overgenomen" in _qA["message"] and "vol om" in _qA["message"] and "laadstand nu" in _qA["message"]
+      and "overgenomen" in _qA["message"] and "vol om" in _qA["message"] and "Staat hij op" in _qA["message"] and "naar 80 %" in _qA["message"] and "kWh" not in _qA["message"]
       and [a["title"] for a in _qA["data"]["actions"]] == ["Laadstand", "Ja", "Anders"]
       and _qA["data"]["actions"][0].get("behavior") == "textInput" and _vaA2["charger"]["session"]["grid_kwh"] == 12.0)
 _tkA = _vrtA.flow["token"]

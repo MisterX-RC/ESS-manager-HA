@@ -150,10 +150,20 @@ class _VictronMixin:
             target = flow.get("target_soc") if flow.get("target_soc") is not None else (car or {}).get("target_soc")
             ok = evn.buttons(entry, token, [("ok=1", self._t("yes")), ("change=1", self._t("other"))])
             if car and car.get("capacity_kwh") and target is not None:
-                # (as of 2026.11.21) the state of charge now asked right away: the planned one
-                # (or a predicted session's) is often off - the answer replaces the kWh
-                self._send(prefix + self._t("adopted_soc", car=name, plan=what, target=f"{float(target):g}", kwh=kwh),
-                           evn.reply(entry, token, "asoc", lg, "ph_soc", "give_soc") + ok)
+                # (as of 2026.11.21) the state of charge, not kWh - that's what the car shows: the
+                # one the plan assumes to check (Yes), or asked; the answer replaces the kWh
+                soc = flow.get("soc")
+                cap = ev.charge_capacity(car)
+                if soc is None and need is not None and cap:
+                    soc = max(float(target) - float(need) / float(cap) * 100.0, 0.0)
+                if soc is not None:
+                    self._send(prefix + self._t("adopted_soc", car=name, plan=what, target=f"{float(target):g}",
+                                                soc=f"{round(float(soc)):d}"),
+                               evn.reply(entry, token, "asoc", lg, "ph_soc", "give_soc") + ok)
+                else:
+                    self._send(prefix + self._t("adopted_soc_ask", car=name, plan=what, target=f"{float(target):g}"),
+                               evn.reply(entry, token, "asoc", lg, "ph_soc", "give_soc")
+                               + evn.buttons(entry, token, [("change=1", self._t("other"))]))
             else:
                 self._send(self._t("adopted", car=name, plan=what, kwh=kwh), ok)
         elif step == "soc":
