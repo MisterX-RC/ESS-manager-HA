@@ -122,7 +122,7 @@ const I18N = {
     ev_r_by_fixed: (amps, kw, a, b) => `${amps} A \u00b7 ${kw} \u00b7 planned to be done by ${a} (an hour before ${b})`, ev_r_estimate: "prices for then not known yet: estimated as a calm charge",
     ev_pl_title: "Charge plan", ev_pl_preview: "preview - saved, the integration plans it", ev_pl_grid: "grid", ev_pl_batt: "battery", ev_pl_sun: "sun",
     ev_pl_cost: "Estimated cost", ev_pl_avg: (p) => `avg ${p}/kWh`, ev_pl_legend: "bars = price per quarter \u00b7 blue = grid \u00b7 green = house battery \u00b7 yellow = full by",
-    ev_pl_batt_note: "battery: the cheapest refill after it, with the losses", ev_pl_blocks: (n) => (n === 1 ? "1 block" : `${n} blocks`),
+    ev_pl_batt_note: "battery: the cheapest refill after it, with the losses", ev_pl_blocks: (n) => (n === 1 ? "1 block" : `${n} blocks`), ev_pl_blocks_from: (n, t) => `${n === 1 ? "1 block" : `${n} blocks`} from ${t}`,
     ev_st_full: (c) => `${c} \u00b7 full by the sums`,
     ev_how_q: "How do you want to charge?", ev_how: "How", ev_h_asap: "Fast", ev_h_calm: "Slow", ev_h_solar: "On the sun", ev_h_by: "Full by",
     ev_h_solar_sub: "solar surplus only", ev_h_by_sub: "sun first, rest cheapest",
@@ -323,7 +323,7 @@ const I18N = {
     ev_r_by_fixed: (amps, kw, a, b) => `${amps} A \u00b7 ${kw} \u00b7 gepland klaar om ${a} (een uur voor ${b})`, ev_r_estimate: "prijzen voor dan nog niet bekend: geschat als rustige lading",
     ev_pl_title: "Laadplan", ev_pl_preview: "voorbeeld - na opslaan plant de integratie het", ev_pl_grid: "net", ev_pl_batt: "accu", ev_pl_sun: "zon",
     ev_pl_cost: "Geschatte kosten", ev_pl_avg: (p) => `gem. ${p}/kWh`, ev_pl_legend: "balkjes = prijs per kwartier \u00b7 blauw = net \u00b7 groen = thuisaccu \u00b7 geel = vol om",
-    ev_pl_batt_note: "accu: goedkoopste aanvulmoment daarna, met de verliezen", ev_pl_blocks: (n) => (n === 1 ? "1 blok" : `${n} blokken`),
+    ev_pl_batt_note: "accu: goedkoopste aanvulmoment daarna, met de verliezen", ev_pl_blocks: (n) => (n === 1 ? "1 blok" : `${n} blokken`), ev_pl_blocks_from: (n, t) => `${n === 1 ? "1 blok" : `${n} blokken`} vanaf ${t}`,
     ev_st_full: (c) => `${c} \u00b7 vol volgens berekening`,
     ev_how_q: "Hoe wil je laden?", ev_how: "Hoe", ev_h_asap: "Snel", ev_h_calm: "Rustig", ev_h_solar: "Op zon", ev_h_by: "Vol om",
     ev_h_solar_sub: "alleen zon-overschot", ev_h_by_sub: "zon eerst, rest goedkoopst",
@@ -3531,15 +3531,19 @@ class EssManagerEvCard extends EssChartCard {
     const sel = this._edit && this._edit.id === s.id;
     const cls = ["ev-row", s.enabled ? "" : "off", sel ? "sel" : s.solar_history ? "hist" : ""].join(" ");
     const stop = end ? `${solar ? "\u00b1 " : ""}${this._time(end)}` : "\u2014";
-    // (as of 2026.11.5) a planned "full by": from its first charge window on
-    let from = start;
+    // a planned "full by": the line shows the planned start (as of 2026.11.21 -
+    // from 2026.11.5 to .20 its first charge window), the charging's own
+    // start goes with the number of blocks
+    const from = start;
     let blocks = "";
     const fb = s.mode === "deadline" && !s.running ? s.full_by : null;
     if (fb && !fb.tight && !fb.estimate && !(Number(fb.solar_kwh) > 0.05)) {
       const ws = [...(fb.windows || []), ...(fb.battery_windows || [])].map(([a]) => Date.parse(a)).filter((t) => isFinite(t));
       if (ws.length) {
-        from = Math.max(Math.min(...ws), start);
-        blocks = ` \u00b7 ${this._t("ev_pl_blocks")(ws.length)}`;
+        const first = Math.max(Math.min(...ws), start);
+        blocks = first > start + 60000
+          ? ` \u00b7 ${this._t("ev_pl_blocks_from")(ws.length, this._time(first))}`
+          : ` \u00b7 ${this._t("ev_pl_blocks")(ws.length)}`;
       }
     }
     const chip = { history: "ev_label_history", edited: "ev_label_edited", manual: "ev_label_manual" }[s.label] || "ev_label_manual";

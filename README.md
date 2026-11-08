@@ -758,8 +758,9 @@ deadline, the charge windows on it (blue = grid, green = house battery) and
 per window the time, the current, the kWh and the average price, with the
 estimated cost below. A saved session that's opened unchanged shows the
 integration's own plan; as soon as something is changed the card's preview
-("preview") until it's saved. The session's line shows its first charge
-window instead of the plug-in time, with the number of blocks. The
+("preview") until it's saved. The session's line shows its planned start
+(as set) and the time it's full; when the charging starts later, that
+start goes with the number of blocks ("1 block from 20:45"). The
 plugged-in car's panel shows the same charge plan (as of 2026.11.6): the
 integration's own plan while the choice is unchanged, the preview once
 it's changed; its day comes from the deadline itself, so "tomorrow" chosen

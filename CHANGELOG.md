@@ -21,6 +21,12 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   follow the sun as before (surplus: sell). Without prices incl taxes the
   bare price as before.
 
+### EV card
+- **A planned "full by" session's line shows its planned start** again
+  (18:00 → 06:25), as set; when the charging starts later, its start goes
+  with the blocks ("1 block from 20:45"). From 2026.11.5 the line showed
+  the first charge window's start.
+
 ## [2026.11.20] - 2026-11-07
 
 ### Heat pump - house model
