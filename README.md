@@ -1848,7 +1848,9 @@ price at a time: the **buy** prices with a solar deficit, the **sell**
 prices with a solar surplus. The header says which ("Electricity price ·
 buy · now") and whether the price now is **incl** (buying) or **excl**
 (selling) taxes; tap the header to switch between the two. The tooltip
-always shows both, each labelled.
+always shows both, each labelled. The battery forecast's tooltip follows that choice
+*(as of 2026.11.21)*: its price is the buy price incl taxes or the sell
+price excl, labelled the same way.
 
 **Solar surplus** (yellow column and line, "Solar surplus 14:15" - or
 just a sun at the top where the label doesn't fit next to another one): the

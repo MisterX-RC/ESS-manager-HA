@@ -12,6 +12,15 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.21] - 2026-11-08
+
+### Battery forecast card
+- The **price in the tooltip** follows the price card's choice: buy
+  (incl taxes) or sell (excl), labelled "Price · incl" / "Price · excl" -
+  tapping the price card's header switches both. Without a choice both
+  follow the sun as before (surplus: sell). Without prices incl taxes the
+  bare price as before.
+
 ## [2026.11.20] - 2026-11-07
 
 ### Heat pump - house model

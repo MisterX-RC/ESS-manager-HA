@@ -766,6 +766,16 @@ const BASE_CSS = `
   .legend i { display: inline-block; width: 10px; height: 8px; border-radius: 2px; }
 `;
 
+// The price card's buy (incl taxes) / sell (excl) choice, shared per entity
+// (as of 2026.11.21) - the battery forecast's tooltip shows the same price.
+// Until the page reloads; without a choice it follows the sun (surplus: sell).
+const PRICE_VIEWS = {};
+function priceView(entity, attrs) {
+  if (!Array.isArray(attrs.all_buy_price_incl) || !attrs.all_buy_price_incl.length) return null;
+  const auto = attrs.solar_mode && attrs.solar_mode.mode === "surplus" ? "sell" : "buy";
+  return PRICE_VIEWS[entity] || auto;
+}
+
 // Base for the two chart cards: config, hass, a re-render every minute,
 // re-render on a width change, and the tap / hover tooltip plumbing.
 class EssChartCard extends HTMLElement {
@@ -1358,7 +1368,10 @@ class EssManagerBatteryCard extends EssChartCard {
     const use = hourVal(m.flows.usage);
     const attrs = this._hass.states[this._config.entity].attributes;
     const unit = Math.floor((t - m.T0) / UNIT_MS);
-    const price = attrs.all_price && unit >= 0 && unit < attrs.all_price.length ? num(attrs.all_price[unit]) : null;
+    // as on the price card: buy incl taxes or sell excl (as of 2026.11.21)
+    const pview = priceView(this._config.entity, attrs);
+    const plist = pview === "buy" ? attrs.all_buy_price_incl : attrs.all_price;
+    const price = plist && unit >= 0 && unit < plist.length ? num(plist[unit]) : null;
     const xx = g.x(t);
     let dots = "";
     if (soc !== null) dots += `<circle cx="${r1(xx)}" cy="${r1(g.ys(clamp(soc, 0, 100)))}" r="4.5" fill="${opt.soc_color}" stroke="rgba(0,0,0,.5)" stroke-width="1.5"/>`;
@@ -1372,7 +1385,8 @@ class EssManagerBatteryCard extends EssChartCard {
     if (opt.show_raw !== false && free !== null) html += row(`<span class="dot" style="background:transparent;border:2px dotted ${opt.soc_color};width:4px;height:4px"></span>`, this._t("without_plans"), `${f.num(free, 0)} %`);
     if (opt.show_solar !== false && sol !== null) html += row(`<span class="dot" style="background:${opt.solar_color}"></span>`, this._t("solar"), kwh(sol));
     if (opt.show_usage !== false && use !== null) html += row(`<span class="dot" style="background:${opt.usage_color}"></span>`, this._t("usage"), kwh(use));
-    if (price !== null) html += `<div class="row sep"><span class="k">${esc(this._t("price"))}</span><b>${esc(f.money(price))}</b></div>`;
+    const plabel = pview ? `${this._t("price")} · ${this._t(pview === "sell" ? "excl_tax" : "incl_tax")}` : this._t("price");
+    if (price !== null) html += `<div class="row sep"><span class="k">${esc(plabel)}</span><b>${esc(f.money(price))}</b></div>`;
     // the house from the grid / solar export expected this hour (as of 2026.10.41)
     for (const w of (m.windows || []).filter((win) => (win.kind === "grid" || win.kind === "export") && t + HOUR_MS > win.start && t < win.stop)) {
       const c = w.kind === "grid" ? opt.grid_color : opt.export_color;
@@ -1492,7 +1506,7 @@ class EssManagerPriceCard extends EssChartCard {
     const siblings = attrs.card_entities || {};
     const actionObj = siblings.battery_action ? this._hass.states[siblings.battery_action] : null;
     const width = this._chartWidth();
-    const key = [stateObj, actionObj, this._hist, width, hassLang(this._hass), this._view];
+    const key = [stateObj, actionObj, this._hist, width, hassLang(this._hass), PRICE_VIEWS[this._config.entity]];
     if (this._renderKey && key.every((v, i) => v === this._renderKey[i])) return;
     this._renderKey = key;
 
@@ -1510,7 +1524,7 @@ class EssManagerPriceCard extends EssChartCard {
     const inclSell = (attrs.all_price || []).map(num);
     const incl = !!(inclBuy && inclBuy.length);
     const autoView = attrs.solar_mode && attrs.solar_mode.mode === "surplus" ? "sell" : "buy";
-    const view = incl ? this._view || autoView : null;
+    const view = incl ? PRICE_VIEWS[this._config.entity] || autoView : null;
     const prices = incl ? (view === "sell" ? inclSell : inclBuy) : (attrs.all_price || []).map(num);
     if (!prices.length) {
       setCardContent(this, BASE_CSS, `<div class="top"><span class="title">${title}</span></div><div class="dim">${esc(this._t("no_prices"))}</div>`);
@@ -1777,7 +1791,7 @@ class EssManagerPriceCard extends EssChartCard {
     this._surplus = surplus;
     for (const el of this.shadowRoot.querySelectorAll(".swap")) {
       el.onclick = () => {
-        this._view = view === "sell" ? "buy" : "sell";
+        PRICE_VIEWS[this._config.entity] = view === "sell" ? "buy" : "sell";
         this._render();
       };
     }
