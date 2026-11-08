@@ -194,6 +194,10 @@ EV_CHARGER_SENSORS = "sensors"
 EV_CHARGER_VICTRON = "victron"
 DEFAULT_EV_CHARGER = EV_CHARGER_SENSORS
 CONF_EV_VICTRON_DEVICE = "ev_victron_device"
+# a myenergi zappi (as of 2026.11.21): ESS Manager picks its charge mode
+EV_CHARGER_ZAPPI = "zappi"
+CONF_EV_ZAPPI_DEVICE = "ev_zappi_device"
+MYENERGI_DOMAIN = "myenergi"
 CONF_EV_NOTIFY = "ev_notify_services"
 VICTRON_GX_DOMAIN = "victron_gx"
 DEFAULT_EV_ENABLED = False

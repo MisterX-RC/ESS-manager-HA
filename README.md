@@ -789,6 +789,42 @@ attribute; the card uses the services `ess_manager.ev_session_save` and
 `ess_manager.ev_session_remove` (also usable in automations - see
 Developer tools > Actions).
 
+### myenergi zappi
+
+*(As of 2026.11.21)* A zappi of the
+[myenergi integration](https://github.com/CJNE/ha-myenergi) works like the
+Victron charging station - plugging in starts a session, the questions on
+the phone, taking over a planned session, "full by" with its charge plan,
+"stopped early" - except that it has no current to set: ESS Manager picks
+its **charge mode**. In Configure > Electric car pick "myenergi zappi" and
+the zappi's device; its charge mode, status and plug status are found on
+the device (by the end of their unique id). The energy and the power come
+from the charger's own meter - pick those sensors as before (a separate kWh
+meter in the meter cabinet; the zappi's own CT values are cloud-polled and
+coarse).
+
+| Choice | zappi mode |
+|---|---|
+| Now (fast) / a grid or battery window of "full by" | Fast |
+| Now, slowly | Eco - the solar surplus, at least 6 A (about 1.4 kW on one phase), the rest from the Victron side |
+| On the sun / "full by" between its windows | Eco+ - only the surplus, from about 1.4 kW |
+| No choice, done, unplugged | Stopped (once after unplugging, so the next car doesn't start by itself) |
+
+This assumes the zappi's **Grid CT clamp sits between the house and the
+Victron**: what it sees as export is the solar the house doesn't use, so
+Eco and Eco+ take that before the house battery does, and the Victron's
+grid setpoint doesn't move that clamp (no chasing each other). A "full by"
+is planned with its windows at Fast (the max current set here) and the sun
+in between. A mode is sent when the plan's mode changes, not again while
+it stays the same - a change in the myenergi app is left alone meanwhile.
+The integration polls the myenergi cloud (every 60 s by default), so a mode
+change can take a minute or two to show on the meter; each command and how
+long the meter took to follow is in the diagnostics
+(`ev_charger_commands`). Set the zappi itself to **Stopped**, turn on
+**charge when locked** if it has a PIN (locked without it, it doesn't charge
+on a command - the EV card says so: `charger.blocked`), and remove boost
+timers in the myenergi app: ESS Manager plans the charging.
+
 ## Heat pump
 
 For a heat pump whose electricity follows the weather (as of 2026.10.16).
@@ -2140,6 +2176,7 @@ dashboard/                       the old dashboard cards as YAML + example autom
 tools/build_cards.py             builds frontend/ess-manager-cards.js from tools/cards_template.js
 docs/images/                     screenshots used in this README
 tests/                           standalone tests (no Home Assistant needed)
+tests/ha/                        Home Assistant tests (pytest-homeassistant-custom-component: pytest tests/ha)
 .github/workflows/validate.yaml  HACS + hassfest validation on every push
 LICENSE                          MIT
 ```

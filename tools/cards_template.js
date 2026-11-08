@@ -119,6 +119,7 @@ const I18N = {
     ev_wait_text: "Until you choose, ESS Manager doesn't start the charger (what it starts itself goes on). The same question is on your phone.",
     ev_ext_text: "The charger started by itself and charges at its own current - ESS Manager leaves it alone until you choose.",
     ev_st_stopped: (c) => `${c} · stopped charging`,
+    ev_zappi_blocked: "The zappi is locked and won't charge - turn on \"charge when locked\" in the myenergi app.",
     ev_done_early: (soc, to) => `The car stopped at about ${soc} % instead of ${to} % - is its own charge limit set lower? Unplug the car to end the session.`,
     ev_done_early_kwh: (k) => `The car stopped with ${k} still to go by the sums - is its own charge limit set lower? Unplug the car to end the session.`,
     ev_done_text: "Full according to the sums - the charger stays as it is, the car stops by itself when it's really full. Unplug the car to end the session.",
@@ -323,6 +324,7 @@ const I18N = {
     ev_wait_text: "Tot je kiest start ESS Manager de lader niet (wat de lader zelf start, loopt door). Dezelfde vraag staat op je telefoon.",
     ev_ext_text: "De lader is zelf begonnen en laadt op zijn eigen stroom - ESS Manager laat hem met rust tot je kiest.",
     ev_st_stopped: (c) => `${c} · gestopt met laden`,
+    ev_zappi_blocked: "De zappi is vergrendeld en laadt niet - zet \"laden als vergrendeld\" aan in de myenergi-app.",
     ev_done_early: (soc, to) => `De auto stopte rond ${soc} % in plaats van ${to} % - staat de laadlimiet in de auto lager? Koppel de auto los om de sessie af te sluiten.`,
     ev_done_early_kwh: (k) => `De auto stopte terwijl er volgens de berekening nog ${k} bij moest - staat de laadlimiet in de auto lager? Koppel de auto los om de sessie af te sluiten.`,
     ev_done_text: "Vol volgens de berekening - de lader blijft zoals hij staat, de auto stopt zelf als hij echt vol is. Koppel de auto los om de sessie af te sluiten.",
@@ -2962,8 +2964,16 @@ class EssManagerEvCard extends EssChartCard {
       margin = 0;
     } else deadline = this._deadlineMs(p);
     if (deadline <= now) return { ...out, past: true };
-    const plan = evPlanFullBy(now, deadline, need, net, hour0, prices, priceStart, phases, ev.min_current, ev.max_current, margin);
+    const [fNet, fLo, fHi] = this._fbRange(ev, net);
+    const plan = evPlanFullBy(now, deadline, need, fNet, hour0, prices, priceStart, phases, fLo, fHi, margin);
     return { ...out, ...plan, any: p.day === "any" };
+  }
+
+  // (as of 2026.11.21) a zappi has no current to set: its "full by" windows run
+  // at the max current (Fast), the sun between them (Eco+) - as the integration plans it
+  _fbRange(ev, net) {
+    if (ev.charger && ev.charger.type === "zappi") return [net, ev.max_current, ev.max_current];
+    return [net, ev.min_current, ev.max_current];
   }
 
   _windowsText(windows) {
@@ -3095,6 +3105,8 @@ class EssManagerEvCard extends EssChartCard {
       else chip = `<span class="chip grid">${EV_ICON.deadline("currentColor").replace('width="16" height="16"', 'width="13" height="13"')}${esc(cs.day === "any" ? this._t("ev_d_any") : this._t("ev_chip_by")(this._when(Date.parse(cs.deadline))))}</span>`;
     }
     let out = `<div class="nu"><div class="nuhead">${head}${chip}</div>`;
+    // (as of 2026.11.21) a zappi locked without "charge when locked" doesn't charge on a command
+    if (ev.charger && ev.charger.blocked) out += `<div class="result warn">${ICON_CLOCK(EV_WARN)}<div>${esc(this._t("ev_zappi_blocked"))}</div></div>`;
     // the panel: choosing / changing
     if (cs && this._plan && this._plan.sid === cs.id) return out + this._planPanel(ev, cs) + "</div>";
     if (!cs && this._edit && s && this._edit.id === s.id) return out + this._editPanel(ev) + "</div>";
@@ -3407,7 +3419,8 @@ class EssManagerEvCard extends EssChartCard {
       const net = ev.house_net_120h || [];
       const hour0 = Math.floor(now / HOUR_MS) * HOUR_MS;
       if (deadline - HOUR_MS <= priceStart + prices.length * UNIT_MS) {
-        const plan = evPlanFullBy(begin, deadline, need, net, hour0, prices, priceStart, phases, ev.min_current, ev.max_current, HOUR_MS);
+        const [fNet, fLo, fHi] = this._fbRange(ev, net);
+        const plan = evPlanFullBy(begin, deadline, need, fNet, hour0, prices, priceStart, phases, fLo, fHi, HOUR_MS);
         return { ...plan, got: need - plan.short, need, by: true };
       }
       // prices not known yet: a calm charge from the start

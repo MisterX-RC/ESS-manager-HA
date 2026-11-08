@@ -51,6 +51,28 @@ VICTRON_KEYS = {
 }
 VICTRON_REQUIRED = ("status", "power", "energy", "mode", "current", "charge")
 
+# A myenergi zappi (as of 2026.11.21, the myenergi integration): no current to
+# set - ESS Manager picks one of its charge modes per quarter. Its entities by
+# role, found on its device by the end of their unique id (the integration's
+# own names depend on the zappi's name).
+ZAPPI_SUFFIXES = {
+    "mode": ("select", "-charge_mode"),
+    "status": ("sensor", "-status"),
+    "plug": ("sensor", "-plug_status"),
+    "session_energy": ("sensor", "-charge_added"),
+    "locked": ("binary_sensor", "-locked"),
+    "when_locked": ("binary_sensor", "-charge_when_locked"),
+}
+ZAPPI_REQUIRED = ("mode", "status", "plug")
+ZAPPI_FAST = "Fast"
+ZAPPI_ECO = "Eco"
+ZAPPI_ECO_PLUS = "Eco+"
+ZAPPI_STOPPED = "Stopped"
+# what a zappi is put back to when the car is unplugged: nothing starts by itself
+ZAPPI_REST = ZAPPI_STOPPED
+CHARGER_VICTRON = "victron"
+CHARGER_ZAPPI = "zappi"
+
 MODE_MANUAL = "manual"
 MODE_AUTO = "auto"
 # what the charger is put back to when the car is unplugged (as of 2026.10.31):
@@ -199,6 +221,7 @@ def plan_deadline(
     grid_kw: Optional[float] = None,
     battery: Optional[dict[str, Any]] = None,
     keep_battery: Optional[list[int]] = None,
+    sun: bool = True,
 ) -> dict[str, Any]:
     """Where a charge that has to be done by `deadline_epoch` gets its
     `need_kwh`: solar first (per quarter what the surplus `net` - kWh per
@@ -231,6 +254,9 @@ def plan_deadline(
         return max(hi - lo, 0) / UNIT
 
     def solar(q: int) -> float:
+        if not sun:
+            # (as of 2026.11.21) a charger that can't follow the sun (a zappi): no sun part
+            return 0.0
         h = (q - hour0_epoch) // 3600
         spare = net[h] if 0 <= h < len(net) and net[h] is not None else 0.0
         rate = min(max(spare, 0.0), p_max_kw) if spare >= p_min_kw else 0.0
@@ -408,6 +434,7 @@ def plan_full_by(
     margin: int = DEADLINE_MARGIN,
     battery: Optional[dict[str, Any]] = None,
     keep_battery: Optional[list[int]] = None,
+    sun: bool = True,
 ) -> dict[str, Any]:
     """"Full by" with its own speed (as of 2026.10.29): planned to be done
     `margin` before the deadline (sun first, the rest in the cheapest
@@ -431,7 +458,7 @@ def plan_full_by(
     for amps in range(lo, hi + 1):
         kw = power_kw(amps, phases)
         trial = plan_deadline(now_epoch, ready_by, need_kwh, net, hour0_epoch, prices, price_start_epoch, p_min, p_max, keep, kw,
-                              battery, keep_battery)
+                              battery, keep_battery, sun)
         if trial["short_kwh"] <= 0.05:
             fits.append({**trial, "current_a": amps, "grid_kw": kw, "tight": False})
     if fits:
@@ -456,6 +483,45 @@ def plan_full_by(
     plan["ready_by"] = ready_by
     plan["reach_kwh"] = round(max(need_kwh, 0.0) - plan["short_kwh"], 2)
     return plan
+
+
+def zappi_status(plug: Optional[str], status: Optional[str]) -> Optional[str]:
+    """A zappi's plug and charge status as the Victron Status values the
+    session follows: no car -> disconnected, Completed -> charged (the car
+    stopped), Charging / Boosting -> charging; None when it can't be read."""
+    p = (plug or "").strip().lower()
+    st = (status or "").strip().lower()
+    if p in ("", "unknown", "unavailable") and st in ("", "unknown", "unavailable"):
+        return None
+    if p in ("ev disconnected", "unknown", "unavailable", ""):
+        return STATUS_DISCONNECTED if p == "ev disconnected" else None
+    if st == "completed":
+        return STATUS_CHARGED
+    if st in ("charging", "boosting") or p == "charging":
+        return STATUS_CHARGING_NOW
+    return "connected"
+
+
+def zappi_mode(target: Optional[dict[str, Any]], choice: Optional[str], min_a: float) -> Optional[str]:
+    """The zappi charge mode for a charger target (charger_target). Its CT
+    clamp sits between the house and the Victron, so what it sees as export
+    is the solar the house doesn't use - what would otherwise go into the
+    house battery (or out through it). Off -> Stopped; "now, slowly" (the min
+    current) -> Eco (the solar surplus, at least 6 A - the rest from the
+    Victron side); a grid or battery window, "now" -> Fast; the sun - also a
+    "full by" between its windows -> Eco+ (only the surplus, from ~1.4 kW on
+    a phase). The Victron's grid setpoint doesn't move that CT, so the two
+    don't chase each other."""
+    del choice
+    if target is None:
+        return None
+    if not target.get("charge"):
+        return ZAPPI_STOPPED
+    if target.get("mode") == MODE_AUTO:
+        return ZAPPI_ECO_PLUS
+    if target.get("current") is not None and float(target["current"]) <= float(min_a):
+        return ZAPPI_ECO
+    return ZAPPI_FAST
 
 
 def in_windows(epoch: int, windows: list[list[int]]) -> bool:
@@ -532,6 +598,7 @@ def planned_full_by(
     min_a: float,
     max_a: float,
     battery: Optional[dict[str, Any]] = None,
+    sun: bool = True,
 ) -> tuple[list[float], list[float], dict[str, Any]]:
     """A planned "full by" session (as of 2026.10.29) in the forecast: per
     hour what it takes (a full-hour value for hour 0) and the part of it in
@@ -548,7 +615,7 @@ def planned_full_by(
     prices_end = price_start_epoch + len(prices) * UNIT
     if deadline - DEADLINE_MARGIN <= prices_end:
         plan = plan_full_by(start, deadline, need, net, hour0_epoch, prices, price_start_epoch, phases, min_a, max_a,
-                            battery=battery)
+                            battery=battery, sun=sun)
     else:
         ready = max(deadline - DEADLINE_MARGIN, start + UNIT)
         amps = int(round(max_a))

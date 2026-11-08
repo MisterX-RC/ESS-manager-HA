@@ -55,11 +55,14 @@ from .const import (
     CONF_EV_CHARGER,
     CONF_EV_NOTIFY,
     CONF_EV_VICTRON_DEVICE,
+    CONF_EV_ZAPPI_DEVICE,
     CONF_FLOOR_QUBE_DEVICE,
     QUBE_DOMAIN,
     DEFAULT_EV_CHARGER,
     EV_CHARGER_SENSORS,
     EV_CHARGER_VICTRON,
+    EV_CHARGER_ZAPPI,
+    MYENERGI_DOMAIN,
     VICTRON_GX_DOMAIN,
     CONF_HP_COOL_ENTITIES,
     CONF_HP_ENABLED,
@@ -605,6 +608,7 @@ EV_CAR_ADD_ANOTHER = "ev_car_add_another"
 EV_CHARGER_OPTIONS = [
     selector.SelectOptionDict(value=EV_CHARGER_SENSORS, label="Energy and power sensors (forecast only)"),
     selector.SelectOptionDict(value=EV_CHARGER_VICTRON, label="Victron EV charging station (ESS Manager drives it)"),
+    selector.SelectOptionDict(value=EV_CHARGER_ZAPPI, label="myenergi zappi (ESS Manager picks its charge mode)"),
 ]
 
 
@@ -644,6 +648,10 @@ def _ev_schema(defaults: dict[str, Any], notify_options: Optional[list] = None) 
             ),
             vol.Optional(CONF_EV_VICTRON_DEVICE, default=defaults.get(CONF_EV_VICTRON_DEVICE)): vol.Maybe(
                 selector.DeviceSelector(selector.DeviceSelectorConfig(integration=VICTRON_GX_DOMAIN))
+            ),
+            # (as of 2026.11.21) a zappi of the myenergi integration
+            vol.Optional(CONF_EV_ZAPPI_DEVICE, default=defaults.get(CONF_EV_ZAPPI_DEVICE)): vol.Maybe(
+                selector.DeviceSelector(selector.DeviceSelectorConfig(integration=MYENERGI_DOMAIN))
             ),
             vol.Optional(CONF_EV_NOTIFY, default=list(defaults.get(CONF_EV_NOTIFY) or [])): selector.SelectSelector(
                 selector.SelectSelectorConfig(
@@ -1036,6 +1044,17 @@ class _EssManagerSteps:
                     # the history and the live values come from the charger itself
                     cleaned[CONF_EV_ENERGY_ENTITY] = found["energy"]
                     cleaned[CONF_EV_POWER_ENTITY] = found["power"]
+            if cleaned.get(CONF_EV_CHARGER) == EV_CHARGER_ZAPPI:
+                # (as of 2026.11.21) the zappi's mode and status from its device; the energy
+                # and power from the charger's own meter (its sensors below)
+                from .coordinator import zappi_entities
+                from .ev_charger import ZAPPI_REQUIRED
+
+                found = zappi_entities(self.hass, cleaned.get(CONF_EV_ZAPPI_DEVICE))
+                if not cleaned.get(CONF_EV_ZAPPI_DEVICE):
+                    errors["base"] = "ev_zappi_device_required"
+                elif any(k not in found for k in ZAPPI_REQUIRED):
+                    errors["base"] = "ev_zappi_incomplete"
             if errors:
                 pass
             elif not cleaned.get(CONF_EV_ENERGY_ENTITY) or not cleaned.get(CONF_EV_POWER_ENTITY):

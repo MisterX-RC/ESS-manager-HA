@@ -5950,6 +5950,31 @@ check("thermostat house: a thermostat that places the hours worse stays out of t
       not _tr2["review"]["thermostat"]["used"] and _tr2["model"].get("thermostat") is None
       and _tr2["review"]["hour_error_kwh"] == _tr0["review"]["hour_error_kwh"])
 
+# 2026.11.21: a myenergi zappi - its status as the Victron's, its charge mode per plan, the plan at Fast without sun
+check("zappi: plug / charge status as the session's Status values",
+      evc.zappi_status("EV Disconnected", "Paused") == "disconnected" and evc.zappi_status("EV Connected", "Completed") == "charged"
+      and evc.zappi_status("Charging", "Charging") == "charging" and evc.zappi_status("EV Connected", "Paused") == "connected"
+      and evc.zappi_status("unavailable", "unavailable") is None)
+_zt = lambda mode, charge, cur, why="x": {"mode": mode, "charge": charge, "current": cur, "why": why}
+check("zappi: the charge mode per target - off Stopped, min current Eco, more Fast, the sun (also full-by between windows) Eco+",
+      evc.zappi_mode(_zt("manual", False, None), "asap", 6) == "Stopped"
+      and evc.zappi_mode(_zt("manual", True, 6), "calm", 6) == "Eco"
+      and evc.zappi_mode(_zt("manual", True, 13), "asap", 6) == "Fast"
+      and evc.zappi_mode(_zt("auto", True, None), "solar", 6) == "Eco+"
+      and evc.zappi_mode(_zt("auto", True, None), "deadline", 6) == "Eco+"
+      and evc.zappi_mode(None, "asap", 6) is None)
+_zrt = ev_runtime.EvRuntime()
+_zrt.ctx = {"charger": "zappi"}
+_vrt_v = ev_runtime.EvRuntime()
+_vrt_v.ctx = {"charger": "victron"}
+check("zappi: a full-by plan's windows only at the max current (Fast), the sun between them; the Victron keeps its range",
+      _zrt._plan_range(6, 13) == (13, 13, True) and _vrt_v._plan_range(6, 13) == (6, 13, True))
+_zn = [5.0] * 48
+_zplan_sun = evc.plan_deadline(0, 6 * 3600, 3.0, _zn, 0, [0.3] * 96, 0, 1.4, 3.0)
+_zplan_nosun = evc.plan_deadline(0, 6 * 3600, 3.0, _zn, 0, [0.3] * 96, 0, 1.4, 3.0, sun=False)
+check("full by: without sun the plan buys it all in grid quarters", _zplan_sun["solar_kwh"] > 2.9 and _zplan_nosun["solar_kwh"] == 0.0
+      and _zplan_nosun["grid_kwh"] == 3.0)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

@@ -82,6 +82,7 @@
         "data": {
           "ev_charger": "Laadpaal",
           "ev_victron_device": "Victron EV-laadpaal (apparaat)",
+          "ev_zappi_device": "myenergi zappi (apparaat)",
           "ev_notify_services": "Telefoons voor de vragen (notify-diensten van de Companion-app)",
           "ev_energy_entity": "Energiesensor laadpaal (oplopend, kWh)",
           "ev_power_entity": "Vermogenssensor laadpaal (W) - boven 0 loopt er een sessie: dag en starttijd liggen dan vast",
@@ -250,6 +251,8 @@
       "floor_helper_same": "De hulpschakelaar van de thermostaat moet een andere entiteit zijn dan de warmtevraag-schakelaar van de warmtepomp.",
       "ev_victron_device_required": "Kies het apparaat van de Victron EV-laadpaal.",
       "ev_victron_incomplete": "Dit apparaat heeft niet de entiteiten van een Victron EV-laadpaal (status, vermogen, totale energie, modus, laadstroom-setpoint, EV laden) - of een deel ervan is uitgeschakeld.",
+      "ev_zappi_device_required": "Kies het apparaat van de zappi (myenergi-integratie).",
+      "ev_zappi_incomplete": "Dit apparaat heeft niet de zappi-entiteiten van de myenergi-integratie (laadmodus, status, stekkerstatus) - of een deel ervan is uitgeschakeld.",
       "battery_power_required": "Kies de vermogenssensor van de accu.",
       "price_incl_entity_required": "Kies de prijssensor van de leverancier"
     },
@@ -333,6 +336,7 @@
         "data": {
           "ev_charger": "Laadpaal",
           "ev_victron_device": "Victron EV-laadpaal (apparaat)",
+          "ev_zappi_device": "myenergi zappi (apparaat)",
           "ev_notify_services": "Telefoons voor de vragen (notify-diensten van de Companion-app)",
           "ev_energy_entity": "Energiesensor laadpaal (oplopend, kWh)",
           "ev_power_entity": "Vermogenssensor laadpaal (W) - boven 0 loopt er een sessie: dag en starttijd liggen dan vast",
@@ -500,6 +504,8 @@
       "floor_helper_same": "De hulpschakelaar van de thermostaat moet een andere entiteit zijn dan de warmtevraag-schakelaar van de warmtepomp.",
       "ev_victron_device_required": "Kies het apparaat van de Victron EV-laadpaal.",
       "ev_victron_incomplete": "Dit apparaat heeft niet de entiteiten van een Victron EV-laadpaal (status, vermogen, totale energie, modus, laadstroom-setpoint, EV laden) - of een deel ervan is uitgeschakeld.",
+      "ev_zappi_device_required": "Kies het apparaat van de zappi (myenergi-integratie).",
+      "ev_zappi_incomplete": "Dit apparaat heeft niet de zappi-entiteiten van de myenergi-integratie (laadmodus, status, stekkerstatus) - of een deel ervan is uitgeschakeld.",
       "battery_power_required": "Kies de vermogenssensor van de accu.",
       "price_incl_entity_required": "Kies de prijssensor van de leverancier"
     }

@@ -49,7 +49,9 @@ from .const import (
     CONF_EV_CHARGER,
     CONF_EV_NOTIFY,
     CONF_EV_VICTRON_DEVICE,
+    CONF_EV_ZAPPI_DEVICE,
     EV_CHARGER_VICTRON,
+    EV_CHARGER_ZAPPI,
     CONF_HP_COOL_ENTITIES,
     CONF_HP_ENABLED,
     CONF_HP_HEAT_ENTITIES,
@@ -214,6 +216,11 @@ STARTUP_GRACE = timedelta(minutes=10)
 # power within this of 0 W counts as 0; the grid setpoint never goes above
 GRID_USE_DEADBAND_W = 30.0
 GRID_USE_MAX_KW = 25.0
+# a zappi (as of 2026.11.21): mode commands kept for the diagnostics; the
+# meter has followed a command once it moved this much (W); given up after (s)
+ZAPPI_CMD_KEEP = 30
+ZAPPI_FOLLOW_W = 300.0
+ZAPPI_FOLLOW_MAX_S = 900
 # solar export (as of 2026.10.41): the battery keeps charging at this, the
 # solar above it goes to the grid
 SOLAR_EXPORT_BATTERY_W = 1000.0
@@ -328,6 +335,21 @@ def _get_float_state(
         return default
 
 
+
+def zappi_entities(hass: HomeAssistant, device_id: Optional[str]) -> dict[str, str]:
+    """A zappi's entities (myenergi integration) by role - ev_charger.ZAPPI_SUFFIXES:
+    the platform and the end of the unique id (as of 2026.11.21)."""
+    if not device_id:
+        return {}
+    out: dict[str, str] = {}
+    for entry in er.async_entries_for_device(er.async_get(hass), device_id):
+        if entry.disabled_by:
+            continue
+        for role, (domain, suffix) in evc.ZAPPI_SUFFIXES.items():
+            if entry.domain == domain and (entry.unique_id or "").endswith(suffix):
+                out.setdefault(role, entry.entity_id)
+    return out
+
 class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Owns the whole compute pipeline for one ESS Manager config entry."""
 
@@ -416,6 +438,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # setpoint offset that keeps the house battery out of a grid window
         self._ev_writes: dict[str, tuple[Any, float]] = {}
         self._ev_error: Optional[str] = None
+        # a zappi (as of 2026.11.21): each mode command and how long the power
+        # (the charger's own meter) took to follow - for the diagnostics, to
+        # learn the cloud's delay; the command still waiting for that
+        self._ev_cmds: list[dict[str, Any]] = []
+        self._ev_cmd_wait: Optional[dict[str, Any]] = None
         self._ev_offset_w = 0.0
         # a charger without Victron (as of 2026.10.40): until when the house
         # battery's running charge goes on (epoch) - the car's energy in it
@@ -641,6 +668,45 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 out[role] = entry.entity_id
         return out
 
+    def _zappi_entities(self, device_id: Optional[str]) -> dict[str, str]:
+        """A zappi's entities of the myenergi integration by role (as of
+        2026.11.21), found on its device by the end of their unique id
+        (ev_charger.ZAPPI_SUFFIXES) - their names follow the zappi's name."""
+        return zappi_entities(self.hass, device_id)
+
+    def _zappi_inputs(self, conf: dict[str, Any], ents: dict[str, str], now: datetime, buy_price: list[float],
+                      battery: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        """The zappi in the shape the session follows (as _victron_inputs):
+        its plug and charge status as Victron Status values, the power from
+        the charger's own meter (the EV power sensor), and `blocked` - locked
+        without "charge when locked", so it won't charge on a command."""
+        plug = self.hass.states.get(ents.get("plug", ""))
+        stat = self.hass.states.get(ents.get("status", ""))
+        status = evc.zappi_status(plug.state if plug else None, stat.state if stat else None)
+        connected = self.ev.flow is not None if status is None else status != evc.STATUS_DISCONNECTED
+        notify = [s for s in (conf.get(CONF_EV_NOTIFY) or []) if self.hass.services.has_service("notify", s)]
+        mode_state = self.hass.states.get(ents.get("mode", ""))
+        locked = self.hass.states.get(ents.get("locked", ""))
+        when_locked = self.hass.states.get(ents.get("when_locked", ""))
+        since = [x.last_changed for x in (plug, stat) if x is not None]
+        return {
+            "charger": evc.CHARGER_ZAPPI,
+            "connected": connected,
+            "status": status,
+            "status_since": int(max(since).timestamp()) if since else None,
+            "mode": mode_state.state if mode_state and mode_state.state not in ("unknown", "unavailable") else None,
+            "set_current": None,
+            "power_w": _state_in_unit(self.hass, conf.get(CONF_EV_POWER_ENTITY), ("kW",), 1000.0),
+            "blocked": bool(locked and locked.state == "on" and when_locked and when_locked.state == "off"),
+            "entry_id": self.entry.entry_id,
+            "language": evn.lang(self.hass.config.language),
+            "notify": bool(notify),
+            "notify_services": notify,
+            "prices": list(buy_price),
+            "battery": battery,
+            "price_start": int(units.local_midnight(now).timestamp()),
+        }
+
     def _victron_inputs(self, conf: dict[str, Any], ents: dict[str, str], now: datetime, buy_price: list[float],
                         battery: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         status_state = self.hass.states.get(ents.get("status", ""))
@@ -687,7 +753,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         battery charges from the grid, what the car takes now (kW, measured)
         - added to the grid setpoint, so the battery charges at the planned
         speed (also the night speed) instead of feeding the car."""
-        if not conf.get(CONF_EV_ENABLED) or conf.get(CONF_EV_CHARGER) == EV_CHARGER_VICTRON:
+        if not conf.get(CONF_EV_ENABLED) or conf.get(CONF_EV_CHARGER) in (EV_CHARGER_VICTRON, EV_CHARGER_ZAPPI):
             return 0.0
         if action not in (control.ACTION_CHARGE, control.ACTION_NEGATIVE_PRICE_CHARGE):
             return 0.0
@@ -816,7 +882,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Until when the running grid charge goes on (epoch), for a charger
         without Victron whose car the setpoint covers meanwhile (2026.10.40);
         None when not charging, or without direct control."""
-        if not conf.get(CONF_EV_ENABLED) or conf.get(CONF_EV_CHARGER) == EV_CHARGER_VICTRON:
+        if not conf.get(CONF_EV_ENABLED) or conf.get(CONF_EV_CHARGER) in (EV_CHARGER_VICTRON, EV_CHARGER_ZAPPI):
             return None
         if action not in (control.ACTION_CHARGE, control.ACTION_NEGATIVE_PRICE_CHARGE):
             return None
@@ -831,10 +897,95 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         flow = self.ev.flow
         if not flow or flow.get("done") or not evc.in_windows(int(now.timestamp()), flow.get("windows") or []):
             return 0.0
-        power_w = _state_in_unit(self.hass, ents.get("power"), ("kW",), 1000.0)
+        power_w = _state_in_unit(self.hass, ents.get("power") or victron.get("power_entity"), ("kW",), 1000.0)
         if not power_w or power_w <= 0:
             return 0.0
         return round(power_w / 1000.0, 1)
+
+    async def _async_zappi(self, conf: dict[str, Any], ents: dict[str, str], now: datetime,
+                           control_settings: ControlSettings) -> None:
+        """Drive a zappi (as of 2026.11.21): the charge mode the plugged-in
+        car's plan says (ev_charger.zappi_mode) - Fast, Eco, Eco+ or Stopped;
+        Stopped once after unplugging. As with the Victron, a mode is sent when
+        the plan's mode changes, not again while it stays the same (a change in
+        the myenergi app is left alone meanwhile). Each command's delay until
+        the meter follows goes into the diagnostics."""
+        self._zappi_follow(conf)
+        min_a = float(conf.get(CONF_EV_MIN_CURRENT, DEFAULT_EV_MIN_CURRENT))
+        target = evc.charger_target(self.ev.flow, int(now.timestamp()), min_a,
+                                    float(conf.get(CONF_EV_MAX_CURRENT, DEFAULT_EV_MAX_CURRENT)))
+        flow = self.ev.flow
+        mode = evc.zappi_mode(target, (flow or {}).get("choice"), min_a)
+        resting = False
+        if mode is None and flow is None and self.ev.rest_charger:
+            mode = evc.ZAPPI_REST
+            resting = True
+        self._ev_target = {"mode": mode, "why": (target or {}).get("why") or ("unplugged" if resting else None)} if mode else None
+        if mode is None or (control_settings.active and not self.controller.enabled):
+            return
+        applied: dict[str, Any] = flow.setdefault("applied", {}) if flow is not None else {}
+        entity_id = ents.get("mode")
+        state = self.hass.states.get(entity_id or "")
+        if state is None or mode not in (state.attributes.get("options") or [mode]):
+            return
+        if applied.get("zappi") == mode:
+            pending = False
+        elif state.state == mode:
+            applied["zappi"] = mode
+            pending = False
+        else:
+            mono = time.monotonic()
+            last = self._ev_writes.get(entity_id)
+            pending = True
+            if last is None or last[0] != mode or mono - last[1] >= 60:
+                try:
+                    await asyncio.wait_for(self.hass.services.async_call(
+                        "select", "select_option", {"entity_id": entity_id, "option": mode}, blocking=True), 20)
+                except Exception as err:  # noqa: BLE001 - a failed write must not fail the cycle
+                    message = f"EV charger: select.select_option on {entity_id} failed: {type(err).__name__}: {err}"
+                    if message != self._ev_error:
+                        _LOGGER.warning("ESS Manager (%s): %s", self.entry.title, message)
+                    self._ev_error = message
+                else:
+                    self._ev_writes[entity_id] = (mode, mono)
+                    applied["zappi"] = mode
+                    self._ev_error = None
+                    pending = False
+                    self._zappi_sent(conf, mode, state.state, (target or {}).get("why") or "unplugged")
+                    _LOGGER.info("ESS Manager (%s): zappi %s -> %s (%s)", self.entry.title, state.state, mode,
+                                 (target or {}).get("why") or "unplugged")
+        if resting and not pending:
+            self.ev.rest_charger = False
+
+    def _zappi_sent(self, conf: dict[str, Any], mode: str, before: Optional[str], why: str) -> None:
+        power = _state_in_unit(self.hass, conf.get(CONF_EV_POWER_ENTITY), ("kW",), 1000.0)
+        entry = {"at": dt_util.now().isoformat(timespec="seconds"), "from": before, "to": mode, "why": why,
+                 "power_before_w": round(power) if power is not None else None, "response_s": None, "power_after_w": None}
+        self._ev_cmds = (self._ev_cmds + [entry])[-ZAPPI_CMD_KEEP:]
+        self._ev_cmd_wait = {"entry": entry, "t": dt_util.utcnow().timestamp(), "p0": power or 0.0, "mode": mode}
+
+    def _zappi_follow(self, conf: dict[str, Any]) -> None:
+        """Whether the meter followed the last command: off -> under
+        CHARGING_W; on -> ZAPPI_FOLLOW_W more (or less, Fast to Eco) than
+        before. Given up after ZAPPI_FOLLOW_MAX_S (the car may be full)."""
+        wait = self._ev_cmd_wait
+        if not wait:
+            return
+        power = _state_in_unit(self.hass, conf.get(CONF_EV_POWER_ENTITY), ("kW",), 1000.0)
+        dt = dt_util.utcnow().timestamp() - wait["t"]
+        followed = False
+        if power is not None:
+            if wait["mode"] == evc.ZAPPI_STOPPED:
+                followed = power < evc.CHARGING_W
+            else:
+                followed = abs(power - wait["p0"]) >= ZAPPI_FOLLOW_W
+        if followed:
+            wait["entry"]["response_s"] = int(dt)
+            wait["entry"]["power_after_w"] = round(power)
+            self._ev_cmd_wait = None
+        elif dt > ZAPPI_FOLLOW_MAX_S:
+            wait["entry"]["response_s"] = "none"
+            self._ev_cmd_wait = None
 
     async def _async_ev_charger(
         self, conf: dict[str, Any], ents: dict[str, str], now: datetime, control_settings: ControlSettings
@@ -2602,15 +2753,21 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ev_total = None
         ev_victron = None
         ev_entities: dict[str, str] = {}
+        ev_batt = {
+            "level_kwh": round(capacity_kwh * soc_now_percent / 100, 3),
+            "floor_kwh": round(capacity_kwh * min_soc_deficit_percent / 100, 3) + safety_buffer_kwh,
+            "capacity_kwh": capacity_kwh,
+            "max_discharge_kw": max_battery_discharge_speed_kw,
+            "losses": charge_efficiency * discharge_efficiency,
+        }
         if conf.get(CONF_EV_ENABLED) and conf.get(CONF_EV_CHARGER) == EV_CHARGER_VICTRON:
             ev_entities = self._victron_entities(conf.get(CONF_EV_VICTRON_DEVICE))
-            ev_victron = self._victron_inputs(conf, ev_entities, now, plan_buy, {
-                "level_kwh": round(capacity_kwh * soc_now_percent / 100, 3),
-                "floor_kwh": round(capacity_kwh * min_soc_deficit_percent / 100, 3) + safety_buffer_kwh,
-                "capacity_kwh": capacity_kwh,
-                "max_discharge_kw": max_battery_discharge_speed_kw,
-                "losses": charge_efficiency * discharge_efficiency,
-            })
+            ev_victron = self._victron_inputs(conf, ev_entities, now, plan_buy, ev_batt)
+        elif conf.get(CONF_EV_ENABLED) and conf.get(CONF_EV_CHARGER) == EV_CHARGER_ZAPPI:
+            # (as of 2026.11.21) a zappi: the same session handling, its own driving
+            ev_entities = self._zappi_entities(conf.get(CONF_EV_ZAPPI_DEVICE))
+            ev_victron = self._zappi_inputs(conf, ev_entities, now, plan_buy, ev_batt)
+            ev_victron["power_entity"] = conf.get(CONF_EV_POWER_ENTITY)
         if conf.get(CONF_EV_ENABLED):
             ev_total, ev_attribute = self.ev.update(
                 {
@@ -3217,7 +3374,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if control_action in (control.ACTION_GRID_USE, control.ACTION_SOLAR_EXPORT) else None
         )
         self._ev_charge_until = self._charge_until(conf, control_action, card_plans, control_settings)
-        if ev_victron is not None:
+        if ev_victron is not None and ev_victron.get("charger") == evc.CHARGER_ZAPPI:
+            await self._async_zappi(conf, ev_entities, now, control_settings)
+        elif ev_victron is not None:
             await self._async_ev_charger(conf, ev_entities, now, control_settings)
         await self._async_ev_send()
         control_attr = self.controller.as_attribute(control_settings, control_action, control_power_kw)

@@ -82,6 +82,7 @@
         "data": {
           "ev_charger": "Charger",
           "ev_victron_device": "Victron EV charging station (device)",
+          "ev_zappi_device": "myenergi zappi (device)",
           "ev_notify_services": "Phones to ask on (Companion app notify services)",
           "ev_energy_entity": "Charger energy sensor (cumulative kWh)",
           "ev_power_entity": "Charger power sensor (W) - above 0 a session is running: its day and start time are then fixed",
@@ -250,6 +251,8 @@
       "floor_helper_same": "The thermostat's helper switch must be another entity than the heat pump's heat demand switch.",
       "ev_victron_device_required": "Pick the Victron EV charging station's device.",
       "ev_victron_incomplete": "This device doesn't have the entities of a Victron EV charging station (status, power, total energy, mode, charge current setpoint, EV charging) - or some of them are disabled.",
+      "ev_zappi_device_required": "Pick the zappi's device (myenergi integration).",
+      "ev_zappi_incomplete": "This device doesn't have the zappi entities of the myenergi integration (charge mode, status, plug status) - or some of them are disabled.",
       "battery_power_required": "Pick the battery's power sensor.",
       "price_incl_entity_required": "Choose the supplier's price sensor"
     },
@@ -333,6 +336,7 @@
         "data": {
           "ev_charger": "Charger",
           "ev_victron_device": "Victron EV charging station (device)",
+          "ev_zappi_device": "myenergi zappi (device)",
           "ev_notify_services": "Phones to ask on (Companion app notify services)",
           "ev_energy_entity": "Charger energy sensor (cumulative kWh)",
           "ev_power_entity": "Charger power sensor (W) - above 0 a session is running: its day and start time are then fixed",
@@ -500,6 +504,8 @@
       "floor_helper_same": "The thermostat's helper switch must be another entity than the heat pump's heat demand switch.",
       "ev_victron_device_required": "Pick the Victron EV charging station's device.",
       "ev_victron_incomplete": "This device doesn't have the entities of a Victron EV charging station (status, power, total energy, mode, charge current setpoint, EV charging) - or some of them are disabled.",
+      "ev_zappi_device_required": "Pick the zappi's device (myenergi integration).",
+      "ev_zappi_incomplete": "This device doesn't have the zappi entities of the myenergi integration (charge mode, status, plug status) - or some of them are disabled.",
       "battery_power_required": "Pick the battery's power sensor.",
       "price_incl_entity_required": "Choose the supplier's price sensor"
     }

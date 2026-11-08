@@ -14,6 +14,27 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ## [2026.11.21] - 2026-11-08
 
+### EV - myenergi zappi
+- **A zappi as the charger** (myenergi integration): pick "myenergi zappi"
+  and its device in Configure > Electric car. The same sessions as with the
+  Victron charging station - plugging in, the questions, taking over a
+  planned session, "full by", stopped early - with the charge mode instead
+  of a current: now -> Fast, slowly -> Eco, the sun -> Eco+, a "full by"
+  Fast in its windows and Eco+ between them, Stopped without a choice and
+  once after unplugging. Assumes its Grid CT clamp between the house and
+  the Victron. The energy and power from the charger's own meter.
+- Each mode command and how long the meter took to follow (the myenergi
+  cloud polls) in the diagnostics: `ev_charger_commands`.
+- Locked without "charge when locked": `charger.blocked`, and the EV card
+  says so.
+- `ev.charger.type` (victron / zappi) and `zappi_mode` on the Status sensor.
+- "Full by" plans can leave the sun out (`sun=False`, not used yet).
+
+### Tests
+- Home Assistant tests in the repo, `tests/ha` (pytest-homeassistant-custom-component):
+  start-up, the Victron charging station and the zappi. Before, they lived
+  outside the repo and were lost once.
+
 ### EV - plugged in during a planned session
 - With a car whose battery size is known, the notification that the
   planned session is taken over talks in the **state of charge** the car
