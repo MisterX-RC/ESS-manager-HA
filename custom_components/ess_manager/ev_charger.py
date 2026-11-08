@@ -435,6 +435,7 @@ def plan_full_by(
     battery: Optional[dict[str, Any]] = None,
     keep_battery: Optional[list[int]] = None,
     sun: bool = True,
+    sun_min_a: Optional[float] = None,
 ) -> dict[str, Any]:
     """"Full by" with its own speed (as of 2026.10.29): planned to be done
     `margin` before the deadline (sun first, the rest in the cheapest
@@ -449,7 +450,10 @@ def plan_full_by(
     `grid_kw`, `deadline`, `ready_by`, `tight`, `reach_kwh` to plan_deadline's
     dict."""
     ready_by = max(deadline_epoch - margin, now_epoch)
-    p_min, p_max = power_kw(min_a, phases), power_kw(max_a, phases)
+    # the sun from this much surplus on (as of 2026.11.21 `sun_min_a`: a zappi's
+    # windows run at its max, its Eco+ takes the sun from the min current on)
+    p_min = power_kw(sun_min_a if sun_min_a is not None else min_a, phases)
+    p_max = power_kw(max_a, phases)
     lo, hi = int(round(min_a)), int(round(max_a))
     if keep and keep_a:
         lo = max(lo, min(int(keep_a), hi))
@@ -599,6 +603,7 @@ def planned_full_by(
     max_a: float,
     battery: Optional[dict[str, Any]] = None,
     sun: bool = True,
+    sun_min_a: Optional[float] = None,
 ) -> tuple[list[float], list[float], dict[str, Any]]:
     """A planned "full by" session (as of 2026.10.29) in the forecast: per
     hour what it takes (a full-hour value for hour 0) and the part of it in
@@ -615,7 +620,7 @@ def planned_full_by(
     prices_end = price_start_epoch + len(prices) * UNIT
     if deadline - DEADLINE_MARGIN <= prices_end:
         plan = plan_full_by(start, deadline, need, net, hour0_epoch, prices, price_start_epoch, phases, min_a, max_a,
-                            battery=battery, sun=sun)
+                            battery=battery, sun=sun, sun_min_a=sun_min_a)
     else:
         ready = max(deadline - DEADLINE_MARGIN, start + UNIT)
         amps = int(round(max_a))
@@ -638,7 +643,7 @@ def planned_full_by(
                         float(plan.get("battery_kwh") or 0.0))
     solar, _ = _ev.session_profile(
         {"start": start, "kwh": plan["solar_kwh"], "mode": _ev.MODE_SOLAR}, now_epoch, hour0_epoch, hours, net,
-        phases, min_a, max_a, int(plan.get("ready_by") or deadline),
+        phases, sun_min_a if sun_min_a is not None else min_a, max_a, int(plan.get("ready_by") or deadline),
     )
     total = [round(a + b + c, 4) for a, b, c in zip(grid, batt, solar)]
     info = {

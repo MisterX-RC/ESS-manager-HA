@@ -2694,9 +2694,10 @@ function evPlanDeadline(nowMs, deadlineMs, need, net, hour0Ms, prices, priceStar
 
 const EV_CALM_MARGIN = 0.02;
 
-function evPlanFullBy(nowMs, deadlineMs, need, net, hour0Ms, prices, priceStartMs, phases, minA, maxA, marginMs) {
+function evPlanFullBy(nowMs, deadlineMs, need, net, hour0Ms, prices, priceStartMs, phases, minA, maxA, marginMs, sunMinA) {
   const readyBy = Math.max(deadlineMs - marginMs, nowMs);
-  const pMin = evPower(minA, phases);
+  // the sun from this current on (as of 2026.11.21: a zappi's Eco+ from its min, its windows at the max)
+  const pMin = evPower(sunMinA != null ? sunMinA : minA, phases);
   const pMax = evPower(maxA, phases);
   // (the house battery's dear quarters are left to the integration: the
   // panel shows the grid) (as of 2026.11.7) calm by preference: the lowest current that costs at
@@ -2965,7 +2966,7 @@ class EssManagerEvCard extends EssChartCard {
     } else deadline = this._deadlineMs(p);
     if (deadline <= now) return { ...out, past: true };
     const [fNet, fLo, fHi] = this._fbRange(ev, net);
-    const plan = evPlanFullBy(now, deadline, need, fNet, hour0, prices, priceStart, phases, fLo, fHi, margin);
+    const plan = evPlanFullBy(now, deadline, need, fNet, hour0, prices, priceStart, phases, fLo, fHi, margin, ev.min_current);
     return { ...out, ...plan, any: p.day === "any" };
   }
 
@@ -3420,7 +3421,7 @@ class EssManagerEvCard extends EssChartCard {
       const hour0 = Math.floor(now / HOUR_MS) * HOUR_MS;
       if (deadline - HOUR_MS <= priceStart + prices.length * UNIT_MS) {
         const [fNet, fLo, fHi] = this._fbRange(ev, net);
-        const plan = evPlanFullBy(begin, deadline, need, fNet, hour0, prices, priceStart, phases, fLo, fHi, HOUR_MS);
+        const plan = evPlanFullBy(begin, deadline, need, fNet, hour0, prices, priceStart, phases, fLo, fHi, HOUR_MS, ev.min_current);
         return { ...plan, got: need - plan.short, need, by: true };
       }
       // prices not known yet: a calm charge from the start

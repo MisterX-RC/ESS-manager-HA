@@ -745,14 +745,15 @@ class _VictronMixin:
                                   float(b.get("capacity_kwh") or 0.0), float(b.get("max_discharge_kw") or 0.0),
                                   float(b.get("losses") or 1.0))
 
-    def _plan_range(self, min_a: float, max_a: float) -> tuple[float, float, bool]:
-        """The currents a "full by" plan may use and whether it counts on the
-        sun (as of 2026.11.21): a zappi has no current to set - its grid and
-        battery windows run at Fast (the max); between them Eco+ takes the
-        solar surplus, as the Victron's Auto mode does."""
+    def _plan_range(self, min_a: float, max_a: float) -> tuple[float, float, bool, float]:
+        """The currents a "full by" plan may use, whether it counts on the sun
+        and from what current on the sun is taken (as of 2026.11.21): a zappi
+        has no current to set - its grid and battery windows run at Fast (the
+        max); between them Eco+ takes the solar surplus from its minimum (about
+        6 A) on, as the Victron's Auto mode does."""
         if self.ctx.get("charger") == evc.CHARGER_ZAPPI:
-            return max_a, max_a, True
-        return min_a, max_a, True
+            return max_a, max_a, True, min_a
+        return min_a, max_a, True, min_a
 
     # -- each cycle: the plan, done, the announcement ------------------------------------
     def _victron_plan(self, now_epoch: int, hour0: int, house_net: list[float], phases: int, min_a: float, max_a: float) -> None:
@@ -783,11 +784,12 @@ class _VictronMixin:
             # matter" has no time to keep a margin to
             margin = 0 if flow.get("deadline") is None else evc.DEADLINE_MARGIN
             running = keep or keep_batt
-            plan_lo, plan_hi, sun = self._plan_range(min_a, max_a)
+            plan_lo, plan_hi, sun, sun_lo = self._plan_range(min_a, max_a)
             plan = evc.plan_full_by(
                 now_epoch, deadline, left, house_net, hour0, prices, price_start, phases, plan_lo, plan_hi,
                 keep, ((flow.get("plan") or {}).get("current_a") if running else None), margin,
                 battery=self._battery(now_epoch, hour0, house_net, deadline), keep_battery=keep_batt, sun=sun,
+                sun_min_a=sun_lo,
             )
             flow["windows"] = plan["windows"]
             flow["quarters"] = plan["quarters"]
@@ -1237,11 +1239,11 @@ class EvRuntime(_VictronMixin):
                 grid_total = [round(a + b, 4) for a, b in zip(grid_total, grid_part)]
             elif s.get("mode") == ev.MODE_DEADLINE and victron is not None and not s.get("running"):
                 # a planned "full by" (as of 2026.10.29)
-                plan_lo, plan_hi, sun = self._plan_range(min_a, max_a)
+                plan_lo, plan_hi, sun, sun_lo = self._plan_range(min_a, max_a)
                 part, grid_part, pinfo = evc.planned_full_by(
                     s, now_epoch, hour0, hours, net_left, self.ctx.get("prices") or [], int(self.ctx.get("price_start") or 0),
                     phases, plan_lo, plan_hi,
-                    battery=self._battery(now_epoch, hour0, net_left, int(s.get("deadline") or 0)), sun=sun,
+                    battery=self._battery(now_epoch, hour0, net_left, int(s.get("deadline") or 0)), sun=sun, sun_min_a=sun_lo,
                 )
                 grid_total = [round(a + b, 4) for a, b in zip(grid_total, grid_part)]
                 info = [{**s, "end": pinfo["end"], "charged_kwh": pinfo["kwh"], "warning": pinfo["warning"], "full_by": pinfo["plan"]}]

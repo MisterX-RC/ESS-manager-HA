@@ -28,12 +28,16 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 - Locked without "charge when locked": `charger.blocked`, and the EV card
   says so.
 - `ev.charger.type` (victron / zappi) and `zappi_mode` on the Status sensor.
-- "Full by" plans can leave the sun out (`sun=False`, not used yet).
+- A zappi's "full by" counts the sun from its Eco+ threshold (the min
+  current, about 1.4 kW on a phase) while its windows run at Fast - before
+  it only counted sun from Fast's power, so it bought a bit more than needed.
 
 ### Tests
 - Home Assistant tests in the repo, `tests/ha` (pytest-homeassistant-custom-component):
-  start-up, the Victron charging station and the zappi. Before, they lived
-  outside the repo and were lost once.
+  start-up, the Victron charging station, the zappi, the charger settings
+  page, the diagnostics download, a restart keeping sessions and the
+  thermostat history, a cheap moment charging and an unreadable SOC as a
+  fail-safe idle. Before, they lived outside the repo and were lost once.
 
 ### EV - plugged in during a planned session
 - With a car whose battery size is known, the notification that the

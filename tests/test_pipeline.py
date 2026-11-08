@@ -5967,8 +5967,14 @@ _zrt = ev_runtime.EvRuntime()
 _zrt.ctx = {"charger": "zappi"}
 _vrt_v = ev_runtime.EvRuntime()
 _vrt_v.ctx = {"charger": "victron"}
-check("zappi: a full-by plan's windows only at the max current (Fast), the sun between them; the Victron keeps its range",
-      _zrt._plan_range(6, 13) == (13, 13, True) and _vrt_v._plan_range(6, 13) == (6, 13, True))
+check("zappi: a full-by plan's windows only at the max current (Fast), the sun from the min current (Eco+); the Victron keeps its range",
+      _zrt._plan_range(6, 13) == (13, 13, True, 6) and _vrt_v._plan_range(6, 13) == (6, 13, True, 6))
+# 2 kW of surplus all morning: Eco+ (from 1.4 kW on) takes it - planned with the zappi's own threshold, not Fast's 3 kW
+_zsun = [2.0] * 6 + [0.0] * 42
+_zfb_eco = evc.plan_full_by(0, 8 * 3600, 6.0, _zsun, 0, [0.3] * 96, 0, 1, 13, 13, margin=0, sun_min_a=6)
+_zfb_fast = evc.plan_full_by(0, 8 * 3600, 6.0, _zsun, 0, [0.3] * 96, 0, 1, 13, 13, margin=0)
+check("zappi: full by counts the sun from about 1.4 kW of surplus (Eco+), the windows still at Fast",
+      _zfb_eco["solar_kwh"] > 5.9 and _zfb_fast["solar_kwh"] == 0.0 and _zfb_eco["current_a"] == 13)
 _zn = [5.0] * 48
 _zplan_sun = evc.plan_deadline(0, 6 * 3600, 3.0, _zn, 0, [0.3] * 96, 0, 1.4, 3.0)
 _zplan_nosun = evc.plan_deadline(0, 6 * 3600, 3.0, _zn, 0, [0.3] * 96, 0, 1.4, 3.0, sun=False)

@@ -815,7 +815,7 @@ Victron**: what it sees as export is the solar the house doesn't use, so
 Eco and Eco+ take that before the house battery does, and the Victron's
 grid setpoint doesn't move that clamp (no chasing each other). A "full by"
 is planned with its windows at Fast (the max current set here) and the sun
-in between. A mode is sent when the plan's mode changes, not again while
+in between, from Eco+'s threshold on (the min current set here). A mode is sent when the plan's mode changes, not again while
 it stays the same - a change in the myenergi app is left alone meanwhile.
 The integration polls the myenergi cloud (every 60 s by default), so a mode
 change can take a minute or two to show on the meter; each command and how
