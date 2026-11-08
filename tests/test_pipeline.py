@@ -5313,6 +5313,20 @@ _grt.update(_wconf, _gn + timedelta(minutes=8), _ams2, 6, [0.0] * 121, 0.0, 500.
 check("'charging' with power: now it really charges", _grt.flow["charging_seen"] == int((_gn + timedelta(minutes=8)).timestamp()))
 _grt.update(_wconf, _gn + timedelta(hours=2), _ams2, 6, [0.0] * 121, 0.0, 506.0, victron=_gv("charged"))
 check("... and 'charged' after that ends it", _grt.flow["done"])
+check("... about where expected (6 of 6 kWh): not 'stopped early'", _grt.flow.get("stopped_early") is None)
+# 2026.11.21: the car stops itself at 2 of 6 kWh (a lower limit in the car): shown with what's left
+_xrt = ev_runtime.EvRuntime()
+_xrt.morning_day = "2026-10-28"
+_xrt.save(None, {"start": int(_gn.replace(hour=18, minute=0).timestamp()), "kwh": 6.0, "mode": "fixed", "current_a": 16,
+                 "car": "c1"}, int(_gn.timestamp()))
+_xrt.update(_wconf, _gn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_gv("waiting_for_start"))
+_xrt.update(_wconf, _gn + timedelta(minutes=8), _ams2, 6, [0.0] * 121, 0.0, 500.2, victron=_gv("charging", 3600.0))
+_xrt.update(_wconf, _gn + timedelta(hours=1), _ams2, 6, [0.0] * 121, 0.0, 502.0, victron=_gv("charged"))
+_xse = _xrt.flow.get("stopped_early")
+_xatt = _xrt.update(_wconf, _gn + timedelta(hours=1, minutes=1), _ams2, 6, [0.0] * 121, 0.0, 502.0, victron=_gv("charged"))[1]
+check("the car stops itself at 2 of 6 kWh: done, 'stopped early' with 4 kWh left - on the card",
+      _xrt.flow["done"] and _xse is not None and _xse["left_kwh"] == 4.0
+      and (_xatt.get("charger") or {}).get("session", {}).get("stopped_early") == _xse)
 _gt, _ga = _grt.update(_wconf, _gn + timedelta(hours=3), _ams2, 6, [0.0] * 121, 0.0, 506.0, victron=_gv("disconnected", c=False))
 _gdone = [x for x in _ga["sessions"] if x.get("completed")]
 check("unplugged: on the card as completed with what went in (6 kWh), nothing of it in the forecast",

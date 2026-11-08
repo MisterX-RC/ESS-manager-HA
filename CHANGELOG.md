@@ -26,6 +26,12 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   (18:00 → 06:25), as set; when the charging starts later, its start goes
   with the blocks ("1 block from 20:45"). From 2026.11.5 the line showed
   the first charge window's start.
+- **The car stopped short of the goal**: when the car stops charging itself
+  while the sums still have a good part to go (at least 1 kWh and 10 % of
+  what was needed), the Now block says so instead of "full by the sums":
+  "The car stopped at about 80 % instead of 90 % - is its own charge limit
+  set lower?" (or the kWh still to go, without a state of charge). New on
+  the charger session: `stopped_early` {left_kwh, soc, target}.
 
 ## [2026.11.20] - 2026-11-07
 

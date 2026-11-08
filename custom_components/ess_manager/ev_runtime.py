@@ -33,6 +33,10 @@ MORNING_HOUR = 9
 
 # The fields the card may set on a session.
 EDIT_FIELDS = ("start", "kwh", "mode", "current_a", "car", "start_soc", "target_soc", "enabled", "deadline")
+# the car stopped charging itself with at least this much left by the sums - and
+# this share of what was needed (as of 2026.11.21): shown, a lower limit in the car?
+STOPPED_EARLY_KWH = 1.0
+STOPPED_EARLY_SHARE = 0.1
 
 
 def _floor_hour(epoch: int) -> int:
@@ -228,6 +232,9 @@ class _VictronMixin:
                 if not flow.get("charging_seen"):
                     flow["charging_seen"] = now_epoch
             if status == evc.STATUS_CHARGED and flow.get("choice") is not None and flow.get("charging_seen"):
+                if not flow.get("done"):
+                    # (as of 2026.11.21) the car stopped well short of the goal: its own limit?
+                    flow["stopped_early"] = self._stopped_early()
                 flow["done"] = True
             self._victron_sample(status, now_epoch)
             healed = self._victron_heal(now_epoch, energy_kwh, typical_kwh)
@@ -455,6 +462,7 @@ class _VictronMixin:
         assert flow is not None
         flow["choice"] = value
         flow["done"] = False
+        flow["stopped_early"] = None
         flow["external"] = False
         flow["current_a"] = None
         # a choice (again) is a new instruction for the charger, also where
@@ -496,6 +504,7 @@ class _VictronMixin:
         flow["idle_since"] = None
         flow["announce"] = True
         flow["done"] = need <= 0
+        flow["stopped_early"] = None
         session = self._session(flow["sid"])
         if session is not None:
             # the session counts from plugging in: what went in before the
@@ -673,6 +682,20 @@ class _VictronMixin:
         start, last = flow.get("energy_at_need"), flow.get("last_energy")
         got = max(float(last) - float(start), 0.0) if start is not None and last is not None else 0.0
         return round(min(float(flow["soc"]) + got / float(cap) * 100.0, 100.0), 1)
+
+    def _stopped_early(self) -> Optional[dict[str, Any]]:
+        """The car stopped charging itself while the sums still had a good
+        part to go (as of 2026.11.21) - usually a lower charge limit in the
+        car than the goal set here: {left_kwh, soc (estimated), target};
+        None when it stopped about where expected."""
+        flow = self.flow or {}
+        left, need = self.need_left(), flow.get("need_kwh")
+        if left is None or not need or left < STOPPED_EARLY_KWH or left < STOPPED_EARLY_SHARE * float(need):
+            return None
+        target = flow.get("target_soc")
+        if target is None:
+            target = (self._car(flow.get("car")) or {}).get("target_soc")
+        return {"left_kwh": round(left, 1), "soc": self._soc_now(), "target": target}
 
     def need_left(self) -> Optional[float]:
         flow = self.flow or {}
@@ -1351,6 +1374,8 @@ class EvRuntime(_VictronMixin):
                 "left_kwh": round(self.need_left(), 2) if self.need_left() is not None else None,
                 "soc": flow.get("soc"),
                 "done": bool(flow.get("done")),
+                # (as of 2026.11.21) the car stopped itself well short of the goal
+                "stopped_early": flow.get("stopped_early"),
                 "windows": [[iso(a), iso(b)] for a, b in flow.get("windows") or []],
                 # (as of 2026.11.4) dear quarters out of the house battery
                 "battery_windows": [[iso(a), iso(b)] for a, b in flow.get("battery_windows") or []],

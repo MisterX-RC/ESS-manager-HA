@@ -118,6 +118,9 @@ const I18N = {
     ev_chip_solar: "on the sun", ev_chip_by: (t) => `full by ${t}`, ev_chip_done: "done", ev_chip_fixed: (a) => `fixed \u00b7 ${a} A`,
     ev_wait_text: "Until you choose, ESS Manager doesn't start the charger (what it starts itself goes on). The same question is on your phone.",
     ev_ext_text: "The charger started by itself and charges at its own current - ESS Manager leaves it alone until you choose.",
+    ev_st_stopped: (c) => `${c} \u00b7 stopped charging`,
+    ev_done_early: (soc, to) => `The car stopped at about ${soc} % instead of ${to} % - is its own charge limit set lower? Unplug the car to end the session.`,
+    ev_done_early_kwh: (k) => `The car stopped with ${k} still to go by the sums - is its own charge limit set lower? Unplug the car to end the session.`,
     ev_done_text: "Full according to the sums - the charger stays as it is, the car stops by itself when it's really full. Unplug the car to end the session.",
     ev_r_by_fixed: (amps, kw, a, b) => `${amps} A \u00b7 ${kw} \u00b7 planned to be done by ${a} (an hour before ${b})`, ev_r_estimate: "prices for then not known yet: estimated as a calm charge",
     ev_pl_title: "Charge plan", ev_pl_preview: "preview - saved, the integration plans it", ev_pl_grid: "grid", ev_pl_batt: "battery", ev_pl_sun: "sun",
@@ -319,6 +322,9 @@ const I18N = {
     ev_chip_solar: "op zon", ev_chip_by: (t) => `vol om ${t}`, ev_chip_done: "klaar", ev_chip_fixed: (a) => `vast \u00b7 ${a} A`,
     ev_wait_text: "Tot je kiest start ESS Manager de lader niet (wat de lader zelf start, loopt door). Dezelfde vraag staat op je telefoon.",
     ev_ext_text: "De lader is zelf begonnen en laadt op zijn eigen stroom - ESS Manager laat hem met rust tot je kiest.",
+    ev_st_stopped: (c) => `${c} \u00b7 gestopt met laden`,
+    ev_done_early: (soc, to) => `De auto stopte rond ${soc} % in plaats van ${to} % - staat de laadlimiet in de auto lager? Koppel de auto los om de sessie af te sluiten.`,
+    ev_done_early_kwh: (k) => `De auto stopte terwijl er volgens de berekening nog ${k} bij moest - staat de laadlimiet in de auto lager? Koppel de auto los om de sessie af te sluiten.`,
     ev_done_text: "Vol volgens de berekening - de lader blijft zoals hij staat, de auto stopt zelf als hij echt vol is. Koppel de auto los om de sessie af te sluiten.",
     ev_r_by_fixed: (amps, kw, a, b) => `${amps} A \u00b7 ${kw} \u00b7 gepland klaar om ${a} (een uur voor ${b})`, ev_r_estimate: "prijzen voor dan nog niet bekend: geschat als rustige lading",
     ev_pl_title: "Laadplan", ev_pl_preview: "voorbeeld - na opslaan plant de integratie het", ev_pl_grid: "net", ev_pl_batt: "accu", ev_pl_sun: "zon",
@@ -3065,7 +3071,7 @@ class EssManagerEvCard extends EssChartCard {
     if (!cs) {
       head = `<span class="dot"></span><div class="nuname">${esc(this._t("ev_st_running"))}${charging ? ` \u00b7 ${esc(this._kw(ev.power_w / 1000))}` : ""}</div>`;
     } else {
-      const title = cs.done ? this._t(charging ? "ev_st_charging" : "ev_st_full")(name, this._kw(ev.power_w / 1000)) : charging ? this._t("ev_st_charging")(name, this._kw(ev.power_w / 1000)) : this._t("ev_st_plugged")(name);
+      const title = cs.done ? this._t(charging ? "ev_st_charging" : cs.stopped_early ? "ev_st_stopped" : "ev_st_full")(name, this._kw(ev.power_w / 1000)) : charging ? this._t("ev_st_charging")(name, this._kw(ev.power_w / 1000)) : this._t("ev_st_plugged")(name);
       head = `${charging && !cs.done ? `<span class="dot"></span>` : EV_ICON.car("var(--ev)")}<div class="nuname">${esc(title)}</div>`;
       if (cs.done) chip = `<span class="chip">${esc(this._t("ev_chip_done"))}</span>`;
       else if (!cs.choice && cs.external) chip = `<span class="chip ext">${esc(this._t("ev_chip_ext"))}</span>`;
@@ -3083,7 +3089,15 @@ class EssManagerEvCard extends EssChartCard {
       out += this._socLine(ev, s, car);
       return out + `<div class="actions"><span class="grow"></span><button type="button" class="btn" data-open="${esc(s.id)}">${esc(this._t("ev_edit_btn"))}</button></div></div>`;
     }
-    if (cs.done) return out + `<div class="nutext">${esc(this._t("ev_done_text"))}</div><div class="actions"><span class="grow"></span><button type="button" class="btn" data-act="plan-open">${esc(this._t("ev_change"))}</button></div></div>`;
+    if (cs.done) {
+      // (as of 2026.11.21) the car stopped itself well short of the goal
+      const se = cs.stopped_early;
+      const text = !se ? this._t("ev_done_text")
+        : se.soc != null && se.target != null && Number(se.target) - Number(se.soc) >= 3
+          ? this._t("ev_done_early")(Math.round(Number(se.soc)), Math.round(Number(se.target)))
+          : this._t("ev_done_early_kwh")(this._kwh(se.left_kwh));
+      return out + `<div class="${se ? "result warn" : "nutext"}">${se ? ICON_CLOCK(EV_WARN) : ""}${se ? `<div>${esc(text)}</div>` : esc(text)}</div><div class="actions"><span class="grow"></span><button type="button" class="btn" data-act="plan-open">${esc(this._t("ev_change"))}</button></div></div>`;
+    }
     if (!cs.choice) {
       out += `<div class="nutext">${esc(this._t(cs.external ? "ev_ext_text" : "ev_wait_text"))}</div>`;
       out += `<div class="nuq">${esc(this._t("ev_how_q"))}</div><div class="choices">`;

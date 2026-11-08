@@ -647,7 +647,10 @@ session can't be removed on the card while the car is plugged in. Once the
 energy is in according to the sums (or the charger says "charged") the
 charger is **left as it is** (as of 2026.10.29; up to then it was switched
 off): the car stops by itself when it's really full, and a state of charge
-or a battery size that's a bit off doesn't leave it short. Unplugging ends
+or a battery size that's a bit off doesn't leave it short. When the car
+stops itself well before the goal (at least 1 kWh and 10 % still to go by
+the sums - *as of 2026.11.21*), the card says so: "The car stopped at about
+80 % instead of 90 % - is its own charge limit set lower?". Unplugging ends
 the session and clears the notification. With direct control's **Automatic
 control** switch off, ESS Manager doesn't touch the charger.
 
