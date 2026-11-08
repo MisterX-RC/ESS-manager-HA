@@ -5019,9 +5019,20 @@ _tA2, _vaA2 = _vrtA.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 100.0, victr
 _qA = _vrtA.outbox[0]["payload"]
 check("plug-in during it: its plan taken over right away (full by 07:00, 12 kWh), the phone only asks whether it's right",
       _vrtA.flow["choice"] == "deadline" and _vrtA.flow["deadline"] == _dlA and _vrtA.flow["need_kwh"] == 12.0
-      and "overgenomen" in _qA["message"] and "vol om" in _qA["message"]
-      and [a["title"] for a in _qA["data"]["actions"]] == ["Ja", "Anders"] and _vaA2["charger"]["session"]["grid_kwh"] == 12.0)
+      and "overgenomen" in _qA["message"] and "vol om" in _qA["message"] and "laadstand nu" in _qA["message"]
+      and [a["title"] for a in _qA["data"]["actions"]] == ["Laadstand", "Ja", "Anders"]
+      and _qA["data"]["actions"][0].get("behavior") == "textInput" and _vaA2["charger"]["session"]["grid_kwh"] == 12.0)
 _tkA = _vrtA.flow["token"]
+# 2026.11.21: the state of charge typed in that notification replaces the planned kWh, the plan stays
+import copy as _copy  # noqa: E402
+_vrtS = _copy.deepcopy(_vrtA)
+_vrtS.outbox = []
+_tgtS = _vrtS.flow["target_soc"] if _vrtS.flow.get("target_soc") is not None else _vcar["target_soc"]
+_vrtS.answer(_tkA, "asoc", "40", int(_vn.timestamp()))
+check("taken over: the state of charge answered (40 %) -> what's needed from it, the plan stays (full by 07:00)",
+      _vrtS.flow["step"] is None and _vrtS.flow["soc"] == 40.0 and _vrtS.flow["choice"] == "deadline" and _vrtS.flow["deadline"] == _dlA
+      and _vrtS.flow["need_kwh"] == evc.needed_kwh(_vcar, 40, _tgtS) and _vrtS.flow["announce"])
+check("taken over: no number -> asked again", not _copy.deepcopy(_vrtA).answer(_tkA, "asoc", "geen idee", int(_vn.timestamp())))
 _vrtA.outbox = []
 _vrtA.answer(_tkA, "ok=1", None, int(_vn.timestamp()))
 _vrtA.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 100.0, victron=_vin(True))

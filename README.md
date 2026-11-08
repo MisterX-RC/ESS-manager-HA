@@ -708,7 +708,12 @@ charging energy, edited or added on the card - its plan is taken over right
 away, and the phone only asks
 "the planned session is taken over: full by 07:30, 9 kWh. Is that right?" -
 **Yes** keeps it (the end time follows), **Something else** brings the usual
-questions (the plan stays until a new choice). As of 2026.10.31 sessions
+questions (the plan stays until a new choice). *(As of 2026.11.21)* with a car
+whose battery size is known it asks for the state of charge right away:
+"... taken over: full by 07:30, to 80 %. What is its state of charge now?
+Or tap Yes for 9 kWh." - a **State of charge** reply field next to Yes and
+Something else; the answer sets what's needed (to the plan's target), the
+plan itself stays, and it counts for the state-of-charge correction. As of 2026.10.31 sessions
 predicted from the charging energy are taken over too (up to then they
 weren't); a session counts from two hours before its start to two hours
 after it (or to its end or "full by" time). Nothing planned or predicted

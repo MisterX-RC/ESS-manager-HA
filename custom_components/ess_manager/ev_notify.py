@@ -54,6 +54,9 @@ TEXTS: dict[str, dict[str, str]] = {
         "windows": " ({list})",
         "morning": "A charging session is planned today at {time} ({kwh} kWh). Still right?",
         "adopted": "{car} is plugged in - the planned session is taken over: {plan}, {kwh} kWh. Is that right?",
+        # (as of 2026.11.21) with a battery size: the state of charge now asked right away
+        "adopted_soc": "{car} is plugged in - the planned session is taken over: {plan}, to {target} %. What is its state of charge now? Or tap Yes for {kwh} kWh.",
+        "give_soc": "State of charge",
         "other": "Something else",
         "w_deadline": "full by {t}",
         "w_solar": "on the solar surplus",
@@ -102,6 +105,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "windows": " ({list})",
         "morning": "Er staat vandaag om {time} een laadsessie gepland ({kwh} kWh). Klopt dat nog?",
         "adopted": "{car} is aangesloten - de geplande sessie is overgenomen: {plan}, {kwh} kWh. Klopt dat?",
+        "adopted_soc": "{car} is aangesloten - de geplande sessie is overgenomen: {plan}, tot {target} %. Wat is de laadstand nu? Of tik op Ja voor {kwh} kWh.",
+        "give_soc": "Laadstand",
         "other": "Anders",
         "w_deadline": "vol om {t}",
         "w_solar": "op zon-overschot",
@@ -180,11 +185,12 @@ def buttons(entry_id: str, token: str, items: list[tuple[str, str]]) -> list[dic
     return [{"action": action_id(entry_id, token, what), "title": title} for what, title in items]
 
 
-def reply(entry_id: str, token: str, what: str, language: str, placeholder_key: str) -> list[dict[str, Any]]:
+def reply(entry_id: str, token: str, what: str, language: str, placeholder_key: str,
+          title_key: str = "reply") -> list[dict[str, Any]]:
     return [
         {
             "action": action_id(entry_id, token, what),
-            "title": t(language, "reply"),
+            "title": t(language, title_key),
             "behavior": "textInput",
             "textInputButtonTitle": t(language, "send"),
             "textInputPlaceholder": t(language, placeholder_key),

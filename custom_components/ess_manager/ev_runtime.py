@@ -145,9 +145,17 @@ class _VictronMixin:
             car = self._car(flow.get("car"))
             what = self._plan_words()
             need = flow.get("need_kwh")
-            self._send(self._t("adopted", car=car["name"] if car else self._t("title"), plan=what,
-                               kwh=f"{float(need):g}" if need is not None else "?"),
-                       evn.buttons(entry, token, [("ok=1", self._t("yes")), ("change=1", self._t("other"))]))
+            kwh = f"{float(need):g}" if need is not None else "?"
+            name = car["name"] if car else self._t("title")
+            target = flow.get("target_soc") if flow.get("target_soc") is not None else (car or {}).get("target_soc")
+            ok = evn.buttons(entry, token, [("ok=1", self._t("yes")), ("change=1", self._t("other"))])
+            if car and car.get("capacity_kwh") and target is not None:
+                # (as of 2026.11.21) the state of charge now asked right away: the planned one
+                # (or a predicted session's) is often off - the answer replaces the kWh
+                self._send(prefix + self._t("adopted_soc", car=name, plan=what, target=f"{float(target):g}", kwh=kwh),
+                           evn.reply(entry, token, "asoc", lg, "ph_soc", "give_soc") + ok)
+            else:
+                self._send(self._t("adopted", car=name, plan=what, kwh=kwh), ok)
         elif step == "soc":
             self._send(prefix + self._t("soc"), evn.reply(entry, token, "soc", lg, "ph_soc"))
         elif step == "kwh":
@@ -538,6 +546,17 @@ class _VictronMixin:
             return True
         if key == "change":
             self._ask("car" if len(self.ctx.get("cars") or []) > 1 else "choice")
+            return True
+        if key == "asoc":
+            # (as of 2026.11.21) the state of charge with a taken-over plan: its target stays
+            car = self._car(flow.get("car"))
+            soc = evc.parse_soc(reply_text)
+            target = flow.get("target_soc")
+            need = evc.needed_kwh(car, soc, target) if soc is not None else None
+            if need is None:
+                self._ask("confirm", bad=True)
+                return False
+            self._apply_need(need, soc, target, measured=True)
             return True
         if key == "car":
             car = self._car(value) if value else evc.match_car(reply_text, self.ctx.get("cars") or [])
