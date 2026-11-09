@@ -167,7 +167,7 @@
       },
       "night_limit": {
         "title": "Nachtgrens (22:00-07:00)",
-        "description": "Tussen 22:00 en 07:00 begrenzen deze snelheden elke andere laad- en ontlaadsnelheid (een lagere snelheid blijft zoals hij is): de plannen rekenen ermee (een lading 's nachts duurt langer, een verkoop 's nachts wordt erop afgestemd) en het verstuurde setpoint komt er nooit boven. Buiten deze uren verandert er niets. Een nachtlaadsnelheid van 0 betekent 's nachts niet laden uit het net.",
+        "description": "Tussen 22:00 en 07:00 zijn dit de grenzen voor de accu zelf, alsof het de grenzen van de omvormer zijn (voor een koele, stille omvormer 's nachts). Een lading zet precies de nachtlaadsnelheid in de accu en het huis komt daarbovenop uit het net; een verkoop haalt maximaal de nachtontlaadsnelheid uit de accu - eerst het huis, de rest gaat het net op; in stand-by dekt de accu het huis tot de nachtontlaadsnelheid en komt een piek daarboven uit het net. ESS Manager houdt dit vast door het accuvermogen te volgen (zoals bij huis uit het net). De plannen rekenen op dezelfde manier. Buiten deze uren verandert er niets. Een nachtlaadsnelheid van 0 betekent 's nachts niet laden uit het net.",
         "data": {
           "night_charge_speed_kw": "Laadsnelheid 's nachts",
           "night_discharge_speed_kw": "Ontlaadsnelheid 's nachts"
@@ -422,7 +422,7 @@
       },
       "night_limit": {
         "title": "Nachtgrens (22:00-07:00)",
-        "description": "Tussen 22:00 en 07:00 begrenzen deze snelheden elke andere laad- en ontlaadsnelheid (een lagere snelheid blijft zoals hij is): de plannen rekenen ermee (een lading 's nachts duurt langer, een verkoop 's nachts wordt erop afgestemd) en het verstuurde setpoint komt er nooit boven. Buiten deze uren verandert er niets. Een nachtlaadsnelheid van 0 betekent 's nachts niet laden uit het net.",
+        "description": "Tussen 22:00 en 07:00 zijn dit de grenzen voor de accu zelf, alsof het de grenzen van de omvormer zijn (voor een koele, stille omvormer 's nachts). Een lading zet precies de nachtlaadsnelheid in de accu en het huis komt daarbovenop uit het net; een verkoop haalt maximaal de nachtontlaadsnelheid uit de accu - eerst het huis, de rest gaat het net op; in stand-by dekt de accu het huis tot de nachtontlaadsnelheid en komt een piek daarboven uit het net. ESS Manager houdt dit vast door het accuvermogen te volgen (zoals bij huis uit het net). De plannen rekenen op dezelfde manier. Buiten deze uren verandert er niets. Een nachtlaadsnelheid van 0 betekent 's nachts niet laden uit het net.",
         "data": {
           "night_charge_speed_kw": "Laadsnelheid 's nachts",
           "night_discharge_speed_kw": "Ontlaadsnelheid 's nachts"

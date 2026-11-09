@@ -12,6 +12,12 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.23] - 2026-11-09
+
+### Configure
+- The night limit page's text describes the limit on the battery itself
+  (2026.11.22): it still said the speeds limit the setpoint sent.
+
 ## [2026.11.22] - 2026-11-09
 
 ### Night limit on the battery

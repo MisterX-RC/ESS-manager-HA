@@ -167,7 +167,7 @@
       },
       "night_limit": {
         "title": "Night limit (22:00-07:00)",
-        "description": "Between 22:00 and 07:00 these speeds limit every other charge and discharge speed (a lower speed stays as it is): the plans are worked out with them (a charge at night takes longer, a sale at night is sized for it) and the setpoint sent never goes above them. Outside these hours nothing changes. A night charge speed of 0 means no grid charging at night.",
+        "description": "Between 22:00 and 07:00 these are the limits for the battery itself, as if they were the inverter's own (for a cool, quiet inverter at night). A charge puts exactly the night charge speed into the battery and the house comes from the grid on top of it; a sale gives at most the night discharge speed from the battery - the house first, the rest to the grid; on standby the battery covers the house up to the night discharge speed and a peak above it comes from the grid. ESS Manager holds this by following the battery's power (as for the house from the grid). The plans are worked out the same way. Outside these hours nothing changes. A night charge speed of 0 means no charging from the grid at night.",
         "data": {
           "night_charge_speed_kw": "Charge speed at night",
           "night_discharge_speed_kw": "Discharge speed at night"
@@ -422,7 +422,7 @@
       },
       "night_limit": {
         "title": "Night limit (22:00-07:00)",
-        "description": "Between 22:00 and 07:00 these speeds limit every other charge and discharge speed (a lower speed stays as it is): the plans are worked out with them (a charge at night takes longer, a sale at night is sized for it) and the setpoint sent never goes above them. Outside these hours nothing changes. A night charge speed of 0 means no grid charging at night.",
+        "description": "Between 22:00 and 07:00 these are the limits for the battery itself, as if they were the inverter's own (for a cool, quiet inverter at night). A charge puts exactly the night charge speed into the battery and the house comes from the grid on top of it; a sale gives at most the night discharge speed from the battery - the house first, the rest to the grid; on standby the battery covers the house up to the night discharge speed and a peak above it comes from the grid. ESS Manager holds this by following the battery's power (as for the house from the grid). The plans are worked out the same way. Outside these hours nothing changes. A night charge speed of 0 means no charging from the grid at night.",
         "data": {
           "night_charge_speed_kw": "Charge speed at night",
           "night_discharge_speed_kw": "Discharge speed at night"
