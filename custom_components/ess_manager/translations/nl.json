@@ -254,6 +254,7 @@
       "ev_zappi_device_required": "Kies het apparaat van de zappi (myenergi-integratie).",
       "ev_zappi_incomplete": "Dit apparaat heeft niet de zappi-entiteiten van de myenergi-integratie (laadmodus, status, stekkerstatus) - of een deel ervan is uitgeschakeld.",
       "battery_power_required": "Kies de vermogenssensor van de accu.",
+      "battery_power_required_night": "De nachtlimiet werkt op de accu zelf (vanaf 2026.11.22): kies de vermogenssensor van de accu, of zet de nachtlimiet uit.",
       "price_incl_entity_required": "Kies de prijssensor van de leverancier"
     },
     "abort": {
@@ -507,6 +508,7 @@
       "ev_zappi_device_required": "Kies het apparaat van de zappi (myenergi-integratie).",
       "ev_zappi_incomplete": "Dit apparaat heeft niet de zappi-entiteiten van de myenergi-integratie (laadmodus, status, stekkerstatus) - of een deel ervan is uitgeschakeld.",
       "battery_power_required": "Kies de vermogenssensor van de accu.",
+      "battery_power_required_night": "De nachtlimiet werkt op de accu zelf (vanaf 2026.11.22): kies de vermogenssensor van de accu, of zet de nachtlimiet uit.",
       "price_incl_entity_required": "Kies de prijssensor van de leverancier"
     }
   },

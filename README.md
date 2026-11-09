@@ -1608,8 +1608,10 @@ usual night usage, and the battery forecast never gives the house more than
 the night speed at night - and a car's "full by" only gets a battery
 quarter at night when it fits under the night speed minus the house (else
 grid quarters at their real price). The loop follows the measured power, so a sudden
-peak is above the limit for the few seconds it takes to catch up. Without a
-battery power sensor the night speeds stay grid setpoints, as before.
+peak is above the limit for the few seconds it takes to catch up. Turning
+the night limit on in Configure therefore needs the battery power sensor on
+the same page; an older setup without it keeps the grid-setpoint limit
+until it's configured again.
 Outside those hours nothing changes. Shown on the Status sensor as
 `night_limit` (enabled, active now, the speeds).
 

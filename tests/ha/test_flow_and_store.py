@@ -90,3 +90,20 @@ async def test_restart_keeps_sessions_and_thermostat(hass):
     assert again is not coordinator
     assert any(m["id"] == sid and m["kwh"] == 9.0 for m in again.ev.manual)
     assert again.hp.thermo["sp"] == {"3600": 21.0} and again.hp.thermo["on"] == {"3600": 1800}
+
+
+async def test_night_limit_needs_the_battery_power(hass):
+    """As of 2026.11.22 the night limit works on the battery itself: without the battery's
+    power sensor the battery page doesn't go on."""
+    base_states(hass, dt_util.now())
+    entry = await _entry(hass)
+    flow = await _options_flow(hass, entry)
+    res = await flow.async_step_system({"night_limit_enabled": True})
+    assert res["type"] == "form" and res["step_id"] == "system" and res["errors"] == {"base": "battery_power_required_night"}
+    hass.states.async_set("sensor.bat_power", "0", {"unit_of_measurement": "W"})
+    res = await flow.async_step_system({"night_limit_enabled": True, "battery_power_entity": "sensor.bat_power"})
+    assert res["type"] == "form" and res["step_id"] == "night_limit"
+    # without the night limit no sensor is needed
+    flow2 = await _options_flow(hass, entry)
+    res = await flow2.async_step_system({"night_limit_enabled": False})
+    assert res["step_id"] != "system"

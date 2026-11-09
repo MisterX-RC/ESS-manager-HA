@@ -979,13 +979,22 @@ class _EssManagerSteps:
         )
 
     async def async_step_system(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
         if user_input is not None:
-            self._data.update(_clean(user_input))
-            if user_input.get(CONF_NIGHT_LIMIT_ENABLED):
-                return await self.async_step_night_limit()
-            return await self.async_step_plans()
+            cleaned = _clean(user_input)
+            # (as of 2026.11.22) the night limit works on the battery itself: its power is needed
+            if cleaned.get(CONF_NIGHT_LIMIT_ENABLED) and not cleaned.get(CONF_BATTERY_POWER_ENTITY):
+                errors["base"] = "battery_power_required_night"
+            else:
+                self._data.update(cleaned)
+                if user_input.get(CONF_NIGHT_LIMIT_ENABLED):
+                    return await self.async_step_night_limit()
+                return await self.async_step_plans()
         return self.async_show_form(
-            step_id="system", data_schema=_system_schema(self._defaults(), seed_values=self._seed_values)
+            step_id="system",
+            data_schema=_system_schema({**self._defaults(), **(user_input or {})} if errors else self._defaults(),
+                                       seed_values=self._seed_values),
+            errors=errors,
         )
 
     async def async_step_night_limit(self, user_input: dict[str, Any] | None = None):

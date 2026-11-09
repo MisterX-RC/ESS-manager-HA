@@ -34,7 +34,10 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   only the night limit minus the house as room, so a car above that gets
   grid quarters at their real price instead of a battery quarter priced as
   if the battery gave it all.
-- Without a battery power sensor nothing changes (grid setpoint limits).
+- Configure: turning the night limit on now needs the battery power sensor
+  on the battery page ("The night limit works on the battery itself").
+  An existing setup with the night limit on but no sensor keeps the old
+  grid-setpoint limit until it's configured again.
 
 ### Tests
 - `tests/ha` rebuilt to 29 Home Assistant tests (also the night limit on the battery; no change to the

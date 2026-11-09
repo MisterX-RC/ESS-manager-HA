@@ -254,6 +254,7 @@
       "ev_zappi_device_required": "Pick the zappi's device (myenergi integration).",
       "ev_zappi_incomplete": "This device doesn't have the zappi entities of the myenergi integration (charge mode, status, plug status) - or some of them are disabled.",
       "battery_power_required": "Pick the battery's power sensor.",
+      "battery_power_required_night": "The night limit works on the battery itself (as of 2026.11.22): pick the battery's power sensor, or turn the night limit off.",
       "price_incl_entity_required": "Choose the supplier's price sensor"
     },
     "abort": {
@@ -507,6 +508,7 @@
       "ev_zappi_device_required": "Pick the zappi's device (myenergi integration).",
       "ev_zappi_incomplete": "This device doesn't have the zappi entities of the myenergi integration (charge mode, status, plug status) - or some of them are disabled.",
       "battery_power_required": "Pick the battery's power sensor.",
+      "battery_power_required_night": "The night limit works on the battery itself (as of 2026.11.22): pick the battery's power sensor, or turn the night limit off.",
       "price_incl_entity_required": "Choose the supplier's price sensor"
     }
   },
