@@ -62,7 +62,7 @@
           "battery_power_sign": "Richting van die sensor"
         },
         "data_description": {
-          "night_limit_enabled": "Aan: de volgende pagina vraagt een laad- en ontlaadsnelheid voor de nacht. Tussen 22:00 en 07:00 begrenzen die elke andere snelheid - normaal, negatieve prijs, piek en vol laden - in de plannen en in het verstuurde setpoint: een hogere snelheid wordt verlaagd, een lagere blijft."
+          "night_limit_enabled": "Aan: de volgende pagina vraagt een laad- en ontlaadsnelheid voor de nacht. Tussen 22:00 en 07:00 begrenzen die elke andere snelheid - normaal, negatieve prijs, piek en volle lading. Met de accuvermogen-sensor ingesteld (huis uit het net) begrenzen ze de accu zelf: het setpoint volgt het accuvermogen zodat die maximaal zo snel laadt en levert, de rest komt uit het net. Zonder die sensor begrenzen ze het verstuurde setpoint."
         }
       },
       "plans": {
@@ -316,7 +316,7 @@
           "battery_power_sign": "Richting van die sensor"
         },
         "data_description": {
-          "night_limit_enabled": "Aan: de volgende pagina vraagt een laad- en ontlaadsnelheid voor de nacht. Tussen 22:00 en 07:00 begrenzen die elke andere snelheid - normaal, negatieve prijs, piek en vol laden - in de plannen en in het verstuurde setpoint: een hogere snelheid wordt verlaagd, een lagere blijft."
+          "night_limit_enabled": "Aan: de volgende pagina vraagt een laad- en ontlaadsnelheid voor de nacht. Tussen 22:00 en 07:00 begrenzen die elke andere snelheid - normaal, negatieve prijs, piek en volle lading. Met de accuvermogen-sensor ingesteld (huis uit het net) begrenzen ze de accu zelf: het setpoint volgt het accuvermogen zodat die maximaal zo snel laadt en levert, de rest komt uit het net. Zonder die sensor begrenzen ze het verstuurde setpoint."
         }
       },
       "plans": {

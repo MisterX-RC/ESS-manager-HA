@@ -1588,9 +1588,26 @@ a charge at night gets a longer window; 0 means no grid charging at night),
 and a sale is worked out per quarter too - at the average of the night
 speed in its night quarters and its own speed in the others, so a block
 across 07:00 or 22:00 plans exactly what is sent. The setpoint switches by
-itself at 07:00 and 22:00 (also in the middle of a running block). Like
-the other speeds, the night speeds are grid setpoints: the battery side
-stays within its max speeds.
+itself at 07:00 and 22:00 (also in the middle of a running block).
+
+*As of 2026.11.22, with the battery's power measured* (the battery power
+sensor of the house-from-the-grid plan), the night speeds are limits **on
+the battery itself**, as if they were the inverter's own - they're there
+to keep the inverter cool and quiet at night, which is about what the
+battery does, not about the grid. ESS Manager holds them with the same
+loop as the house from the grid (every minute and in between): a night
+charge puts exactly the night charge speed into the battery and the house
+comes from the grid on top of it; a sale gives at most the night discharge
+speed from the battery - the house first, the rest to the grid; and on
+standby the battery covers the house up to the night discharge speed, a
+peak above it (the oven, the kettle, a car without control) comes from the
+grid, and back to idle when it's over (`night_grid_kw` in the decisions).
+The plans count the same way: a night charge adds the night speed plus the
+house it no longer feeds, a night sale exports the night speed minus the
+usual night usage, and the battery forecast never gives the house more than
+the night speed at night. The loop follows the measured power, so a sudden
+peak is above the limit for the few seconds it takes to catch up. Without a
+battery power sensor the night speeds stay grid setpoints, as before.
 Outside those hours nothing changes. Shown on the Status sensor as
 `night_limit` (enabled, active now, the speeds).
 

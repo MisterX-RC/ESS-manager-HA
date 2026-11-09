@@ -5981,6 +5981,21 @@ _zplan_nosun = evc.plan_deadline(0, 6 * 3600, 3.0, _zn, 0, [0.3] * 96, 0, 1.4, 3
 check("full by: without sun the plan buys it all in grid quarters", _zplan_sun["solar_kwh"] > 2.9 and _zplan_nosun["solar_kwh"] == 0.0
       and _zplan_nosun["grid_kwh"] == 3.0)
 
+# 2026.11.22: the night limit on the battery - a night charge puts exactly the night speed into the battery
+# (the house from the grid on top), and at night the battery gives the house at most the night speed
+_nb_now = datetime(2026, 11, 9, 23, 0, tzinfo=ZoneInfo("Europe/Amsterdam"))
+_nb_net = [-0.8] * 48                                        # the house takes 0.8 kW all night
+_nb_grid = forecasting.grid_charge_rates(_nb_net, _nb_now, 5.5, 5.0, 192, 1.0, 1.0, night_kw=1.5)
+_nb_batt = forecasting.grid_charge_rates(_nb_net, _nb_now, 5.5, 5.0, 192, 1.0, 1.0, night_kw=1.5, night_battery=True)
+_nb_u = 92                                                   # 23:00
+check("night limit on the battery: a night charge adds the night speed plus the house it no longer feeds (1.5 + 0.8 kW)",
+      abs(_nb_batt[_nb_u] - (1.5 + 0.8) / 4) < 1e-6 and abs(_nb_grid[_nb_u] - 1.5 / 4) < 1e-6)
+_nb_bf = forecasting.build_battery_forecast([-3.0] * 12, 20.0, _nb_now, night_max_discharge_kw=1.5)
+_nb_bf0 = forecasting.build_battery_forecast([-3.0] * 12, 20.0, _nb_now)
+check("night limit on the battery: at night the battery gives at most 1.5 kW (an oven of 3 kW: the rest from the grid), by day all",
+      abs((_nb_bf[1] - _nb_bf[2]) - 1.5) < 0.01 and abs((_nb_bf0[1] - _nb_bf0[2]) - 3.0) < 0.01
+      and abs((_nb_bf[8] - _nb_bf[9]) - 3.0) < 0.01)            # 07:00 onwards: day again
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

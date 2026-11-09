@@ -62,7 +62,7 @@
           "battery_power_sign": "Direction of that sensor"
         },
         "data_description": {
-          "night_limit_enabled": "On: the next page asks for a night charge and discharge speed. Between 22:00 and 07:00 those limit every other speed - normal, negative-price, spike and full charge - in the plans and in the setpoint sent: a speed above the night speed is lowered to it, a lower one stays."
+          "night_limit_enabled": "On: the next page asks for a night charge and discharge speed. Between 22:00 and 07:00 those limit every other speed - normal, negative-price, spike and full charge. With the battery power sensor set (house from the grid) they limit the battery itself: the setpoint follows the battery's power so it charges and gives at most those speeds, more comes from the grid. Without it they limit the setpoint sent."
         }
       },
       "plans": {
@@ -316,7 +316,7 @@
           "battery_power_sign": "Direction of that sensor"
         },
         "data_description": {
-          "night_limit_enabled": "On: the next page asks for a night charge and discharge speed. Between 22:00 and 07:00 those limit every other speed - normal, negative-price, spike and full charge - in the plans and in the setpoint sent: a speed above the night speed is lowered to it, a lower one stays."
+          "night_limit_enabled": "On: the next page asks for a night charge and discharge speed. Between 22:00 and 07:00 those limit every other speed - normal, negative-price, spike and full charge. With the battery power sensor set (house from the grid) they limit the battery itself: the setpoint follows the battery's power so it charges and gives at most those speeds, more comes from the grid. Without it they limit the setpoint sent."
         }
       },
       "plans": {

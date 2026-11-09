@@ -455,6 +455,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._export_kw: Optional[float] = None
         # the fast loop (as of 2026.10.41): what the last cycle decided, and when
         self._fast: Optional[dict[str, Any]] = None
+        # the night limit on the battery (as of 2026.11.22): {action, kw, extra} of the loop
+        self._night_loop: Optional[dict[str, Any]] = None
         self._loop_ts = 0.0
         # the duration of the last cycles in ms (as of 2026.10.44)
         self._cycle_ms: list[float] = []
@@ -841,7 +843,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         settings = self.control_settings()
         if not settings.active or not self.controller.enabled:
             return
-        if fast["action"] == control.ACTION_GRID_USE:
+        extra_kw = 0.0
+        if fast.get("night"):
+            power_kw, extra_kw = self._night_battery_kw(fast["conf"], settings, fast["action"], fast["night"]["base_kw"],
+                                                        fast["night"]["discharge_kw"])
+        elif fast["action"] == control.ACTION_GRID_USE:
             power_kw = self._grid_use_setpoint_kw(fast["conf"], settings)
         else:
             power_kw = self._solar_export_setpoint_kw(fast["conf"], settings, fast["export_target_w"])
@@ -852,11 +858,47 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if frozen:
             self._fast = None
             self._grid_use_kw = self._export_kw = None
+            self._night_loop = None
             self.watch.leave_loop(fast["conf"].get(CONF_BATTERY_POWER_ENTITY))
             self.problems.report("sensor_frozen", True, dt_util.now(), {"entity": ", ".join(frozen)})
             await self.controller.async_apply(settings, control.ACTION_IDLE, 0.0, "Standby")
             return
-        await self.controller.async_apply(settings, fast["action"], power_kw, fast["status"], offset_kw=fast["offset_kw"])
+        await self.controller.async_apply(settings, fast["action"], power_kw, fast["status"],
+                                          offset_kw=fast["offset_kw"] + extra_kw)
+
+    def _night_battery_kw(self, conf: dict[str, Any], control_settings: ControlSettings, action: str,
+                          base_kw: float, discharge_limit_kw: float) -> tuple[float, float]:
+        """The night limit on the battery (as of 2026.11.22): (setpoint kW,
+        extra kW on top of idle) so the battery's measured power stays at the
+        night speeds - the limits as if they were the inverter's own, held
+        by ESS Manager. A charge: the battery charges at `base_kw` (the night
+        charge speed or less), the house comes from the grid on top. A sale:
+        the battery gives `base_kw` (negative), the house's part first, the
+        rest to the grid. Idle: the battery covers the house up to the night
+        discharge speed, the grid the rest (and back to idle when it's less).
+        Each step like the house from the grid (_loop_next). Without a
+        battery power reading: the old meaning (`base_kw` as the setpoint)."""
+        power_w = _state_in_unit(self.hass, conf.get(CONF_BATTERY_POWER_ENTITY), ("kW",), 1000.0)
+        idle_kw = control_settings.idle_power_w / 1000.0
+        if power_w is None:
+            self._night_loop = None
+            return base_kw, 0.0
+        charge_w = -power_w if conf.get(CONF_BATTERY_POWER_SIGN) == BATTERY_POWER_DISCHARGE_POSITIVE else power_w
+        last = self._night_loop if (self._night_loop or {}).get("action") == action else None
+        if action in (control.ACTION_CHARGE, control.ACTION_NEGATIVE_PRICE_CHARGE, control.ACTION_DISCHARGE,
+                      control.ACTION_SPIKE_DISCHARGE) and base_kw != 0:
+            value = last["kw"] if last else base_kw
+            value = self._loop_next(control_settings, value, base_kw * 1000.0 - charge_w, -GRID_USE_MAX_KW, GRID_USE_MAX_KW)
+            self._night_loop = {"action": action, "kw": value}
+            self._watch_loop_step(conf, last["kw"] if last else base_kw, value, power_w)
+            return value, 0.0
+        # idle (and anything else): only the battery's discharge above the limit comes from the grid
+        before = idle_kw + (last["extra"] if last else 0.0)
+        limit_w = max(discharge_limit_kw, 0.0) * 1000.0
+        value = self._loop_next(control_settings, before, (-charge_w) - limit_w, idle_kw, GRID_USE_MAX_KW)
+        extra = round(max(value - idle_kw, 0.0), 3)
+        self._night_loop = {"action": action, "kw": 0.0, "extra": extra}
+        return base_kw, extra
 
     def _solar_export_setpoint_kw(self, conf: dict[str, Any], control_settings: ControlSettings, battery_w: float) -> float:
         """Solar export (as of 2026.10.41): last minute's grid setpoint minus
@@ -2807,6 +2849,15 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             solar_forecast, house_forecast,
         )
         battery_now_kwh = round(capacity_kwh * (soc_now_percent / 100), 2)
+        # The night limit on the battery (as of 2026.11.22): with the battery's
+        # power measured, 22:00-07:00 the battery itself charges and gives at
+        # most the night speeds - more than that comes from the grid, held by
+        # the same loop as the house from the grid. Without a battery power
+        # sensor it stays a limit on the grid setpoint (as before).
+        night_on = bool(conf.get(CONF_NIGHT_LIMIT_ENABLED))
+        night_battery = night_on and bool(conf.get(CONF_BATTERY_POWER_ENTITY))
+        night_discharge_cap = (float(conf.get(CONF_NIGHT_DISCHARGE_SPEED_KW, DEFAULT_NIGHT_DISCHARGE_SPEED_KW))
+                               if night_battery else None)
         # max_battery_charge_speed_kw/max_battery_discharge_speed_kw are the
         # battery's own physical power limit - distinct from
         # charge_speed_kw/discharge_speed_kw above, which are how fast the
@@ -2822,6 +2873,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             max_battery_discharge_speed_kw,
             charge_efficiency=house_ce,
             discharge_efficiency=house_de,
+            night_max_discharge_kw=night_discharge_cap,
         )
 
         # Solar deficit or surplus (as of v0.4.2): does the raw forecast run
@@ -2860,12 +2912,21 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rate_units = max(len(all_price), 192)
         # The night limit (as of 2026.10.18): 22:00-07:00 its own speeds
         # replace every other charge/discharge speed
-        night_on = bool(conf.get(CONF_NIGHT_LIMIT_ENABLED))
         night_charge_kw = float(conf.get(CONF_NIGHT_CHARGE_SPEED_KW, DEFAULT_NIGHT_CHARGE_SPEED_KW)) if night_on else None
         night_discharge_kw = float(conf.get(CONF_NIGHT_DISCHARGE_SPEED_KW, DEFAULT_NIGHT_DISCHARGE_SPEED_KW)) if night_on else None
+        # the sales' night speed as a grid setpoint (as of 2026.11.22, the limit
+        # on the battery): what the battery may give minus what the house
+        # takes at night (its usual night usage, the next 24 hours)
+        night_sell_kw = night_discharge_kw
+        if night_battery and night_discharge_kw is not None:
+            night_use = [max(-float(net_energy[h] or 0.0), 0.0) for h in range(min(24, len(net_energy)))
+                         if forecasting.is_night_hour((now + timedelta(hours=h)).hour)]
+            house_night_kw = sum(night_use) / len(night_use) if night_use else 0.0
+            night_sell_kw = max(night_discharge_kw * house_de - house_night_kw, 0.01)
         charge_rates = forecasting.grid_charge_rates(
             net_energy, now, charge_speed_kw, max_battery_charge_speed_kw, rate_units,
             charge_efficiency, discharge_efficiency, night_kw=night_charge_kw, house_efficiency=(house_ce, house_de),
+            night_battery=night_battery,
         )
         # the house from the grid at low prices (as of 2026.10.41): what the
         # battery would give the house per quarter - planned with the charges
@@ -2876,6 +2937,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         negative_charge_rates = forecasting.grid_charge_rates(
             net_energy, now, negative_price_charge_speed_kw, max_battery_charge_speed_kw, rate_units,
             charge_efficiency, discharge_efficiency, night_kw=night_charge_kw, house_efficiency=(house_ce, house_de),
+            night_battery=night_battery,
         )
 
         # -- full charge plan ("days since last full" tracking) -----------------
@@ -3021,7 +3083,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     charge_rates=negative_charge_rates,
                     max_discharge_kw=max_battery_discharge_speed_kw,
                     usage=usage_forecast,
-                ), discharge_speed_kw, night_discharge_kw, now=now)
+                ), discharge_speed_kw, night_sell_kw, now=now)
             else:
                 self._negative_price_plan = {"active": False}
 
@@ -3052,7 +3114,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     charge_rates=charge_rates,
                     today_units=len(today_price) or 96,
                     max_discharge_kw=max_battery_discharge_speed_kw,
-                ), spike_discharge_speed_kw, night_discharge_kw, now=now)
+                ), spike_discharge_speed_kw, night_sell_kw, now=now)
             else:
                 self._spike_plan = {"active": False}
 
@@ -3158,7 +3220,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # sales in blocks too, no shorter than a charge block (2026.10.10)
                 min_sale_units=min_charge_units,
                 max_discharge_kw=max_battery_discharge_speed_kw,
-            ), discharge_speed_kw, night_discharge_kw, now=now)
+            ), discharge_speed_kw, night_sell_kw, now=now)
 
             battery_forecast_adjusted_uncapped = plans.compose_forecast_adjusted(
                 forecast_with_spike,
@@ -3294,12 +3356,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # A sensor that stopped updating (as of 2026.10.44): the battery SOC,
         # or the battery's power while the setpoint follows it - Standby
         # (idle) and a notice, until it updates again.
+        night_loop_now = night_battery and forecasting.is_night_hour(now.hour)
         frozen = self._frozen_sensors(
-            conf, control_action in (control.ACTION_GRID_USE, control.ACTION_SOLAR_EXPORT))
+            conf, control_action in (control.ACTION_GRID_USE, control.ACTION_SOLAR_EXPORT) or night_loop_now)
         self.problems.report("sensor_frozen", bool(frozen), now, {"entity": ", ".join(frozen)})
         if frozen:
             system_status, control_action = "Standby", control.ACTION_IDLE
-        if control_action not in (control.ACTION_GRID_USE, control.ACTION_SOLAR_EXPORT):
+        if control_action not in (control.ACTION_GRID_USE, control.ACTION_SOLAR_EXPORT) and not night_loop_now:
             self.watch.leave_loop(conf.get(CONF_BATTERY_POWER_ENTITY))
         if replan:
             # only what this cycle saw - a change made meanwhile still counts
@@ -3362,16 +3425,29 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # the house battery stays out of it
         ev_offset_kw = (self._ev_grid_offset_kw(ev_victron, ev_entities, now) if ev_victron
                         else self._ev_charge_offset_kw(conf, control_action))
+        # the night limit on the battery (as of 2026.11.22): the setpoint follows
+        # the battery's power so it charges / gives at most the night speeds
+        night_extra_kw = 0.0
+        night_base_kw = control_power_kw
+        if night_loop_now and control_action not in (control.ACTION_GRID_USE, control.ACTION_SOLAR_EXPORT):
+            if self._ev_charge_offset_kw(conf, control_action):
+                ev_offset_kw = 0.0          # the loop on the battery already covers the car
+            control_power_kw, night_extra_kw = self._night_battery_kw(
+                conf, control_settings, control_action, night_base_kw, night_discharge_kw or 0.0)
+        else:
+            self._night_loop = None
         await self.controller.async_apply(
-            control_settings, control_action, control_power_kw, system_status, offset_kw=ev_offset_kw
+            control_settings, control_action, control_power_kw, system_status, offset_kw=ev_offset_kw + night_extra_kw
         )
         self._ev_offset_w = ev_offset_kw * 1000.0 if control_settings.active and self.controller.enabled else 0.0
         # what the fast loop needs until the next cycle (as of 2026.10.41)
         self._loop_ts = dt_util.utcnow().timestamp()
         self._fast = (
             {"conf": conf, "action": control_action, "status": system_status, "offset_kw": ev_offset_kw,
-             "export_target_w": export_target_w}
-            if control_action in (control.ACTION_GRID_USE, control.ACTION_SOLAR_EXPORT) else None
+             "export_target_w": export_target_w,
+             # (as of 2026.11.22) the night limit on the battery: followed between the cycles too
+             "night": None if self._night_loop is None else {"base_kw": night_base_kw, "discharge_kw": night_discharge_kw or 0.0}}
+            if control_action in (control.ACTION_GRID_USE, control.ACTION_SOLAR_EXPORT) or self._night_loop is not None else None
         )
         self._ev_charge_until = self._charge_until(conf, control_action, card_plans, control_settings)
         if ev_victron is not None and ev_victron.get("charger") == evc.CHARGER_ZAPPI:
@@ -3392,6 +3468,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "soc_percent": round(soc_now_percent, 1),
             "price": all_price[current_price_unit] if 0 <= current_price_unit < len(all_price) else None,
             "night_limit": bool(night_now),
+            # (as of 2026.11.22) the night limit on the battery: kW the grid covers above idle
+            "night_grid_kw": night_extra_kw or None,
         })
 
         return {

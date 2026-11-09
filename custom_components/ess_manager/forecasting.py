@@ -156,6 +156,7 @@ def build_battery_forecast(
     max_discharge_kw: Optional[float] = None,
     charge_efficiency: float = 1.0,
     discharge_efficiency: float = 1.0,
+    night_max_discharge_kw: Optional[float] = None,
 ) -> list[float]:
     """Cumulative running battery level (kWh), compensated for the partial
     current hour.
@@ -191,6 +192,10 @@ def build_battery_forecast(
     efficiency puts 1.8 kWh into the battery; covering 0.5 kWh of usage at
     90% discharge efficiency takes 0.5 / 0.9 = 0.56 kWh out of it. Applied
     first, so the max charge/discharge caps are on the battery side.
+
+    `night_max_discharge_kw` (as of 2026.11.22, the night limit on the
+    battery): between 22:00 and 07:00 the battery gives the house at most
+    this much (battery side) - the rest comes from the grid.
     """
     fraction_remaining = (60 - now.minute) / 60
     values: list[float] = []
@@ -201,6 +206,8 @@ def build_battery_forecast(
             capped_delta = min(capped_delta, max_charge_kw)
         if max_discharge_kw is not None:
             capped_delta = max(capped_delta, -max_discharge_kw)
+        if night_max_discharge_kw is not None and is_night_hour((now + timedelta(hours=h)).hour):
+            capped_delta = max(capped_delta, -max(float(night_max_discharge_kw), 0.0))
         step = capped_delta * fraction_remaining if h == 0 else capped_delta
         soc = soc + step
         values.append(round(soc, 2))
@@ -451,6 +458,7 @@ def grid_charge_rates(
     discharge_efficiency: float = 1.0,
     night_kw: Optional[float] = None,
     house_efficiency: Optional[tuple[float, float]] = None,
+    night_battery: bool = False,
 ) -> list[float]:
     """Per 15-minute unit (index = units from today's midnight, like the
     prices), how much a grid charge at `speed_kw` really adds to the battery
@@ -468,7 +476,10 @@ def grid_charge_rates(
     without solar the grid charge also covers the house, which the forecast
     otherwise takes out of the battery. Units before this hour are 0. With
     `night_kw` (the night limit) that speed limits `speed_kw` between
-    22:00 and 07:00 (replaced it up to 2026.10.26)."""
+    22:00 and 07:00 (replaced it up to 2026.10.26). `night_battery` (as of
+    2026.11.22): the night limit is on the battery itself - between 22:00
+    and 07:00 the battery charges at exactly that (battery side), the house
+    comes from the grid on top of it."""
     ce = charge_efficiency if charge_efficiency > 0 else 1.0
     de = discharge_efficiency if discharge_efficiency > 0 else 1.0
     cap = float(max_charge_kw) if max_charge_kw and max_charge_kw > 0 else float("inf")
@@ -496,7 +507,11 @@ def grid_charge_rates(
     for u in range(hour0, len(out)):
         h = (u - hour0) // 4
         x = float(net[h]) if h < len(net) and net[h] is not None else 0.0
-        s = night if night is not None and unit_is_night(u, now) else speed
+        is_night = night is not None and unit_is_night(u, now)
+        s = night if is_night else speed
+        if is_night and night_battery:
+            out[u] = round(max(min(s, cap) - base(x), 0.0) / 4, 4) if s > 0 else 0.0
+            continue
         out[u] = round(max(with_grid(s, x) - base(x), 0.0) / 4, 4) if s > 0 else 0.0
     return out
 

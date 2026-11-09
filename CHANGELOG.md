@@ -12,10 +12,28 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
-## [2026.11.22] - 2026-11-08
+## [2026.11.22] - 2026-11-09
+
+### Night limit on the battery
+- With the battery's power measured (the battery power sensor), the night
+  charge and discharge speeds are now limits on the **battery itself**, as
+  if they were the inverter's own - they're there for a cool, quiet
+  inverter at night. ESS Manager holds them with the house-from-the-grid
+  loop (each cycle and in the fast loop): a night charge puts exactly the
+  night speed into the battery with the house from the grid on top; a sale
+  gives at most the night speed from the battery (house first, the rest to
+  the grid); on standby a peak above the night discharge speed comes from
+  the grid (`night_grid_kw` in the decisions). Before, they limited the
+  grid setpoint: a night charge got less into the battery, and the oven at
+  night came entirely out of the battery.
+- The plans count the same way: a night charge adds the night speed plus
+  the house it no longer feeds, a night sale exports the night speed minus
+  the usual night usage, the battery forecast gives the house at most the
+  night speed at night.
+- Without a battery power sensor nothing changes (grid setpoint limits).
 
 ### Tests
-- `tests/ha` rebuilt to 26 Home Assistant tests (no change to the
+- `tests/ha` rebuilt to 29 Home Assistant tests (also the night limit on the battery; no change to the
   integration itself): start-up (also waiting for the solar forecast), the
   Victron charging station (also a grid window keeping the house battery
   out), the zappi, a sensors-only charger on top of a grid charge, the
