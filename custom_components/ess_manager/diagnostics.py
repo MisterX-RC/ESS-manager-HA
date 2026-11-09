@@ -168,5 +168,9 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "keys": ["ts", "on", "room", "wanted", "before_s", "clean"],
             "rows": [_jsonable(e) for e in events[-200:]],
         }
+    # (2026.11.28) what the last read of the thermostat's history found
+    read = getattr(coordinator, "_thermo_read", None)
+    if read:
+        result["thermostat_read"] = _jsonable(read)
     result["data"] = _jsonable(coordinator.data)
     return result

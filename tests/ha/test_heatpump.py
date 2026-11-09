@@ -88,3 +88,37 @@ async def test_thermostat_learned_from_its_history(hass, monkeypatch):
     assert len(stored["hp"]["thermo"]["events"]) == len(events)
     diag = await async_get_config_entry_diagnostics(hass, entry)
     assert diag["thermostat_events"]["keys"][:2] == ["ts", "on"] and len(diag["thermostat_events"]["rows"]) == min(len(events), 200)
+    # (2026.11.28) what the read found
+    read = diag["thermostat_read"]
+    assert read["error"] is None and read["switches"] >= 60 and read["rows"] >= read["switches"] and read["with_action"] == read["rows"]
+
+
+async def test_thermostat_read_error_is_shown_and_retried(hass, monkeypatch):
+    from custom_components.ess_manager import coordinator as coord
+
+    now = dt_util.now()
+    base_states(hass, now)
+    hass.states.async_set("sensor.qube_heat", "100", {"unit_of_measurement": "kWh", "state_class": "total_increasing"})
+    hass.states.async_set("sensor.outdoor", "5", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.indoor", "21.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("climate.house", "heat", {"hvac_action": "idle", "temperature": 21.0, "current_temperature": 21.0})
+    calls = []
+
+    async def broken(hass_, entity_id, start, end):
+        calls.append(entity_id)
+        raise TypeError("unexpected keyword argument")
+
+    monkeypatch.setattr(coord, "async_fetch_state_changes", broken)
+    entry = MockConfigEntry(domain="ess_manager", version=2, title="Thuis", data={**BASE_DATA, **HP_DATA})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = hass.data["ess_manager"][entry.entry_id]["coordinator"]
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    assert "TypeError" in diag["thermostat_read"]["error"]
+    first = len(calls)
+    await coordinator.async_refresh()
+    assert len(calls) == first                      # not again right away ...
+    coordinator._hp_demand_retry = 0.0
+    await coordinator.async_refresh()
+    assert len(calls) > first                       # ... but after the 30 minutes

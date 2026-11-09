@@ -472,6 +472,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._hp_wind_factor = 1.0
         self._hp_thermal_tried_at = 0.0
         self._hp_demand_day: Optional[str] = None
+        # (2026.11.28) what the last read of the thermostat's history found - for the diagnostics
+        self._thermo_read: Optional[dict[str, Any]] = None
+        self._hp_demand_retry = 0.0
         # step 2's switch on the card (restored by switch.py)
         self.hp_steering_on = False
         # The forecast check (as of 2026.10.22) - accuracy_runtime.py; the
@@ -1350,9 +1353,18 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                      self._climate_temp(st.attributes.get("temperature"))) for st in states]
             sp_hours = {h: v for h, v in heatpump.step_hourly_means(wanted, first, now_hour).items() if h >= first}
             on_hours = {h: v for h, v in thermostat.on_seconds([(r[0], r[2]) for r in rows], first, now_hour).items() if h >= first}
-            self.hp.add_thermostat(thermostat.switch_events(rows), sp_hours, on_hours, now.timestamp())
+            events = thermostat.switch_events(rows)
+            self.hp.add_thermostat(events, sp_hours, on_hours, now.timestamp())
+            self._thermo_read = {
+                "at": now.isoformat(timespec="seconds"), "entity": entity_id, "rows": len(rows),
+                "with_action": sum(1 for r in rows if r[2] is not None),
+                "switches": len(events), "clean": sum(1 for e in events if e[5]),
+                "kept": len(self.hp.thermo.get("events") or []), "error": None,
+            }
         except Exception as err:  # noqa: BLE001 - the house model goes on without it
-            _LOGGER.debug("ESS Manager: thermostat switches not read: %s", err)
+            _LOGGER.warning("ESS Manager (%s): thermostat switches not read: %s: %s", self.entry.title, type(err).__name__, err)
+            self._thermo_read = {"at": now.isoformat(timespec="seconds"), "entity": entity_id,
+                                 "rows": len(states), "error": f"{type(err).__name__}: {err}"}
         temps = [(int(st.last_updated.timestamp()), self._climate_temp(st.attributes.get("current_temperature"))) for st in states]
         self.hp.add_indoor_hours(
             heatpump.step_hourly_means(temps, int(start.timestamp()), int(now.timestamp()) // 3600 * 3600), now.timestamp()
@@ -1862,12 +1874,17 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         demand_kind = self._hp_demand_source(conf)[1]
         if demand_kind and self.hp.set_demand_source(demand_kind):
             self._hp_demand_day = None
-        if self._hp_demand_day != today.isoformat():
+        if self._hp_demand_day != today.isoformat() and now.timestamp() >= self._hp_demand_retry:
             self._hp_demand_day = today.isoformat()
             try:
                 await self._async_hp_demand(conf, now, tz)
             except Exception as err:  # noqa: BLE001 - the recorder's history is optional here
-                _LOGGER.debug("ESS Manager: thermostat heat demand not read: %s", err)
+                # (2026.11.28) visible, and tried again in 30 minutes
+                _LOGGER.warning("ESS Manager (%s): thermostat history not read: %s: %s",
+                                self.entry.title, type(err).__name__, err)
+                self._thermo_read = {"at": now.isoformat(timespec="seconds"), "error": f"{type(err).__name__}: {err}"}
+                self._hp_demand_day = None
+                self._hp_demand_retry = now.timestamp() + 1800
         # the journal: two years of statistics once, then yesterday every day
         try:
             indoor_src = self._hp_indoor_source(conf)[0] or ""

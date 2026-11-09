@@ -138,14 +138,22 @@ async def async_fetch_state_changes(hass: HomeAssistant, entity_id: str, start, 
     wanted and current temperature change - up to then only changes of the
     state itself were read (state_changes_during_period), so a thermostat's
     switches and wanted temperatures never came in."""
-    from homeassistant.components.recorder.history import get_significant_states
+    from homeassistant.components.recorder import history
 
-    changes = await get_instance(hass).async_add_executor_job(
-        lambda: get_significant_states(
-            hass, start, end, [entity_id], None, True, significant_changes_only=False, minimal_response=False,
-            no_attributes=False,
-        )
-    )
+    def read():
+        try:
+            return history.get_significant_states(
+                hass, start, end, entity_ids=[entity_id], include_start_time_state=True,
+                significant_changes_only=False, minimal_response=False, no_attributes=False,
+            )
+        except TypeError:
+            # (2026.11.28) a Home Assistant whose history call takes other
+            # arguments: the state changes only, as before
+            return history.state_changes_during_period(
+                hass, start, end, entity_id, no_attributes=False, include_start_time_state=True
+            )
+
+    changes = await get_instance(hass).async_add_executor_job(read)
     return list(changes.get(entity_id.lower(), []))
 
 

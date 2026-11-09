@@ -1029,7 +1029,10 @@ the heat pump page in Configure, as of 2026.10.17:
   update, also those where only the attributes changed (as of 2026.11.27 -
   before, only changes of the state itself came in, and a thermostat's state
   stays "heat": no switches and a wanted temperature stuck at its first
-  value).
+  value). What the last read found is in the diagnostics as
+  `thermostat_read` (rows, rows with a heat demand, switches, clean ones, an
+  error if the read failed - then it's logged as a warning and tried again
+  30 minutes later; as of 2026.11.28).
 - **Step 2, steering** (needs step 1 and a thermostat - a climate entity):
   on the card a steering switch, a day and a night temperature with the
   hours they start, and a buffer range. Steering on: the thermostat follows

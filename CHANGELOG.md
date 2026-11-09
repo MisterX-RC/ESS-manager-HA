@@ -12,6 +12,18 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.28] - 2026-11-09
+
+### Heat pump
+- **The thermostat's history read can be checked**: live after 2026.11.27
+  still no switches came in, and a failed read only went to the debug log.
+  Now the diagnostics show what the last read found (`thermostat_read`:
+  rows, rows with a heat demand, switches, clean ones, or the error), a
+  failure is logged as a warning and the read is tried again 30 minutes
+  later instead of the next day. The history call passes its options by
+  name, and falls back to the state changes alone on a Home Assistant whose
+  call takes other arguments.
+
 ## [2026.11.27] - 2026-11-09
 
 ### Heat pump
