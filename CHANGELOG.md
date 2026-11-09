@@ -12,6 +12,17 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.26] - 2026-11-09
+
+### EV
+- **A running charge window kept growing**: a "full by" plan gives a quarter
+  on its own a neighbour (no lone quarters). The rest of a window that's
+  running counted as such a lone quarter too - with one quarter left it
+  took the next one, every quarter again. Live (zappi, installation C) a
+  battery window planned 17:00-18:15 ran on to 20:00, and the cheaper night
+  quarters (23:15-01:00) were dropped for it. The rest of a running window
+  (grid or battery, Victron and zappi) is no longer a lone quarter.
+
 ## [2026.11.25] - 2026-11-09
 
 ### Planning

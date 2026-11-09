@@ -342,12 +342,18 @@ def plan_deadline(
         _, q, kind = heapq.heappop(heap)
         if q not in chosen:
             take(q, kind)
-    # no lone quarters: a quarter on its own takes its cheaper neighbour
+    # no lone quarters: a quarter on its own takes its cheaper neighbour -
+    # not the rest of a window that's running (as of 2026.11.26): that's the
+    # tail of a longer window, not a lone quarter. Up to then its last quarter
+    # took one more every quarter, so a running window kept growing (live: a
+    # battery window planned 17:00-18:15 ran on to 20:00, the cheaper night
+    # quarters dropped instead)
+    running = {q for q in list(keep or []) + list(keep_battery or []) if q == first}
     for q in sorted(chosen):
         run = [q]
         while run[-1] + UNIT in chosen:
             run.append(run[-1] + UNIT)
-        if len(run) >= MIN_WINDOW_UNITS or (q - UNIT) in chosen:
+        if len(run) >= MIN_WINDOW_UNITS or (q - UNIT) in chosen or q in running:
             continue
         options = []
         for n in (q - UNIT, q + UNIT):

@@ -6043,6 +6043,36 @@ check(f"night limit on the battery: a charge goes slowly into the cheaper night 
       f" dearer evening at full speed as before ({_nc_old})",
       _nc_old and max(_nc_old) < 88 and _nc_new and min(_nc_new) >= 88)
 
+# 2026.11.26: the rest of a running window isn't a lone quarter - up to 2026.11.25 its last quarter took one
+# more every quarter, so a battery window planned 17:00-18:15 ran on to 20:00 and the cheaper night quarters
+# went (installation C, 9 Nov). Replayed minute by minute with the car charging in its windows.
+_lq_tz = ZoneInfo("Europe/Amsterdam")
+_lq_ps = int(datetime(2026, 11, 9, 0, 0, tzinfo=_lq_tz).timestamp())
+_lq_prices = [0.40] * 68 + [0.66] * 24 + [0.41] * 8 + [0.47] * 4 + [0.42] * 88   # incl: 17:00-23:00 dear, 23-01 cheap
+_lq_prices[-1] = 0.38                                       # refill: 0.38 / 0.855 = 0.444 per kWh from the battery
+_lq_net = [-1.2] * 3 + [-0.25] * 47
+_lq_h0 = int(datetime(2026, 11, 9, 17, 0, tzinfo=_lq_tz).timestamp())
+_lq_dl = int(datetime(2026, 11, 10, 2, 0, tzinfo=_lq_tz).timestamp())
+_lq_t, _lq_left, _lq_bw, _lq_level = _lq_h0 + 420, 9.0, [], 25.5
+_lq_batt_end = None
+while _lq_t < _lq_h0 + 3 * 3600:
+    _q = _lq_t - _lq_t % 900
+    _kb = next((list(range(_q, b, 900)) for a, b in _lq_bw if a <= _lq_t < b), [])
+    _b = evc.battery_option(_lq_t, _lq_h0, _lq_net, _lq_dl, _lq_level, 10.5, 30.0, 6.0, 0.855, 2.0, _lq_tz)
+    _p = evc.plan_full_by(_lq_t, _lq_dl, _lq_left, _lq_net, _lq_h0, _lq_prices, _lq_ps, 1, 13, 13,
+                          keep_battery=_kb, battery=_b, sun=False, sun_min_a=6)
+    _lq_bw = _p["battery_windows"]
+    if evc.in_windows(_lq_t, _lq_bw) or evc.in_windows(_lq_t, _p["windows"]):
+        _lq_left -= 2.95 / 60
+        _lq_level -= 2.95 / 60 / 0.95
+    elif _lq_batt_end is None:
+        _lq_batt_end = _lq_t
+    _lq_t += 60
+check(f"a running battery window ends where it was planned (about 18:15), it doesn't grow quarter by quarter"
+      f" ({datetime.fromtimestamp(_lq_batt_end, _lq_tz):%H:%M}, {_lq_left:.2f} kWh left for the night)" if _lq_batt_end
+      else "a running battery window ends where it was planned - it ran on to 20:00",
+      _lq_batt_end is not None and _lq_batt_end <= _lq_h0 + 2 * 3600 and _lq_left > 4.0)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

@@ -618,7 +618,10 @@ possible**, **Slowly now** or **Full by a time**.
   the house still covers the car's power. That energy counts as usage in
   the battery forecast, so the charge plan fills it up again in the
   cheapest hours. On the EV card these quarters show in green ("House
-  battery"). The card's own preview while sliding shows the grid only.
+  battery"). The card's own preview while sliding shows the grid only. A window that's running ends where it was
+  planned: its last quarter doesn't count as a "lone quarter" that takes a
+  neighbour along (as of 2026.11.26 - before, a running window grew by a
+  quarter every quarter and pushed out cheaper quarters later on).
 - **During a grid window the house battery stays out of it**: with direct
   control, the grid setpoint sent goes up by what the car takes (measured),
   so the grid supplies the car and the battery does what it was going to
