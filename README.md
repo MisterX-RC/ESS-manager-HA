@@ -1605,7 +1605,9 @@ grid, and back to idle when it's over (`night_grid_kw` in the decisions).
 The plans count the same way: a night charge adds the night speed plus the
 house it no longer feeds, a night sale exports the night speed minus the
 usual night usage, and the battery forecast never gives the house more than
-the night speed at night. The loop follows the measured power, so a sudden
+the night speed at night - and a car's "full by" only gets a battery
+quarter at night when it fits under the night speed minus the house (else
+grid quarters at their real price). The loop follows the measured power, so a sudden
 peak is above the limit for the few seconds it takes to catch up. Without a
 battery power sensor the night speeds stay grid setpoints, as before.
 Outside those hours nothing changes. Shown on the Status sensor as

@@ -5996,6 +5996,16 @@ check("night limit on the battery: at night the battery gives at most 1.5 kW (an
       abs((_nb_bf[1] - _nb_bf[2]) - 1.5) < 0.01 and abs((_nb_bf0[1] - _nb_bf0[2]) - 3.0) < 0.01
       and abs((_nb_bf[8] - _nb_bf[9]) - 3.0) < 0.01)            # 07:00 onwards: day again
 
+# 2026.11.22: an EV battery quarter at night - the battery gives at most the night limit (minus the house),
+# so a car of 3.7 kW doesn't fit a battery quarter at night (it gets grid quarters at their real price)
+_eb_tz = ZoneInfo("Europe/Amsterdam")
+_eb_h0 = int(datetime(2026, 11, 9, 21, 0, tzinfo=_eb_tz).timestamp())
+_eb = evc.battery_option(_eb_h0, _eb_h0, [-0.4] * 12, _eb_h0 + 12 * 3600, 20.0, 5.0, 30.0, 6.0, 0.9, 1.5, _eb_tz)
+_eb0 = evc.battery_option(_eb_h0, _eb_h0, [-0.4] * 12, _eb_h0 + 12 * 3600, 20.0, 5.0, 30.0, 6.0, 0.9)
+check("EV battery quarters: at night the room is the night limit minus the house (1.1 kW), by day the battery's max (5.6 kW)",
+      abs(_eb["room_kw"][0] - 5.6) < 1e-6 and abs(_eb["room_kw"][1] - 1.1) < 1e-6 and abs(_eb["room_kw"][10] - 5.6) < 1e-6
+      and abs(_eb0["room_kw"][1] - 5.6) < 1e-6)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

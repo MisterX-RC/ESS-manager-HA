@@ -28,12 +28,16 @@ from __future__ import annotations
 import heapq
 import math
 import re
+from datetime import datetime
 from typing import Any, Optional
 
 from . import ev as _ev
 from .ev import power_kw
 
 UNIT = 900
+# the night limit's hours (as forecasting.NIGHT_FROM_HOUR / NIGHT_UNTIL_HOUR)
+NIGHT_FROM_HOUR = 22
+NIGHT_UNTIL_HOUR = 7
 
 # Victron GX translation keys (= victron_mqtt short ids) of an EV charging station
 VICTRON_KEYS = {
@@ -184,13 +188,18 @@ def needed_kwh(car: Optional[dict[str, Any]], soc: float, target: Optional[float
 def battery_option(
     now_epoch: int, hour0_epoch: int, house_net: list[Optional[float]], until_epoch: int,
     level_kwh: Optional[float], floor_kwh: float, capacity_kwh: float, max_discharge_kw: float, losses: float,
+    night_max_kw: Optional[float] = None, tz: Any = None,
 ) -> Optional[dict[str, Any]]:
     """What the house battery can give the car (as of 2026.11.4): `budget_kwh`
     - the lowest level the battery reaches until `until_epoch` on the house
     alone (solar minus the house, per hour), above `floor_kwh` (taking
     energy earlier lowers every later hour by as much); `room_kw` per hour -
     its max discharge speed minus what the house takes; `losses` - charge x
-    discharge efficiency. None without a battery level."""
+    discharge efficiency. None without a battery level.
+    `night_max_kw` (as of 2026.11.22, the night limit on the battery):
+    between 22:00 and 07:00 (local, `tz`) the battery gives at most this - a
+    car above what's left after the house then doesn't fit a battery
+    quarter at night and gets grid quarters at their real price."""
     if level_kwh is None or max_discharge_kw <= 0:
         return None
     level = float(level_kwh)
@@ -199,7 +208,12 @@ def battery_option(
     hours = max(math.ceil((until_epoch - hour0_epoch) / 3600), 1)
     for h in range(len(house_net)):
         n = house_net[h] if house_net[h] is not None else 0.0
-        room.append(max(max_discharge_kw - max(-n, 0.0), 0.0))
+        cap = max_discharge_kw
+        if night_max_kw is not None:
+            hour = datetime.fromtimestamp(hour0_epoch + h * 3600, tz).hour
+            if hour >= NIGHT_FROM_HOUR or hour < NIGHT_UNTIL_HOUR:
+                cap = min(cap, max(float(night_max_kw), 0.0))
+        room.append(max(cap - max(-n, 0.0), 0.0))
         if h < hours:
             frac = max((hour0_epoch + 3600 - now_epoch) / 3600, 0.0) if h == 0 else 1.0
             level = min(level + n * frac, capacity_kwh)

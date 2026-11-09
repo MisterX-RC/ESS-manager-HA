@@ -2801,6 +2801,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "capacity_kwh": capacity_kwh,
             "max_discharge_kw": max_battery_discharge_speed_kw,
             "losses": charge_efficiency * discharge_efficiency,
+            # (as of 2026.11.22) the night limit on the battery: at night it gives the car at most this
+            "night_max_discharge_kw": (
+                float(conf.get(CONF_NIGHT_DISCHARGE_SPEED_KW, DEFAULT_NIGHT_DISCHARGE_SPEED_KW))
+                if conf.get(CONF_NIGHT_LIMIT_ENABLED) and conf.get(CONF_BATTERY_POWER_ENTITY) else None),
         }
         if conf.get(CONF_EV_ENABLED) and conf.get(CONF_EV_CHARGER) == EV_CHARGER_VICTRON:
             ev_entities = self._victron_entities(conf.get(CONF_EV_VICTRON_DEVICE))

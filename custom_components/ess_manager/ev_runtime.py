@@ -743,7 +743,7 @@ class _VictronMixin:
             return None
         return evc.battery_option(now_epoch, hour0, house_net, until, b.get("level_kwh"), float(b.get("floor_kwh") or 0.0),
                                   float(b.get("capacity_kwh") or 0.0), float(b.get("max_discharge_kw") or 0.0),
-                                  float(b.get("losses") or 1.0))
+                                  float(b.get("losses") or 1.0), b.get("night_max_discharge_kw"), self.ctx.get("tz"))
 
     def _plan_range(self, min_a: float, max_a: float) -> tuple[float, float, bool, float]:
         """The currents a "full by" plan may use, whether it counts on the sun

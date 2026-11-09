@@ -30,6 +30,10 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   the house it no longer feeds, a night sale exports the night speed minus
   the usual night usage, the battery forecast gives the house at most the
   night speed at night.
+- The car's "full by" counts with it too: at night a battery quarter has
+  only the night limit minus the house as room, so a car above that gets
+  grid quarters at their real price instead of a battery quarter priced as
+  if the battery gave it all.
 - Without a battery power sensor nothing changes (grid setpoint limits).
 
 ### Tests
