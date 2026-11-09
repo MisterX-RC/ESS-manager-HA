@@ -12,6 +12,20 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.27] - 2026-11-09
+
+### Heat pump
+- **The thermostat's history only held changes of its state**: a climate
+  entity stays "heat" while its heat demand (`hvac_action`), wanted and
+  current temperature change - those are attributes, and the history was
+  read with only real state changes. So the learned thermostat (2026.11.20)
+  never saw a switch (live: 0 of the 10 needed after more than ten days),
+  the house model's wanted temperature per hour stayed at the value of the
+  start of the read, and a thermostat as the heat demand source gave no
+  demand hours. Now every recorded update is read; the next read (at the
+  start and once a day) takes in the last ten days at once.
+- Home Assistant tests: one with the real recorder for this.
+
 ## [2026.11.26] - 2026-11-09
 
 ### EV

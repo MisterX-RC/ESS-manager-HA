@@ -35,8 +35,16 @@ def auto_enable_custom_integrations(enable_custom_integrations):
     yield
 
 
+@pytest.fixture
+def _recorder_first(request):
+    """A test with the real recorder (recorder_mock) needs it set up before
+    hass (2026.11.27)."""
+    if "recorder_mock" in request.fixturenames:
+        request.getfixturevalue("recorder_mock")
+
+
 @pytest.fixture(autouse=True)
-async def amsterdam(hass):
+async def amsterdam(_recorder_first, hass):
     """The house is in the Netherlands: its time zone (DST, the price day)."""
     await hass.config.async_set_time_zone("Europe/Amsterdam")
     yield

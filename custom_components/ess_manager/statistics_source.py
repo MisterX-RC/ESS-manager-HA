@@ -131,12 +131,19 @@ async def async_last_recorded_state(hass: HomeAssistant, entity_id: str, wanted:
 async def async_fetch_state_changes(hass: HomeAssistant, entity_id: str, start, end) -> list:
     """The recorded states of `entity_id` (with attributes) between start and
     end, the state at `start` first - the recorder keeps these about 10 days.
-    Used for a thermostat's heat demand (2026.10.17)."""
-    from homeassistant.components.recorder.history import state_changes_during_period
+    Used for a thermostat's heat demand (2026.10.17).
+
+    Every recorded update, also one where only the attributes changed (as of
+    2026.11.27): a thermostat's state stays "heat" while its hvac_action,
+    wanted and current temperature change - up to then only changes of the
+    state itself were read (state_changes_during_period), so a thermostat's
+    switches and wanted temperatures never came in."""
+    from homeassistant.components.recorder.history import get_significant_states
 
     changes = await get_instance(hass).async_add_executor_job(
-        lambda: state_changes_during_period(
-            hass, start, end, entity_id, no_attributes=False, include_start_time_state=True
+        lambda: get_significant_states(
+            hass, start, end, [entity_id], None, True, significant_changes_only=False, minimal_response=False,
+            no_attributes=False,
         )
     )
     return list(changes.get(entity_id.lower(), []))

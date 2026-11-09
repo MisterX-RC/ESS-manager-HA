@@ -1025,7 +1025,11 @@ the heat pump page in Configure, as of 2026.10.17:
   better (`review.thermostat`: both errors and `used`). A thermostat that
   modulates shows its switches scattered (`kind: modulating`) and the
   smooth controller stays. What was learned: `house_model.thermostat`; the
-  switches themselves are in the diagnostics (`thermostat_events`).
+  switches themselves are in the diagnostics (`thermostat_events`). Its history is read with every recorded
+  update, also those where only the attributes changed (as of 2026.11.27 -
+  before, only changes of the state itself came in, and a thermostat's state
+  stays "heat": no switches and a wanted temperature stuck at its first
+  value).
 - **Step 2, steering** (needs step 1 and a thermostat - a climate entity):
   on the card a steering switch, a day and a night temperature with the
   hours they start, and a buffer range. Steering on: the thermostat follows
