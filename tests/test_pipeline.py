@@ -5014,6 +5014,15 @@ _planned = [s for s in _vaA["sessions"] if s["id"] == _mA][0]
 check("planned full by: forecast with its own plan (calm current, done an hour early), the grid part apart",
       _planned["full_by"] is not None and _planned["full_by"]["current_a"] >= 6 and not _planned["full_by"]["tight"]
       and _planned["deadline"].startswith("2026-11-04T07:00") and abs(sum(_vaA["grid_120h"]) - sum(_tA)) < 0.01 and sum(_tA) > 11.9)
+# 2026.11.24: switched off, a planned "full by" counts for nothing - also not its grid part (that
+# came off the house's usage, the house at 0 or below in those hours)
+import copy as _copyB  # noqa: E402
+_vrtB = _copyB.deepcopy(_vrtA)
+_vrtB.save(_mA, {"enabled": False}, int(_vn.timestamp()))
+_tB, _vaB = _vrtB.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 100.0, victron=_vin(False))
+check("planned full by switched off: nothing in the forecast, no grid part either",
+      sum(_tB) == 0.0 and sum(_vaB["grid_120h"]) == 0.0
+      and [s for s in _vaB["sessions"] if s["id"] == _mA][0]["enabled"] is False)
 _vrtA.outbox = []
 _tA2, _vaA2 = _vrtA.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 100.0, victron=_vin(True))
 _qA = _vrtA.outbox[0]["payload"]

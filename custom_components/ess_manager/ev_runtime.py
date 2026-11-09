@@ -1234,9 +1234,9 @@ class EvRuntime(_VictronMixin):
                     out.append({**s, "end": None, "charged_kwh": 0.0, "waits_until": None, "waits": True})
                     continue
                 s = {**s, "start": flow_end}
+            grid_part = [0.0] * hours
             if flow and s["id"] == flow["sid"] and (flow.get("plan") or flow.get("done")):
                 part, grid_part, info = self._flow_profile(s, now_epoch, hour0, hours, net_left, phases, min_a, max_a, delivered)
-                grid_total = [round(a + b, 4) for a, b in zip(grid_total, grid_part)]
             elif s.get("mode") == ev.MODE_DEADLINE and victron is not None and not s.get("running"):
                 # a planned "full by" (as of 2026.10.29)
                 plan_lo, plan_hi, sun, sun_lo = self._plan_range(min_a, max_a)
@@ -1245,7 +1245,6 @@ class EvRuntime(_VictronMixin):
                     phases, plan_lo, plan_hi,
                     battery=self._battery(now_epoch, hour0, net_left, int(s.get("deadline") or 0)), sun=sun, sun_min_a=sun_lo,
                 )
-                grid_total = [round(a + b, 4) for a, b in zip(grid_total, grid_part)]
                 info = [{**s, "end": pinfo["end"], "charged_kwh": pinfo["kwh"], "warning": pinfo["warning"], "full_by": pinfo["plan"]}]
             else:
                 part, info = ev.ev_forecast([s], now_epoch, hour0, hours, net_left, phases, min_a, max_a, tz, delivered)
@@ -1258,6 +1257,9 @@ class EvRuntime(_VictronMixin):
             if s.get("enabled", True):
                 total = [round(a + b, 4) for a, b in zip(total, part)]
                 net_left = [round(n - p, 4) for n, p in zip(net_left, part)]
+                # (as of 2026.11.24) its grid part only when it counts: a switched-off "full by"
+                # still took its grid windows off the house's usage (the house at 0 or below then)
+                grid_total = [round(a + b, 4) for a, b in zip(grid_total, grid_part)]
             out.extend(info)
         out.sort(key=lambda x: x["start"])
         self.last_sessions = out

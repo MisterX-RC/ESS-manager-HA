@@ -12,6 +12,16 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.24] - 2026-11-09
+
+### EV
+- **A switched-off "full by" session took its grid windows off the house's
+  usage**: its energy no longer counted, but its grid part (the car's energy
+  the house battery stays out of) still did - so in those hours the house's
+  usage dropped to 0 or below on the battery chart, and the battery forecast
+  and the plans counted on less usage than there was. Now a switched-off
+  session counts for nothing at all (Victron and zappi; since 2026.10.29).
+
 ## [2026.11.23] - 2026-11-09
 
 ### Configure
