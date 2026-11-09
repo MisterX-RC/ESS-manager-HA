@@ -35,6 +35,15 @@ def _max_per_unit(max_kw: Optional[float]) -> float:
     return float(max_kw) / 4 if max_kw is not None and max_kw > 0 else math.inf
 
 
+def _import_at(import_per_unit, u: int) -> float:
+    """What the grid imports in quarter `u` while charging (kWh): one number
+    for every quarter, or per quarter (as of 2026.11.25 - at night with the
+    night limit a charge doesn't import the full charge speed)."""
+    if isinstance(import_per_unit, (list, tuple)):
+        return float(import_per_unit[u]) if u < len(import_per_unit) else 0.0
+    return float(import_per_unit)
+
+
 def _hour0_start_unit(cur_unit: int, now: datetime) -> int:
     """Absolute unit at the top of the current hour."""
     return cur_unit - (now.minute // 15)
@@ -113,7 +122,7 @@ def _rate_window(
     sell: list[float],
     search_start: int,
     search_end: int,
-    import_per_unit: float,
+    import_per_unit,
     charge_efficiency: float = 1.0,
     allowed=None,
     fits=None,
@@ -130,7 +139,11 @@ def _rate_window(
     go to the shorter, then the earlier window. `allowed(unit)` can rule out
     quarters (a window can't run through one); `fits(start, end)` windows
     (e.g. the battery would already be full by then, or reach 100% later, so
-    the amount can't go in). None if nothing fits."""
+    the amount can't go in). None if nothing fits.
+
+    `import_per_unit`: what the grid imports per quarter while charging -
+    one number, or a list per quarter (as of 2026.11.25, see
+    forecasting.grid_charge_imports)."""
     ce = charge_efficiency if charge_efficiency > 0 else 1.0
     n = min(search_end, len(buy), len(rates))
     best = None
@@ -142,8 +155,9 @@ def _rate_window(
                 break
             rate = rates[end]
             total += rate
-            waste = max(import_per_unit - rate / ce, 0.0)
-            cost += buy[end] * import_per_unit - (sell[end] if end < len(sell) else buy[end]) * waste
+            imp = _import_at(import_per_unit, end)
+            waste = max(imp - rate / ce, 0.0)
+            cost += buy[end] * imp - (sell[end] if end < len(sell) else buy[end]) * waste
             end += 1
         if end > start and total >= target_kwh - 1e-9 and (fits is None or fits(start, end)):
             key = (round(cost, 6), end - start, start)
@@ -250,7 +264,7 @@ def _schedule_charge(
     sell: list[float],
     cur_unit: int,
     last_unit: int,
-    import_per_unit: float,
+    import_per_unit,
     charge_efficiency: float,
     min_block_units: int,
     base: list[float],
@@ -281,7 +295,12 @@ def _schedule_charge(
     stretched into the expensive hours for them.
 
     `rates`: what the grid really adds per quarter (grid_charge_rates);
-    cost per kWh = (bought - sent straight back) / added. Blocks shorter
+    cost per kWh = (bought - sent straight back) / added. `import_per_unit`
+    is what's bought per quarter: one number, or per quarter (as of
+    2026.11.25: at night with the night limit only what the battery and the
+    house take - before, the full charge speed was counted as bought there
+    too and the rest as sent back, which with the buy price incl. tax and
+    the sell price without made every night quarter look far dearer). Blocks shorter
     than `min_block_units` are lengthened into their cheapest neighbours,
     then quarters no requirement needs any more are trimmed off the ends
     (never below that length). Returns the chosen units, sorted.
@@ -310,9 +329,10 @@ def _schedule_charge(
 
     def cost(u: int) -> float:
         rate = rates[u]
-        waste = max(import_per_unit - rate / ce, 0.0)
+        imp = _import_at(import_per_unit, u)
+        waste = max(imp - rate / ce, 0.0)
         price_sell = sell[u] if u < len(sell) else buy[u]
-        return (buy[u] * import_per_unit - price_sell * waste) / rate
+        return (buy[u] * imp - price_sell * waste) / rate
 
     def hour_of(u: int) -> int:
         return max((u - hour0_unit) // 4, 0)
@@ -493,9 +513,10 @@ def _schedule_charge(
     def paid(u: int) -> float:
         # what a quarter costs in money (bought minus sent straight back)
         rate = rates[u]
-        waste = max(import_per_unit - rate / ce, 0.0)
+        imp = _import_at(import_per_unit, u)
+        waste = max(imp - rate / ce, 0.0)
         price_sell = sell[u] if u < len(sell) else buy[u]
-        return buy[u] * import_per_unit - price_sell * waste
+        return buy[u] * imp - price_sell * waste
 
     def pieces(units: set[int], whole: bool) -> list[list[int]]:
         out: list[list[int]] = []
@@ -913,6 +934,7 @@ def compute_spike_plan(
     charge_rates: Optional[list[float]] = None,
     max_discharge_kw: Optional[float] = None,
     today_units: int = 96,
+    charge_imports: Optional[list[float]] = None,
 ) -> dict:
     """`all_price` is the sell price, `buy_price` what buying costs (price
     + transport, as of v0.4.0; defaults to all_price). The spread is the
@@ -1094,8 +1116,8 @@ def compute_spike_plan(
         if topup_price_cap is not None:
             allowed = lambda u: masked_prices[u] <= topup_price_cap  # noqa: E731
         window = _rate_window(
-            charge_needed_kwh, charge_rates, masked_prices, prices, cur_unit, high_abs, charge_per_unit,
-            charge_efficiency, allowed,
+            charge_needed_kwh, charge_rates, masked_prices, prices, cur_unit, high_abs,
+            charge_imports or charge_per_unit, charge_efficiency, allowed,
         )
         if window is None and allowed is not None:
             # a top-up: the paying run that delivers the most, if that's enough
@@ -1262,6 +1284,7 @@ def compute_low_charge_plan(
     min_charge_units: int = 2,
     hold_rates: Optional[list[float]] = None,
     hold_factor: float = 1.0,
+    charge_imports: Optional[list[float]] = None,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price).
@@ -1380,7 +1403,7 @@ def compute_low_charge_plan(
             forecast, cur_unit, now, charge_speed_kw, low_threshold_kwh, floor_kwh, minimum_charge_target_kwh,
             upper_limit_kwh, usage, all_price, battery_now_kwh, high_threshold_kwh, buy_price, charge_efficiency,
             discharge_efficiency, peak_kwh, charge_rates, charge_buffer_kwh, min_charge_units, follow_up,
-            hold_rates, hold_factor,
+            hold_rates, hold_factor, charge_imports,
         )
         if soft is not None:
             return _carry(soft)
@@ -1469,7 +1492,7 @@ def compute_low_charge_plan(
         def schedule(reqs: list[tuple[int, float, bool]]) -> list[int]:
             holds.clear()
             return _schedule_charge(
-                reqs, charge_rates, buy, all_price, cur_unit, len(buy), charge_speed_kw / 4,
+                reqs, charge_rates, buy, all_price, cur_unit, len(buy), charge_imports or charge_speed_kw / 4,
                 charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
                 hold_rates=hold_rates, hold_factor=hold_factor, holds_out=holds,
             )
@@ -1572,6 +1595,7 @@ def _soft_low_charge(
     follow_up: bool = False,
     hold_rates: Optional[list[float]] = None,
     hold_factor: float = 1.0,
+    charge_imports: Optional[list[float]] = None,
 ) -> Optional[dict]:
     """compute_low_charge_plan in solar deficit mode (as of v0.5.13), with
     the surplus minimum as the hard floor below the deficit minimum - see
@@ -1741,7 +1765,7 @@ def _soft_low_charge(
             def schedule(reqs: list[tuple[int, float, bool]]) -> list[int]:
                 holds.clear()
                 return _schedule_charge(
-                    reqs, charge_rates, buy, all_price, cur_unit, len(buy), charge_speed_kw / 4,
+                    reqs, charge_rates, buy, all_price, cur_unit, len(buy), charge_imports or charge_speed_kw / 4,
                     charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
                     hold_rates=hold_rates, hold_factor=hold_factor, holds_out=holds,
                 )

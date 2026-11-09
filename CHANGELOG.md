@@ -12,6 +12,23 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.25] - 2026-11-09
+
+### Planning
+- **A charge at full speed in the evening instead of slowly in the cheaper
+  night** (night limit on the battery, prices incl. tax): every charge
+  quarter counted as buying the full charge speed, the part the battery
+  couldn't take as sold straight back. At night the battery only takes the
+  night speed, so most of it looked "sent back" - bought incl. tax, sold at
+  the bare price: a night quarter at 0.40 €/kWh came out at about 0.83 per
+  kWh in the battery, dearer than 21:15-22:00 at full speed (0.54). What a
+  charge quarter buys is now worked out per quarter: by day the charge
+  speed, at night with the limit on the battery what the battery and the
+  house take (nothing goes back; about 0.45 there), with the limit on the
+  grid setpoint the night speed. For the low-charge and spike plans.
+- Private regression fixtures (`make_fixture.py`) keep a supplier sensor's
+  learned incl. line, as the same line entered by hand.
+
 ## [2026.11.24] - 2026-11-09
 
 ### EV

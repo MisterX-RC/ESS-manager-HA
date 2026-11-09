@@ -1607,7 +1607,11 @@ house it no longer feeds, a night sale exports the night speed minus the
 usual night usage, and the battery forecast never gives the house more than
 the night speed at night - and a car's "full by" only gets a battery
 quarter at night when it fits under the night speed minus the house (else
-grid quarters at their real price). The loop follows the measured power, so a sudden
+grid quarters at their real price). What a night charge costs is what really comes
+from the grid - the battery's night speed and the house, nothing sent back
+(as of 2026.11.25; before, the full charge speed counted as bought and the
+rest as sold back at the bare price, so with prices incl. tax a slow night
+charge looked dearer than a full-speed evening block and lost to it). The loop follows the measured power, so a sudden
 peak is above the limit for the few seconds it takes to catch up. Turning
 the night limit on in Configure therefore needs the battery power sensor on
 the same page; an older setup without it keeps the grid-setpoint limit

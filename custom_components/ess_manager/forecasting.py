@@ -516,6 +516,36 @@ def grid_charge_rates(
     return out
 
 
+def grid_charge_imports(
+    rates: list[float],
+    now: datetime,
+    speed_kw: float,
+    charge_efficiency: float = 1.0,
+    night_kw: Optional[float] = None,
+    night_battery: bool = False,
+) -> list[float]:
+    """Per 15-minute unit (like grid_charge_rates), what the grid imports
+    while a grid charge runs (kWh) - as of 2026.11.25. A charge holds the
+    grid setpoint at `speed_kw`: what the battery can't take of that (the sun
+    already fills it) goes straight back. At night with the night limit the
+    setpoint is the night speed; with the limit on the battery itself
+    (`night_battery`) the battery charges at exactly that and the grid only
+    gives what it and the house take - nothing goes back (`rates` / charge
+    efficiency). Up to 2026.11.24 the full charge speed counted as bought
+    in every quarter, also at night - with the buy price incl. tax and the
+    sell price without, a slow night quarter looked far dearer than it is."""
+    ce = charge_efficiency if charge_efficiency > 0 else 1.0
+    speed = max(float(speed_kw or 0.0), 0.0)
+    night = night_limit(speed, night_kw) if night_kw is not None else None
+    out: list[float] = []
+    for u, rate in enumerate(rates):
+        if night is not None and unit_is_night(u, now):
+            out.append(round(rate / ce, 4) if night_battery else night / 4)
+        else:
+            out.append(speed / 4)
+    return out
+
+
 def grid_use_rates(
     net: list[float],
     now: datetime,

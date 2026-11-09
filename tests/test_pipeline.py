@@ -6015,6 +6015,34 @@ check("EV battery quarters: at night the room is the night limit minus the house
       abs(_eb["room_kw"][0] - 5.6) < 1e-6 and abs(_eb["room_kw"][1] - 1.1) < 1e-6 and abs(_eb["room_kw"][10] - 5.6) < 1e-6
       and abs(_eb0["room_kw"][1] - 5.6) < 1e-6)
 
+# 2026.11.25: what a night quarter costs with the night limit on the battery - the grid only gives what the
+# battery (1.5 kW) and the house take, nothing goes back; before, the full charge speed (5.5 kW) counted as
+# bought and the rest as sent back, which with the buy price incl. tax and the sell price without made a
+# night quarter (live: 0.40 incl) look dearer than a full-speed evening quarter (0.49 incl) - installation C
+_nc_now = datetime(2026, 11, 9, 21, 0, tzinfo=ZoneInfo("Europe/Amsterdam"))
+_nc_net = [-0.35] * 48
+_nc_rates = forecasting.grid_charge_rates(_nc_net, _nc_now, 5.5, 5.5, 192, 0.9, 0.95, night_kw=1.5, night_battery=True)
+_nc_imp = forecasting.grid_charge_imports(_nc_rates, _nc_now, 5.5, 0.9, night_kw=1.5, night_battery=True)
+_nc_imp_grid = forecasting.grid_charge_imports(_nc_rates, _nc_now, 5.5, 0.9, night_kw=1.5)
+_nc_sell = [0.30] * 88 + [0.226] * 104                      # 21:00-22:00 0.30, the night 0.226 (bare)
+_nc_buy = [round(1.2096 * p + 0.131, 5) for p in _nc_sell]  # incl. tax
+check("charge imports: by day the charge speed, at night with the limit on the battery what the battery and house take,"
+      " with the limit on the grid setpoint the night speed",
+      abs(_nc_imp[85] - 5.5 / 4) < 1e-6 and abs(_nc_imp[100] - _nc_rates[100] / 0.9) < 1e-4
+      and abs(_nc_imp_grid[100] - 1.5 / 4) < 1e-6)
+
+
+def _nc_plan(imports):
+    return plans._schedule_charge([(120, 3.0, True)], _nc_rates, _nc_buy, _nc_sell, 84, 192, imports, 0.9, 3,
+                                  [], 84, 30.0)
+
+
+_nc_old = _nc_plan(5.5 / 4)
+_nc_new = _nc_plan(_nc_imp)
+check(f"night limit on the battery: a charge goes slowly into the cheaper night ({_nc_new[:2]}...), not into the"
+      f" dearer evening at full speed as before ({_nc_old})",
+      _nc_old and max(_nc_old) < 88 and _nc_new and min(_nc_new) >= 88)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

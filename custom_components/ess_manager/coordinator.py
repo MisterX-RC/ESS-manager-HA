@@ -2932,6 +2932,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             charge_efficiency, discharge_efficiency, night_kw=night_charge_kw, house_efficiency=(house_ce, house_de),
             night_battery=night_battery,
         )
+        # what the grid imports per quarter while charging (as of 2026.11.25):
+        # at night with the night limit not the full charge speed
+        charge_imports = forecasting.grid_charge_imports(
+            charge_rates, now, charge_speed_kw, charge_efficiency, night_kw=night_charge_kw,
+            night_battery=night_battery,
+        )
         # the house from the grid at low prices (as of 2026.10.41): what the
         # battery would give the house per quarter - planned with the charges
         grid_use_rates = (
@@ -3118,6 +3124,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     charge_rates=charge_rates,
                     today_units=len(today_price) or 96,
                     max_discharge_kw=max_battery_discharge_speed_kw,
+                    charge_imports=charge_imports,
                 ), spike_discharge_speed_kw, night_sell_kw, now=now)
             else:
                 self._spike_plan = {"active": False}
@@ -3172,6 +3179,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 min_charge_units=min_charge_units,
                 hold_rates=grid_use_rates,
                 hold_factor=discharge_efficiency,
+                charge_imports=charge_imports,
             )
             # A full charge relying on a future solar peak (either genuinely
             # scheduled to buy up to it, or silently skipped because that peak
