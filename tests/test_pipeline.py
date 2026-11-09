@@ -6073,6 +6073,20 @@ check(f"a running battery window ends where it was planned (about 18:15), it doe
       else "a running battery window ends where it was planned - it ran on to 20:00",
       _lq_batt_end is not None and _lq_batt_end <= _lq_h0 + 2 * 3600 and _lq_left > 4.0)
 
+# 2026.11.29: every recorded update of a thermostat (2026.11.27) - several in the same second, one with an
+# unknown value: sorting the (time, value) pairs compared None with a number (live: "'<' not supported between
+# instances of 'float' and 'NoneType'", the whole read failed)
+_dup_t0 = 1794200400
+_dup = [(_dup_t0, 21.0), (_dup_t0 + 600, None), (_dup_t0 + 600, 20.5), (_dup_t0 + 1800, 20.5)]
+_dup_b = [(_dup_t0, True), (_dup_t0 + 600, None), (_dup_t0 + 600, False), (_dup_t0 + 1800, False)]
+try:
+    _dup_ok = (heatpump.step_hourly_means(_dup, _dup_t0, _dup_t0 + 3600) is not None
+               and heatpump.demand_hours(_dup_b, _dup_t0, _dup_t0 + 3600, ZoneInfo("Europe/Amsterdam")) is not None
+               and thermostat.on_seconds(_dup_b, _dup_t0, _dup_t0 + 3600) is not None)
+except TypeError as _e:
+    _dup_ok = False
+check("thermostat history: updates in the same second, one unknown, don't break the read", _dup_ok)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

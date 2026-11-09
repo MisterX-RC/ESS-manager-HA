@@ -166,7 +166,7 @@ def _enforced_min(durations: list[float]) -> Optional[int]:
 
 def on_seconds(changes: list[tuple[int, Optional[bool]]], start: int, end: int) -> dict[int, int]:
     """Seconds of heat demand per hour (hours with 45 minutes or more known)."""
-    changes = sorted(c for c in changes if c[0] < end)
+    changes = sorted((c for c in changes if c[0] < end), key=lambda c: c[0])  # by time only (2026.11.29)
     acc: dict[int, list[float]] = {}
     for i, (t0, v) in enumerate(changes):
         t1 = changes[i + 1][0] if i + 1 < len(changes) else end

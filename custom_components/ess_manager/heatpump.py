@@ -306,7 +306,7 @@ def demand_hours(changes: list[tuple[int, Optional[bool]]], first: int, end: int
     """Hours with heat demand per local day from the climate entity's state
     changes [(epoch, demand)] between `first` and `end` - only days fully
     covered (from the first change on) and without unknown stretches."""
-    changes = sorted(c for c in changes if c[0] < end)
+    changes = sorted((c for c in changes if c[0] < end), key=lambda c: c[0])  # by time only (2026.11.29): None next to a value in the same second
     if not changes:
         return {}
     covered_from = max(changes[0][0], first)
@@ -338,7 +338,7 @@ def step_hourly_means(changes: list[tuple[int, Optional[float]]], start: int, en
     (the value holds until the next change) - for a thermostat's current
     temperature, which has no statistics. Hours with less than 45 minutes of
     known values are left out."""
-    changes = sorted(c for c in changes if c[0] < end)
+    changes = sorted((c for c in changes if c[0] < end), key=lambda c: c[0])  # by time only (2026.11.29)
     acc: dict[int, list[float]] = {}
     for i, (t0, v) in enumerate(changes):
         t1 = changes[i + 1][0] if i + 1 < len(changes) else end

@@ -12,6 +12,15 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.29] - 2026-11-09
+
+### Heat pump
+- **The thermostat's history read failed as a whole**: with every recorded
+  update (2026.11.27) several come in the same second, now and then one with
+  an unknown value; sorting those (time, value) pairs compared "nothing" with
+  a number (live, in the new `thermostat_read`: "'<' not supported between
+  instances of 'float' and 'NoneType'"). They're sorted by time only now.
+
 ## [2026.11.28] - 2026-11-09
 
 ### Heat pump
