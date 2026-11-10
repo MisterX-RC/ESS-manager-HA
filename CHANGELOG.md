@@ -25,6 +25,19 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   that way, like a running charge window; a charge in that quarter still
   wins, and the next quarter is decided afresh.
 
+### EV
+- **A zappi mode command that never arrived wasn't sent again**: ESS
+  Manager counted a mode as applied the moment it sent it, and a zappi
+  showing something else afterwards as a change in the myenergi app (left
+  alone). Live a Fast sent at plug-in (08:13) never came through the cloud:
+  the car stayed on Stopped with an active plan. A mode now counts as
+  applied only once the zappi shows it; until then it's sent again every 3
+  minutes (the cloud takes up to a minute, and the integration shows the old
+  mode for a moment after a command), at most 4 times, then a warning in
+  the log and the diagnostics. Retries show in `ev_charger_commands` as
+  "(try 2)" etc. Once the zappi has shown the mode, a change in the app is
+  still left alone.
+
 ## [2026.11.29] - 2026-11-09
 
 ### Heat pump

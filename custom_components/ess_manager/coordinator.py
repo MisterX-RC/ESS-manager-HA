@@ -221,6 +221,11 @@ GRID_USE_MAX_KW = 25.0
 ZAPPI_CMD_KEEP = 30
 ZAPPI_FOLLOW_W = 300.0
 ZAPPI_FOLLOW_MAX_S = 900
+# (as of 2026.11.30) a mode the zappi hasn't taken on is sent again after
+# this long (s; the myenergi cloud takes up to a minute, and the integration
+# shows the old mode for a moment after a command), at most this many times
+ZAPPI_RETRY_S = 180
+ZAPPI_TRIES = 4
 # solar export (as of 2026.10.41): the battery keeps charging at this, the
 # solar above it goes to the grid
 SOLAR_EXPORT_BATTERY_W = 1000.0
@@ -437,6 +442,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # (entity -> (value, monotonic time)), its last error, and the grid
         # setpoint offset that keeps the house battery out of a grid window
         self._ev_writes: dict[str, tuple[Any, float]] = {}
+        # (2026.11.30) the zappi's mode commands while no car is plugged in (no flow to keep them in)
+        self._zappi_rest_applied: dict[str, Any] = {}
         self._ev_error: Optional[str] = None
         # a zappi (as of 2026.11.21): each mode command and how long the power
         # (the charger's own meter) took to follow - for the diagnostics, to
@@ -953,13 +960,16 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         car's plan says (ev_charger.zappi_mode) - Fast, Eco, Eco+ or Stopped;
         Stopped once after unplugging. As with the Victron, a mode is sent when
         the plan's mode changes, not again while it stays the same (a change in
-        the myenergi app is left alone meanwhile). Each command's delay until
+        the myenergi app is left alone meanwhile) - once the zappi has shown it;
+        until then it's sent again every ZAPPI_RETRY_S (as of 2026.11.30). Each command's delay until
         the meter follows goes into the diagnostics."""
         self._zappi_follow(conf)
         min_a = float(conf.get(CONF_EV_MIN_CURRENT, DEFAULT_EV_MIN_CURRENT))
         target = evc.charger_target(self.ev.flow, int(now.timestamp()), min_a,
                                     float(conf.get(CONF_EV_MAX_CURRENT, DEFAULT_EV_MAX_CURRENT)))
         flow = self.ev.flow
+        if flow is not None:
+            self._zappi_rest_applied = {}       # a car plugged in: the next unplugging sends Stopped afresh
         mode = evc.zappi_mode(target, (flow or {}).get("choice"), min_a)
         resting = False
         if mode is None and flow is None and self.ev.rest_charger:
@@ -968,37 +978,55 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._ev_target = {"mode": mode, "why": (target or {}).get("why") or ("unplugged" if resting else None)} if mode else None
         if mode is None or (control_settings.active and not self.controller.enabled):
             return
-        applied: dict[str, Any] = flow.setdefault("applied", {}) if flow is not None else {}
+        # (as of 2026.11.30) what was sent and whether the zappi took it on: a
+        # mode counts as applied ("zappi_ok") only once the zappi shows it - up
+        # to then it's sent again every ZAPPI_RETRY_S (live: a Fast sent at
+        # plug-in never arrived, and was taken for a change in the app). Once
+        # it showed it, a change in the app is left alone as before.
+        if flow is not None:
+            applied: dict[str, Any] = flow.setdefault("applied", {})
+        else:
+            applied = self._zappi_rest_applied
         entity_id = ents.get("mode")
         state = self.hass.states.get(entity_id or "")
         if state is None or mode not in (state.attributes.get("options") or [mode]):
             return
-        if applied.get("zappi") == mode:
-            pending = False
+        why = (target or {}).get("why") or "unplugged"
+        sent = applied.get("zappi_sent") if (applied.get("zappi_sent") or {}).get("mode") == mode else None
+        now_ts = dt_util.utcnow().timestamp()
+        pending = False
+        if applied.get("zappi_ok") == mode:
+            pass
         elif state.state == mode:
-            applied["zappi"] = mode
-            pending = False
+            applied["zappi_ok"] = mode
+            applied.pop("zappi_sent", None)
+        elif sent is not None and now_ts - float(sent.get("at") or 0) < ZAPPI_RETRY_S:
+            pending = True                       # sent: waiting for the zappi to show it
+        elif sent is not None and int(sent.get("tries") or 0) >= ZAPPI_TRIES:
+            # given up: left as it is (a warning once)
+            message = f"EV charger: the zappi didn't take on {mode} after {ZAPPI_TRIES} tries (it shows {state.state})"
+            if message != self._ev_error:
+                _LOGGER.warning("ESS Manager (%s): %s", self.entry.title, message)
+            self._ev_error = message
+            applied["zappi_ok"] = mode
         else:
-            mono = time.monotonic()
-            last = self._ev_writes.get(entity_id)
             pending = True
-            if last is None or last[0] != mode or mono - last[1] >= 60:
-                try:
-                    await asyncio.wait_for(self.hass.services.async_call(
-                        "select", "select_option", {"entity_id": entity_id, "option": mode}, blocking=True), 20)
-                except Exception as err:  # noqa: BLE001 - a failed write must not fail the cycle
-                    message = f"EV charger: select.select_option on {entity_id} failed: {type(err).__name__}: {err}"
-                    if message != self._ev_error:
-                        _LOGGER.warning("ESS Manager (%s): %s", self.entry.title, message)
-                    self._ev_error = message
-                else:
-                    self._ev_writes[entity_id] = (mode, mono)
-                    applied["zappi"] = mode
-                    self._ev_error = None
-                    pending = False
-                    self._zappi_sent(conf, mode, state.state, (target or {}).get("why") or "unplugged")
-                    _LOGGER.info("ESS Manager (%s): zappi %s -> %s (%s)", self.entry.title, state.state, mode,
-                                 (target or {}).get("why") or "unplugged")
+            tries = int((sent or {}).get("tries") or 0) + 1
+            try:
+                await asyncio.wait_for(self.hass.services.async_call(
+                    "select", "select_option", {"entity_id": entity_id, "option": mode}, blocking=True), 20)
+            except Exception as err:  # noqa: BLE001 - a failed write must not fail the cycle
+                message = f"EV charger: select.select_option on {entity_id} failed: {type(err).__name__}: {err}"
+                if message != self._ev_error:
+                    _LOGGER.warning("ESS Manager (%s): %s", self.entry.title, message)
+                self._ev_error = message
+                applied["zappi_sent"] = {"mode": mode, "at": now_ts, "tries": tries}
+            else:
+                applied["zappi_sent"] = {"mode": mode, "at": now_ts, "tries": tries}
+                self._ev_error = None
+                self._zappi_sent(conf, mode, state.state, why if tries == 1 else f"{why} (try {tries})")
+                _LOGGER.info("ESS Manager (%s): zappi %s -> %s (%s%s)", self.entry.title, state.state, mode, why,
+                             "" if tries == 1 else f", try {tries}")
         if resting and not pending:
             self.ev.rest_charger = False
 

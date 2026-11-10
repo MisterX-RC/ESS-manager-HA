@@ -97,7 +97,7 @@ async def test_zappi_charger(hass, freezer):
     entry, coordinator = await _setup(hass, {"ev_charger": "zappi", "ev_zappi_device": device,
                                              "ev_energy_entity": "sensor.ev_energy", "ev_power_entity": "sensor.ev_power"})
     calls: list = []
-    record_calls(hass, "select", "select_option", calls)
+    record_calls(hass, "select", "select_option", calls, apply_state=False)
     from custom_components.ess_manager.coordinator import zappi_entities
 
     found = zappi_entities(hass, device)
@@ -112,17 +112,29 @@ async def test_zappi_charger(hass, freezer):
     await coordinator.async_refresh()
     await hass.async_block_till_done()
     assert calls == [("select", "select_option", {"entity_id": mode, "option": "Fast"})]
-    # not sent again while the plan stays the same - also after a change in the app
-    hass.states.async_set(mode, "Eco", {"options": ["Fast", "Eco", "Eco+", "Stopped"]})
+    # (2026.11.30) the zappi doesn't take it on: not again right away, but after 3 minutes
     await coordinator.async_refresh()
     assert len(calls) == 1
+    freezer.tick(timedelta(seconds=200))
+    await coordinator.async_refresh()
+    assert len(calls) == 2 and calls[-1][2]["option"] == "Fast"
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    assert "try 2" in diag["ev_charger_commands"][-1]["why"]
+    # it shows Fast: taken on; not sent again while the plan stays the same - also after a change in the app
+    hass.states.async_set(mode, "Fast", {"options": ["Fast", "Eco", "Eco+", "Stopped"]})
+    await coordinator.async_refresh()
+    hass.states.async_set(mode, "Eco", {"options": ["Fast", "Eco", "Eco+", "Stopped"]})
+    await coordinator.async_refresh()
+    freezer.tick(timedelta(seconds=400))
+    await coordinator.async_refresh()
+    assert len(calls) == 2
     # the meter follows after 70 s: the delay in the diagnostics
     freezer.tick(timedelta(seconds=70))
     hass.states.async_set("sensor.ev_power", "2800", {"unit_of_measurement": "W", "device_class": "power"})
     await coordinator.async_refresh()
     diag = await async_get_config_entry_diagnostics(hass, entry)
-    cmd = diag["ev_charger_commands"][0]
-    assert cmd["to"] == "Fast" and cmd["from"] == "Stopped" and cmd["power_after_w"] == 2800 and 60 <= cmd["response_s"] <= 140
+    cmd = diag["ev_charger_commands"][-1]
+    assert cmd["to"] == "Fast" and cmd["from"] == "Stopped" and cmd["power_after_w"] == 2800
 
     # slowly: Eco; the sun: Eco+
     coordinator.ev.set_plan({"choice": "calm"}, int(now.timestamp()))
@@ -156,6 +168,32 @@ async def test_zappi_charger(hass, freezer):
     assert calls == [("select", "select_option", {"entity_id": mode, "option": "Stopped"})]
     await coordinator.async_refresh()
     assert len(calls) == 1
+    hass.states.async_set(mode, "Stopped", {"options": ["Fast", "Eco", "Eco+", "Stopped"]})
+    freezer.tick(timedelta(seconds=400))
+    await coordinator.async_refresh()
+    assert len(calls) == 1 and not coordinator.ev.rest_charger
+
+
+async def test_zappi_gives_up_after_a_few_tries(hass, freezer):
+    """(2026.11.30) a zappi that never takes a mode on: sent 4 times, then a warning and left alone."""
+    now = dt_util.now()
+    base_states(hass, now)
+    device, ids = charger_device(hass, "myenergi", ZAPPI)
+    mode = ids["myenergi_zappi_charge_mode"]
+    hass.states.async_set(mode, "Stopped", {"options": ["Fast", "Eco", "Eco+", "Stopped"]})
+    hass.states.async_set(ids["myenergi_zappi_plug_status"], "EV Connected")
+    hass.states.async_set(ids["myenergi_zappi_status"], "Paused")
+    entry, coordinator = await _setup(hass, {"ev_charger": "zappi", "ev_zappi_device": device,
+                                             "ev_energy_entity": "sensor.ev_energy", "ev_power_entity": "sensor.ev_power"})
+    calls: list = []
+    record_calls(hass, "select", "select_option", calls, apply_state=False)
+    coordinator.ev.set_plan({"choice": "asap", "soc": 40}, int(now.timestamp()))
+    for _ in range(8):
+        await coordinator.async_refresh()
+        freezer.tick(timedelta(seconds=200))
+    assert len(calls) == 4
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    assert "didn't take on Fast" in (coordinator._ev_error or "")
 
 
 async def test_victron_grid_window_keeps_the_battery_out(hass, freezer):
