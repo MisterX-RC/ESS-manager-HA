@@ -162,7 +162,11 @@ Five planning engines, all documented in detail in the code
    an unplanned load or a peak (the washing machine) or less sun than
    forecast then comes from the grid at that low price instead of out of
    the battery; a real surplus still charges it. No shortfall, nothing from
-   the grid. Meanwhile the Status is **House from grid** and, with
+   the grid. A quarter that started from the grid is finished that way
+   (as of 2026.11.30), like a running charge window - unless a charge takes
+   it over: with the battery nearly full and the sun filling it to the top
+   later on, the minute-by-minute choice otherwise flipped between the grid
+   and the battery every minute or two. Meanwhile the Status is **House from grid** and, with
    direct control, the grid setpoint follows the battery's measured power
    **every 15 seconds** (a fast loop that only does this - the rest of the
    cycle stays once a minute): the last setpoint plus 60% of what the

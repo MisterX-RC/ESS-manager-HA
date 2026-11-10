@@ -3169,6 +3169,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             forecast_with_spike_clipped, _ = forecasting.clip_at_capacity(forecast_for_low, battery_now_kwh, upper_limit_kwh)
             horizon_peak_kwh = max(forecast_for_low[0 : planning_horizon_hours + 1] or [battery_now_kwh])
+            prev_low_plan = self._low_charge_plan
             self._low_charge_plan = plans.compute_low_charge_plan(
                 self._low_charge_plan,
                 current_price_unit,
@@ -3198,6 +3199,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 hold_factor=discharge_efficiency,
                 charge_imports=charge_imports,
             )
+            # a quarter that started with the house from the grid is finished that way (2026.11.30)
+            if grid_use_rates is not None and not replan:
+                self._low_charge_plan = plans.keep_grid_use_quarter(prev_low_plan, self._low_charge_plan, current_price_unit)
             # A full charge relying on a future solar peak (either genuinely
             # scheduled to buy up to it, or silently skipped because that peak
             # already reaches high_threshold_kwh on its own - see

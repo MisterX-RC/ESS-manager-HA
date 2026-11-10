@@ -6087,6 +6087,21 @@ except TypeError as _e:
     _dup_ok = False
 check("thermostat history: updates in the same second, one unknown, don't break the read", _dup_ok)
 
+# 2026.11.30: a quarter that started with the house from the grid is finished that way - with the battery
+# nearly full and the sun filling it to the top later on, the minute-by-minute plan flipped (installation A,
+# 10 Nov 05:21-05:29: house from grid / standby every minute or two)
+_kq_prev = {"active": True, "start_unit": 86, "end_unit": 89, "grid_units": [20, 21, 22], "grid_unit_kwh": [0.28, 0.28, 0.28],
+            "grid_kwh": 0.84}
+_kq_new = {"active": True, "start_unit": 86, "end_unit": 89}                      # this minute's plan: no hold fits
+_kq = plans.keep_grid_use_quarter(_kq_prev, _kq_new, 21)
+_kq_next = plans.keep_grid_use_quarter(_kq, {"active": True, "start_unit": 86, "end_unit": 89}, 21)
+_kq_later = plans.keep_grid_use_quarter(_kq, {"active": True, "start_unit": 86, "end_unit": 89}, 23)
+_kq_charge = plans.keep_grid_use_quarter(_kq_prev, {"active": True, "start_unit": 21, "end_unit": 24}, 21)
+check("house from the grid: a started quarter stays (also the minute after), the next one is decided afresh,"
+      " a charge in that quarter wins",
+      plans.grid_use_now(_kq, 21) and _kq["grid_unit_kwh"] == [0.28] and plans.grid_use_now(_kq_next, 21)
+      and not plans.grid_use_now(_kq_later, 23) and not plans.grid_use_now(_kq_charge, 21))
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

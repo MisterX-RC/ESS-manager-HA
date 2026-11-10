@@ -3103,6 +3103,30 @@ def grid_use_now(low: dict, cur_unit: int) -> bool:
     return cur_unit in (low.get("grid_units") or [])
 
 
+def keep_grid_use_quarter(prev: Optional[dict], plan: dict, cur_unit: int) -> dict:
+    """A quarter that started with the house from the grid is finished that
+    way (as of 2026.11.30), like a running charge window: up to then it was
+    decided again every minute, and with the battery nearly full and the sun
+    forecast to fill it right up to the top later on, the house went from
+    the grid and back every minute or two (whether it still fits under the
+    top in every later hour flipped with each small step of the battery
+    level). Not when the new plan charges in that quarter."""
+    prev = prev or {}
+    units = list(prev.get("grid_units") or [])
+    if cur_unit not in units or cur_unit in (plan.get("grid_units") or []):
+        return plan
+    if plan.get("active") and plan.get("start_unit", -1) <= cur_unit < plan.get("end_unit", -1):
+        return plan
+    kwh = dict(zip(units, prev.get("grid_unit_kwh") or []))
+    new = dict(zip(plan.get("grid_units") or [], plan.get("grid_unit_kwh") or []))
+    new[cur_unit] = float(kwh.get(cur_unit, 0.0))
+    order = sorted(new)
+    out = {**plan, "grid_units": order, "grid_unit_kwh": [new[u] for u in order]}
+    out["grid_kwh"] = round(sum(out["grid_unit_kwh"]), 3)
+    out["grid_kept_unit"] = cur_unit
+    return out
+
+
 def with_grid_use(forecast: list[float], low: dict, cur_unit: int, now: datetime) -> list[float]:
     """The forecast with the quarters the house is taken from the grid
     (2026.10.41): what the battery would have given the house stays in it,

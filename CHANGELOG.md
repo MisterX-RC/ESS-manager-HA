@@ -12,6 +12,19 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.30] - 2026-11-10
+
+### Planning
+- **The house from the grid flipped on and off every minute**: with the
+  battery nearly full after a night charge and the sun forecast to fill it
+  right up to the top later on, whether the house may come from the grid
+  ("the battery stays under the top in every later hour") changed with
+  every small step of the battery level - live (installation A, 10 Nov
+  05:21-05:29) House from grid / Standby every minute or two, visible on the
+  P1 meter as a wobble. A quarter that started from the grid is now finished
+  that way, like a running charge window; a charge in that quarter still
+  wins, and the next quarter is decided afresh.
+
 ## [2026.11.29] - 2026-11-09
 
 ### Heat pump
