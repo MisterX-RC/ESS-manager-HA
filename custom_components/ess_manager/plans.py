@@ -965,7 +965,10 @@ def compute_spike_plan(
     prices including taxes the buy price is incl and the sell price bare
     (as from 2027), so the margin is what's really earned. Everywhere the
     margin is used (whether there's a spike, a later recharge, the top-up's
-    price cap, the sale's price floor) it's that gain."""
+    price cap, the sale's price floor) it's that gain.
+
+    The day's lowest buy price is the lowest one still ahead (as of
+    2026.11.32), unless this spike's charge has already run."""
     prev = prev or {"active": False}
     if not replan and prev.get("active") and (
         prev.get("charge_start_unit", -1) <= cur_unit < prev.get("charge_end_unit", -1)
@@ -1005,16 +1008,26 @@ def compute_spike_plan(
     day_min = day_max = 0.0
     # today and tomorrow, each a whole day: 92-100 units on a summer-time
     # change day (today_units = len(today), as of 2026.10.25)
+    # The cheapest buy price only counts from the current quarter on (as of
+    # 2026.11.32): a cheap quarter that's already past can't be bought any
+    # more. Up to 2026.11.31 the whole day counted, so last night's low made
+    # a spike "worth it" at 10:45 and the charge went in the cheapest window
+    # still ahead - at a price above the peak (Timo, A, 11 Nov: 0.364 incl
+    # at 03:45 vs 0.453 at 17:45 cleared a 0.045 margin, the charge would
+    # have bought 11.5 kWh at 0.56 incl). Only once this spike's charge has
+    # run (its sale still ahead or running) does the past low still count.
+    charged = topup or running_peak is not None
     day_len_sel = 96
     for day_start, day_len in ((0, today_units), (today_units, len(prices) - today_units)):
         if found or day_len < 92 or (day_start + day_len) > len(prices):
             continue
         d_min = d_max = None
         min_idx = max_idx = day_start
+        min_from = day_start if charged else max(day_start, cur_unit)
         for i in range(day_start, day_start + day_len):
             if neg.get("active") and neg_excl_start <= i < neg_excl_end:
                 continue
-            if d_min is None or buy[i] < d_min:
+            if i >= min_from and (d_min is None or buy[i] < d_min):
                 d_min, min_idx = buy[i], i
             if d_max is None or prices[i] > d_max:
                 d_max, max_idx = prices[i], i

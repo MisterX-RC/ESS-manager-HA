@@ -12,6 +12,21 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.32] - 2026-11-11
+
+### Planning
+- **A spike plan could buy at a price above the peak**: whether a day has a
+  spike was worked out from the day's cheapest buy price, also when that
+  quarter was already past. The charge then went in the cheapest window
+  still ahead, without checking it still paid for itself. Live (A, 11 Nov
+  10:45): 0.364 incl at 03:45 against 0.453 at 17:45 is a gain of 0.0493
+  per kWh - just under the 0.05 margin, so nothing happened; with a margin
+  of 0.045 the plan would have charged 11.5 kWh right away at ~0.56 incl to
+  sell ~4 kWh at 0.453. The cheapest buy price now only counts from the
+  current quarter on. Once the spike's charge has run (its sale still ahead
+  or running) the past low still counts, so a night charge for an evening
+  peak keeps its sale.
+
 ## [2026.11.31] - 2026-11-11
 
 ### EV

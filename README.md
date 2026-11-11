@@ -1290,7 +1290,9 @@ buying below the threshold?") and the spike plan's charge window. Every
 sell decision uses the sell price: the high discharge plan, making room
 before a negative price window, and the spike plan's discharge window. The
 spike plan's gain is the day's highest sell price minus its lowest buy
-price divided by the charge and discharge efficiency (so its
+price still ahead (as of 2026.11.32 a cheap quarter that's already past
+no longer counts, unless the spike's charge has already run) divided by
+the charge and discharge efficiency (so its
 `day_min_price` is a buy price, `day_max_price` a sell price), and its
 discharge price floor is that lowest buy price / the efficiencies plus the
 margin. With prices including taxes (below) the buy prices are incl.
@@ -1354,7 +1356,9 @@ the heat pump's buffer, and:
 - **Spike plan** - the spike margin is the **real gain per kWh**: sell
   price in the peak minus buy price / (charge efficiency x discharge
   efficiency). A spike is only planned when that's above the margin; the
-  top-up's price cap and the sale's price floor follow the same gain.
+  top-up's price cap and the sale's price floor follow the same gain. The
+  buy price is the cheapest one from now on: last night's low doesn't make
+  a spike in the morning that would then charge at daytime prices.
 
 ## Installation
 

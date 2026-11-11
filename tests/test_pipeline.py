@@ -6120,6 +6120,26 @@ _zfb_ns = evc.plan_full_by(0, 8 * 3600, 6.0, _zsun, 0, [0.3] * 96, 0, 1, 13, 13,
 check("zappi: a full-by plan without the sun buys it all in windows, even with surplus forecast",
       _zfb_ns["solar_kwh"] == 0.0 and abs(_zfb_ns["grid_kwh"] - 6.0) < 1e-6 and _zfb_ns["windows"])
 
+# 2026.11.32: the spike plan's cheapest buy price only counts from now on - a past low (A, 11 Nov 03:45, 0.364 incl)
+# made a spike at 10:45 against the 17:45 peak (0.453 bare) and the charge bought 11.5 kWh at ~0.56 incl
+_a11_sell = [0.232, 0.216, 0.206, 0.204, 0.213, 0.208, 0.209, 0.204, 0.204, 0.2, 0.201, 0.197, 0.2, 0.197, 0.197, 0.193, 0.199, 0.198, 0.199, 0.202, 0.202, 0.198, 0.207, 0.215, 0.206, 0.234, 0.255, 0.284, 0.263, 0.285, 0.3, 0.303, 0.338, 0.345, 0.349, 0.345, 0.368, 0.353, 0.355, 0.345, 0.379, 0.362, 0.347, 0.342, 0.365, 0.356, 0.362, 0.354, 0.36, 0.354, 0.369, 0.369, 0.392, 0.361, 0.36, 0.362, 0.347, 0.362, 0.388, 0.381, 0.38, 0.372, 0.38, 0.37, 0.385, 0.401, 0.409, 0.422, 0.422, 0.444, 0.45, 0.453, 0.435, 0.439, 0.419, 0.421, 0.396, 0.394, 0.383, 0.388, 0.384, 0.353, 0.337, 0.324, 0.329, 0.303, 0.278, 0.261, 0.272, 0.255, 0.245, 0.228, 0.235, 0.217, 0.209, 0.2]
+_a11_buy = [0.41156, 0.3922, 0.3801, 0.37768, 0.38857, 0.38252, 0.38373, 0.37768, 0.37768, 0.37284, 0.37405, 0.36921, 0.37284, 0.36921, 0.36921, 0.36437, 0.37163, 0.37042, 0.37163, 0.37526, 0.37526, 0.37042, 0.38131, 0.39099, 0.3801, 0.41398, 0.4394, 0.47449, 0.44908, 0.4757, 0.49385, 0.49748, 0.53983, 0.5483, 0.55314, 0.5483, 0.57613, 0.55798, 0.5604, 0.5483, 0.58944, 0.56887, 0.55072, 0.54467, 0.5725, 0.56161, 0.56887, 0.55919, 0.56645, 0.55919, 0.57734, 0.57734, 0.60517, 0.56766, 0.56645, 0.56887, 0.55072, 0.56887, 0.60033, 0.59186, 0.59065, 0.58097, 0.59065, 0.57855, 0.5967, 0.61606, 0.62574, 0.64147, 0.64147, 0.66809, 0.67535, 0.67898, 0.6572, 0.66204, 0.63784, 0.64026, 0.61001, 0.60759, 0.59428, 0.60033, 0.59549, 0.55798, 0.53862, 0.52289, 0.52894, 0.49748, 0.46723, 0.44666, 0.45997, 0.4394, 0.42729, 0.40672, 0.41519, 0.39341, 0.38373, 0.37284]
+_a11 = dict(all_price=_a11_sell, buy_price=_a11_buy, battery_forecast=[21.6] * 72, usage=[1.0] * 121,
+            low_threshold_kwh=9.0, upper_limit_kwh=30.0, high_threshold_kwh=31.5, spike_margin=0.045, charge_speed_kw=7.0,
+            spike_discharge_speed_kw=15.0, neg_plan={"active": False}, minimum_charge_target_kwh=2.0,
+            charge_efficiency=0.95, discharge_efficiency=0.95, today_units=96)
+check("spike plan: a cheap quarter already past (03:45) no longer makes a spike at 10:45 (A, 11 Nov, margin 0.045)",
+      plans.compute_spike_plan(None, cur_unit=43, **_a11)["active"] is False)
+_a11_night = plans.compute_spike_plan(None, cur_unit=0, **_a11)
+check("spike plan: at midnight the same day still plans it - charge around 03:45, sale on the 17:45 peak",
+      _a11_night["active"] and _a11_night["low_price_unit"] == 15 and _a11_night["high_price_unit"] == 71
+      and _a11_night["charge_start_unit"] < 20)
+_a11_prev = dict(_a11_night, charge_start_unit=12, charge_end_unit=20)
+_a11_top = plans.compute_spike_plan(_a11_prev, cur_unit=43, **_a11)
+check("spike plan: once its charge has run, the past low still counts - the sale stays, a top-up only below the cap",
+      _a11_top["active"] and _a11_top["topup"] and _a11_top["high_price_unit"] == 71
+      and _a11_top["charge_start_unit"] == _a11_top["charge_end_unit"])
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:
