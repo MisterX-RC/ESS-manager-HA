@@ -957,7 +957,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_zappi(self, conf: dict[str, Any], ents: dict[str, str], now: datetime,
                            control_settings: ControlSettings) -> None:
         """Drive a zappi (as of 2026.11.21): the charge mode the plugged-in
-        car's plan says (ev_charger.zappi_mode) - Fast, Eco, Eco+ or Stopped;
+        car's plan says (ev_charger.zappi_mode) - Fast or Eco in a planned or
+        chosen charge, Stopped otherwise (as of 2026.11.31; Eco+ before);
         Stopped once after unplugging. As with the Victron, a mode is sent when
         the plan's mode changes, not again while it stays the same (a change in
         the myenergi app is left alone meanwhile) - once the zappi has shown it;
@@ -970,7 +971,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         flow = self.ev.flow
         if flow is not None:
             self._zappi_rest_applied = {}       # a car plugged in: the next unplugging sends Stopped afresh
-        mode = evc.zappi_mode(target, (flow or {}).get("choice"), min_a)
+        mode = evc.zappi_mode(target, (flow or {}).get("choice"), min_a,
+                              float(conf.get(CONF_EV_MAX_CURRENT, DEFAULT_EV_MAX_CURRENT)))
         resting = False
         if mode is None and flow is None and self.ev.rest_charger:
             mode = evc.ZAPPI_REST

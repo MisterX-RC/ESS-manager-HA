@@ -5965,19 +5965,19 @@ check("zappi: plug / charge status as the session's Status values",
       and evc.zappi_status("Charging", "Charging") == "charging" and evc.zappi_status("EV Connected", "Paused") == "connected"
       and evc.zappi_status("unavailable", "unavailable") is None)
 _zt = lambda mode, charge, cur, why="x": {"mode": mode, "charge": charge, "current": cur, "why": why}
-check("zappi: the charge mode per target - off Stopped, min current Eco, more Fast, the sun (also full-by between windows) Eco+",
+check("zappi: the charge mode per target - off Stopped, min current Eco, more Fast, the sun (also full-by between windows) Stopped (2026.11.31)",
       evc.zappi_mode(_zt("manual", False, None), "asap", 6) == "Stopped"
       and evc.zappi_mode(_zt("manual", True, 6), "calm", 6) == "Eco"
       and evc.zappi_mode(_zt("manual", True, 13), "asap", 6) == "Fast"
-      and evc.zappi_mode(_zt("auto", True, None), "solar", 6) == "Eco+"
-      and evc.zappi_mode(_zt("auto", True, None), "deadline", 6) == "Eco+"
+      and evc.zappi_mode(_zt("auto", True, None), "solar", 6) == "Stopped"
+      and evc.zappi_mode(_zt("auto", True, None), "deadline", 6) == "Stopped"
       and evc.zappi_mode(None, "asap", 6) is None)
 _zrt = ev_runtime.EvRuntime()
 _zrt.ctx = {"charger": "zappi"}
 _vrt_v = ev_runtime.EvRuntime()
 _vrt_v.ctx = {"charger": "victron"}
-check("zappi: a full-by plan's windows only at the max current (Fast), the sun from the min current (Eco+); the Victron keeps its range",
-      _zrt._plan_range(6, 13) == (13, 13, True, 6) and _vrt_v._plan_range(6, 13) == (6, 13, True, 6))
+check("zappi: a full-by plan's windows only at the max current (Fast), no sun in between (Stopped, 2026.11.31); the Victron keeps its range",
+      _zrt._plan_range(6, 13) == (13, 13, False, 6) and _vrt_v._plan_range(6, 13) == (6, 13, True, 6))
 # 2 kW of surplus all morning: Eco+ (from 1.4 kW on) takes it - planned with the zappi's own threshold, not Fast's 3 kW
 _zsun = [2.0] * 6 + [0.0] * 42
 _zfb_eco = evc.plan_full_by(0, 8 * 3600, 6.0, _zsun, 0, [0.3] * 96, 0, 1, 13, 13, margin=0, sun_min_a=6)
@@ -6101,6 +6101,24 @@ check("house from the grid: a started quarter stays (also the minute after), the
       " a charge in that quarter wins",
       plans.grid_use_now(_kq, 21) and _kq["grid_unit_kwh"] == [0.28] and plans.grid_use_now(_kq_next, 21)
       and not plans.grid_use_now(_kq_later, 23) and not plans.grid_use_now(_kq_charge, 21))
+
+# 2026.11.31: the zappi's Grid CT sits between the Victron and the grid - Eco/Eco+ chase the house battery up
+# to the max; so Eco or Fast only in a planned or chosen charge, Stopped otherwise (live C, 10 Nov 18:58)
+check("zappi: outside a full-by window Stopped, in a grid or battery window Fast",
+      evc.zappi_mode(evc.charger_target({"choice": "deadline", "need_kwh": 5.0, "windows": [[1000, 2000]], "plan": {"current_a": 13}},
+                                        500, 6, 13), "deadline", 6, 13) == "Stopped"
+      and evc.zappi_mode(evc.charger_target({"choice": "deadline", "need_kwh": 5.0, "windows": [[1000, 2000]], "plan": {"current_a": 13}},
+                                            1500, 6, 13), "deadline", 6, 13) == "Fast"
+      and evc.zappi_mode(evc.charger_target({"choice": "deadline", "need_kwh": 5.0, "windows": [], "battery_windows": [[1000, 2000]],
+                                             "plan": {"current_a": 13}}, 1500, 6, 13), "deadline", 6, 13) == "Fast")
+check("zappi: min current equal to the max (both 13 A) - calm, fast and a window all Fast; min below the max keeps calm on Eco",
+      evc.zappi_mode(_zt("manual", True, 13), "calm", 13, 13) == "Fast"
+      and evc.zappi_mode(_zt("manual", True, 13), "asap", 13, 13) == "Fast"
+      and evc.zappi_mode(evc.charger_target({"choice": "calm"}, 0, 13, 13), "calm", 13, 13) == "Fast"
+      and evc.zappi_mode(_zt("manual", True, 6), "calm", 6, 13) == "Eco")
+_zfb_ns = evc.plan_full_by(0, 8 * 3600, 6.0, _zsun, 0, [0.3] * 96, 0, 1, 13, 13, margin=0, sun=False, sun_min_a=6)
+check("zappi: a full-by plan without the sun buys it all in windows, even with surplus forecast",
+      _zfb_ns["solar_kwh"] == 0.0 and abs(_zfb_ns["grid_kwh"] - 6.0) < 1e-6 and _zfb_ns["windows"])
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

@@ -12,6 +12,25 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.31] - 2026-11-11
+
+### EV
+- **A zappi charged before its planned block, out of the house battery**:
+  between the windows of a "full by" ESS Manager put the zappi on Eco+, on
+  the idea that its Grid CT clamp sat between the house and the Victron
+  and Eco+ would only take solar. The clamp sits between the Victron and
+  the grid - the point the Victron keeps at its grid setpoint - so Eco and
+  Eco+ never see consumption: once started they keep taking more, the
+  house battery covering it, up to the max current. Live (installation C,
+  10 Nov 18:58) Eco+ in the dark: 1.4 kW after 45 s, 2.9 kW by 19:11, the
+  house battery from 75% to 42% by 21:45. The zappi is now only on Eco or
+  Fast in a planned or chosen charge (a grid or battery window, "now",
+  "now, slowly") and on **Stopped** otherwise - also "on the sun"; a "full
+  by" plan for a zappi no longer counts on the sun between its windows.
+  With the min current equal to the max (both 13 A), "now, slowly" and a
+  window run at Fast instead of Eco (which starts at 6 A and creeps up).
+- The EV card's plan preview for a zappi likewise leaves out the sun.
+
 ## [2026.11.30] - 2026-11-10
 
 ### Planning

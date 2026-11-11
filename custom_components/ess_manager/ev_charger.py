@@ -526,24 +526,27 @@ def zappi_status(plug: Optional[str], status: Optional[str]) -> Optional[str]:
     return "connected"
 
 
-def zappi_mode(target: Optional[dict[str, Any]], choice: Optional[str], min_a: float) -> Optional[str]:
-    """The zappi charge mode for a charger target (charger_target). Its CT
-    clamp sits between the house and the Victron, so what it sees as export
-    is the solar the house doesn't use - what would otherwise go into the
-    house battery (or out through it). Off -> Stopped; "now, slowly" (the min
-    current) -> Eco (the solar surplus, at least 6 A - the rest from the
-    Victron side); a grid or battery window, "now" -> Fast; the sun - also a
-    "full by" between its windows -> Eco+ (only the surplus, from ~1.4 kW on
-    a phase). The Victron's grid setpoint doesn't move that CT, so the two
-    don't chase each other."""
+def zappi_mode(target: Optional[dict[str, Any]], choice: Optional[str], min_a: float,
+               max_a: Optional[float] = None) -> Optional[str]:
+    """The zappi charge mode for a charger target (charger_target): Eco or
+    Fast only in a planned or chosen charge, otherwise Stopped (as of
+    2026.11.31). The zappi's Grid CT clamp sits between the Victron and the
+    grid - the point the Victron keeps at its grid setpoint - so Eco and Eco+
+    never see "consumption": once started (a short export when a load
+    switches off is enough) they keep taking more, the house battery covering
+    it, up to the max current. Live (C, 10 Nov 18:58) Eco+ outside a "full
+    by" window in the dark: 1.4 kW, then 2.9 kW, out of the house battery. So:
+    off, the sun, "full by" between its windows -> Stopped; "now, slowly"
+    (the min current, below the max) -> Eco; a grid or battery window, "now"
+    -> Fast - also a min current equal to the max (min and max both 13 A:
+    calm and fast are the same, Fast doesn't creep up from 6 A)."""
     del choice
     if target is None:
         return None
-    if not target.get("charge"):
+    if not target.get("charge") or target.get("mode") == MODE_AUTO:
         return ZAPPI_STOPPED
-    if target.get("mode") == MODE_AUTO:
-        return ZAPPI_ECO_PLUS
-    if target.get("current") is not None and float(target["current"]) <= float(min_a):
+    cur = target.get("current")
+    if cur is not None and float(cur) <= float(min_a) and (max_a is None or float(min_a) < float(max_a)):
         return ZAPPI_ECO
     return ZAPPI_FAST
 

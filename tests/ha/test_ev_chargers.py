@@ -136,13 +136,13 @@ async def test_zappi_charger(hass, freezer):
     cmd = diag["ev_charger_commands"][-1]
     assert cmd["to"] == "Fast" and cmd["from"] == "Stopped" and cmd["power_after_w"] == 2800
 
-    # slowly: Eco; the sun: Eco+
+    # slowly: Eco; the sun: Stopped (2026.11.31 - Eco+ chases the house battery)
     coordinator.ev.set_plan({"choice": "calm"}, int(now.timestamp()))
     await coordinator.async_refresh()
     assert calls[-1][2]["option"] == "Eco" or hass.states.get(mode).state == "Eco"
     coordinator.ev.set_plan({"choice": "solar"}, int(now.timestamp()))
     await coordinator.async_refresh()
-    assert calls[-1][2]["option"] == "Eco+"
+    assert calls[-1][2]["option"] == "Stopped"
 
     # the car stops by itself well short of the goal: Completed -> done, "stopped early"
     hass.states.async_set(status, "Charging")

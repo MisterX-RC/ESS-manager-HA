@@ -813,16 +813,22 @@ coarse).
 | Choice | zappi mode |
 |---|---|
 | Now (fast) / a grid or battery window of "full by" | Fast |
-| Now, slowly | Eco - the solar surplus, at least 6 A (about 1.4 kW on one phase), the rest from the Victron side |
-| On the sun / "full by" between its windows | Eco+ - only the surplus, from about 1.4 kW |
+| Now, slowly | Eco - at least 6 A (about 1.4 kW on one phase); Fast when the min current set here equals the max |
+| "Full by" between its windows / on the sun | Stopped (as of 2026.11.31; Eco+ before) |
 | No choice, done, unplugged | Stopped (once after unplugging, so the next car doesn't start by itself) |
 
-This assumes the zappi's **Grid CT clamp sits between the house and the
-Victron**: what it sees as export is the solar the house doesn't use, so
-Eco and Eco+ take that before the house battery does, and the Victron's
-grid setpoint doesn't move that clamp (no chasing each other). A "full by"
-is planned with its windows at Fast (the max current set here) and the sun
-in between, from Eco+'s threshold on (the min current set here). A mode is sent when the plan's mode changes, not again while
+*(As of 2026.11.31)* The zappi's **Grid CT clamp sits between the Victron
+and the grid** - the point the Victron keeps at its grid setpoint. Eco and
+Eco+ never see consumption there: once started (a short export when a load
+switches off is enough) they keep taking more, the house battery covering
+it, up to the max current - live Eco+ in the dark between the windows of a
+"full by" charged at 1.4 kW and then 2.9 kW out of the house battery. So
+ESS Manager only puts the zappi on Eco or Fast in a planned or chosen
+charge, and on **Stopped** otherwise; a "full by" is planned with its
+windows at Fast (the max current set here) and without the sun in between.
+"On the sun" (a planned session) therefore doesn't charge with a zappi for
+now. With min and max current both at the max (e.g. 13 A), "now, slowly"
+is the same as "now" and runs at Fast as well. A mode is sent when the plan's mode changes, not again while
 it stays the same - a change in the myenergi app is left alone meanwhile,
 once the zappi has shown the mode sent. Until it does, the mode is sent
 again every 3 minutes, at most 4 times, then a warning (as of 2026.11.30:
@@ -834,7 +840,8 @@ long the meter took to follow is in the diagnostics
 (`ev_charger_commands`). Set the zappi itself to **Stopped**, turn on
 **charge when locked** if it has a PIN (locked without it, it doesn't charge
 on a command - the EV card says so: `charger.blocked`), and remove boost
-timers in the myenergi app: ESS Manager plans the charging.
+timers and smart boost in the myenergi app (they work in Eco and Eco+):
+ESS Manager plans the charging.
 
 ## Heat pump
 

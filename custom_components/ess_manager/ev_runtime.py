@@ -749,10 +749,11 @@ class _VictronMixin:
         """The currents a "full by" plan may use, whether it counts on the sun
         and from what current on the sun is taken (as of 2026.11.21): a zappi
         has no current to set - its grid and battery windows run at Fast (the
-        max); between them Eco+ takes the solar surplus from its minimum (about
-        6 A) on, as the Victron's Auto mode does."""
+        max). As of 2026.11.31 it's Stopped between them (its Eco+ chases the
+        house battery, see ev_charger.zappi_mode), so its plan doesn't count
+        on the sun: everything in grid or battery windows."""
         if self.ctx.get("charger") == evc.CHARGER_ZAPPI:
-            return max_a, max_a, True, min_a
+            return max_a, max_a, False, min_a
         return min_a, max_a, True, min_a
 
     # -- each cycle: the plan, done, the announcement ------------------------------------

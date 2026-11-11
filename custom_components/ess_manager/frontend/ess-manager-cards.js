@@ -2696,7 +2696,7 @@ const EV_CALM_MARGIN = 0.02;
 
 function evPlanFullBy(nowMs, deadlineMs, need, net, hour0Ms, prices, priceStartMs, phases, minA, maxA, marginMs, sunMinA) {
   const readyBy = Math.max(deadlineMs - marginMs, nowMs);
-  // the sun from this current on (as of 2026.11.21: a zappi's Eco+ from its min, its windows at the max)
+  // the sun from this current on (a zappi's windows at the max; as of 2026.11.31 it gets no sun)
   const pMin = evPower(sunMinA != null ? sunMinA : minA, phases);
   const pMax = evPower(maxA, phases);
   // (the house battery's dear quarters are left to the integration: the
@@ -2971,9 +2971,10 @@ class EssManagerEvCard extends EssChartCard {
   }
 
   // (as of 2026.11.21) a zappi has no current to set: its "full by" windows run
-  // at the max current (Fast), the sun between them (Eco+) - as the integration plans it
+  // at the max current (Fast); as of 2026.11.31 it's Stopped between them (its
+  // Eco+ chases the house battery), so no sun - as the integration plans it
   _fbRange(ev, net) {
-    if (ev.charger && ev.charger.type === "zappi") return [net, ev.max_current, ev.max_current];
+    if (ev.charger && ev.charger.type === "zappi") return [(net || []).map(() => 0), ev.max_current, ev.max_current];
     return [net, ev.min_current, ev.max_current];
   }
 
