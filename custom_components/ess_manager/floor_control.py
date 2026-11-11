@@ -59,6 +59,10 @@ HEAT_SETTLE_S = 180
 HP_HEATING = "heating"
 HP_HOT_WATER = ("heating_dhw", "anti_legionella")
 VALVE_HOT_WATER = "dhw"
+# the return setpoint down while the compressor runs (as of 2026.11.33): one
+# step at a time, the next once the return is this close to the setpoint
+HP_RUNNING = (HP_HEATING, "compressor_startup")
+RETURN_NEAR_C = 0.1
 MIN_RUN_S = 45 * 60          # compressor: at least this long on ...
 MIN_OFF_S = 20 * 60          # ... and off
 SP_LIMITS = (20.0, 35.0)     # return setpoint, degC (within the entity's own range)
@@ -150,6 +154,33 @@ def return_setpoint(model: dict[str, Any], p_kw: float, t_ref: float, lo: float,
     if step and step > 0:
         sp = round(round(sp / step) * step, 2)
     return min(max(sp, lo), hi)
+
+
+def compressor_running(hp_state: Optional[str], valve: Optional[str], p_th: Optional[float]) -> bool:
+    """The compressor heats the floor right now (as of 2026.11.33): with a
+    Qube device its status (heating or starting up, the valve not on hot
+    water), without one the measured heat."""
+    if hp_state is not None:
+        return hp_state in HP_RUNNING and valve != VALVE_HOT_WATER
+    return bool(p_th and p_th > 0.0)
+
+
+def step_down(sp_new: Optional[float], sp_now: Optional[float], t_ret: Optional[float], running: bool,
+              step: float) -> Optional[float]:
+    """The return setpoint to send, lowered gently while the compressor runs
+    (as of 2026.11.33, Timo): a big drop below the return made the heat pump
+    switch off and start again instead of modulating down. Running and lower
+    wanted: one step of the entity at a time, the next only once the return
+    has come within RETURN_NEAR_C of the current setpoint, never below
+    `sp_new`. Up, compressor off, or the return already near the new value
+    (a cold start): straight to it."""
+    if sp_new is None or sp_now is None or sp_new >= sp_now or not running or t_ret is None:
+        return sp_new
+    if t_ret <= sp_new + RETURN_NEAR_C:
+        return sp_new
+    if t_ret > sp_now + RETURN_NEAR_C:
+        return sp_now
+    return round(max(sp_new, sp_now - (step if step and step > 0 else 0.5)), 2)
 
 
 def comfort_power(p_kw: float, room: Optional[float], target: Optional[float], p_min: float, p_max: float) -> float:

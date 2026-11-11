@@ -12,6 +12,30 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.33] - 2026-11-12
+
+### Heat pump - floor control
+- **The response check started over after every short hand-back**: one
+  cycle with an input missing (a Qube sensor on modbus right after a
+  restart), a restart or update, the thermostat off or cooling handed the
+  heat pump back and also cleared when the return setpoint stage began - the
+  next cycle started counting the 24 running hours from zero. Replayed
+  live (A, 11 Nov): a settled hour at 07:00 (3613 s, 3.72 kW delivered
+  against 3.65 kW) was lost after the restart for 2026.11.32, the check
+  showed 0 hours. The start now stays; only the select set to *watch*
+  starts it over (only hours ESS Manager set the setpoint in count anyway).
+- **Return setpoint down in steps while the compressor runs** (Timo): the
+  planned setpoint at minimum power (26.5 °C at A) lay a degree under a
+  running Qube's return (27.4-28 °C); after the drop the runs got short (13-29
+  min) - it switched off and on again instead of modulating down. While the
+  compressor runs (Qube status *heating* / *compressor_startup* with the
+  valve on CH; without a Qube device: thermal power above 0) the setpoint now
+  goes down one step of the entity at a time (0.5 °C), the next only once
+  the return is within 0.1 °C of the current setpoint, never below the
+  target. Up, compressor off, hot water, or the return already at the
+  target (cold start): straight there. Diagnostics: `sp_goal`,
+  `compressor_running` next to `sp_planned`.
+
 ## [2026.11.32] - 2026-11-11
 
 ### Planning

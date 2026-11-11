@@ -6140,6 +6140,29 @@ check("spike plan: once its charge has run, the past low still counts - the sale
       _a11_top["active"] and _a11_top["topup"] and _a11_top["high_price_unit"] == 71
       and _a11_top["charge_start_unit"] == _a11_top["charge_end_unit"])
 
+# --- 2026.11.33: the return setpoint down in steps while the compressor runs (A, 11 Nov: 27.5 -> 26.5
+# with the return at 27.4 - runs of 13-29 min instead of modulating down)
+check("floor: running, return near the setpoint - one step down (27.5 -> 27.0), not straight to 26.5",
+      fcm.step_down(26.5, 27.5, 27.4, True, 0.5) == 27.0)
+check("floor: running, return still above setpoint + 0.1 - the setpoint stays (27.0 with the return at 27.3)",
+      fcm.step_down(26.5, 27.0, 27.3, True, 0.5) == 27.0)
+check("floor: running, return within 0.1 of the setpoint - the next step, never below the new value",
+      fcm.step_down(26.5, 27.0, 27.1, True, 0.5) == 26.5 and fcm.step_down(26.8, 27.5, 27.5, True, 0.5) == 27.0
+      and fcm.step_down(26.8, 27.0, 27.0, True, 0.5) == 26.8)
+check("floor: compressor off - straight to the new value",
+      fcm.step_down(26.5, 27.5, 27.4, False, 0.5) == 26.5)
+check("floor: up - straight away, also while running",
+      fcm.step_down(28.0, 27.0, 27.4, True, 0.5) == 28.0)
+check("floor: a cold start (the return already at the new value) - straight to it",
+      fcm.step_down(26.5, 28.0, 25.0, True, 0.5) == 26.5 and fcm.step_down(26.5, 28.0, 26.6, True, 0.5) == 26.5)
+check("floor: without a return temperature or current setpoint - the new value as it was",
+      fcm.step_down(26.5, 27.5, None, True, 0.5) == 26.5 and fcm.step_down(26.5, None, 27.4, True, 0.5) == 26.5)
+check("floor: compressor running from the Qube's status (heating, starting up), not on hot water; else the heat",
+      fcm.compressor_running("heating", "ch", 0.0) and fcm.compressor_running("compressor_startup", None, None)
+      and not fcm.compressor_running("heating", "dhw", 4.0) and not fcm.compressor_running("standby", "ch", 4.0)
+      and not fcm.compressor_running("heating_dhw", "dhw", 4.0)
+      and fcm.compressor_running(None, None, 3.7) and not fcm.compressor_running(None, None, 0.0))
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

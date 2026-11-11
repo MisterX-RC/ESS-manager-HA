@@ -1095,6 +1095,18 @@ becomes
   (full at 1.2 °C), and 1 °C too cold the return setpoint never goes below
   the one the heat pump had before.
 
+*(as of 2026.11.33)* **Down gently while the compressor runs.** A big drop
+of the return setpoint below the return made the heat pump switch off and
+start again instead of modulating down. So while the compressor runs (the
+Qube's status *heating* or starting up with the valve on CH; without a Qube
+device: thermal power above 0) the setpoint goes down **one step of the
+entity at a time** (0.5 °C on a Qube), and the next step only once the
+return has come within **0.1 °C** of the current setpoint - never below the
+value it's after. Up, with the compressor off or on hot water, or with the
+return already at the new value (a cold start), it goes straight there.
+The diagnostics show both: `sp_planned` (what's sent) and `sp_goal` (where
+it's going), with `compressor_running`.
+
 *(as of 2026.10.38)* Heat counts as the floor's only while the heat demand
 switch is on. With it off the heat pump makes hot water (the circulation
 pump may run too): those minutes aren't learned as running hours, their
@@ -1202,8 +1214,8 @@ completely: the return
 setpoint goes back to its old value once, the heat demand switch is never
 touched (also not when ESS Manager stops), nothing is learned, and the
 stage sensor says **cooling**. Once cooling is over it goes on in the stage
-you chose (from *return setpoint* again: the heat pump's response is
-measured anew).
+you chose (from *return setpoint* again; the response hours gathered
+before still count, as of 2026.11.33).
 
 Switching the thermostat off (mode off) means no heating in every stage:
 in *full* the heat pump goes back to the thermostat until it's on again.
@@ -1213,6 +1225,12 @@ setpoint as it was before ESS Manager took over, heat demand as the
 thermostat wants it. With steering on, the day/night temperatures and the
 buffer are still written to the thermostat, so its card always shows the
 wanted temperature; a change by hand counts until the next day/night switch.
+
+*(as of 2026.11.33)* The **24 running hours of the response check** are
+kept over such a hand-back for a moment - an input missing for a cycle (a
+Qube on modbus right after a restart), a restart or update, the thermostat
+off, cooling: only hours ESS Manager set the return setpoint in count
+anyway. Only the select set to *watch* starts the check over.
 
 ## Forecast check
 

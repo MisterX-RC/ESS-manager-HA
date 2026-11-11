@@ -1703,7 +1703,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.info("ESS Manager (%s): floor control - heat pump handed back to the thermostat", self.entry.title)
         self.floor.stage = fc.MODE_WATCH
         self.floor.baseline_sp = None
-        self.floor.setpoint_since = None
+        # setpoint_since stays (as of 2026.11.33): a hand-back for a moment (an
+        # input missing for a cycle, a restart, the thermostat off) doesn't
+        # start the response check over - only floor control set to watch does
 
     def _floor_targets(self, conf: dict[str, Any], hour0: int, setpoint: Optional[float], attribute: dict[str, Any]) -> Optional[list[float]]:
         """The wanted temperature per hour for floor control: the thermostat's
@@ -1730,6 +1732,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.floor_configured(conf):
             if self.floor.stage != fc.MODE_WATCH:
                 await self.async_floor_release(conf)
+            self.floor.setpoint_since = None
             return None
         now_ts = now.timestamp()
         if self.floor_cooling(conf):
@@ -1772,6 +1775,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # of 2026.10.38): heat outside it is hot water, not the floor's
         readings["demand"] = demand_on
         floor = self.floor
+        if self.floor_mode not in (fc.MODE_SETPOINT, fc.MODE_FULL):
+            # watch chosen: the response check starts over once it's set higher again
+            floor.setpoint_since = None
         floor.refit(now_ts)
         model = floor.model or {}
         cop = floor.cop_ratio(self.hp.heat_hist)
@@ -1821,6 +1827,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if (sp_planned is not None and floor.baseline_sp is not None and indoor is not None and setpoint is not None
                 and setpoint - indoor >= fc.COMFORT_BAND):
             sp_planned = min(max(sp_planned, floor.baseline_sp), hi)
+        # down gently while the compressor runs (as of 2026.11.33): one step
+        # at a time, the next once the return has come near the setpoint
+        sp_goal = sp_planned
+        running = fc.compressor_running(readings["hp_state"], readings["valve"], readings["p_th"])
+        sp_planned = fc.step_down(sp_planned, sp_actual, readings["t_ret"], running, sp_step)
 
         # stage changes
         if stage in (fc.MODE_SETPOINT, fc.MODE_FULL) and prev == fc.MODE_WATCH:
@@ -1872,7 +1883,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "now": {
                 "plan_kw": plan_kw, "p_target": step["p_target"], "would_heat": step["on"], "reason": step["reason"],
                 "debt_kwh": step["debt"], "demand_on": demand_on, "thermostat_on": helper_on,
-                "sp": sp_actual, "sp_planned": sp_planned, "baseline_sp": floor.baseline_sp,
+                "sp": sp_actual, "sp_planned": sp_planned, "sp_goal": sp_goal, "compressor_running": running,
+                "baseline_sp": floor.baseline_sp,
                 **{k: readings[k] for k in ("pump", "t_sup", "t_ret", "t_slab", "p_th", "hp_state", "valve")},
                 "target": setpoint, "room": indoor,
             },
