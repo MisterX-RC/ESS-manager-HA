@@ -273,6 +273,7 @@ def _schedule_charge(
     hold_rates: Optional[list[float]] = None,
     hold_factor: float = 1.0,
     holds_out: Optional[list[int]] = None,
+    deficit: bool = False,
 ) -> list[int]:
     """The cheapest quarters to charge in (as of 2026.10.6), possibly split
     over several blocks, each part of the amount bought before it's needed.
@@ -312,7 +313,11 @@ def _schedule_charge(
     buy / charge efficiency for a charge: both go in the same cheapest-first
     choice, a quarter is one or the other (a charge covers the house
     anyway), held quarters have no minimum length. They're put in
-    `holds_out`."""
+    `holds_out`.
+
+    `deficit` (as of 2026.11.40): the sun alone doesn't fill the battery
+    (solar mode deficit) - see the last step, the cheap quarters taken from
+    the grid on price alone."""
     ce = charge_efficiency if charge_efficiency > 0 else 1.0
     n = min(last_unit, len(rates), len(buy))
     chosen: set[int] = set()
@@ -351,6 +356,20 @@ def _schedule_charge(
             m = max(m, base[h] + added[h])
             out[h] = m
         suffix_max = out
+
+    def capped_levels(extra_u: Optional[int] = None, extra: float = 0.0) -> list[float]:
+        # the planned levels per hour, never above `cap_kwh` (as of
+        # 2026.11.40): a charge or the sun that would go over the top stops
+        # at it, every later hour follows from there
+        out: list[float] = []
+        prev_raw = prev_lvl = 0.0
+        eh = hour_of(extra_u) if extra_u is not None else len(base)
+        for h in range(len(base)):
+            raw = base[h] + added[h] + (extra if h >= eh else 0.0)
+            lvl = min(raw if h == 0 else prev_lvl + (raw - prev_raw), cap_kwh)
+            out.append(lvl)
+            prev_raw, prev_lvl = raw, lvl
+        return out
 
     def fits(u: int, amount: Optional[float] = None) -> bool:
         a = rates[u] if amount is None else amount
@@ -590,14 +609,46 @@ def _schedule_charge(
                 added[h] += hrate(u)
         if base:
             refresh()
+        # with a deficit (as of 2026.11.40): what a planned charge already
+        # fills up to 100% doesn't count twice - the battery stops at the top,
+        # the charge at its target - so the levels are followed capped; and a
+        # quarter after which the battery does reach the top still goes from
+        # the grid when a planned charge lies between it and that hour: the
+        # charge then simply needs less. Without one in between, what's kept
+        # in the battery would go to the grid later (no grid use there).
+        spare = {c: rates[c] for c in chosen}
         for u in sorted(range(cur_unit, n), key=lambda u: (buy[u], u)):
             if u in chosen or u in held or buy[u] > hold_max + 1e-9:
                 continue
             if fits(u, hrate(u)):
                 hold(u)
+            elif deficit and base:
+                full_h = _first_full_hour(capped_levels(u, hrate(u)), hour_of(u), cap_kwh)
+                if full_h is None:
+                    hold(u)
+                    continue
+                need = hrate(u)
+                between = [c for c in sorted(spare) if c > u and hour_of(c) <= full_h and spare[c] > 1e-6]
+                if between and sum(spare[c] for c in between) >= need - 1e-6:
+                    for c in reversed(between):
+                        take_off = min(spare[c], need)
+                        spare[c] -= take_off
+                        need -= take_off
+                        if need <= 1e-6:
+                            break
+                    hold(u)
     if holds_out is not None:
         holds_out.extend(sorted(held))
     return sorted(chosen)
+
+
+def _first_full_hour(levels: list[float], from_hour: int, cap_kwh: float) -> Optional[int]:
+    """The first hour from `from_hour` on the (capped) levels are at the
+    top, None if they never get there (as of 2026.11.40)."""
+    for h in range(max(from_hour, 0), len(levels)):
+        if levels[h] >= cap_kwh - 0.005:
+            return h
+    return None
 
 
 def _charge_blocks(
@@ -1307,6 +1358,7 @@ def compute_low_charge_plan(
     hold_rates: Optional[list[float]] = None,
     hold_factor: float = 1.0,
     charge_imports: Optional[list[float]] = None,
+    deficit: bool = False,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price).
@@ -1425,7 +1477,7 @@ def compute_low_charge_plan(
             forecast, cur_unit, now, charge_speed_kw, low_threshold_kwh, floor_kwh, minimum_charge_target_kwh,
             upper_limit_kwh, usage, all_price, battery_now_kwh, high_threshold_kwh, buy_price, charge_efficiency,
             discharge_efficiency, peak_kwh, charge_rates, charge_buffer_kwh, min_charge_units, follow_up,
-            hold_rates, hold_factor, charge_imports,
+            hold_rates, hold_factor, charge_imports, deficit,
         )
         if soft is not None:
             return _carry(soft)
@@ -1516,7 +1568,7 @@ def compute_low_charge_plan(
             return _schedule_charge(
                 reqs, charge_rates, buy, all_price, cur_unit, len(buy), charge_imports or charge_speed_kw / 4,
                 charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
-                hold_rates=hold_rates, hold_factor=hold_factor, holds_out=holds,
+                hold_rates=hold_rates, hold_factor=hold_factor, holds_out=holds, deficit=deficit,
             )
 
         if follow_up:
@@ -1618,6 +1670,7 @@ def _soft_low_charge(
     hold_rates: Optional[list[float]] = None,
     hold_factor: float = 1.0,
     charge_imports: Optional[list[float]] = None,
+    deficit: bool = False,
 ) -> Optional[dict]:
     """compute_low_charge_plan in solar deficit mode (as of v0.5.13), with
     the surplus minimum as the hard floor below the deficit minimum - see
@@ -1789,7 +1842,7 @@ def _soft_low_charge(
                 return _schedule_charge(
                     reqs, charge_rates, buy, all_price, cur_unit, len(buy), charge_imports or charge_speed_kw / 4,
                     charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
-                    hold_rates=hold_rates, hold_factor=hold_factor, holds_out=holds,
+                    hold_rates=hold_rates, hold_factor=hold_factor, holds_out=holds, deficit=deficit,
                 )
 
             if follow_up:

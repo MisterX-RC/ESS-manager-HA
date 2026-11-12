@@ -6470,6 +6470,44 @@ check("status: never stricter than half the charge speed", _st_sent(2800.0, 7000
 check("status: discharge sent -1.5 kW, read back -1.4 kW is Actief", _st_sent(-1400.0, -1500.0, low=False) == "Actief")
 check("status: discharge without a sent value stays Start discharge", _st_sent(-1400.0, None, low=False) == "Start discharge")
 
+# 2026.11.40: with a deficit, cheap quarters from the grid on price alone -
+# levels followed capped at 100%, and past a "full" hour only with a planned
+# charge in between
+def _sgs_deficit(base, buy, need_kwh, deficit, hrates=None, deadline=None):
+    n = len(buy)
+    holds = []
+    chosen = plans._schedule_charge(
+        [(deadline or n, need_kwh, True)], [1.5] * n, buy, buy, 0, n, 1.5, 0.9, 1, base, 0, 30.0,
+        hold_rates=hrates if hrates is not None else [0.0] * n, hold_factor=0.95, holds_out=holds,
+        deficit=deficit,
+    )
+    return chosen, holds
+
+# a charge at the start overshoots the top in the plan (21.5 + 9 at hour 1), the battery
+# drains, the sun brings it back to 29.8 (capped) - but 30.3 uncapped
+_base1 = [22.0, 21.5, 21.0, 20.5, 20.0, 19.5, 18.5, 19.5, 20.8, 21.3, 21.0, 20.5]
+_buy1 = [0.18] * 6 + [0.30] * 26 + [0.20] * 4 + [0.30] * 12
+_c1, _h1 = _sgs_deficit(_base1, _buy1, 9.0, True, deadline=6)
+_c1b, _h1b = _sgs_deficit(_base1, _buy1, 9.0, False, deadline=6)
+check("deficit grid use: the charge is at the start", _c1 == list(range(6)) and _c1b == list(range(6)))
+check("deficit grid use: a charge's overshoot above 100% doesn't block a cheap later quarter", set(range(32, 36)) <= set(_h1))
+check("deficit grid use: without a deficit the old rule (uncapped) still holds back", not (set(range(32, 36)) & set(_h1b)))
+
+# a charge at hours 1-2, the sun fills the battery at hour 9: a cheap quarter
+# at hour 0 (the charge lies between it and the top - it then needs less) is
+# taken from the grid, one at hour 6 (no charge before the top) isn't
+_base2 = [12.0, 11.8, 11.6, 11.4, 11.2, 11.0, 10.8, 13.5, 16.5, 20.0, 19.7, 19.5]
+_buy2 = [0.20] * 4 + [0.18] * 7 + [0.30] * 13 + [0.20] * 4 + [0.30] * 20
+_c2, _h2 = _sgs_deficit(_base2, _buy2, 10.5, True, deadline=11)
+_c2b, _h2b = _sgs_deficit(_base2, _buy2, 10.5, False, deadline=11)
+check("deficit grid use: the planned charge lies at hours 1-2", _c2 == list(range(4, 11)))
+check("deficit grid use: cheap quarter before the charge (battery full later) is taken from the grid",
+      set(range(0, 4)) <= set(_h2))
+check("deficit grid use: cheap quarter after the charge, before the top, is not",
+      not (set(range(24, 28)) & set(_h2)))
+check("deficit grid use: without a deficit the quarter before the charge stays out (old rule)",
+      not (set(range(0, 4)) & set(_h2b)))
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

@@ -170,7 +170,15 @@ Five planning engines, all documented in detail in the code
    an unplanned load or a peak (the washing machine) or less sun than
    forecast then comes from the grid at that low price instead of out of
    the battery; a real surplus still charges it. No shortfall, nothing from
-   the grid. A quarter that started from the grid is finished that way
+   the grid. *(As of 2026.11.40)* in a **solar deficit** (the sun alone
+   doesn't fill the battery) that check is made with the battery stopping at
+   100%: a planned charge that would go over the top no longer counts its
+   overshoot in every later hour. And a quarter after which the battery does
+   reach the top still goes from the grid when a planned charge lies between
+   it and that moment - the charge then simply needs less (it stops at its
+   target). Without a charge in between, what's kept in the battery would go
+   to the grid later, so there it stays out. In a surplus nothing changes.
+   A quarter that started from the grid is finished that way
    (as of 2026.11.30), like a running charge window - unless a charge takes
    it over: with the battery nearly full and the sun filling it to the top
    later on, the minute-by-minute choice otherwise flipped between the grid

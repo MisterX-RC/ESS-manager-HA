@@ -3322,6 +3322,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 hold_rates=grid_use_rates,
                 hold_factor=discharge_efficiency,
                 charge_imports=charge_imports,
+                # cheap quarters from the grid on price alone with a deficit (2026.11.40)
+                deficit=solar_mode["mode"] == forecasting.SOLAR_MODE_DEFICIT,
             )
             # a quarter that started with the house from the grid is finished that way (2026.11.30)
             if grid_use_rates is not None and not replan:

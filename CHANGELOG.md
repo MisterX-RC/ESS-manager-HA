@@ -12,6 +12,23 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.40] - 2026-11-13
+
+### House from the grid
+- **Cheap quarters from the grid also when a charge fills the battery
+  first (solar deficit).** With a shortfall every quarter at or below the
+  price limit is taken from the grid - so an unplanned load comes from the
+  grid at that low price - but only while the battery stays under 100% in
+  every later hour. That check counted a planned charge's overshoot above
+  100% in every later hour, although the battery stops at the top: cheap
+  sunny quarters after a night charge were left out while the battery would
+  in fact never reach 100% again. In a solar deficit the levels are now
+  followed with the battery stopping at 100%, and a quarter after which the
+  battery does reach the top still goes from the grid when a planned charge
+  lies between it and that moment (that charge then needs less). Without a
+  charge in between it stays out, as before: what's kept would go to the
+  grid later. In a solar surplus nothing changes.
+
 ## [2026.11.39] - 2026-11-12
 
 ### Status
