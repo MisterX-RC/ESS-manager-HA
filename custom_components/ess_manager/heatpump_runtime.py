@@ -21,6 +21,7 @@ RETRY = 3600
 # a fit that gave no model is tried again after this long (s), unless the
 # journal or the day changes first (as of 2026.10.20)
 REFIT_RETRY = 3600
+ESS_GAP_S = 120         # s between cycles counted at most (as of 2026.11.35)
 
 
 class HeatPumpRuntime:
@@ -65,7 +66,11 @@ class HeatPumpRuntime:
         # the thermostat's switches, wanted temperature and heat demand
         # seconds per hour (as of 2026.11.20, thermostat.py) - read from the
         # recorder daily, kept here beyond its ~10 days
-        self.thermo: dict[str, Any] = {"events": [], "sp": {}, "on": {}}
+        self.thermo: dict[str, Any] = {"events": [], "sp": {}, "on": {}, "ess": {}}
+        # (as of 2026.11.35) the seconds per hour ESS Manager switched the heat
+        # demand itself (floor control "full", thermo["ess"]); and whether it does now
+        self._ess_last: Optional[float] = None
+        self.ess_switches = False
         # steering (as of 2026.10.17): {last_set, override_until}
         self.steer: dict[str, Any] = {}
         self._heat_acc: Optional[list[float]] = None
@@ -94,7 +99,8 @@ class HeatPumpRuntime:
         self.heat_hist = dict(data.get("heat_hist") or {})
         self.steer = dict(data.get("steer") or {})
         t = data.get("thermo") or {}
-        self.thermo = {"events": list(t.get("events") or []), "sp": dict(t.get("sp") or {}), "on": dict(t.get("on") or {})}
+        self.thermo = {"events": list(t.get("events") or []), "sp": dict(t.get("sp") or {}), "on": dict(t.get("on") or {}),
+                       "ess": dict(t.get("ess") or {})}
         self.dirty = True
 
     def as_store(self) -> dict[str, Any]:
@@ -207,6 +213,21 @@ class HeatPumpRuntime:
             kept = {k: v for k, v in (self.thermo.get(name) or {}).items() if int(k) >= cutoff}
             kept.update({str(int(h)): v for h, v in hours.items()})
             self.thermo[name] = kept
+        self.thermo["ess"] = {k: v for k, v in (self.thermo.get("ess") or {}).items() if int(k) >= cutoff}
+
+    def note_ess(self, now_ts: float, active: bool) -> None:
+        """Once a cycle (as of 2026.11.35): whether ESS Manager switches the
+        heat demand itself now - the time since the last such cycle (at most
+        ESS_GAP_S, a pause or restart doesn't count) added to its hour."""
+        self.ess_switches = active
+        if not active:
+            self._ess_last = None
+            return
+        if self._ess_last is not None and now_ts > self._ess_last:
+            key = str(int(now_ts) // hp.HOUR * hp.HOUR)
+            ess = self.thermo.setdefault("ess", {})
+            ess[key] = min(int(ess.get(key, 0) + min(now_ts - self._ess_last, ESS_GAP_S)), hp.HOUR)
+        self._ess_last = now_ts
 
     def thermostat_series(self, name: str) -> dict[int, float]:
         return {int(k): v for k, v in (self.thermo.get(name) or {}).items()}
@@ -347,7 +368,9 @@ class HeatPumpRuntime:
         pump, the floor's delay and the heat of the hours before included.
         None without a house model, indoor temperature or weather."""
         house = self.house or {}
-        hm, copm = house.get("model"), house.get("cop")
+        # ESS Manager's own plan: the smooth controller (as of 2026.11.35), not the
+        # learned thermostat - the floor eases off before the room is there
+        hm, copm = hh.without_thermostat(house.get("model")), house.get("cop")
         if not hm or indoor is None or not hourly or not target:
             return None
         n = min(len(hourly), len(target), 24)
@@ -391,6 +414,10 @@ class HeatPumpRuntime:
         # (as of 2026.10.23) - next to the expected kWh on the indoor chart
         out["measured_kwh"] = [[int(k), v] for k, v in sorted(self.heat_hist.items(), key=lambda kv: int(kv[0]))
                                if hour0_epoch - 24 * hp.HOUR <= int(k) < hour0_epoch]
+        if self.ess_switches:
+            # ESS Manager switches the heat demand (as of 2026.11.35): the hours
+            # as it plans them, not as the thermostat would switch
+            hm = hh.without_thermostat(hm)
         if not hm or indoor is None or not hourly:
             return out
         n = min(hh.FORECAST_HOURS, len(hourly), hours)

@@ -28,7 +28,7 @@ from . import thermostat
 HOUR = 3600
 # what the model is built from changes with these (as of 2026.11.11): a new
 # version learns again right away instead of the next day
-MODEL_VERSION = "2026.11.20"
+MODEL_VERSION = "2026.11.35"   # the self-check in blocks: checked again right after the update
 # the floor's delay (as of 2026.11.9 36 hours back and up to 24 h - up to
 # then 12 and 6: a concrete floor heated in a block of a few hours gives its
 # heat off over far more hours, and the day's simulation drifted)
@@ -55,6 +55,14 @@ FOLDS = 3
 RECENT_DAYS = 4
 RECENT_MIN_DAYS = 3
 RECENT_TEMP_C = 1.0
+# (as of 2026.11.35) an hour in which ESS Manager switched the heat demand
+# itself (floor control "full") for at least this long: the self-check plays
+# it with the smooth controller - the plan ESS Manager followed - not with
+# the learned thermostat, which didn't switch the heat pump then
+ESS_HOUR_S = 1800
+# (as of 2026.11.35) the self-check's energy test in blocks of this many hours,
+# each started from the measured room (before: the whole day blind, per hour)
+BLOCK_HOURS = 6
 FORECAST_HOURS = 48
 BOOST_C = 1.0                   # preheating: a degree more
 BOOST_WINDOWS = (2, 3, 4)       # hours
@@ -425,6 +433,7 @@ def simulate(
     copm: Optional[dict[str, Any]] = None,
     fixed_q: Optional[list[float]] = None,
     on0: Optional[bool] = None,
+    free: Optional[list[bool]] = None,
 ) -> tuple[list[float], list[float]]:
     """(indoor temperature at the start of each hour + one more, heating
     electricity per hour). `inputs` = (outdoor, wind, sun) per hour; `target`
@@ -436,7 +445,11 @@ def simulate(
     (`thermostat`, see thermostat.py): the hours played quarter by quarter -
     the demand switches on below wanted + on_c and off above wanted + off_c
     (wanted = target - mid_c), heating at the heat pump's learned power while
-    on; `on0` = whether it asked for heat at the start (None: from the room)."""
+    on; `on0` = whether it asked for heat at the start (None: from the room).
+    `free` (as of 2026.11.35): hours in which ESS Manager switched the heat
+    demand itself (floor control "full") - played as it plans them, with the
+    smooth controller on the wanted temperature (target - mid_c), even with a
+    thermostat in the model."""
     w = kernel(model["tau"])
     th = model.get("thermostat") if fixed_q is None else None
     on = on0
@@ -462,7 +475,7 @@ def simulate(
         if fixed_q is not None:
             q_el = fixed_q[i] if i < len(fixed_q) and fixed_q[i] is not None else 0.0
             q = q_el * cop
-        elif th:
+        elif th and not (free and i < len(free) and free[i]):
             tgt = target[i] if target and i < len(target) else t
             sp = tgt - th["mid_c"]
             pw = thermostat.power_at(th["power"], tout)
@@ -495,6 +508,11 @@ def simulate(
             continue
         else:
             tgt = target[i] if target and i < len(target) else t
+            if th:
+                # an hour ESS Manager switched (as of 2026.11.35): its own plan for
+                # the wanted temperature; the thermostat's state from the room after it
+                tgt -= th["mid_c"]
+                on, since = None, 10 ** 9
             loss = k * (tgt - tout) + kw * wind * (tgt - tout) - ks * sun - kg * gain - a
             need = loss + KP * (tgt - t)            # degC this hour
             q = (need - g * prev) / (g * w[0])      # what this hour's heat has to add
@@ -512,7 +530,7 @@ def simulate(
 
 # -- the self-check -----------------------------------------------------------------
 def day_series(
-    d: date, tz: tzinfo, indoor, outdoor, heat, wind, sun, gains=None, setpoint=None
+    d: date, tz: tzinfo, indoor, outdoor, heat, wind, sun, gains=None, setpoint=None, ess=None
 ) -> Optional[dict[str, Any]]:
     """One day's hourly inputs for the self-check (None when incomplete)."""
     start = int(datetime(d.year, d.month, d.day, tzinfo=tz).timestamp())
@@ -535,6 +553,8 @@ def day_series(
         "q_hist": hist,
         # the thermostat's wanted temperature per hour (as of 2026.11.20), None when unknown
         "sp": [(setpoint or {}).get(h) for h in hours],
+        # the hours ESS Manager switched the heat demand itself (as of 2026.11.35)
+        "ess": [(ess or {}).get(h, 0) >= ESS_HOUR_S for h in hours],
     }
 
 
@@ -561,8 +581,9 @@ def _review_sums(
     shape: list[float],
     tz: tzinfo,
 ) -> list[float]:
-    """The error sums of review(): [sim, pattern, hours, temp, temp hours,
-    days] - added up over the cross-validation's groups. With a thermostat
+    """The error sums of review(): [sim, pattern, blocks, temp, temp hours,
+    days] - added up over the cross-validation's groups. The energy is
+    compared per block of BLOCK_HOURS (as of 2026.11.35; per hour before). With a thermostat
     in the model (as of 2026.11.20) the day is played with its real wanted
     temperatures where they're known, starting with the demand on when the
     hour before heated."""
@@ -587,17 +608,43 @@ def _review_sums(
             target = [profile[x] - mean_p + level for x in hours_local]
         else:
             target = [level] * len(day["hours"])
-        _, q_sim = simulate(model, day["indoor"][0], day["inputs"], target, hist_th, copm, on0=on0)
-        s = sum(q_sim)
-        if len(q_sim) < len(day["q"]):
+        # (as of 2026.11.35) in blocks of BLOCK_HOURS, each started again from the
+        # measured room and the heat measured before it - as the live control
+        # starts from the measurement every cycle - and compared per block:
+        # whether a run lands at 3 or at 4 o'clock is the live control's, what
+        # the house needs over a few hours is the model's
+        n = len(day["q"])
+        q_th_day = [q * (cop_at(copm, day["inputs"][j][0]) if model.get("thermal") else 1.0) for j, q in enumerate(day["q"])]
+        free = day.get("ess") or []
+        sims: list[float] = []
+        t_end: Optional[float] = None
+        for b0 in range(0, n, BLOCK_HOURS):
+            b1 = min(b0 + BLOCK_HOURS, n)
+            t0 = day["indoor"][b0] if day["indoor"][b0] is not None else t_end
+            if t0 is None:
+                break
+            hist_b = (hist_th + q_th_day[:b0])[-(LAG_HOURS - 1):]
+            on_b = None
+            if on0 is not None:
+                on_b = ((day["q"][b0 - 1] if b0 else day["q_hist"][-1]) or 0.0) > 0.05
+            temps_b, q_b = simulate(model, t0, day["inputs"][b0:b1], target[b0:b1], hist_b, copm, on0=on_b,
+                                    free=free[b0:b1] or None)
+            if len(q_b) < b1 - b0:
+                break
+            sims.append(sum(q_b))
+            t_end = temps_b[-1]
+        if len(sims) * BLOCK_HOURS < n:
             continue
-        pat = [shape[datetime.fromtimestamp(h, tz).hour] for h in day["hours"]]
-        ps = sum(pat)
-        for i, q in enumerate(day["q"]):
-            sim_q = q_sim[i] / s * total if s > 1e-6 else total / len(day["q"])
-            pat_q = pat[i] / ps * total if ps > 1e-9 else total / len(day["q"])
-            sim_err += abs(sim_q - q)
-            pat_err += abs(pat_q - q)
+        s = sum(sims)
+        pat_h = [shape[datetime.fromtimestamp(h, tz).hour] for h in day["hours"]]
+        ps = sum(pat_h)
+        for bi, b0 in enumerate(range(0, n, BLOCK_HOURS)):
+            meas = sum(day["q"][b0:b0 + BLOCK_HOURS])
+            share = min(BLOCK_HOURS, n - b0) / n
+            sim_q = sims[bi] / s * total if s > 1e-6 else total * share
+            pat_q = sum(pat_h[b0:b0 + BLOCK_HOURS]) / ps * total if ps > 1e-9 else total * share
+            sim_err += abs(sim_q - meas)
+            pat_err += abs(pat_q - meas)
             n_hours += 1
         temps, _ = simulate(model, day["indoor"][0], day["inputs"], None, hist_th, copm, fixed_q=day["q"])
         # against the room's trend, not a one-hour jump (as of 2026.11.11)
@@ -619,8 +666,9 @@ def _verdict(sums: list[float], min_days: int = MIN_TEST_DAYS) -> dict[str, Any]
         n_days >= min_days and sim_mae is not None and pat_mae is not None and temp_mae is not None
         and sim_mae <= GATE_RATIO * pat_mae and temp_mae <= GATE_TEMP_C
     )
+    # hour_error_kwh / pattern_error_kwh: per block of block_hours (as of 2026.11.35)
     return {"days": n_days, "hour_error_kwh": sim_mae, "pattern_error_kwh": pat_mae,
-            "temp_error_c": temp_mae, "passed": passed}
+            "temp_error_c": temp_mae, "passed": passed, "block_hours": BLOCK_HOURS}
 
 
 def learn(
@@ -641,6 +689,7 @@ def learn(
     thermo: Optional[dict[str, Any]] = None,
     on_s: Optional[dict[int, int]] = None,
     setpoint: Optional[dict[int, float]] = None,
+    ess_s: Optional[dict[int, int]] = None,
 ) -> dict[str, Any]:
     """The daily round: the COP model, the house checked on the newest
     TEST_DAYS heating days out of sample (as of 2026.11.12 cross-validated,
@@ -652,7 +701,12 @@ def learn(
     (thermostat.learn), its heat demand seconds and wanted temperature per
     hour - an on/off thermostat is tried in the self-check and kept in the
     model when it places the hours better (`thermostat` in the result: what
-    was learned, with the heat pump's power while asking)."""
+    was learned, with the heat pump's power while asking).
+    `ess_s` (as of 2026.11.35): the seconds per hour ESS Manager switched the
+    heat demand itself (floor control "full"). Those hours are played with
+    the smooth controller in the self-check, and their thermostat demand
+    seconds don't count for the heat pump's power - the thermostat didn't
+    switch it then."""
     copm = fit_cop_meters(heat_th, heat, outdoor) if heat_th else None
     if copm is None:
         copm = fit_cop(cop, outdoor, heat, cop_min) if cop else None
@@ -660,12 +714,14 @@ def learn(
     test_days = []
     d = today - timedelta(days=1)
     while len(test_days) < TEST_DAYS and (today - d).days <= 60:
-        series = day_series(d, tz, indoor, outdoor, heat, wind, sun, gains, setpoint)
+        series = day_series(d, tz, indoor, outdoor, heat, wind, sun, gains, setpoint, ess_s)
         if series and sum(series["q"]) >= TEST_HEAT_KWH:
             test_days.append(series)
         d -= timedelta(days=1)
     result: dict[str, Any] = {"cop": copm, "cop_check": check, "model": None, "review": None}
     th = None
+    if on_s and ess_s:
+        on_s = {h: v for h, v in on_s.items() if not ess_s.get(h)}
     if thermo is not None:
         th = dict(thermo)
         if th.get("kind") == thermostat.KIND_ON_OFF and on_s:
@@ -735,6 +791,8 @@ def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_
     rev = _verdict(total_th) if use_th else rev_ctrl
     rev["method"] = "cross"
     rev["folds"] = folds_fitted
+    # (as of 2026.11.35) the test hours ESS Manager switched the heat demand itself
+    rev["ess_hours"] = sum(sum(1 for x in d.get("ess") or [] if x) for d in test_days)
     rev["thermostat"] = th_info
     # the drift guard: test_days are newest first
     recent_days = test_days[:RECENT_DAYS]
@@ -756,6 +814,16 @@ def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_
     if recent and recent["drift"]:
         rev["passed"] = False
     return rev
+
+
+def without_thermostat(model: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    """The model with the smooth controller (as of 2026.11.35): for what ESS
+    Manager plans itself - the floor's heat per hour, and the forecast while
+    it switches the heat demand - the learned thermostat only describes the
+    hours the thermostat switches."""
+    if not model or not model.get("thermostat"):
+        return model
+    return {k: v for k, v in model.items() if k != "thermostat"}
 
 
 def with_thermostat(model: dict[str, Any], thermo: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:

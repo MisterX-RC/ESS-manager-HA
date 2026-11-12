@@ -12,6 +12,36 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.35] - 2026-11-12
+
+### Heat pump
+- **The house model's self-check in blocks of 6 hours.** Each test day was
+  played blind from midnight and the energy compared per hour. With a
+  heat pump that switches on and off, a run landing an hour off counted as
+  two hours wrong, while that timing is the live control's job - it starts
+  from the measured room every minute. The energy is now checked in blocks
+  of 6 hours, each started again from the measured room and the heat
+  measured before it, and compared per block with the usual pattern (same
+  limit: at most 90 % of its error); the drift guard does the same. A model
+  with a wrong heat loss, which the hourly check could let through, is now
+  turned down; the indoor temperature check stays. The house model is
+  checked again right after the update. `review.block_hours` in the
+  diagnostics; the card says "per 6 hours".
+- **Floor control Full no longer falls back on its own days.** The
+  self-check played the days ESS Manager switched the heat demand itself
+  with the learned thermostat, which didn't switch the heat pump then; after
+  a few days in Full the model failed and floor control went back to Return
+  setpoint, and to Full again once the days had aged out. The seconds per
+  hour ESS Manager switches are now kept (stored with the heat pump's data),
+  those hours are played as it plans them (smooth controller) and their
+  thermostat demand time no longer counts for the heat pump's learned
+  power. `review.ess_hours` in the diagnostics.
+- **The floor is planned with the smooth controller.** Once the thermostat
+  was learned, the floor's heat plan (and in Full the forecast) followed the
+  thermostat's on/off blocks instead of easing off before the room is there.
+  What ESS Manager plans itself now always uses the smooth controller; the
+  thermostat still places the hours it switches in the forecast.
+
 ## [2026.11.34] - 2026-11-12
 
 ### Planning

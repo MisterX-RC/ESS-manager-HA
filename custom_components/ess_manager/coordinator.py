@@ -1497,25 +1497,27 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         profile = (heatpump.indoor_profile(self.hp.indoor_days, heatpump.heating_dates(model, self.hp.journal))
                    if model and self.hp.indoor_days else None)
         # the thermostat learned from its switches (as of 2026.11.20) - a climate entity as the wanted temperature
-        thermo = on_s = sp_hours = None
+        thermo = on_s = sp_hours = ess_s = None
         if (conf.get(CONF_HP_SETPOINT_ENTITY) or "").startswith("climate."):
             thermo = thermostat.learn(self.hp.thermo.get("events") or [], dt_util.utcnow().timestamp())
             on_s = self.hp.thermostat_series("on") or None
             sp_hours = self.hp.thermostat_series("sp") or None
+            # (as of 2026.11.35) the hours ESS Manager switched the heat demand itself
+            ess_s = self.hp.thermostat_series("ess") or None
         learned = await self.hass.async_add_executor_job(
             heatpump_house.learn,
             means.get(indoor_id) or {}, means.get(conf.get(CONF_HP_OUTDOOR_ENTITY)) or {}, heat_only, wind, sun,
             cool_only, means.get(cop_id) if cop_id else None, tz, today, profile, heatpump.hourly_shape(self.hp.journal, today),
-            cop_min, heat_th, gains, thermo, on_s, sp_hours,
+            cop_min, heat_th, gains, thermo, on_s, sp_hours, ess_s,
         )
         self.hp.house = {**learned, "day": today.isoformat(), "key": self._hp_house_key(conf),
                          # the usual own electricity per local hour, for the forecast (as of 2026.11.11)
                          "gains_profile": heatpump_house.gains_profile(gains, tz, today) if gains else None}
         rev = learned.get("review") or {}
         _LOGGER.info(
-            "ESS Manager (%s): house model %s - self-check over %s days: hour error %s kWh (pattern %s), indoor %s degC%s",
+            "ESS Manager (%s): house model %s - self-check over %s days: error per %s h block %s kWh (pattern %s), indoor %s degC%s",
             self.entry.title, "fitted" if learned.get("model") else "not fitted yet", rev.get("days"),
-            rev.get("hour_error_kwh"), rev.get("pattern_error_kwh"), rev.get("temp_error_c"),
+            rev.get("block_hours"), rev.get("hour_error_kwh"), rev.get("pattern_error_kwh"), rev.get("temp_error_c"),
             " - used for the planning" if rev.get("passed") else "",
         )
 
@@ -1741,6 +1743,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         setpoint: Optional[float], attribute: dict[str, Any],
     ) -> Optional[dict[str, Any]]:
         """One cycle of floor control - see floor_control.py."""
+        if not self.floor_configured(conf) or self.floor_cooling(conf):
+            # (as of 2026.11.35) ESS Manager doesn't switch the heat demand now
+            self.hp.note_ess(now.timestamp(), False)
         if not self.floor_configured(conf):
             if self.floor.stage != fc.MODE_WATCH:
                 await self.async_floor_release(conf)
@@ -1857,6 +1862,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_floor_switch(demand_id, helper_on)
             _LOGGER.info("ESS Manager (%s): floor control - heat demand back to the thermostat", self.entry.title)
         floor.stage = stage
+        # (as of 2026.11.35) the hours ESS Manager switches the heat demand itself,
+        # for the house model's self-check and forecast
+        self.hp.note_ess(now_ts, stage == fc.MODE_FULL)
 
         # what's sent
         if stage in (fc.MODE_SETPOINT, fc.MODE_FULL) and sp_planned is not None and sp_actual is not None:

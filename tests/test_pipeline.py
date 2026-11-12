@@ -6238,6 +6238,148 @@ _gi_old = plans._schedule_charge([(56, 3.0, True)], _gi_rates2, _gi_buy, _gi_sel
 check("charge imports: the cheap sunny hour is chosen (before: the dearer hours around it looked cheaper)",
       _gi_pick[:2] == [48, 49] and all(u < 48 or u >= 52 for u in _gi_old))
 
+# 2026.11.35: the house model's self-check in blocks of 6 hours, each started from the
+# measured room - and floor control "full": the hours ESS Manager switched the heat demand
+# played as it plans them (smooth controller), so the model stays in "full"
+_fz_w = _hh.kernel(3.0)
+_fz_rnd = _rnd.Random(5)
+_fz_noise = _rnd.Random(11)
+_fz_start = int(datetime(2026, 10, 10, tzinfo=_tzA).timestamp())
+_fz_days_th, _fz_days_ess = 40, 10
+_fz_n = (_fz_days_th + _fz_days_ess) * 24
+_fz_tout = [4 + 4 * _tmath.sin(i // 24 * 0.5) + 3 * _tmath.sin((datetime.fromtimestamp(_fz_start + i * 3600, _tzA).hour - 9) / 24 * 2 * _tmath.pi)
+            + _fz_rnd.gauss(0, 0.5) for i in range(_fz_n + 48)]
+_fz_sp = [21.0 if 7 <= datetime.fromtimestamp(_fz_start + i * 3600, _tzA).hour < 22 else 19.5 for i in range(_fz_n + 48)]
+_fz = {"ind": {}, "out": {}, "heat": {}, "cop": {}, "sp": {}, "on": {}, "ess": {}, "rows": [(_fz_start, "heat", False, 20.3, 19.5)]}
+_fz_prof = [19.5] * 7 + [21.0] * 15 + [19.5] * 2
+
+
+def _fz_shape(end):
+    tot = [0.0] * 24
+    for h, v in _fz["heat"].items():
+        if end - 28 * 86400 <= h < end:
+            tot[datetime.fromtimestamp(h, _tzA).hour] += v
+    return [x / (sum(tot) or 1.0) for x in tot]
+
+
+def _fz_run(first_day, n_days, plan_model=None, state=None):
+    """The synthetic thermostat house on: the thermostat switches, or (plan_model) ESS
+    Manager plans each hour with the smooth controller and switches via control_step -
+    the thermostat's helper still switching at its own thresholds."""
+    t, hist, th_on, ctl = state["t"], state["hist"], state["th_on"], state["ctl"]
+    for i in range(first_day * 24, (first_day + n_days) * 24):
+        h = _fz_start + i * 3600
+        tout, sp = _fz_tout[i], _fz_sp[i]
+        prev = sum(_fz_w[j] * hist[-j] for j in range(1, 36))
+        c = 3.5 + 0.08 * tout
+        plan = None
+        if plan_model is not None:
+            _qh = [_fz["heat"][_fz_start + (i - k) * 3600] for k in range(35, 0, -1)]
+            _, _q = _hh.simulate(plan_model, t, [(_fz_tout[i + k], None, None) for k in range(24)], _fz_sp[i:i + 24], _qh, None)
+            plan = (_q[0] if _q else 0.0) * c
+        qsum = tsum = ons = ess = 0.0
+        for qi in range(4):
+            ts = h + qi * 900
+            sens = round(t + _fz_noise.gauss(0, 0.02), 1)
+            if qi == 0 and datetime.fromtimestamp(h, _tzA).hour in (7, 22):
+                _fz["rows"].append((ts - 60, "heat", th_on, sens, sp))
+            _fz["rows"].append((ts, "heat", th_on, sens, sp))
+            if th_on and sens >= sp + 0.1:
+                th_on = False
+                _fz["rows"].append((ts + 1, "heat", False, sens, sp))
+            elif not th_on and sens <= sp - 0.2:
+                th_on = True
+                _fz["rows"].append((ts + 1, "heat", True, sens, sp))
+            p_full = 9.0 * (1 + 0.03 * (5 - tout) / 5)
+            if plan is not None:
+                pump = False
+                for sub in range(3):
+                    pump = floor_control.control_step(ctl, ts + sub * 300, plan, p_full if ctl["on"] else 0.0, sens, sp, p_full, p_full)["on"]
+                ess += 900
+            else:
+                pump = th_on
+                ctl.update({"on": th_on, "since": ts, "debt": 0.0, "last": ts})
+            qq = p_full if pump else 0.0
+            t += (0.03 - 0.02 * (t - tout) + 0.12 * (_fz_w[0] * qq + prev)) / 4 + _fz_noise.gauss(0, 0.005)
+            qsum += qq
+            tsum += t
+            ons += 900 if th_on else 0
+        _fz["ind"][h], _fz["out"][h] = round(tsum / 4, 2), round(tout, 2)
+        _fz["heat"][h], _fz["cop"][h] = round(qsum / 4 / c, 3), round(c, 2)
+        _fz["sp"][h], _fz["on"][h] = sp, int(ons)
+        if ess:
+            _fz["ess"][h] = int(ess)
+        hist = (hist + [qsum / 4])[-35:]
+    state.update(t=t, hist=hist, th_on=th_on)
+
+
+def _fz_learn(day, ess=True):
+    end = _fz_start + day * 86400
+    today = datetime.fromtimestamp(end, _tzA).date()
+    th = thermostat.learn(thermostat.switch_events(_fz["rows"]), end)
+    return _hh.learn(_fz["ind"], _fz["out"], _fz["heat"], None, None, None, _fz["cop"], _tzA, today, _fz_prof, _fz_shape(end),
+                     thermo=th, on_s=dict(_fz["on"]), setpoint=dict(_fz["sp"]), ess_s=dict(_fz["ess"]) if ess else None)
+
+
+_fz_state = {"t": 20.3, "hist": [0.0] * 35, "th_on": False, "ctl": {"on": False, "since": _fz_start, "debt": 0.0}}
+_fz_run(0, _fz_days_th, None, _fz_state)
+_fz_r0 = _fz_learn(_fz_days_th)
+check("self-check in blocks: the thermostat house passes, the thermostat in the model, 6-hour blocks",
+      _fz_r0["review"]["passed"] and (_fz_r0["review"]["thermostat"] or {}).get("used")
+      and _fz_r0["review"]["block_hours"] == 6 and _fz_r0["review"]["ess_hours"] == 0)
+_fz_plan = _hh.without_thermostat(_fz_r0["model"])
+check("ESS Manager plans with the smooth controller: the thermostat out of its model, the stored model untouched",
+      _fz_plan.get("thermostat") is None and _fz_r0["model"].get("thermostat") is not None
+      and _hh.without_thermostat(None) is None and _hh.without_thermostat({"k": 1}) == {"k": 1})
+_fz_run(_fz_days_th, _fz_days_ess, _fz_plan, _fz_state)
+_fz_r1 = _fz_learn(_fz_days_th + _fz_days_ess)
+check("floor control full: 10 days ESS Manager switching - the self-check still passes (stays in full)",
+      _fz_r1["review"]["passed"] and _fz_r1["review"]["ess_hours"] >= 200
+      and not ((_fz_r1["review"].get("recent") or {}).get("drift")))
+_fz_r1n = _fz_learn(_fz_days_th + _fz_days_ess, ess=False)
+check("floor control full: without knowing the hours ESS Manager switched, the blocks are played with the thermostat - worse",
+      _fz_r1n["review"]["hour_error_kwh"] > _fz_r1["review"]["hour_error_kwh"])
+_fz_series = _hh.day_series(datetime.fromtimestamp(_fz_start + (_fz_days_th + 2) * 86400, _tzA).date(), _tzA,
+                            _fz["ind"], _fz["out"], _fz["heat"], None, None, None, _fz["sp"], _fz["ess"])
+check("self-check: an hour ESS Manager switched at least half an hour is marked in the day's series",
+      _fz_series is not None and all(_fz_series["ess"]) and not any(
+          _hh.day_series(datetime.fromtimestamp(_fz_start + 30 * 86400, _tzA).date(), _tzA,
+                         _fz["ind"], _fz["out"], _fz["heat"], None, None, None, _fz["sp"], _fz["ess"])["ess"]))
+# a wrong model is still turned down: the heat loss off (the blocks) or the heat's effect off (the indoor temperature)
+_fz_fit = _hh.fit_house
+for _fz_name, _fz_key, _fz_f in (("heat loss x1.5", "k", 1.5), ("heat loss x0.6", "k", 0.6), ("heat effect x0.7", "g", 0.7)):
+    def _fz_bad(*a, _k=_fz_key, _f=_fz_f, **kw):
+        m = _fz_fit(*a, **kw)
+        return {**m, _k: m[_k] * _f} if m else m
+    _hh.fit_house = _fz_bad
+    try:
+        _fz_rb = _fz_learn(_fz_days_th + _fz_days_ess)
+    finally:
+        _hh.fit_house = _fz_fit
+    check(f"self-check in blocks: a wrong model ({_fz_name}) doesn't pass", not _fz_rb["review"]["passed"])
+# the runtime: the seconds ESS Manager switches the heat demand, per hour, kept and stored
+_fz_rt = heatpump_runtime.HeatPumpRuntime()
+_fz_t0 = 1794441600
+for _k in range(0, 3600 + 1, 60):
+    _fz_rt.note_ess(_fz_t0 + _k, True)
+_fz_rt.note_ess(_fz_t0 + 3700, False)
+_fz_rt.note_ess(_fz_t0 + 7200, True)
+_fz_rt.note_ess(_fz_t0 + 7800, True)  # after a long pause: at most 120 s counted
+_fz_rt2 = heatpump_runtime.HeatPumpRuntime()
+_fz_rt2.restore(_fz_rt.as_store())
+check("runtime: the seconds ESS Manager switched counted per hour (a gap at most 120 s), stored and restored",
+      _fz_rt.thermostat_series("ess") == {_fz_t0: 3540, _fz_t0 + 3600: 60, _fz_t0 + 7200: 120}
+      and _fz_rt2.thermostat_series("ess") == _fz_rt.thermostat_series("ess") and _fz_rt.ess_switches)
+
+_fz_rt.house = {"model": _fz_r0["model"], "cop": None}
+_fz_h0 = _fz_start + (_fz_days_th + _fz_days_ess) * 86400
+_fz_in = [(3.0, None, None)] * 24
+_fz_ph = _fz_rt.plan_heat(_fz_h0, 20.6, _fz_in, [21.0] * 24, 3.5)
+_fz_sm = _hh.simulate(_fz_plan, 20.6, _fz_in, [21.0] * 24, _fz_rt.q_hist(_fz_h0, 3.0), None)
+_fz_bl = _hh.simulate(_fz_r0["model"], 20.6, _fz_in, [21.0] * 24, _fz_rt.q_hist(_fz_h0, 3.0), None)
+check("floor plan: always the smooth controller, also with the learned thermostat in the house model (no blocks)",
+      _fz_ph["q_el"] == _fz_sm[1] and _fz_ph["q_el"] != _fz_bl[1])
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

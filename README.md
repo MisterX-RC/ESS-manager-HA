@@ -1024,9 +1024,16 @@ the heat pump page in Configure, as of 2026.10.17:
   day the newest 14 heating days are played again with their measured
   weather, cross-validated: split into 3 groups, each group played with a
   model fitted on all other hours (so it never saw those days) - is the energy put
-  in the right hours (compared with the usual hourly pattern, both scaled
-  to the measured day total) and does the house follow the measured
-  temperature with the measured heating? When the energy per hour is
+  in the right part of the day and does the house follow the measured
+  temperature with the measured heating? *(As of 2026.11.35)* the energy is
+  checked in **blocks of 6 hours**, each started again from the measured
+  room and the heat measured before it - as the live control starts from
+  the measurement every minute - and compared per block with the usual
+  hourly pattern (both scaled to the measured day total). Before, each day
+  was played blind from midnight and compared per hour: whether an on/off
+  run landed at 3 or at 4 o'clock counted as two hours wrong, while that
+  timing is the live control's job, not the model's; and a wrong heat loss
+  hardly moved the hours, so it could pass. When the energy per block is
   clearly better (at most 90 % of the pattern's error) and the indoor
   temperature within 0.6 °C, the battery planning places the heat pump's
   hours by the model (each day's kWh stays the energy signature's); when
@@ -1035,6 +1042,9 @@ the heat pump page in Configure, as of 2026.10.17:
   only the hours before them: no better than the pattern there, or the room
   more than 1 °C off, and the model doesn't pass even when the
   cross-validation does (`review.recent`). Nothing to switch by hand.
+  `review.block_hours` says the block length (the errors `hour_error_kwh` /
+  `pattern_error_kwh` are per block); `review.ess_hours` how many of the
+  tested hours floor control switched the heat demand itself (below).
   **The thermostat learned from the house** *(as of 2026.11.20)*: with a
   thermostat (a climate entity as the wanted temperature) ESS Manager reads
   its history every day and keeps each switch of its heat demand
@@ -1050,7 +1060,14 @@ the heat pump page in Configure, as of 2026.10.17:
   hours quarter by quarter with that on/off behaviour instead of a smooth
   controller, so the heat lands in the hours it really does. Both are played
   in the self-check, and the thermostat is only used when it places the hours
-  better (`review.thermostat`: both errors and `used`). A thermostat that
+  better (`review.thermostat`: both errors and `used`). *(As of 2026.11.35)*
+  hours in which floor control (stage Full) switched the heat demand itself
+  are played as ESS Manager plans them, with the smooth controller - the
+  thermostat didn't switch the heat pump then - and their thermostat demand
+  time doesn't count for the heat pump's learned power. What ESS Manager
+  plans itself - the floor's heat per hour, and the forecast while it
+  switches the heat demand - always uses the smooth controller, so the floor
+  keeps easing off before the room is there. A thermostat that
   modulates shows its switches scattered (`kind: modulating`) and the
   smooth controller stays. What was learned: `house_model.thermostat`; the
   switches themselves are in the diagnostics (`thermostat_events`). Its history is read with every recorded
@@ -1135,6 +1152,11 @@ proven itself:
 | Watch (default) | nothing changes: the thermostat switches, the return setpoint stays; ESS Manager learns and shows what it would do | - |
 | Return setpoint | ESS Manager sets the return setpoint by the planned heat, the thermostat still switches heat demand | the floor's heat output is learned: 30 settled running hours, at most 25 % off on the newest hours |
 | Full | ESS Manager also switches heat demand; the thermostat is only where the wanted temperature is set | the heat pump delivered the target power within 30 % for 24 running hours in the return setpoint stage, and the house model passed its self-check |
+
+*(As of 2026.11.35)* The house model's self-check runs every night, also in
+Full - and the days ESS Manager switched are judged as it switched them
+(see the house model above), so a model that passed stays in Full instead
+of failing on its own days and falling back to Return setpoint.
 
 The supply and return sensors sit in the heat pump: with the circulation
 pump stopped they warm up from the cabinet, so only samples with the pump

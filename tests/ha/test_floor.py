@@ -181,3 +181,33 @@ async def test_floor_return_setpoint_down_in_steps_while_running(hass, freezer):
     await co.async_refresh()
     assert co.data["heat_pump"]["floor"]["now"]["compressor_running"] is False
     assert calls[-1][2]["value"] == 26.5
+
+
+async def test_floor_full_hours_kept_for_the_house_model(hass, freezer, monkeypatch):
+    """2026.11.35: the hours ESS Manager switches the heat demand itself (full)
+    are kept per hour - the house model's self-check plays them as ESS
+    Manager plans them, not with the learned thermostat."""
+    from custom_components.ess_manager import floor_control
+
+    co, _ = await _floor_a(hass, freezer)
+    switch_calls = []
+    record_calls(hass, "switch", "turn_on", switch_calls)
+    record_calls(hass, "switch", "turn_off", switch_calls)
+    monkeypatch.setattr(floor_control, "effective_stage", lambda *a, **k: ("full", []))
+    for _ in range(30):
+        freezer.tick(timedelta(minutes=1))
+        await co.async_refresh()
+    assert co.floor.stage == "full" and co.hp.ess_switches
+    ess = co.hp.thermostat_series("ess")
+    assert 25 * 60 <= sum(ess.values()) <= 30 * 60
+    # stored with the heat pump's data
+    assert co.hp.as_store()["thermo"]["ess"]
+
+    # back to the thermostat: nothing counted any more
+    co.floor_mode = "setpoint"
+    monkeypatch.setattr(floor_control, "effective_stage", lambda *a, **k: ("setpoint", []))
+    before = sum(co.hp.thermostat_series("ess").values())
+    for _ in range(10):
+        freezer.tick(timedelta(minutes=1))
+        await co.async_refresh()
+    assert not co.hp.ess_switches and sum(co.hp.thermostat_series("ess").values()) == before
