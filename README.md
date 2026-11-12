@@ -1054,8 +1054,15 @@ the heat pump page in Configure, as of 2026.10.17:
   `generic_thermostat` that comes out as its `cold_tolerance` and
   `hot_tolerance`), and a minimum run or pause when it keeps one - no
   settings, any make. Switches within 15 minutes of a setpoint or mode
-  change don't count (the change made them, not the room); at least 10 each
-  way are needed. The heat pump's heat per hour of demand is learned
+  change don't count (the change made them, not the room). *(As of
+  2026.11.36)* how many switches each way are needed depends on how close
+  together they are: learned once the threshold is known to 0.1 °C (the
+  sensor's step) with about 95 % certainty - at least 5 each way when they
+  agree, more when they scatter (about 16 at a spread of 0.2 °C), at most
+  30; the spread is the median absolute deviation, so one stray switch
+  doesn't hold it up (before: always 10). The Indoor tab shows the progress
+  (`house_model.thermostat`: `n_on` / `needed_on`, `n_off` / `needed_off`,
+  `sd_on_c` / `sd_off_c`) and, once learned, the thresholds. The heat pump's heat per hour of demand is learned
   alongside (more when it's colder outside). The house model then plays the
   hours quarter by quarter with that on/off behaviour instead of a smooth
   controller, so the heat lands in the hours it really does. Both are played

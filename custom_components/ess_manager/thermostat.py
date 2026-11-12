@@ -20,13 +20,26 @@ Pure Python (no Home Assistant imports) so tests/test_pipeline.py can run it.
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 
 HOUR = 3600
 SP_SETTLE_S = 900          # a switch within 15 min of a setpoint or mode change is the change, not the room
 EVENT_DAYS = 60            # switches kept / learned from
 MAX_EVENTS = 1500
-MIN_SWITCHES = 10          # each way, before anything is learned
+# (as of 2026.11.36) how many switches each way depends on their spread: learned
+# once the threshold is known to THRESHOLD_TOL_C (the sensor's 0.1 degC) with
+# about 95 % certainty - n >= (CONFIDENCE_K * spread / THRESHOLD_TOL_C)^2, the
+# spread the median absolute deviation (robust: one stray switch doesn't hold
+# it up) and at least the sensor's rounding; never fewer than MIN_SWITCHES (a
+# few equal switches by chance), never more than MAX_SWITCHES (before: always 10)
+MIN_SWITCHES = 5           # each way, at least
+MAX_SWITCHES = 30          # each way, at most
+THRESHOLD_TOL_C = 0.1
+CONFIDENCE_K = 2.0
+RESOLUTION_C = 0.1         # the room temperature's step: spread at least 0.1 / sqrt(12)
+MAD_SCALE = 1.4826         # median absolute deviation -> standard deviation
+MODULATING_AFTER = 10      # each way: scattered switches tell a modulating thermostat
 MAX_SPREAD_C = 0.4         # the middle half of the switches within this: a thermostat with thresholds
 MIN_BAND_C = 0.05          # off threshold at least this far above the on threshold
 QON_DAYS = 30
@@ -69,6 +82,24 @@ def _quantile(values: list[float], q: float) -> float:
     lo = int(pos)
     hi = min(lo + 1, len(s) - 1)
     return s[lo] + (s[hi] - s[lo]) * (pos - lo)
+
+
+def spread_c(values: list[float]) -> float:
+    """The spread of switch thresholds (as of 2026.11.36): the median absolute
+    deviation as a standard deviation, at least the sensor's rounding."""
+    if not values:
+        return RESOLUTION_C / math.sqrt(12)
+    med = _quantile(values, 0.5)
+    mad = _quantile([abs(v - med) for v in values], 0.5)
+    return max(MAD_SCALE * mad, RESOLUTION_C / math.sqrt(12))
+
+
+def switches_needed(values: list[float]) -> int:
+    """How many switches one way are needed for its threshold (as of 2026.11.36)."""
+    if len(values) < 2:
+        return MIN_SWITCHES
+    n = math.ceil((CONFIDENCE_K * spread_c(values) / THRESHOLD_TOL_C) ** 2 - 1e-9)
+    return min(max(n, MIN_SWITCHES), MAX_SWITCHES)
 
 
 def switch_events(rows: list[tuple[int, Optional[str], Optional[bool], Optional[float], Optional[float]]]) -> list[list]:
@@ -124,15 +155,21 @@ def learn(events: list[list], now_epoch: float) -> dict[str, Any]:
     learning (too few switches), on_off or modulating."""
     cutoff = now_epoch - EVENT_DAYS * 86400
     ev = [e for e in events if e[5] and e[0] >= cutoff and e[2] is not None and e[3] is not None]
-    on = [e[2] - e[3] for e in ev if e[1] == 1]
-    off = [e[2] - e[3] for e in ev if e[1] == 0]
+    # rounded: a room of 20.7 under a wanted 21.0 is -0.3, not -0.30000000000000071
+    on = [round(e[2] - e[3], 3) for e in ev if e[1] == 1]
+    off = [round(e[2] - e[3], 3) for e in ev if e[1] == 0]
+    need_on, need_off = switches_needed(on), switches_needed(off)
     res: dict[str, Any] = {"kind": KIND_LEARNING, "n_on": len(on), "n_off": len(off),
-                           "needed": MIN_SWITCHES}
-    if len(on) < MIN_SWITCHES or len(off) < MIN_SWITCHES:
+                           "needed_on": need_on, "needed_off": need_off, "needed": max(need_on, need_off),
+                           "sd_on_c": round(spread_c(on), 3) if len(on) >= 2 else None,
+                           "sd_off_c": round(spread_c(off), 3) if len(off) >= 2 else None}
+    spread_on = _quantile(on, 0.75) - _quantile(on, 0.25) if on else 0.0
+    spread_off = _quantile(off, 0.75) - _quantile(off, 0.25) if off else 0.0
+    scattered = (len(on) >= MODULATING_AFTER and len(off) >= MODULATING_AFTER
+                 and (spread_on > MAX_SPREAD_C or spread_off > MAX_SPREAD_C))
+    if (len(on) < need_on or len(off) < need_off) and not scattered:
         return res
     on_c, off_c = _quantile(on, 0.5), _quantile(off, 0.5)
-    spread_on = _quantile(on, 0.75) - _quantile(on, 0.25)
-    spread_off = _quantile(off, 0.75) - _quantile(off, 0.25)
     runs = [e[4] for e in ev if e[1] == 0 and e[4]]      # how long it was on before switching off
     pauses = [e[4] for e in ev if e[1] == 1 and e[4]]
     ok = spread_on <= MAX_SPREAD_C and spread_off <= MAX_SPREAD_C and off_c - on_c >= MIN_BAND_C

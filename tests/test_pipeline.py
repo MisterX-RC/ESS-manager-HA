@@ -6380,6 +6380,40 @@ _fz_bl = _hh.simulate(_fz_r0["model"], 20.6, _fz_in, [21.0] * 24, _fz_rt.q_hist(
 check("floor plan: always the smooth controller, also with the learned thermostat in the house model (no blocks)",
       _fz_ph["q_el"] == _fz_sm[1] and _fz_ph["q_el"] != _fz_bl[1])
 
+# 2026.11.36: the switches needed depend on their spread - equal ones are enough after 5,
+# scattered ones need more (the threshold known to 0.1 degC), one stray switch doesn't hold it up
+_sw_now = 100 * 86400
+
+
+def _sw_events(on_vals, off_vals):
+    out = []
+    for i, v in enumerate(on_vals):
+        out.append([_sw_now - 86400 - i * 7200, 1, round(21.0 + v, 2), 21.0, 3000, 1])
+    for i, v in enumerate(off_vals):
+        out.append([_sw_now - 86400 - i * 7200 - 3600, 0, round(21.0 + v, 2), 21.0, 3000, 1])
+    return out
+
+
+_sw5 = thermostat.learn(_sw_events([-0.3] * 5, [0.2] * 7 + [0.1] * 2), _sw_now)
+check("thermostat: equal switches - learned after 5 each way (before: 10)",
+      _sw5["kind"] == "on_off" and _sw5["on_c"] == -0.3 and _sw5["off_c"] == 0.2
+      and _sw5["needed_on"] == 5 and _sw5["needed_off"] == 5)
+check("thermostat: 4 equal switches one way are not enough",
+      thermostat.learn(_sw_events([-0.3] * 4, [0.2] * 9), _sw_now)["kind"] == "learning")
+_sw_noisy = [-0.3, -0.15, -0.45, -0.1, -0.5, -0.3, -0.15, -0.45, -0.2, -0.4]
+_sw_n = thermostat.learn(_sw_events(_sw_noisy, [0.2] * 10), _sw_now)
+check("thermostat: switches 0.1-0.2 degC apart - more needed than 10, still learning",
+      _sw_n["kind"] == "learning" and _sw_n["needed_on"] > 10 and _sw_n["needed_off"] == 5
+      and _sw_n["sd_on_c"] > 0.1)
+_sw_n2 = thermostat.learn(_sw_events(_sw_noisy * 2, [0.2] * 10), _sw_now)
+check("thermostat: ... and learned once there are that many, the threshold their median",
+      _sw_n2["kind"] == "on_off" and _sw_n2["on_c"] == -0.3 and len(_sw_noisy) * 2 >= _sw_n["needed_on"])
+check("thermostat: one stray switch among equal ones doesn't hold the learning up",
+      thermostat.learn(_sw_events([-0.3] * 5 + [-1.2], [0.2] * 6), _sw_now)["kind"] == "on_off")
+check("thermostat: never more than 30 needed, never fewer than 5",
+      thermostat.switches_needed([0.0, 2.0] * 20) == 30 and thermostat.switches_needed([0.0] * 50) == 5
+      and thermostat.switches_needed([]) == 5)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

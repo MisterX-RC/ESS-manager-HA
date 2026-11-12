@@ -176,6 +176,8 @@ const I18N = {
     hp_stage_used: "Hour-by-hour model: used for the planning", hp_stage_steering: "Hour-by-hour model: used, steering the thermostat",
     hp_review: (d, a, b, t, bh) => `Self-check over ${d} heating days: energy per ${bh > 1 ? bh + " hours" : "hour"} ±${a} kWh (usual pattern ±${b}), indoor ±${t} °C.`,
     hp_review_wait: (d) => `Self-check waits for enough heating days (${d} of 10).`,
+    hp_thermo_learning: (a, an, b, bn) => `Thermostat being learned: on ${a} of ${an}, off ${b} of ${bn} clean switches (fewer needed when they are close together).`,
+    hp_thermo_learned: (on, off) => `Thermostat learned: heat on at ${on} °C, off at ${off} °C from the wanted temperature.`,
     hp_review_drift: (d, a, b, bh) => `The newest ${d} heating days run worse (±${a} kWh per ${bh > 1 ? bh + " hours" : "hour"}, pattern ±${b}) - the usual pattern stays until it settles.`,
     hp_measured_in: "measured", hp_expected_in: "expected", hp_target_in: "target", hp_heat_kwh: "heating kWh", hp_heat_meas: "kWh measured", hp_heat_exp: "kWh expected",
     hp_plan_boost: (a, b) => `Warmer ${a}–${b}`, hp_plan_dip: (a, b) => `cooler ${a}–${b}`, hp_plan_saving: (v) => `saves about ${v}`,
@@ -380,6 +382,8 @@ const I18N = {
     hp_stage_used: "Uurmodel: gebruikt voor de planning", hp_stage_steering: "Uurmodel: gebruikt, stuurt de thermostaat",
     hp_review: (d, a, b, t, bh) => `Zelfcontrole over ${d} stookdagen: energie per ${bh > 1 ? bh + " uur" : "uur"} ±${a} kWh (gebruikelijk patroon ±${b}), binnen ±${t} °C.`,
     hp_review_wait: (d) => `Zelfcontrole wacht op genoeg stookdagen (${d} van 10).`,
+    hp_thermo_learning: (a, an, b, bn) => `Thermostaat wordt geleerd: aan ${a} van ${an}, uit ${b} van ${bn} schone schakelingen (minder nodig als ze dicht bij elkaar liggen).`,
+    hp_thermo_learned: (on, off) => `Thermostaat geleerd: warmte aan bij ${on} °C, uit bij ${off} °C t.o.v. de gewenste temperatuur.`,
     hp_review_drift: (d, a, b, bh) => `De nieuwste ${d} stookdagen lopen slechter (±${a} kWh per ${bh > 1 ? bh + " uur" : "uur"}, patroon ±${b}) - het vaste patroon blijft tot het weer klopt.`,
     hp_measured_in: "gemeten", hp_expected_in: "verwacht", hp_target_in: "doel", hp_heat_kwh: "verwarming kWh", hp_heat_meas: "kWh gemeten", hp_heat_exp: "kWh verwacht",
     hp_plan_boost: (a, b) => `Warmer ${a}–${b}`, hp_plan_dip: (a, b) => `koeler ${a}–${b}`, hp_plan_saving: (v) => `bespaart ongeveer ${v}`,
@@ -4309,6 +4313,14 @@ class EssManagerHeatPumpCard extends EssChartCard {
       if (rc && rc.drift) html += `<br>${esc(this._t("hp_review_drift")(rc.days, this._num(rc.hour_error_kwh, 2), this._num(rc.pattern_error_kwh, 2), rev.block_hours || 1))}`;
     } else if (hm.stage !== "learning") {
       html += `<br>${esc(this._t("hp_review_wait")(rev.days || 0))}`;
+    }
+    // the learned thermostat (2026.11.36: how many switches are needed depends on their spread)
+    const th = hm.thermostat;
+    if (th && th.kind === "learning" && th.needed_on) {
+      html += `<br>${esc(this._t("hp_thermo_learning")(th.n_on, th.needed_on, th.n_off, th.needed_off))}`;
+    } else if (th && th.kind === "on_off") {
+      const sg = (v) => (v > 0 ? "+" : "") + this._num(v, 1);
+      html += `<br>${esc(this._t("hp_thermo_learned")(sg(th.on_c), sg(th.off_c)))}`;
     }
     html += "</div></div>";
     const fc = hm.forecast;

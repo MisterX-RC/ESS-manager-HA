@@ -12,6 +12,21 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.36] - 2026-11-12
+
+### Heat pump
+- **The thermostat is learned on fewer switches when they agree.** It
+  always waited for 10 clean switches each way. Now the number depends on
+  their spread: learned once the switch threshold is known to 0.1 °C (the
+  room sensor's step) with about 95 % certainty - 5 each way when they are
+  the same, more when they scatter (about 16 at a spread of 0.2 °C, at most
+  30). The spread is the median absolute deviation, so one stray switch
+  doesn't hold the learning up; a thermostat whose switches scatter widely
+  is still recognised as modulating. The self-check still only uses the
+  learned thermostat when it places the hours better. The house model is
+  checked again right after the update. The Indoor tab shows the progress
+  per direction, and the thresholds once learned.
+
 ## [2026.11.35] - 2026-11-12
 
 ### Heat pump

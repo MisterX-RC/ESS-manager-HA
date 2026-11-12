@@ -28,7 +28,7 @@ from . import thermostat
 HOUR = 3600
 # what the model is built from changes with these (as of 2026.11.11): a new
 # version learns again right away instead of the next day
-MODEL_VERSION = "2026.11.35"   # the self-check in blocks: checked again right after the update
+MODEL_VERSION = "2026.11.36"   # the thermostat learned on fewer switches when they agree: checked again right after the update
 # the floor's delay (as of 2026.11.9 36 hours back and up to 24 h - up to
 # then 12 and 6: a concrete floor heated in a block of a few hours gives its
 # heat off over far more hours, and the day's simulation drifted)
