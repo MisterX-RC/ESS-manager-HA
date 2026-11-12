@@ -483,3 +483,66 @@ def usage_cache_is_stale(computed_at: Optional[datetime], now: datetime) -> bool
     if computed_at is None:
         return True
     return now.replace(minute=0, second=0, microsecond=0) != computed_at.replace(minute=0, second=0, microsecond=0)
+
+
+# The short-term correction (as of 2026.11.33, Casita 12 Nov): the usage
+# forecast is a weekly pattern - an extra load that started a few days ago
+# (or a house left empty) only shows in it after weeks. The last
+# SHORT_HOURS complete hours, measured against what was forecast for them,
+# give a difference per hour that's added to the coming hours, fading out
+# over SHORT_FADE_HOURS: in full this hour, nothing from the 6th hour on.
+# A difference, not a factor: an extra load that keeps running adds the
+# same kWh to a quiet hour and to a peak (a factor of 2.6 would also make
+# a 1 kWh evening peak 2.6 kWh). Only when it's clear: at least
+# SHORT_MIN_KWH off over those hours together. Both ways.
+SHORT_HOURS = 3
+SHORT_FADE_HOURS = 6
+SHORT_MIN_KWH = 0.3
+
+
+def household_hour(
+    hourly_sums: dict[str, dict[int, float]],
+    terms: tuple,
+    subtract: Optional[list[str]],
+    epoch: int,
+) -> Optional[float]:
+    """One hour's household usage as the forecast counts it: the identity
+    over `terms` (import, export, solar, battery charge, battery
+    discharge), minus `subtract` (the car, the heat pump with its own
+    meter). None when a term is missing."""
+    value = _week_sample(hourly_sums, *terms, epoch)
+    if value is None:
+        return None
+    for entity_id in [e for e in (subtract or []) if e]:
+        value -= max(_hour_delta(hourly_sums, entity_id, epoch) or 0.0, 0.0)
+    return round(max(value, 0.0), 3)
+
+
+def short_term_offset(measured: list[Optional[float]], forecast: list[Optional[float]]) -> Optional[float]:
+    """The difference per hour (kWh, + = more used than forecast) over the
+    last hours, 0.0 when it's too small to act on, None when an hour is
+    missing (no correction)."""
+    if len(measured) < SHORT_HOURS or len(forecast) < SHORT_HOURS:
+        return None
+    if any(v is None for v in measured) or any(v is None for v in forecast):
+        return None
+    diff = sum(measured) - sum(forecast)
+    if abs(diff) < SHORT_MIN_KWH:
+        return 0.0
+    return round(diff / len(measured), 3)
+
+
+def apply_short_term(usage: list[float], offset: Optional[float]) -> tuple[list[float], list[float]]:
+    """The forecast with the difference added, fading out: hour 0 (this
+    hour) in full, hour i by (SHORT_FADE_HOURS - i) / SHORT_FADE_HOURS,
+    never below 0. Returns (the forecast, what was added per hour)."""
+    if not offset:
+        return list(usage), [0.0] * len(usage)
+    out: list[float] = []
+    added: list[float] = []
+    for i, u in enumerate(usage):
+        w = max(SHORT_FADE_HOURS - i, 0) / SHORT_FADE_HOURS
+        new = round(max(u + offset * w, 0.0), 3)
+        out.append(new)
+        added.append(round(new - u, 3))
+    return out, added

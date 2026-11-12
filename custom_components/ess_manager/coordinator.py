@@ -180,7 +180,12 @@ from .energy_source import async_get_energy_prefs
 from .statistics_source import async_fetch_hourly_means, async_fetch_state_changes, async_fetch_hourly_sums, async_last_recorded_state
 from .statistics_source import async_fetch_5min_changes, async_fetch_5min_soc, async_fetch_numeric_states, recorder_keep_days
 from .usage_forecast import (
+    SHORT_HOURS,
+    _as_list,
     _week_sample,
+    apply_short_term,
+    household_hour,
+    short_term_offset,
     HISTORY_NONE,
     HISTORY_STATUS_NONE,
     compute_usage_forecast_detailed,
@@ -427,6 +432,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # computed with the usage forecast, from the same statistics.
         self._measured_today: Optional[dict[str, Any]] = None
         self._measured_today_at: Optional[datetime] = None
+        # The short-term correction (as of 2026.11.33): the forecast each hour
+        # had when it began, and what was measured in it (in memory - after a
+        # restart the correction waits for three hours of its own)
+        self._usage_seen: dict[int, float] = {}
+        self._usage_measured: dict[int, float] = {}
+        self._usage_measured_at: Optional[datetime] = None
+        self._usage_short: Optional[dict[str, Any]] = None
         # Transport tariff factors (as of v0.4.0) - transport_factors.json,
         # read once (in an executor) the first time a tariff above 0 is set.
         self._transport_factors: Optional[dict[int, list[float]]] = None
@@ -2124,6 +2136,55 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._set_usage_history(hour_sources, lookback_weeks)
         return self._usage_forecast_cache
 
+    async def _async_short_term(
+        self, conf: dict[str, Any], usage_source: Any, now: datetime, usage: list[float]
+    ) -> tuple[list[float], list[float]]:
+        """The short-term correction (as of 2026.11.33, see
+        usage_forecast.short_term_offset): the forecast each hour had at its
+        start is kept; once the last three hours are complete their measured
+        usage (the same identity, the car and a separately metered heat pump
+        left out like the forecast does) is read, and the difference per hour
+        goes onto the coming hours, fading out over six. Returns (the
+        forecast, what was added per hour)."""
+        base = int(now.replace(minute=0, second=0, microsecond=0).timestamp())
+        if usage:
+            self._usage_seen.setdefault(base, float(usage[0]))
+        keep = base - 8 * 3600
+        self._usage_seen = {h: v for h, v in self._usage_seen.items() if h >= keep}
+        self._usage_measured = {h: v for h, v in self._usage_measured.items() if h >= keep}
+        hours = [base - k * 3600 for k in range(SHORT_HOURS, 0, -1)]
+        if all(h in self._usage_seen for h in hours):
+            missing = [h for h in hours if h not in self._usage_measured]
+            # a just-ended hour's statistic lands a few minutes after the hour: tried every 5 minutes
+            if missing and (self._usage_measured_at is None or now - self._usage_measured_at >= timedelta(minutes=5)):
+                self._usage_measured_at = now
+                terms = self._usage_terms(conf, usage_source)
+                if terms:
+                    subtract = [e for e in [ev_energy_entity(conf), *self._hp_subtract_ids(conf)] if e]
+                    ids = [*terms[0], *terms[1], *terms[2], *_as_list(terms[3]), *_as_list(terms[4]), *subtract]
+                    try:
+                        sums = await async_fetch_hourly_sums(
+                            self.hass, ids,
+                            dt_util.utc_from_timestamp(min(missing) - 3600),
+                            dt_util.utc_from_timestamp(base + 3600),
+                        )
+                        for h in missing:
+                            value = household_hour(sums, terms, subtract, h)
+                            if value is not None:
+                                self._usage_measured[h] = value
+                    except Exception as err:  # noqa: BLE001 - no correction this time, never a failed cycle
+                        _LOGGER.debug("ESS Manager: short-term usage correction not read: %s", err)
+        measured = [self._usage_measured.get(h) for h in hours]
+        forecast = [self._usage_seen.get(h) for h in hours]
+        offset = short_term_offset(measured, forecast)
+        out, added = apply_short_term(usage, offset)
+        self._usage_short = {
+            "offset_kwh_h": offset,
+            "hours": [[h, f, m] for h, f, m in zip(hours, forecast, measured)],
+            "added": added[:6],
+        }
+        return out, added
+
     async def _async_refresh_measured_today(self, conf: dict[str, Any], usage_source: Any, now: datetime) -> None:
         """Today's measured hours for the battery card (as of v0.5.1) - see
         usage_forecast.measured_hours. Read from the same statistics as the
@@ -2691,6 +2752,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         usage_factor = self.acc.usage_factor()
         if usage_factor != 1.0:
             usage_forecast = [round(u * usage_factor, 3) for u in usage_forecast]
+        # the last three hours measured against their forecast (as of
+        # 2026.11.33): the difference added to the coming hours, fading out
+        usage_forecast, usage_short_added = await self._async_short_term(conf, usage_source, now, usage_forecast)
 
         solar_points: list[list[dict]] = []
         waiting_for: list[str] = []
@@ -2907,6 +2971,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # cycle): solar and the house's usage without the car
         day_hours = self._day_hours(now.date())
         house_forecast = usage_forecast if not ev_total else [round(u - e, 3) for u, e in zip(usage_forecast, ev_total)]
+        if any(usage_short_added):
+            # the forecast check judges the pattern itself, without the short-term correction
+            house_forecast = [round(h - (usage_short_added[i] if i < len(usage_short_added) else 0.0), 3)
+                              for i, h in enumerate(house_forecast)]
         self.acc.snapshot(
             now.date().isoformat(), day_hours, int(now.replace(minute=0, second=0, microsecond=0).timestamp()),
             solar_forecast, house_forecast,
@@ -3597,6 +3665,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Today's measured hours for the battery card (as of v0.5.1).
             "history_today": self._history_today(now, merged_solar_points),
             "energy_usage_120h": usage_forecast,
+            "usage_correction": self._usage_short,
             "usage_source": usage_source,
             "usage_history": self._usage_history,
             "energy_dashboard_sources": (

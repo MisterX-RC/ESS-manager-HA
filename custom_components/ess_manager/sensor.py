@@ -43,6 +43,8 @@ STATUS_ATTRIBUTES = [
     "today_price_units",
     "solar_120h",
     "energy_usage_120h",
+    # the short-term usage correction (as of 2026.11.33)
+    "usage_correction",
     # Today's measured hours for the battery card (as of v0.5.1).
     "history_today",
     "usage_source",

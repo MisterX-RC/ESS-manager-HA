@@ -145,7 +145,15 @@ Five planning engines, all documented in detail in the code
    then a charge in the really cheapest stretch, then the grid again while
    the price is still low enough. Rules: the house only comes from the grid
    **below the lowest known price after the losses** (lowest price /
-   (charge x discharge efficiency): with 0.21 and 81%, up to 0.26); only
+   (charge x discharge efficiency): with 0.21 and 81%, up to 0.26) -
+   *(as of 2026.11.33)* except for a **hard** part (the floor, or the
+   minimum without a surplus minimum, that has to be met by a certain
+   hour): that one may take the house from the grid in any quarter before
+   its deadline, also an expensive one, since in the same quarter that
+   always beats a charge. A battery about to hit the floor before the cheap
+   hours then has the house taken from the grid in the cheapest quarters
+   left before it (the dearest skipped) instead of being charged in the
+   morning peak; only
    when there **is** a charge need (a solar deficit - with enough sun in the
    planning window nothing is taken from the grid); never so the battery
    would go **over 100%** later (a peak of 97% in 4 hours leaves 3% to take
@@ -1267,6 +1275,25 @@ its own, compared with the average on the days both have. So with a young
 history (a new installation, a battery or meter added recently to the
 Energy dashboard) the usage days show up after about a week, and the
 level method joins in later.
+
+**Short-term correction** *(as of 2026.11.33)*. The usage forecast is a
+weekly pattern: a load that started a few days ago (or a house left empty)
+only shows in it after weeks, and the level method above is a day factor.
+So every hour the last **3 complete hours** are measured against what was
+forecast for them (the same identity, heat pump and car left out like the
+forecast does), and the **difference per hour** goes onto the coming
+hours, **fading out over 6 hours**: in full this hour, half in the 3rd,
+nothing from the 6th on. A difference, not a factor: an extra load that
+keeps running adds the same kWh to a quiet hour as to a peak. Only when
+it's clear - at least 0.3 kWh off over the 3 hours together - and both
+ways (less used than forecast lowers it, never below 0). Nothing to set.
+After a restart it waits for 3 hours of its own. The attribute
+`usage_correction` on the Status sensor (and the diagnostics) shows the
+difference, the 3 hours (forecast and measured) and what was added to the
+next 6. The forecast check above still judges the pattern itself, without
+this correction. Live (Casita, 12 Nov): 0.92 kWh/h at night against ~0.35
+forecast - with it the morning shortfall shows at night already instead of
+at 08:30, with the battery at the floor in the morning peak.
 
 **Solar.** The forecast sensors keep no history, so each day's forecast is
 stored at the day's first cycle and compared once the production is

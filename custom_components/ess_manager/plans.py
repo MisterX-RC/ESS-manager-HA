@@ -412,9 +412,18 @@ def _schedule_charge(
             # not all at once); a hard need that can't fit anywhere goes in
             # anyway
             options = [u for u in free if fits(u) and (hard or buy[u] <= soft_max + 1e-9)] or (free if hard else [])
-            # the house from the grid instead of the battery (2026.10.41)
+            # the house from the grid instead of the battery (2026.10.41) -
+            # for a hard part in any quarter before its deadline (as of
+            # 2026.11.33, Casita 12 Nov): hold_max compares with the lowest
+            # price of ALL known quarters, but a floor that has to be met by
+            # 09:00 can only be met before it - there the house from the
+            # grid (buy x de) always beats a charge in the same quarter
+            # (buy / ce). Up to then a battery about to hit the floor before
+            # the cheap hours was charged in the morning peak instead of the
+            # house being taken from the grid until the prices dropped.
             hold_options = [u for u in range(cur_unit, min(deadline, n))
-                            if hrates[u] > 1e-6 and u not in chosen and u not in held and buy[u] <= hold_max + 1e-9
+                            if hrates[u] > 1e-6 and u not in chosen and u not in held
+                            and (hard or buy[u] <= hold_max + 1e-9)
                             and fits(u, hrates[u]) and (hard or buy[u] <= soft_max + 1e-9)] if hold_rates else []
             # a quarter the house is already taken from the grid in can still
             # become a charge: what it adds on top, at what that costs extra

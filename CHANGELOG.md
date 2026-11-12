@@ -36,6 +36,37 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   target (cold start): straight there. Diagnostics: `sp_goal`,
   `compressor_running` next to `sp_planned`.
 
+### Planning (Casita, 12 Nov)
+- **A floor charge in the morning peak instead of the house from the
+  grid**: at 08:30 (0.436 incl) the battery was at 6.1 %, the floor (5 %)
+  would be crossed before 09:00, so the only window was 08:30-09:00 - a
+  charge right in the peak (stopped at 10.2 %), while the cheap hours
+  came at 10:30 (0.363 / 0.327). Taking the house from the grid wasn't an
+  option: it's only allowed below the lowest known price after the losses
+  (0.3027 / 0.855 = 0.354), and that compares with ALL known quarters - also
+  the ones after the deadline. A hard part (the floor, due by an hour) may
+  now take the house from the grid in any quarter before its deadline: in
+  the same quarter that always beats a charge (price x de against price /
+  ce). Replayed: at 08:30 the house from the grid 08:30-08:45 and
+  09:15-10:00 (09:00, the dearest, skipped), the first charge at 10:30. Soft
+  parts keep the limit. Golden D (2 Nov) changes with it: two small
+  quarters from the grid, and its evening top-up now at the cheaper night
+  rate (22:45-24:00, 0.219-0.236) instead of 21:15-22:00 (0.226-0.25).
+- **Short-term usage correction**: the usage forecast is a weekly pattern -
+  at Casita the house used 0.92 kWh/h through the night against ~0.35
+  forecast (a load that started recently), so the night charge stopped at
+  21.6 % and the battery reached the floor in the morning peak. Every hour
+  the last 3 complete hours are now measured against their forecast (same
+  identity, car and separately metered heat pump left out); the difference
+  per hour is added to the coming hours, fading out over 6 (full this
+  hour, nothing from the 6th), only from 0.3 kWh off over the 3 hours, both
+  ways, never below 0. A difference, not a factor (an extra load adds the
+  same to a peak as to a quiet hour). `usage_correction` in the Status
+  attributes and diagnostics; the forecast check keeps judging the pattern
+  without it. Replayed at 06:10: with it the house from the grid is
+  planned at 06:15 and the battery stays higher; without it nothing until
+  the floor charge at 08:30. In memory: after a restart it waits 3 hours.
+
 ## [2026.11.32] - 2026-11-11
 
 ### Planning

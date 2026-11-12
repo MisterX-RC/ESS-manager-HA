@@ -5405,8 +5405,9 @@ _gs_holds: list = []
 _gs = plans._schedule_charge([(8, 2.4, True)], [0.45] * 8, _gs_buy, _gs_buy, 0, 8, 0.5, 0.9, 1, [], 0, 100.0,
                              hold_rates=[0.25] * 8, hold_factor=0.9, holds_out=_gs_holds)
 check("grid use: the house from the grid at 0.24, the cheapest quarters charge on top, never both in a quarter; "
-      "0.26 is above 0.21 / (0.9 x 0.9) = 0.259 - not from the grid, charged (needed)",
-      _gs == [4, 5, 6, 7] and _gs_holds == [0, 1, 2, 3])   # (as of 2026.11.16 every cheap quarter: 0 too)
+      "a hard need may take the house from the grid at 0.26 too (as of 2026.11.33): 0.26 x 0.9 beats charging there "
+      "(0.26 / 0.9) once the 0.21 quarters are taken",
+      _gs == [4, 5] and _gs_holds == [0, 1, 2, 3, 6, 7])   # (as of 2026.11.16 every cheap quarter: 0 too)
 _gs_small: list = []
 plans._schedule_charge([(8, 1.0, True)], [0.45] * 8, _gs_buy, _gs_buy, 0, 8, 0.5, 0.9, 1, [], 0, 100.0,
                        hold_rates=[0.25] * 8, hold_factor=0.9, holds_out=_gs_small)
@@ -6162,6 +6163,52 @@ check("floor: compressor running from the Qube's status (heating, starting up), 
       and not fcm.compressor_running("heating", "dhw", 4.0) and not fcm.compressor_running("standby", "ch", 4.0)
       and not fcm.compressor_running("heating_dhw", "dhw", 4.0)
       and fcm.compressor_running(None, None, 3.7) and not fcm.compressor_running(None, None, 0.0))
+
+# --- 2026.11.33: Casita 12 Nov - the floor due by 09:00, only the morning peak before it (0.436 / 0.429 incl),
+# the cheap hours (0.363 / 0.327) after it: the house from the grid until then, not a charge in the peak
+_cs_buy = [0.436, 0.429, 0.445, 0.430, 0.363, 0.327]
+_cs_holds: list = []
+_cs = plans._schedule_charge([(2, 0.4, True)], [0.36] * 6, _cs_buy, _cs_buy, 0, 6, 0.425, 0.9, 2, [], 0, 100.0,
+                             hold_rates=[0.25] * 6, hold_factor=0.95, holds_out=_cs_holds)
+check("floor before the cheap hours (Casita): the house from the grid in the peak, no charge there "
+      "(the cheap quarters 4-5 from the grid as always)",
+      _cs == [] and _cs_holds == [0, 1, 4, 5])
+_cs_more: list = []
+_cs2 = plans._schedule_charge([(2, 0.4, True), (6, 1.4, True)], [0.36] * 6, _cs_buy, _cs_buy, 0, 6, 0.425, 0.9, 2, [], 0,
+                              100.0, hold_rates=[0.25] * 6, hold_factor=0.95, holds_out=_cs_more)
+check("... 1.4 kWh by the end: all from the grid (0.445 x 0.95 beats upgrading a cheap held quarter to a charge)",
+      _cs2 == [] and _cs_more == [0, 1, 2, 3, 4, 5])
+_cs_soft: list = []
+plans._schedule_charge([(2, 0.4, False)], [0.36] * 6, _cs_buy, _cs_buy, 0, 6, 0.425, 0.9, 2, [], 0, 100.0,
+                       hold_rates=[0.25] * 6, hold_factor=0.95, holds_out=_cs_soft)
+check("... a soft part still only takes the house from the grid below the lowest price after the losses",
+      _cs_soft == [4, 5])
+
+# --- 2026.11.33: the short-term usage correction (Casita 12 Nov: 0.92 kWh/h measured at night against ~0.35 forecast)
+usage_forecast_mod = _load("usage_forecast")
+_uf = usage_forecast_mod
+check("short-term: the difference per hour over the last three hours (+0.57 kWh/h)",
+      _uf.short_term_offset([0.92, 0.91, 0.93], [0.35, 0.34, 0.36]) == 0.57)
+check("short-term: less used than forecast counts too (-0.2 kWh/h)",
+      _uf.short_term_offset([0.2, 0.2, 0.2], [0.4, 0.4, 0.4]) == -0.2)
+check("short-term: under 0.3 kWh off over the three hours together - no correction",
+      _uf.short_term_offset([0.45, 0.45, 0.45], [0.36, 0.36, 0.36]) == 0.0)
+check("short-term: an hour missing (measured or forecast) - no correction",
+      _uf.short_term_offset([0.9, None, 0.9], [0.3, 0.3, 0.3]) is None
+      and _uf.short_term_offset([0.9, 0.9, 0.9], [0.3, None, 0.3]) is None
+      and _uf.short_term_offset([0.9, 0.9], [0.3, 0.3]) is None)
+_st_u, _st_add = _uf.apply_short_term([0.35] * 8, 0.6)
+check("short-term: added in full this hour, fading out over six hours, nothing from the 6th on",
+      _st_add == [0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0, 0.0] and _st_u[0] == 0.95 and _st_u[6] == 0.35)
+_st_d, _st_dadd = _uf.apply_short_term([0.1, 0.5], -0.3)
+check("short-term: a correction down never below zero", _st_d == [0.0, 0.25] and _st_dadd == [-0.1, -0.25])
+check("short-term: no offset - the forecast as it was", _uf.apply_short_term([0.3, 0.4], 0.0) == ([0.3, 0.4], [0.0, 0.0])
+      and _uf.apply_short_term([0.3], None) == ([0.3], [0.0]))
+_hh_sums = {"imp": {0: 10.0, 3600: 11.0}, "exp": {0: 5.0, 3600: 5.2}, "car": {0: 1.0, 3600: 1.5}}
+check("short-term: an hour's usage like the forecast counts it - the identity minus the car / heat pump",
+      _uf.household_hour(_hh_sums, (["imp"], ["exp"], [], None, None), ["car"], 3600) == 0.3
+      and _uf.household_hour(_hh_sums, (["imp"], [], [], None, None), None, 3600) == 1.0
+      and _uf.household_hour(_hh_sums, (["imp"], ["missing"], [], None, None), None, 3600) is None)
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
