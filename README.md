@@ -1045,6 +1045,12 @@ the heat pump page in Configure, as of 2026.10.17:
   `review.block_hours` says the block length (the errors `hour_error_kwh` /
   `pattern_error_kwh` are per block); `review.ess_hours` how many of the
   tested hours floor control switched the heat demand itself (below).
+  *(As of 2026.11.37)* `review.per_day` lists each test day on its own,
+  newest first: its error and the pattern's per block, their ratio (under
+  0.9 is what passing asks of the whole), the indoor error, the wanted
+  temperature's range and number of changes that day (a night setback or a
+  change by hand) and the hours floor control switched - to see which days
+  score badly and why. It changes nothing in the verdict.
   **The thermostat learned from the house** *(as of 2026.11.20)*: with a
   thermostat (a climate entity as the wanted temperature) ESS Manager reads
   its history every day and keeps each switch of its heat demand

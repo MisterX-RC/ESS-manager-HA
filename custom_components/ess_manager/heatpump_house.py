@@ -28,7 +28,7 @@ from . import thermostat
 HOUR = 3600
 # what the model is built from changes with these (as of 2026.11.11): a new
 # version learns again right away instead of the next day
-MODEL_VERSION = "2026.11.36"   # the thermostat learned on fewer switches when they agree: checked again right after the update
+MODEL_VERSION = "2026.11.37"   # the self-check per day in the diagnostics: checked again right after the update
 # the floor's delay (as of 2026.11.9 36 hours back and up to 24 h - up to
 # then 12 and 6: a concrete floor heated in a block of a few hours gives its
 # heat off over far more hours, and the day's simulation drifted)
@@ -580,13 +580,15 @@ def _review_sums(
     profile: Optional[list[float]],
     shape: list[float],
     tz: tzinfo,
+    per_day: Optional[list[dict[str, Any]]] = None,
 ) -> list[float]:
     """The error sums of review(): [sim, pattern, blocks, temp, temp hours,
     days] - added up over the cross-validation's groups. The energy is
     compared per block of BLOCK_HOURS (as of 2026.11.35; per hour before). With a thermostat
     in the model (as of 2026.11.20) the day is played with its real wanted
     temperatures where they're known, starting with the demand on when the
-    hour before heated."""
+    hour before heated. `per_day` (as of 2026.11.37): each day's own errors
+    appended to it, for the diagnostics."""
     th = model.get("thermostat")
     sim_err = pat_err = temp_err = 0.0
     n_hours = n_temp = n_days = 0
@@ -638,22 +640,57 @@ def _review_sums(
         s = sum(sims)
         pat_h = [shape[datetime.fromtimestamp(h, tz).hour] for h in day["hours"]]
         ps = sum(pat_h)
+        d_sim = d_pat = 0.0
+        d_blocks = 0
         for bi, b0 in enumerate(range(0, n, BLOCK_HOURS)):
             meas = sum(day["q"][b0:b0 + BLOCK_HOURS])
             share = min(BLOCK_HOURS, n - b0) / n
             sim_q = sims[bi] / s * total if s > 1e-6 else total * share
             pat_q = sum(pat_h[b0:b0 + BLOCK_HOURS]) / ps * total if ps > 1e-9 else total * share
-            sim_err += abs(sim_q - meas)
-            pat_err += abs(pat_q - meas)
-            n_hours += 1
+            d_sim += abs(sim_q - meas)
+            d_pat += abs(pat_q - meas)
+            d_blocks += 1
+        sim_err += d_sim
+        pat_err += d_pat
+        n_hours += d_blocks
         temps, _ = simulate(model, day["indoor"][0], day["inputs"], None, hist_th, copm, fixed_q=day["q"])
         # against the room's trend, not a one-hour jump (as of 2026.11.11)
+        d_temp = 0.0
+        d_ntemp = 0
         for i, v in enumerate(smooth3(day["indoor"])):
             if v is not None and i < len(temps):
-                temp_err += abs(temps[i] - v)
-                n_temp += 1
+                d_temp += abs(temps[i] - v)
+                d_ntemp += 1
+        temp_err += d_temp
+        n_temp += d_ntemp
         n_days += 1
+        if per_day is not None:
+            per_day.append(_day_record(day, total, d_sim, d_pat, d_blocks, d_temp, d_ntemp))
     return [sim_err, pat_err, n_hours, temp_err, n_temp, n_days]
+
+
+def _day_record(day, total, d_sim, d_pat, d_blocks, d_temp, d_ntemp) -> dict[str, Any]:
+    """One test day in the self-check (as of 2026.11.37, diagnostics only):
+    its errors per block, the ratio to the pattern's, the indoor error, and
+    what made it special - the wanted temperature's changes (a night setback
+    or by hand) and the hours ESS Manager switched the heat demand."""
+    sps = [v for v in (day.get("sp") or []) if v is not None]
+    changes = sum(1 for a, b in zip(day.get("sp") or [], (day.get("sp") or [])[1:])
+                  if a is not None and b is not None and abs(b - a) >= 0.05)
+    err = d_sim / d_blocks if d_blocks else None
+    pat = d_pat / d_blocks if d_blocks else None
+    return {
+        "d": day.get("d"),
+        "kwh": round(total, 2),
+        "error_kwh": round(err, 3) if err is not None else None,
+        "pattern_kwh": round(pat, 3) if pat is not None else None,
+        "ratio": round(err / pat, 2) if err is not None and pat else None,
+        "temp_error_c": round(d_temp / d_ntemp, 2) if d_ntemp else None,
+        "sp_min": round(min(sps), 2) if sps else None,
+        "sp_max": round(max(sps), 2) if sps else None,
+        "sp_changes": changes,
+        "ess_hours": sum(1 for x in day.get("ess") or [] if x),
+    }
 
 
 def _verdict(sums: list[float], min_days: int = MIN_TEST_DAYS) -> dict[str, Any]:
@@ -763,6 +800,8 @@ def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_
     def with_th(m):
         return with_thermostat(m, thermo)
 
+    days_ctrl: list[dict[str, Any]] = []
+    days_th: list[dict[str, Any]] = []
     for f in range(FOLDS):
         group = [d for i, d in enumerate(test_days) if i % FOLDS == f]
         if not group:
@@ -773,10 +812,10 @@ def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_
         if not m:
             continue
         folds_fitted += 1
-        total = [a + b for a, b in zip(total, _review_sums(m, copm, group, profile, shape, tz))]
+        total = [a + b for a, b in zip(total, _review_sums(m, copm, group, profile, shape, tz, days_ctrl))]
         mt = with_th(m)
         if mt:
-            total_th = [a + b for a, b in zip(total_th, _review_sums(mt, copm, group, profile, shape, tz))]
+            total_th = [a + b for a, b in zip(total_th, _review_sums(mt, copm, group, profile, shape, tz, days_th))]
     if not folds_fitted:
         return None
     rev_ctrl = _verdict(total)
@@ -789,6 +828,9 @@ def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_
         th_info = {"hour_error_kwh": rev_th["hour_error_kwh"], "temp_error_c": rev_th["temp_error_c"],
                    "controller_hour_error_kwh": rev_ctrl["hour_error_kwh"], "used": use_th}
     rev = _verdict(total_th) if use_th else rev_ctrl
+    # (as of 2026.11.37) each test day on its own, newest first - which days score badly and why
+    order = {d["d"]: i for i, d in enumerate(test_days)}
+    rev["per_day"] = sorted(days_th if use_th else days_ctrl, key=lambda r: order.get(r["d"], 99))
     rev["method"] = "cross"
     rev["folds"] = folds_fitted
     # (as of 2026.11.35) the test hours ESS Manager switched the heat demand itself

@@ -6414,6 +6414,18 @@ check("thermostat: never more than 30 needed, never fewer than 5",
       thermostat.switches_needed([0.0, 2.0] * 20) == 30 and thermostat.switches_needed([0.0] * 50) == 5
       and thermostat.switches_needed([]) == 5)
 
+# 2026.11.37: the self-check per test day in the diagnostics - newest first, what made the day special
+_pd = _fz_r1["review"]["per_day"]
+_pd_err = sum(r["error_kwh"] * 4 for r in _pd) / (4 * len(_pd))
+check("self-check per day: every test day, newest first, adding up to the total error",
+      len(_pd) == _fz_r1["review"]["days"] and [r["d"] for r in _pd] == sorted((r["d"] for r in _pd), reverse=True)
+      and abs(_pd_err - _fz_r1["review"]["hour_error_kwh"]) < 0.002
+      and all(r["ratio"] == round(r["error_kwh"] / r["pattern_kwh"], 2) for r in _pd if r["pattern_kwh"]))
+check("self-check per day: the night setback seen (two changes, 19.5-21), the days ESS Manager switched marked",
+      all(r["sp_changes"] == 2 and r["sp_min"] == 19.5 and r["sp_max"] == 21.0 for r in _pd)
+      and _pd[0]["ess_hours"] == 24 and _pd[-1]["ess_hours"] == 0
+      and sum(r["ess_hours"] for r in _pd) == _fz_r1["review"]["ess_hours"])
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

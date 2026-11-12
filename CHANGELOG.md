@@ -12,6 +12,19 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.37] - 2026-11-12
+
+### Heat pump
+- **The house model's self-check per day in the diagnostics.** Only the
+  total over the 14 test days was shown, so a model that just missed the
+  limit gave no clue which days scored badly. `review.per_day` now lists
+  each test day, newest first: its error and the usual pattern's per block,
+  their ratio, the indoor error, the wanted temperature's range and how
+  often it changed that day (a night setback or a change by hand), and the
+  hours floor control switched the heat demand. Diagnostics only - the
+  verdict is unchanged. The house model is checked again right after the
+  update so the list is there at once.
+
 ## [2026.11.36] - 2026-11-12
 
 ### Heat pump
