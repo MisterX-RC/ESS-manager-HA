@@ -6450,6 +6450,26 @@ check("self-check: ... and fewer than 10 known days don't pass yet",
 check("self-check: all days known - none left out",
       _fz_r1["review"]["skipped_days"] == [] and _fz_r1["review"]["thermostat"]["days"] == 14)
 
+# 2026.11.39: "Actief" also when the readback holds half of what ESS itself sent
+def _st_sent(setpoint_w, sent_w, low=True, charge_speed_kw=5.5):
+    return plans.compute_system_status(
+        setpoint_w=setpoint_w, idle_setpoint_w=-15.0, cur_unit=21,
+        full={"active": False, "phase": None}, neg={"active": False}, spike={"active": False},
+        low={"active": True, "start_unit": 20, "end_unit": 24, "breach_unit": 30} if low else {"active": False},
+        high={"active": False, "breach_unit": 999999} if low else
+        {"active": True, "start_unit": 20, "end_unit": 24, "breach_unit": 30},
+        battery_now_kwh=10.0, low_threshold_kwh=3.0, charge_speed_kw=charge_speed_kw, discharge_speed_kw=6.0,
+        all_price=[0.20] * 96, sent_w=sent_w,
+    )
+
+check("status: night-limited charge (1.42 kW sent, read back) is Actief", _st_sent(1420.0, 1420.0) == "Actief")
+check("status: same readback without a sent value stays Start charge (old rule)", _st_sent(1420.0, None) == "Start charge")
+check("status: charge sent but not read back yet stays Start charge", _st_sent(-15.0, 1420.0) == "Start charge")
+check("status: an idle value sent doesn't lower the threshold", _st_sent(1420.0, -15.0) == "Start charge")
+check("status: never stricter than half the charge speed", _st_sent(2800.0, 7000.0) == "Actief")
+check("status: discharge sent -1.5 kW, read back -1.4 kW is Actief", _st_sent(-1400.0, -1500.0, low=False) == "Actief")
+check("status: discharge without a sent value stays Start discharge", _st_sent(-1400.0, None, low=False) == "Start discharge")
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

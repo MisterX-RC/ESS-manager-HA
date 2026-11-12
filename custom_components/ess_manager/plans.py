@@ -3192,6 +3192,10 @@ def solar_export_units(
     return sorted(out)
 
 
+# a sent setpoint counts as a charge/discharge from this many W (2026.11.39)
+SENT_ENGAGED_MIN_W = 100.0
+
+
 def compute_system_status(*args, **kwargs) -> str:
     """The Status sensor's state - see compute_system_status_and_action."""
     return compute_system_status_and_action(*args, **kwargs)[0]
@@ -3215,6 +3219,7 @@ def compute_system_status_and_action(
     solar_surplus_now: bool = False,
     today_units: int = 96,
     solar_export: bool = True,
+    sent_w: Optional[float] = None,
 ) -> tuple[str, str]:
     """The Status (what the dashboard and an external automation see) plus
     the control action behind it (control.ACTION_*), which direct control
@@ -3234,6 +3239,14 @@ def compute_system_status_and_action(
     `full_unit` (as of 2026.11.3): the quarter the sun alone - the forecast
     without any plan - takes the battery over the max SOC; a battery that
     only gets full through a grid charge never gives "Solar export".
+
+    `sent_w` (as of 2026.11.39): with direct control, the setpoint ESS
+    Manager itself sent last (W, + = charge). "Actief" then also means the
+    readback holds at least half of that - a charge that's deliberately
+    below the charge speed (the night limit, a car on the same grid) is
+    applied all the same. Up to 2026.11.38 only half of the charge
+    (discharge) speed counted, so a night-limited charge stayed "Start
+    charge" all night.
     """
     status, action = _compute_system_status_raw(
         setpoint_w,
@@ -3249,6 +3262,7 @@ def compute_system_status_and_action(
         charge_speed_kw,
         discharge_speed_kw,
         all_price,
+        sent_w=sent_w,
     )
     # The full-charge plan can quietly decide there's nothing to buy because
     # a genuine future solar peak will reach the overshoot ceiling on its
@@ -3303,10 +3317,19 @@ def _compute_system_status_raw(
     charge_speed_kw: float,
     discharge_speed_kw: float,
     all_price: list[float],
+    sent_w: Optional[float] = None,
 ) -> tuple[str, str]:
     is_idle = abs(setpoint_w - idle_setpoint_w) < 50
     charge_engaged_at = charge_speed_kw * 1000 * 0.5
     discharge_engaged_at = discharge_speed_kw * 1000 * 0.5
+    # applied = the readback holds at least half of what was sent (as of
+    # 2026.11.39, see compute_system_status_and_action) - never stricter
+    # than half the speed, so nothing that read "Actief" before reads
+    # "Start charge" now
+    if sent_w is not None and sent_w >= SENT_ENGAGED_MIN_W:
+        charge_engaged_at = min(charge_engaged_at, sent_w * 0.5)
+    if sent_w is not None and sent_w <= -SENT_ENGAGED_MIN_W:
+        discharge_engaged_at = min(discharge_engaged_at, -sent_w * 0.5)
 
     if full.get("active") and full.get("phase") in ("charging", "holding"):
         # Charging and holding (the balancing wait at 100%) report the same
@@ -3334,6 +3357,7 @@ def _compute_system_status_raw(
         status, action = _compute_system_status_raw(
             setpoint_w, idle_setpoint_w, cur_unit, {"active": False, "phase": None}, neg, spike, low, high,
             battery_now_kwh, low_threshold_kwh, charge_speed_kw, discharge_speed_kw, all_price,
+            sent_w=sent_w,
         )
         if status == "Standby":
             return "Full charge scheduled", ACTION_IDLE

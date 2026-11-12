@@ -2826,6 +2826,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # being charged or sold: for the Status that counts as idle
         if self._grid_use_kw is not None or self._export_kw is not None:
             setpoint_w = idle_setpoint_w
+        # what was sent last, for the Status's "applied" check (as of
+        # 2026.11.39) - without the car's offset, like the readback
+        sent_w = self.controller.sent_power_w(control_settings)
+        if sent_w is not None:
+            sent_w -= self._ev_offset_w
         voltage_diff = self._get_voltage_diff(conf)
         # Third full-charge confirmation leg - the battery pack's own
         # measured voltage, checked against the adjustable target-voltage
@@ -3433,6 +3438,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 solar_surplus_now=bool(net_energy) and net_energy[0] > 0,
                 solar_export=bool(conf.get(CONF_BATTERY_POWER_ENTITY)),
                 today_units=len(today_price) or 96,
+                sent_w=sent_w,
             )
 
             charge_kwh, charge_start_text, charge_stop_text = display.charge_display(

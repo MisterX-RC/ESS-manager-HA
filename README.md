@@ -1774,6 +1774,14 @@ If you leave the grid/inverter setpoint on the first page empty, the
 number entity you control is used as the setpoint readback for the Status
 (`Start charge` vs `Actief`).
 
+When does `Start charge` become `Actief` (and `Start discharge` become
+`Actief`)? Once the readback holds at least half of the charge (discharge)
+speed - or, with direct control (as of 2026.11.39), at least half of the
+setpoint ESS Manager itself sent last. A charge that's deliberately below
+the charge speed - the night limit, a car charging on the same grid - so
+reads `Actief` as soon as the inverter has taken the setpoint, instead of
+staying `Start charge` for the whole charge.
+
 ## Full-charge balancing
 
 "Days since last full charge" - the clock that decides when a full-balance

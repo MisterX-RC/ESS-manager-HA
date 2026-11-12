@@ -12,6 +12,19 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.39] - 2026-11-12
+
+### Status
+- **"Actief" also for a charge below the charge speed.** The Status went
+  from "Start charge" to "Actief" only when the setpoint readback reached
+  half of the charge speed. A charge that is deliberately slower - with the
+  night limit, or with a car charging on the same grid - never got there and
+  read "Start charge" for the whole charge, although the inverter had taken
+  the setpoint. With direct control the Status now also compares the
+  readback with the setpoint ESS Manager itself sent last: half of that is
+  enough (from 100 W). The same for "Start discharge". Never stricter than
+  before: what read "Actief" still does. The control itself doesn't change.
+
 ## [2026.11.38] - 2026-11-12
 
 ### Heat pump

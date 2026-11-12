@@ -109,6 +109,16 @@ class EssController:
             return None
         return control.output_to_power_w(value, settings.unit, settings.sign)
 
+    def sent_power_w(self, settings: ControlSettings) -> Optional[float]:
+        """What was sent last to the current target (W, + = charge), for
+        the Status's "applied" check (as of 2026.11.39). None when nothing
+        is being sent (control off, the switch off, another target)."""
+        if not settings.active or not self.enabled:
+            return None
+        if self._last_sent is None or self._last_target != settings.target:
+            return None
+        return control.output_to_power_w(self._last_sent, settings.unit, settings.sign)
+
     def _entity_value(self, entity_id: Optional[str]) -> Optional[float]:
         if not entity_id:
             return None

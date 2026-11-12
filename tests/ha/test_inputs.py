@@ -71,6 +71,36 @@ async def test_night_limit_caps_the_charge(hass, freezer):
     assert decision["night_limit"] and 0 < decision["power_kw"] <= 1.5
 
 
+async def test_night_limited_charge_reads_actief_once_applied(hass, freezer):
+    """2026.11.39: a charge below half the charge speed (the night limit) is
+    "Actief" once the setpoint reads back what was sent - up to 2026.11.38 it
+    stayed "Start charge" all night."""
+    from .conftest import record_calls
+
+    freezer.move_to(dt_util.as_utc(datetime(2026, 11, 9, 2, 1, tzinfo=dt_util.get_default_time_zone())))
+    now = dt_util.now()
+    base_states(hass, now)
+    q = (now.hour * 60 + now.minute) // 15
+    today = [0.40] * 96
+    for i in range(q, q + 8):
+        today[i] = 0.05
+    hass.states.async_set("sensor.price", "0.05", {"today": today, "tomorrow": [0.40] * 96, "tomorrow_valid": True,
+                                                  "unit_of_measurement": "EUR/kWh"})
+    hass.states.async_set("sensor.soc", "20", {"unit_of_measurement": "%", "device_class": "battery"})
+    entry, coordinator = await _entry(hass, {"min_soc_percent": 50.0, "charge_speed_kw": 7.0, "night_limit_enabled": True,
+                                             "night_charge_speed_kw": 1.5, "night_discharge_speed_kw": 1.5})
+    calls: list = []
+    record_calls(hass, "number", "set_value", calls)
+    freezer.tick(timedelta(minutes=1))
+    await coordinator.async_refresh()
+    assert calls and 0 < float(calls[-1][2]["value"]) <= 1500      # the night speed was sent
+    assert coordinator.data["system_status"] == "Start charge"      # not read back yet when the status was made
+    freezer.tick(timedelta(minutes=1))
+    await coordinator.async_refresh()
+    assert coordinator.data["control_action"] == "charge"
+    assert coordinator.data["system_status"] == "Actief"            # 1.5 kW read back, far below 7 kW x 0.5
+
+
 async def test_problem_notice_unavailable_input(hass, freezer):
     base_states(hass, dt_util.now())
     entry, coordinator = await _entry(hass)
