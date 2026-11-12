@@ -414,7 +414,7 @@ def _schedule_charge(
             options = [u for u in free if fits(u) and (hard or buy[u] <= soft_max + 1e-9)] or (free if hard else [])
             # the house from the grid instead of the battery (2026.10.41) -
             # for a hard part in any quarter before its deadline (as of
-            # 2026.11.33, Casita 12 Nov): hold_max compares with the lowest
+            # 2026.11.33): hold_max compares with the lowest
             # price of ALL known quarters, but a floor that has to be met by
             # 09:00 can only be met before it - there the house from the
             # grid (buy x de) always beats a charge in the same quarter

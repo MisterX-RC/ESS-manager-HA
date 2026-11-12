@@ -1,4 +1,4 @@
-"""The short-term usage correction (as of 2026.11.33, Casita 12 Nov): the last
+"""The short-term usage correction (as of 2026.11.33): the last
 three hours measured against what was forecast for them, the difference per
 hour added to the coming hours, fading out over six."""
 from datetime import datetime, timedelta

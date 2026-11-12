@@ -485,7 +485,7 @@ def usage_cache_is_stale(computed_at: Optional[datetime], now: datetime) -> bool
     return now.replace(minute=0, second=0, microsecond=0) != computed_at.replace(minute=0, second=0, microsecond=0)
 
 
-# The short-term correction (as of 2026.11.33, Casita 12 Nov): the usage
+# The short-term correction (as of 2026.11.33): the usage
 # forecast is a weekly pattern - an extra load that started a few days ago
 # (or a house left empty) only shows in it after weeks. The last
 # SHORT_HOURS complete hours, measured against what was forecast for them,

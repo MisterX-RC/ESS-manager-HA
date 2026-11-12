@@ -3063,7 +3063,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # at night with the night limit not the full charge speed
         charge_imports = forecasting.grid_charge_imports(
             charge_rates, now, charge_speed_kw, charge_efficiency, night_kw=night_charge_kw,
-            night_battery=night_battery,
+            night_battery=night_battery, net=net_energy, max_charge_kw=max_battery_charge_speed_kw,
+            house_efficiency=(house_ce, house_de),
         )
         # the house from the grid at low prices (as of 2026.10.41): what the
         # battery would give the house per quarter - planned with the charges

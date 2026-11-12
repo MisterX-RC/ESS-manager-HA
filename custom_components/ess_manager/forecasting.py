@@ -523,26 +523,55 @@ def grid_charge_imports(
     charge_efficiency: float = 1.0,
     night_kw: Optional[float] = None,
     night_battery: bool = False,
+    net: Optional[list[float]] = None,
+    max_charge_kw: Optional[float] = None,
+    house_efficiency: Optional[tuple[float, float]] = None,
 ) -> list[float]:
     """Per 15-minute unit (like grid_charge_rates), what the grid imports
-    while a grid charge runs (kWh) - as of 2026.11.25. A charge holds the
-    grid setpoint at `speed_kw`: what the battery can't take of that (the sun
-    already fills it) goes straight back. At night with the night limit the
-    setpoint is the night speed; with the limit on the battery itself
-    (`night_battery`) the battery charges at exactly that and the grid only
-    gives what it and the house take - nothing goes back (`rates` / charge
-    efficiency). Up to 2026.11.24 the full charge speed counted as bought
-    in every quarter, also at night - with the buy price incl. tax and the
-    sell price without, a slow night quarter looked far dearer than it is."""
+    while a grid charge runs (kWh) - as of 2026.11.25.
+
+    As of 2026.11.34 what the grid really delivers: a charge holds the grid
+    setpoint at `speed_kw`, but the grid can't give more than the house and
+    the battery (up to `max_charge_kw`, at the charge efficiency) take
+    together, minus what the sun already gives them - nothing goes back. A
+    setpoint well above the battery's maximum is on purpose: without sun the
+    inverter then charges at its maximum and the house is covered on top.
+    Up to 2026.11.33 the full setpoint counted as bought and the part the
+    battery couldn't take as sold back at the bare price - with the setpoint
+    above the battery's maximum every charge quarter looked dearer, the
+    sunny ones most (the sun fills the battery, so the grid adds less), so
+    a cheap midday dip ranked behind dearer quarters around it.
+
+    At night with the night limit the setpoint is the night speed; with the
+    limit on the battery itself (`night_battery`) the battery charges at
+    exactly that and the grid gives what it and the house take (`rates` /
+    charge efficiency). Without `net` (older callers) the setpoint itself."""
     ce = charge_efficiency if charge_efficiency > 0 else 1.0
     speed = max(float(speed_kw or 0.0), 0.0)
     night = night_limit(speed, night_kw) if night_kw is not None else None
+    cap = float(max_charge_kw) if max_charge_kw and max_charge_kw > 0 else float("inf")
+    fce = house_efficiency[0] if house_efficiency and house_efficiency[0] > 0 else ce
+    hour0 = units.price_unit(now) - now.minute // 15
     out: list[float] = []
     for u, rate in enumerate(rates):
-        if night is not None and unit_is_night(u, now):
-            out.append(round(rate / ce, 4) if night_battery else night / 4)
+        is_night = night is not None and unit_is_night(u, now)
+        if is_night and night_battery:
+            out.append(round(rate / ce, 4))
+            continue
+        s = night if is_night else speed
+        if net is None:
+            out.append(s / 4)
+            continue
+        h = (u - hour0) // 4
+        x = float(net[h]) if 0 <= h < len(net) and net[h] is not None else 0.0
+        if x >= 0:
+            # the sun covers the house and fills the battery first; the grid the rest up to its maximum
+            room = max(cap - min(x * fce, cap), 0.0) / ce if cap != float("inf") else s
+            grid_kw = min(s, room)
         else:
-            out.append(speed / 4)
+            # the house's shortfall, then the battery up to its maximum
+            grid_kw = min(s, -x + (cap / ce if cap != float("inf") else s))
+        out.append(round(max(grid_kw, 0.0) / 4, 4))
     return out
 
 

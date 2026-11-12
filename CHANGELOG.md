@@ -12,60 +12,65 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.34] - 2026-11-12
+
+### Planning
+- **A charge quarter is costed on what the grid really delivers.** With a
+  Charge speed (the grid setpoint) above the battery's max charge speed -
+  on purpose, so the inverter charges at its max without sun and the house
+  is covered on top - every charge quarter counted the full setpoint as
+  bought and the part the battery couldn't take as sold back at the bare
+  price. That doesn't happen: the grid can't deliver more than the house
+  and the battery take. It made every charge quarter look dearer, the sunny
+  ones most (the sun already fills part of the battery), so a cheap midday
+  price dip could rank behind dearer quarters around it and the charge went
+  in just before the dip. What's bought per quarter is now the house's
+  shortfall plus what the battery still takes up to its max after the sun,
+  at most the Charge speed; nothing is counted as sold back.
+
+### Other
+- Update notes and code comments of 2026.11.33 reworded as general
+  descriptions.
+
 ## [2026.11.33] - 2026-11-12
 
 ### Heat pump - floor control
-- **The response check started over after every short hand-back**: one
-  cycle with an input missing (a Qube sensor on modbus right after a
-  restart), a restart or update, the thermostat off or cooling handed the
-  heat pump back and also cleared when the return setpoint stage began - the
-  next cycle started counting the 24 running hours from zero. Replayed
-  live (A, 11 Nov): a settled hour at 07:00 (3613 s, 3.72 kW delivered
-  against 3.65 kW) was lost after the restart for 2026.11.32, the check
-  showed 0 hours. The start now stays; only the select set to *watch*
-  starts it over (only hours ESS Manager set the setpoint in count anyway).
-- **Return setpoint down in steps while the compressor runs** (Timo): the
-  planned setpoint at minimum power (26.5 °C at A) lay a degree under a
-  running Qube's return (27.4-28 °C); after the drop the runs got short (13-29
-  min) - it switched off and on again instead of modulating down. While the
-  compressor runs (Qube status *heating* / *compressor_startup* with the
-  valve on CH; without a Qube device: thermal power above 0) the setpoint now
-  goes down one step of the entity at a time (0.5 °C), the next only once
-  the return is within 0.1 °C of the current setpoint, never below the
-  target. Up, compressor off, hot water, or the return already at the
-  target (cold start): straight there. Diagnostics: `sp_goal`,
-  `compressor_running` next to `sp_planned`.
+- **The response check no longer starts over after a short hand-back.** A
+  cycle with an input briefly missing (e.g. right after a restart), a
+  restart or update, the thermostat switched off or cooling handed the heat
+  pump back and also reset the start of the response check, so the running
+  hours gathered so far were lost. The start is now kept; only setting floor
+  control to *watch* starts the check over.
+- **The return setpoint goes down in steps while the compressor runs.** A
+  big drop below the current return made the heat pump switch off and
+  start again instead of modulating down. While the compressor runs (Qube
+  status *heating* / *compressor_startup* with the valve on CH; without a
+  Qube device: thermal power above 0) the setpoint now goes down one step
+  of the entity at a time, the next only once the return is within 0.1 °C
+  of the current setpoint, never below the target. Up, compressor off, hot
+  water, or the return already at the target: straight there. New in the
+  diagnostics: `sp_goal` and `compressor_running`.
 
-### Planning (Casita, 12 Nov)
-- **A floor charge in the morning peak instead of the house from the
-  grid**: at 08:30 (0.436 incl) the battery was at 6.1 %, the floor (5 %)
-  would be crossed before 09:00, so the only window was 08:30-09:00 - a
-  charge right in the peak (stopped at 10.2 %), while the cheap hours
-  came at 10:30 (0.363 / 0.327). Taking the house from the grid wasn't an
-  option: it's only allowed below the lowest known price after the losses
-  (0.3027 / 0.855 = 0.354), and that compares with ALL known quarters - also
-  the ones after the deadline. A hard part (the floor, due by an hour) may
-  now take the house from the grid in any quarter before its deadline: in
-  the same quarter that always beats a charge (price x de against price /
-  ce). Replayed: at 08:30 the house from the grid 08:30-08:45 and
-  09:15-10:00 (09:00, the dearest, skipped), the first charge at 10:30. Soft
-  parts keep the limit. Golden D (2 Nov) changes with it: two small
-  quarters from the grid, and its evening top-up now at the cheaper night
-  rate (22:45-24:00, 0.219-0.236) instead of 21:15-22:00 (0.226-0.25).
-- **Short-term usage correction**: the usage forecast is a weekly pattern -
-  at Casita the house used 0.92 kWh/h through the night against ~0.35
-  forecast (a load that started recently), so the night charge stopped at
-  21.6 % and the battery reached the floor in the morning peak. Every hour
-  the last 3 complete hours are now measured against their forecast (same
-  identity, car and separately metered heat pump left out); the difference
-  per hour is added to the coming hours, fading out over 6 (full this
-  hour, nothing from the 6th), only from 0.3 kWh off over the 3 hours, both
-  ways, never below 0. A difference, not a factor (an extra load adds the
-  same to a peak as to a quiet hour). `usage_correction` in the Status
-  attributes and diagnostics; the forecast check keeps judging the pattern
-  without it. Replayed at 06:10: with it the house from the grid is
-  planned at 06:15 and the battery stays higher; without it nothing until
-  the floor charge at 08:30. In memory: after a restart it waits 3 hours.
+### Planning
+- **The house from the grid instead of a charge in a price peak when the
+  battery is about to reach its floor.** When the floor would be crossed
+  before the cheap hours, the only way left was a charge in the quarters
+  just before it - often the dearest of the day - because taking the house
+  from the grid was only allowed below the lowest known price after the
+  losses. A part that has to be met by a certain hour (the floor) may now
+  take the house from the grid in any quarter before that hour: in the same
+  quarter that always beats a charge. The battery then stays at the floor
+  until the cheaper hours. Other (soft) parts keep the price limit.
+- **Short-term correction of the usage forecast.** The usage forecast is a
+  weekly pattern, so a load that started recently (or a house left empty)
+  only shows in it after weeks. Every hour the last 3 complete hours are
+  now measured against their forecast (car and separately metered heat pump
+  left out, like the forecast); the difference per hour is added to the
+  coming hours, fading out over 6 hours. Only from 0.3 kWh off over the 3
+  hours together, both ways, never below 0. A difference rather than a
+  factor, so an extra load adds the same to a peak as to a quiet hour. New
+  attribute `usage_correction`; the forecast check keeps judging the
+  pattern without it. After a restart it waits for 3 hours.
 
 ## [2026.11.32] - 2026-11-11
 

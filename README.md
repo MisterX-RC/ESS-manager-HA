@@ -254,9 +254,14 @@ nothing at all when the sun alone fills it (say a 1.8 kW charger with
 charge, spike top-up, negative price charge) work out per quarter what the
 grid really adds: the sun only makes a window longer - quarters it already
 fills add nothing, so the window runs on until the amount is in - and the
-cheapest window is still chosen, costed on what's really bought (minus
-what would go straight back to the grid, which only costs extra with a
-transport tariff). A
+cheapest window is still chosen, costed on what's really bought. *(As of
+2026.11.34)* What's bought is what the grid can really deliver during a
+charge: the house's shortfall plus what the battery still takes up to its
+max (after the sun), never more than the Charge speed - nothing is counted
+as sold back. A Charge speed well above the battery's max (so that without
+sun the inverter charges at its max and the house is covered on top) no
+longer makes charge quarters look dearer, the sunny ones most: a cheap
+midday dip is costed at its own price and chosen. A
 low charge stops at the forecast level at the end of its window plus its
 amount (never above 100%), so the sun shining during the window doesn't
 count toward what was meant to be bought; and it's only planned where the
@@ -1291,9 +1296,7 @@ After a restart it waits for 3 hours of its own. The attribute
 `usage_correction` on the Status sensor (and the diagnostics) shows the
 difference, the 3 hours (forecast and measured) and what was added to the
 next 6. The forecast check above still judges the pattern itself, without
-this correction. Live (Casita, 12 Nov): 0.92 kWh/h at night against ~0.35
-forecast - with it the morning shortfall shows at night already instead of
-at 08:30, with the battery at the floor in the morning peak.
+this correction.
 
 **Solar.** The forecast sensors keep no history, so each day's forecast is
 stored at the day's first cycle and compared once the production is

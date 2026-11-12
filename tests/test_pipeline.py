@@ -6164,13 +6164,13 @@ check("floor: compressor running from the Qube's status (heating, starting up), 
       and not fcm.compressor_running("heating_dhw", "dhw", 4.0)
       and fcm.compressor_running(None, None, 3.7) and not fcm.compressor_running(None, None, 0.0))
 
-# --- 2026.11.33: Casita 12 Nov - the floor due by 09:00, only the morning peak before it (0.436 / 0.429 incl),
+# --- 2026.11.33: the floor due by 09:00, only the morning peak before it (0.436 / 0.429 incl),
 # the cheap hours (0.363 / 0.327) after it: the house from the grid until then, not a charge in the peak
 _cs_buy = [0.436, 0.429, 0.445, 0.430, 0.363, 0.327]
 _cs_holds: list = []
 _cs = plans._schedule_charge([(2, 0.4, True)], [0.36] * 6, _cs_buy, _cs_buy, 0, 6, 0.425, 0.9, 2, [], 0, 100.0,
                              hold_rates=[0.25] * 6, hold_factor=0.95, holds_out=_cs_holds)
-check("floor before the cheap hours (Casita): the house from the grid in the peak, no charge there "
+check("floor before the cheap hours: the house from the grid in the peak, no charge there "
       "(the cheap quarters 4-5 from the grid as always)",
       _cs == [] and _cs_holds == [0, 1, 4, 5])
 _cs_more: list = []
@@ -6184,7 +6184,7 @@ plans._schedule_charge([(2, 0.4, False)], [0.36] * 6, _cs_buy, _cs_buy, 0, 6, 0.
 check("... a soft part still only takes the house from the grid below the lowest price after the losses",
       _cs_soft == [4, 5])
 
-# --- 2026.11.33: the short-term usage correction (Casita 12 Nov: 0.92 kWh/h measured at night against ~0.35 forecast)
+# --- 2026.11.33: the short-term usage correction (e.g. 0.92 kWh/h measured at night against ~0.35 forecast)
 usage_forecast_mod = _load("usage_forecast")
 _uf = usage_forecast_mod
 check("short-term: the difference per hour over the last three hours (+0.57 kWh/h)",
@@ -6209,6 +6209,34 @@ check("short-term: an hour's usage like the forecast counts it - the identity mi
       _uf.household_hour(_hh_sums, (["imp"], ["exp"], [], None, None), ["car"], 3600) == 0.3
       and _uf.household_hour(_hh_sums, (["imp"], [], [], None, None), None, 3600) == 1.0
       and _uf.household_hour(_hh_sums, (["imp"], ["missing"], [], None, None), None, 3600) is None)
+
+# --- 2026.11.34: what a charge quarter really imports - the grid can't give more than the house and the battery take
+# (a setpoint above the battery's maximum is on purpose: full speed without sun, the house covered on top); nothing
+# is sold back. Up to then 10 kW counted as bought against a 5.5 kW battery and the rest as sold at the bare price,
+# so the sunniest (cheapest) quarters ranked behind dearer ones.
+_gi_now = datetime(2026, 11, 12, 11, 0, tzinfo=ZoneInfo("Europe/Amsterdam"))
+_gi_net = [-1.0, 2.0, 7.0]
+_gi_rates = forecasting.grid_charge_rates(_gi_net, _gi_now, 10.0, 5.5, 96, 0.9, 0.95, house_efficiency=(1.0, 1.0))
+_gi = forecasting.grid_charge_imports(_gi_rates, _gi_now, 10.0, 0.9, net=_gi_net, max_charge_kw=5.5,
+                                      house_efficiency=(1.0, 1.0))
+check("charge imports: no sun - the house (1 kW) and the battery's maximum (5.5 / 0.9), not the 10 kW setpoint",
+      abs(_gi[44] - (1.0 + 5.5 / 0.9) / 4) < 1e-3)
+check("charge imports: 2 kW sun into the battery - the grid only the rest up to its maximum ((5.5 - 2) / 0.9)",
+      abs(_gi[48] - (3.5 / 0.9) / 4) < 1e-3 and abs(_gi[48] - _gi_rates[48] / 0.9) < 1e-3)
+check("charge imports: the sun alone above the battery's maximum - nothing from the grid", _gi[52] == 0.0)
+_gi_low = forecasting.grid_charge_imports(_gi_rates, _gi_now, 3.0, 0.9, net=_gi_net, max_charge_kw=5.5,
+                                          house_efficiency=(1.0, 1.0))
+check("charge imports: a setpoint below what they take - the setpoint", abs(_gi_low[44] - 3.0 / 4) < 1e-6)
+_gi_buy = [0.36] * 48 + [0.33] * 4 + [0.36] * 44     # a cheap sunny hour (12:00) between dearer ones
+_gi_sell = [0.19] * 48 + [0.16] * 4 + [0.19] * 44
+_gi_net2 = [-1.0, 1.5, -1.0]
+_gi_rates2 = forecasting.grid_charge_rates(_gi_net2, _gi_now, 10.0, 5.5, 96, 0.9, 0.95, house_efficiency=(1.0, 1.0))
+_gi_imp2 = forecasting.grid_charge_imports(_gi_rates2, _gi_now, 10.0, 0.9, net=_gi_net2, max_charge_kw=5.5,
+                                           house_efficiency=(1.0, 1.0))
+_gi_pick = plans._schedule_charge([(56, 3.0, True)], _gi_rates2, _gi_buy, _gi_sell, 44, 56, _gi_imp2, 0.9, 2, [], 44, 100.0)
+_gi_old = plans._schedule_charge([(56, 3.0, True)], _gi_rates2, _gi_buy, _gi_sell, 44, 56, 2.5, 0.9, 2, [], 44, 100.0)
+check("charge imports: the cheap sunny hour is chosen (before: the dearer hours around it looked cheaper)",
+      _gi_pick[:2] == [48, 49] and all(u < 48 or u >= 52 for u in _gi_old))
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
