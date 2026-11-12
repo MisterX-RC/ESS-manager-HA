@@ -6426,6 +6426,30 @@ check("self-check per day: the night setback seen (two changes, 19.5-21), the da
       and _pd[0]["ess_hours"] == 24 and _pd[-1]["ess_hours"] == 0
       and sum(r["ess_hours"] for r in _pd) == _fz_r1["review"]["ess_hours"])
 
+# 2026.11.38: the thermostat only played on days whose wanted temperature is known - days from
+# before the thermostat's history are left out while it's used (they'd be switched around a guess)
+def _fz_learn_sp(day, unknown_days):
+    end = _fz_start + day * 86400
+    today = datetime.fromtimestamp(end, _tzA).date()
+    cut = _fz_start + unknown_days * 86400
+    th = thermostat.learn(thermostat.switch_events(_fz["rows"]), end)
+    return _hh.learn(_fz["ind"], _fz["out"], _fz["heat"], None, None, None, _fz["cop"], _tzA, today, _fz_prof, _fz_shape(end),
+                     thermo=th, on_s=dict(_fz["on"]), setpoint={h: v for h, v in _fz["sp"].items() if h >= cut},
+                     ess_s=dict(_fz["ess"]))
+
+
+_ku = _fz_learn_sp(_fz_days_th + _fz_days_ess, 39)   # the wanted temperature known for the newest 10 of 14 test days
+_ku8 = _fz_learn_sp(_fz_days_th + _fz_days_ess, 42)  # ... for the newest 7
+check("self-check: days without a known wanted temperature left out while the thermostat is used, compared on the same days",
+      _ku["review"]["thermostat"]["used"] and len(_ku["review"]["skipped_days"]) == 4
+      and _ku["review"]["days"] == 10 and _ku["review"]["thermostat"]["days"] == 10 and len(_ku["review"]["per_day"]) == 10
+      and _ku["review"]["passed"] and all(d not in [r["d"] for r in _ku["review"]["per_day"]] for d in _ku["review"]["skipped_days"]))
+check("self-check: ... and fewer than 10 known days don't pass yet",
+      _ku8["review"]["thermostat"]["used"] and len(_ku8["review"]["skipped_days"]) == 7
+      and _ku8["review"]["days"] == 7 and not _ku8["review"]["passed"])
+check("self-check: all days known - none left out",
+      _fz_r1["review"]["skipped_days"] == [] and _fz_r1["review"]["thermostat"]["days"] == 14)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

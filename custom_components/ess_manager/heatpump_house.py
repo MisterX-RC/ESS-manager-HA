@@ -28,7 +28,7 @@ from . import thermostat
 HOUR = 3600
 # what the model is built from changes with these (as of 2026.11.11): a new
 # version learns again right away instead of the next day
-MODEL_VERSION = "2026.11.37"   # the self-check per day in the diagnostics: checked again right after the update
+MODEL_VERSION = "2026.11.38"   # the thermostat only played on days with a known wanted temperature: checked again right after the update
 # the floor's delay (as of 2026.11.9 36 hours back and up to 24 h - up to
 # then 12 and 6: a concrete floor heated in a block of a few hours gives its
 # heat off over far more hours, and the day's simulation drifted)
@@ -792,10 +792,20 @@ def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_
     `thermo` (as of 2026.11.20): a learned on/off thermostat with the heat
     pump's power (power_el / power_th); each group is then also played with
     it, and it's used (`rev["thermostat"]["used"]`) when it places the hours
-    better than the smooth controller."""
+    better than the smooth controller.
+    (As of 2026.11.38) the thermostat is only played on days whose wanted
+    temperature per hour is known (the thermostat's history is kept from its
+    first read on): without it the thermostat would switch around a guessed
+    wanted temperature - a fault of the test, not of the model. Those days are
+    left out while the thermostat is used (`skipped_days`), and the
+    thermostat is compared with the smooth controller on the same days."""
     total = [0.0] * 6
     total_th = [0.0] * 6
+    total_ctrl_known = [0.0] * 6
     folds_fitted = 0
+
+    def known(d):
+        return bool(d.get("sp")) and all(v is not None for v in d["sp"])
 
     def with_th(m):
         return with_thermostat(m, thermo)
@@ -814,8 +824,10 @@ def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_
         folds_fitted += 1
         total = [a + b for a, b in zip(total, _review_sums(m, copm, group, profile, shape, tz, days_ctrl))]
         mt = with_th(m)
-        if mt:
-            total_th = [a + b for a, b in zip(total_th, _review_sums(mt, copm, group, profile, shape, tz, days_th))]
+        group_known = [d for d in group if known(d)]
+        if mt and group_known:
+            total_th = [a + b for a, b in zip(total_th, _review_sums(mt, copm, group_known, profile, shape, tz, days_th))]
+            total_ctrl_known = [a + b for a, b in zip(total_ctrl_known, _review_sums(m, copm, group_known, profile, shape, tz))]
     if not folds_fitted:
         return None
     rev_ctrl = _verdict(total)
@@ -823,10 +835,11 @@ def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_
     th_info = None
     if thermo and total_th[2]:
         rev_th = _verdict(total_th)
-        use_th = (rev_th["hour_error_kwh"] is not None and rev_ctrl["hour_error_kwh"] is not None
-                  and rev_th["hour_error_kwh"] < rev_ctrl["hour_error_kwh"])
+        rev_ck = _verdict(total_ctrl_known)
+        use_th = (rev_th["hour_error_kwh"] is not None and rev_ck["hour_error_kwh"] is not None
+                  and rev_th["hour_error_kwh"] < rev_ck["hour_error_kwh"])
         th_info = {"hour_error_kwh": rev_th["hour_error_kwh"], "temp_error_c": rev_th["temp_error_c"],
-                   "controller_hour_error_kwh": rev_ctrl["hour_error_kwh"], "used": use_th}
+                   "controller_hour_error_kwh": rev_ck["hour_error_kwh"], "days": rev_th["days"], "used": use_th}
     rev = _verdict(total_th) if use_th else rev_ctrl
     # (as of 2026.11.37) each test day on its own, newest first - which days score badly and why
     order = {d["d"]: i for i, d in enumerate(test_days)}
@@ -836,9 +849,14 @@ def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_
     # (as of 2026.11.35) the test hours ESS Manager switched the heat demand itself
     rev["ess_hours"] = sum(sum(1 for x in d.get("ess") or [] if x) for d in test_days)
     rev["thermostat"] = th_info
+    # (as of 2026.11.38) the days left out: their wanted temperature isn't known
+    rev["skipped_days"] = [d["d"] for d in test_days if not known(d)] if use_th else []
     # the drift guard: test_days are newest first
-    recent_days = test_days[:RECENT_DAYS]
+    recent_days = [d for d in test_days if known(d)][:RECENT_DAYS] if use_th else test_days[:RECENT_DAYS]
     recent = None
+    if not recent_days:
+        rev["recent"] = None
+        return rev
     cutoff = min(d["hours"][0] for d in recent_days)
     m_old = fit_house({h: v for h, v in indoor.items() if h < cutoff}, outdoor, heat, wind, sun, cool,
                       copm, heat_th, gains)

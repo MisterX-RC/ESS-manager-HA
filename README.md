@@ -1051,6 +1051,13 @@ the heat pump page in Configure, as of 2026.10.17:
   temperature's range and number of changes that day (a night setback or a
   change by hand) and the hours floor control switched - to see which days
   score badly and why. It changes nothing in the verdict.
+  *(As of 2026.11.38)* with the learned thermostat the self-check only plays
+  days whose wanted temperature per hour is known (the thermostat's history
+  is kept from its first read on): a day from before that would have the
+  thermostat switch around a guessed wanted temperature. Those days are left
+  out while the thermostat is used (`review.skipped_days`), the thermostat is
+  compared with the smooth controller on the same days, and at least 10 such
+  days are still needed.
   **The thermostat learned from the house** *(as of 2026.11.20)*: with a
   thermostat (a climate entity as the wanted temperature) ESS Manager reads
   its history every day and keeps each switch of its heat demand

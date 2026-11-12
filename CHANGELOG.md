@@ -12,6 +12,20 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.38] - 2026-11-12
+
+### Heat pump
+- **The self-check plays the thermostat only on days with a known wanted
+  temperature.** Test days from before the thermostat's history was kept
+  have no wanted temperature per hour; with the learned thermostat they
+  were played around a guessed one (the usual indoor profile), so the
+  thermostat switched at the wrong moments and those days scored badly -
+  a fault of the test, not of the house model. While the thermostat is used
+  those days are now left out (`review.skipped_days`), the thermostat is
+  compared with the smooth controller on the same days and the drift guard
+  takes the newest known days. At least 10 test days are still needed. The
+  house model is checked again right after the update.
+
 ## [2026.11.37] - 2026-11-12
 
 ### Heat pump
