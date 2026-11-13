@@ -9,8 +9,6 @@
           "battery_soc_entity": "Battery state-of-charge sensor (%)",
           "price_entity": "Electricity price sensor (Nordpool-style, with today/tomorrow quarter-hour price lists)",
           "solar_forecast_entities": "Solar forecast sensor(s): Solcast (detailedHourly attribute - add as many day sensors as needed to cover your forecast horizon) or Helios Forecast (the Power now sensor of each Helios installation - several are added up, e.g. one per roof plane)",
-          "grid_setpoint_entity": "Grid/inverter setpoint (optional) - a sensor, number or input_number with the currently commanded power (W or kW, from its unit). Used to show Start vs Actief in the Status; with direct control of a number entity it can be left empty",
-          "grid_setpoint_sign": "Polarity of the grid/inverter setpoint (only used when one is chosen above)",
           "usage_source": "Household usage forecast source - the next page sets it up",
           "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page",
           "price_incl_mode": "Prices including taxes - what the planning counts as costs and gains, and what the price card shows (the next page sets it up)"
@@ -150,19 +148,23 @@
       },
       "control": {
         "title": "Battery control",
-        "description": "Should ESS Manager send the charge/discharge setpoint to your inverter itself?\n\n**Status sensor only** (default) - nothing is sent. ESS Manager only decides, via its Status sensor, and your own automation (see dashboard/automation_example.yaml) turns that into a command.\n\n**Set a number / input_number entity** - ESS Manager sends the setpoint itself every cycle, using the charge/discharge speeds the plans were sized with - as a grid setpoint: the house is covered out of it and the battery gets the rest, up to its max speed. The \"Automatic control\" switch lets you pause it at any time; it also sends idle when an update fails, when the integration is unloaded, and when Home Assistant stops. If you switch this on, disable your own ESS automation so the two don't fight.\n\nThe \"Planned setpoint\" sensor shows what would be sent even while this is off, so you can compare it with your automation first.",
+        "description": "Should ESS Manager send the charge/discharge setpoint to your inverter itself?\n\n**Status sensor only** (default) - nothing is sent. ESS Manager only decides, via its Status sensor, and your own automation (see dashboard/automation_example.yaml) turns that into a command.\n\n**Set a number / input_number entity** - ESS Manager sends the setpoint itself every cycle, using the charge/discharge speeds the plans were sized with - as a grid setpoint: the house is covered out of it and the battery gets the rest, up to its max speed. The \"Automatic control\" switch lets you pause it at any time; it also sends idle when an update fails, when the integration is unloaded, and when Home Assistant stops. If you switch this on, disable your own ESS automation so the two don't fight.\n\nThe \"Planned setpoint\" sensor shows what would be sent even while this is off, so you can compare it with your automation first.\n\nWith **Status sensor only**, pick below the setpoint your own automation writes, so the Status can show Start vs Actief. With direct control these two fields are ignored: the next page asks for the readback.",
         "data": {
-          "control_mode": "Control"
+          "control_mode": "Control",
+          "grid_setpoint_entity": "Setpoint your own automation writes (optional, only with Status sensor only) - a sensor, number or input_number with the currently commanded power (W or kW, from its unit). Used to show Start vs Actief in the Status",
+          "grid_setpoint_sign": "Polarity of that setpoint"
         }
       },
       "control_target": {
         "title": "Battery control - target",
-        "description": "The entity to send the setpoint to - for example your inverter's grid setpoint `number` entity, or the `input_number` your inverter automation reads.\n\nThe idle value is sent exactly as entered whenever the battery should do nothing (usually 0; some Victron systems idle at -30 W).\n\nIf you leave the grid/inverter setpoint on the first page empty, this entity is used as the readback for the Status.",
+        "description": "The entity to send the setpoint to - for example your inverter's grid setpoint `number` entity, or the `input_number` your inverter automation reads.\n\nThe idle value is sent exactly as entered whenever the battery should do nothing (usually 0; some Victron systems idle at -30 W).\n\nThe readback is what the Status uses for Start vs Actief. Leave it empty to use the setpoint entity itself; pick a separate one when the setpoint entity is only an in-between (e.g. an input_number an automation passes on) and the inverter reports what it really took over.",
         "data": {
           "control_target_entity": "Setpoint entity (number / input_number)",
           "control_unit": "Unit the target expects",
           "control_sign": "Polarity of the setpoint",
-          "control_idle_value": "Idle value (in the unit above)"
+          "control_idle_value": "Idle value (in the unit above)",
+          "grid_setpoint_entity": "Separate readback (optional) - a sensor, number or input_number with what the inverter actually took over. Empty: the setpoint entity above is used",
+          "grid_setpoint_sign": "Polarity of the readback"
         }
       },
       "night_limit": {
@@ -270,8 +272,6 @@
           "battery_soc_entity": "Battery state-of-charge sensor (%)",
           "price_entity": "Electricity price sensor (Nordpool-style, with today/tomorrow quarter-hour price lists)",
           "solar_forecast_entities": "Solar forecast sensor(s): Solcast (detailedHourly attribute - add as many day sensors as needed to cover your forecast horizon) or Helios Forecast (the Power now sensor of each Helios installation - several are added up, e.g. one per roof plane)",
-          "grid_setpoint_entity": "Grid/inverter setpoint (optional) - a sensor, number or input_number with the currently commanded power (W or kW, from its unit). Used to show Start vs Actief in the Status; with direct control of a number entity it can be left empty",
-          "grid_setpoint_sign": "Polarity of the grid/inverter setpoint (only used when one is chosen above)",
           "usage_source": "Household usage forecast source - the next page sets it up",
           "enable_full_charge_plan": "Enable periodic full-charge balancing (charges to 100% on an interval and holds briefly so the BMS can balance the cells) - its sensors are asked on the next page",
           "price_incl_mode": "Prices including taxes - what the planning counts as costs and gains, and what the price card shows (the next page sets it up)"
@@ -405,19 +405,23 @@
       },
       "control": {
         "title": "Battery control",
-        "description": "Should ESS Manager send the charge/discharge setpoint to your inverter itself?\n\n**Status sensor only** (default) - nothing is sent. ESS Manager only decides, via its Status sensor, and your own automation (see dashboard/automation_example.yaml) turns that into a command.\n\n**Set a number / input_number entity** - ESS Manager sends the setpoint itself every cycle, using the charge/discharge speeds the plans were sized with - as a grid setpoint: the house is covered out of it and the battery gets the rest, up to its max speed. The \"Automatic control\" switch lets you pause it at any time; it also sends idle when an update fails, when the integration is unloaded, and when Home Assistant stops. If you switch this on, disable your own ESS automation so the two don't fight.\n\nThe \"Planned setpoint\" sensor shows what would be sent even while this is off, so you can compare it with your automation first.",
+        "description": "Should ESS Manager send the charge/discharge setpoint to your inverter itself?\n\n**Status sensor only** (default) - nothing is sent. ESS Manager only decides, via its Status sensor, and your own automation (see dashboard/automation_example.yaml) turns that into a command.\n\n**Set a number / input_number entity** - ESS Manager sends the setpoint itself every cycle, using the charge/discharge speeds the plans were sized with - as a grid setpoint: the house is covered out of it and the battery gets the rest, up to its max speed. The \"Automatic control\" switch lets you pause it at any time; it also sends idle when an update fails, when the integration is unloaded, and when Home Assistant stops. If you switch this on, disable your own ESS automation so the two don't fight.\n\nThe \"Planned setpoint\" sensor shows what would be sent even while this is off, so you can compare it with your automation first.\n\nWith **Status sensor only**, pick below the setpoint your own automation writes, so the Status can show Start vs Actief. With direct control these two fields are ignored: the next page asks for the readback.",
         "data": {
-          "control_mode": "Control"
+          "control_mode": "Control",
+          "grid_setpoint_entity": "Setpoint your own automation writes (optional, only with Status sensor only) - a sensor, number or input_number with the currently commanded power (W or kW, from its unit). Used to show Start vs Actief in the Status",
+          "grid_setpoint_sign": "Polarity of that setpoint"
         }
       },
       "control_target": {
         "title": "Battery control - target",
-        "description": "The entity to send the setpoint to - for example your inverter's grid setpoint `number` entity, or the `input_number` your inverter automation reads.\n\nThe idle value is sent exactly as entered whenever the battery should do nothing (usually 0; some Victron systems idle at -30 W).\n\nIf you leave the grid/inverter setpoint on the first page empty, this entity is used as the readback for the Status.",
+        "description": "The entity to send the setpoint to - for example your inverter's grid setpoint `number` entity, or the `input_number` your inverter automation reads.\n\nThe idle value is sent exactly as entered whenever the battery should do nothing (usually 0; some Victron systems idle at -30 W).\n\nThe readback is what the Status uses for Start vs Actief. Leave it empty to use the setpoint entity itself; pick a separate one when the setpoint entity is only an in-between (e.g. an input_number an automation passes on) and the inverter reports what it really took over.",
         "data": {
           "control_target_entity": "Setpoint entity (number / input_number)",
           "control_unit": "Unit the target expects",
           "control_sign": "Polarity of the setpoint",
-          "control_idle_value": "Idle value (in the unit above)"
+          "control_idle_value": "Idle value (in the unit above)",
+          "grid_setpoint_entity": "Separate readback (optional) - a sensor, number or input_number with what the inverter actually took over. Empty: the setpoint entity above is used",
+          "grid_setpoint_sign": "Polarity of the readback"
         }
       },
       "night_limit": {

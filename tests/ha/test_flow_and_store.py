@@ -107,3 +107,60 @@ async def test_night_limit_needs_the_battery_power(hass):
     flow2 = await _options_flow(hass, entry)
     res = await flow2.async_step_system({"night_limit_enabled": False})
     assert res["step_id"] != "system"
+
+
+def _default(form, key):
+    for k in form["data_schema"].schema:
+        if str(k) == key:
+            return k.default() if callable(k.default) else None
+    raise KeyError(key)
+
+
+async def test_setpoint_readback_on_the_control_pages(hass):
+    """As of 2026.11.42 the grid/inverter setpoint readback is no longer on the sensors page:
+    with "Status sensor only" it's the setpoint the own automation writes (control page), with
+    direct control an optional separate readback (control target page). An older value never
+    stays behind unseen."""
+    from custom_components.ess_manager.config_flow import _sensors_schema
+
+    assert not {"grid_setpoint_entity", "grid_setpoint_sign"} & {str(k) for k in _sensors_schema({}, True).schema}
+    base_states(hass, dt_util.now())
+    # direct control with a readback that is the target itself (a double)
+    entry = await _entry(hass, {"grid_setpoint_entity": "number.gx_setpoint"})
+    flow = await _options_flow(hass, entry)
+    form = await flow.async_step_control()
+    assert form["step_id"] == "control" and _default(form, "grid_setpoint_entity") == "number.gx_setpoint"
+    # direct control: what's on the control page is ignored, the next page asks
+    form = await flow.async_step_control({"control_mode": "number", "grid_setpoint_entity": "sensor.other",
+                                          "grid_setpoint_sign": "discharge_positive"})
+    assert form["step_id"] == "control_target"
+    assert "grid_setpoint_entity" not in flow._data
+    assert _default(form, "grid_setpoint_entity") is None            # the target itself isn't pre-filled
+    target = {"control_target_entity": "number.gx_setpoint", "control_unit": "W", "control_sign": "charge_positive",
+              "control_idle_value": 0}
+    done = await flow.async_step_control_target({**target, "grid_setpoint_entity": "number.gx_setpoint",
+                                                 "grid_setpoint_sign": "charge_positive"})
+    assert done["type"] == "create_entry" and done["data"]["grid_setpoint_entity"] is None
+    # a separate readback (e.g. what the inverter reports) is kept
+    flow = await _options_flow(hass, entry)
+    await flow.async_step_control({"control_mode": "number"})
+    done = await flow.async_step_control_target({**target, "grid_setpoint_entity": "sensor.inverter_setpoint",
+                                                 "grid_setpoint_sign": "charge_positive"})
+    assert done["data"]["grid_setpoint_entity"] == "sensor.inverter_setpoint"
+    # status sensor only: the setpoint the own automation writes, from the control page
+    flow = await _options_flow(hass, entry)
+    done = await flow.async_step_control({"control_mode": "off", "grid_setpoint_entity": "input_number.own",
+                                          "grid_setpoint_sign": "discharge_positive"})
+    assert done["type"] == "create_entry"
+    assert done["data"]["grid_setpoint_entity"] == "input_number.own"
+    assert done["data"]["grid_setpoint_sign"] == "discharge_positive"
+    # left empty: an older stored value is cleared, not kept unseen
+    entry2 = MockConfigEntry(domain="ess_manager", version=2, title="Twee",
+                             data={**BASE_DATA, "control_mode": "off", "grid_setpoint_entity": "input_number.own"})
+    entry2.add_to_hass(hass)
+    flow = await _options_flow(hass, entry2)
+    done = await flow.async_step_control({"control_mode": "off", "grid_setpoint_sign": "charge_positive"})
+    assert done["data"]["grid_setpoint_entity"] is None
+    # the schemas accept the forms as HA submits them (an empty optional field included)
+    form = await (await _options_flow(hass, entry)).async_step_control()
+    assert form["data_schema"]({"control_mode": "off", "grid_setpoint_sign": "charge_positive"})

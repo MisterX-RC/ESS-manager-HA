@@ -261,6 +261,8 @@ def _sensors_schema(defaults: dict[str, Any], include_name: bool) -> vol.Schema:
     """Page 1 - the sensors ESS Manager reads, which usage source to use, and
     whether to enable full-charge balancing (its own sensors get their own
     page next, only when it's switched on). The name is only asked at setup.
+    The grid/inverter setpoint readback is on the control pages (as of
+    2026.11.42), next to the choice it belongs to.
     """
     fields: dict[Any, Any] = {}
     if include_name:
@@ -284,15 +286,6 @@ def _sensors_schema(defaults: dict[str, Any], include_name: bool) -> vol.Schema:
             vol.Required(
                 CONF_SOLAR_FORECAST_ENTITIES, default=defaults.get(CONF_SOLAR_FORECAST_ENTITIES, [])
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True)),
-            vol.Optional(
-                CONF_GRID_SETPOINT_ENTITY, default=defaults.get(CONF_GRID_SETPOINT_ENTITY)
-            ): _optional_entity_selector(["sensor", "number", "input_number"]),
-            vol.Required(
-                CONF_GRID_SETPOINT_SIGN,
-                default=defaults.get(CONF_GRID_SETPOINT_SIGN) or DEFAULT_GRID_SETPOINT_SIGN,
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=CONTROL_SIGN_OPTIONS, mode=selector.SelectSelectorMode.LIST)
-            ),
             vol.Required(
                 CONF_USAGE_SOURCE, default=current_source or DEFAULT_USAGE_SOURCE
             ): selector.SelectSelector(
@@ -725,9 +718,33 @@ def _cars_text(cars: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _readback_fields(defaults: dict[str, Any], exclude: Optional[str] = None) -> dict[Any, Any]:
+    """The grid/inverter setpoint readback and its direction (as of
+    2026.11.42 on the control pages): with "Status sensor only" the setpoint
+    an own automation writes, with direct control an optional separate
+    readback of what the inverter took over. `exclude`: not pre-filled when
+    it's the control target itself (that readback is already the default)."""
+    current = defaults.get(CONF_GRID_SETPOINT_ENTITY)
+    if exclude and current == exclude:
+        current = None
+    return {
+        vol.Optional(CONF_GRID_SETPOINT_ENTITY, default=current): _optional_entity_selector(
+            ["sensor", "number", "input_number"]
+        ),
+        vol.Required(
+            CONF_GRID_SETPOINT_SIGN,
+            default=defaults.get(CONF_GRID_SETPOINT_SIGN) or DEFAULT_GRID_SETPOINT_SIGN,
+        ): selector.SelectSelector(
+            selector.SelectSelectorConfig(options=CONTROL_SIGN_OPTIONS, mode=selector.SelectSelectorMode.LIST)
+        ),
+    }
+
+
 def _control_schema(defaults: dict[str, Any]) -> vol.Schema:
     """Page 4 - whether ESS Manager sends the setpoint itself (explained in
-    the page text). Off ("Status sensor only") is the default."""
+    the page text). Off ("Status sensor only") is the default. Below it the
+    setpoint the own automation writes and its direction - only used with
+    "Status sensor only" (with direct control the next page asks)."""
     current_mode = defaults.get(CONF_CONTROL_MODE)
     if current_mode not in (CONTROL_MODE_OFF, CONTROL_MODE_NUMBER):
         current_mode = DEFAULT_CONTROL_MODE  # e.g. the removed v0.2.14 "script" mode
@@ -736,14 +753,16 @@ def _control_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(CONF_CONTROL_MODE, default=current_mode): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=CONTROL_MODE_OPTIONS, mode=selector.SelectSelectorMode.LIST)
             ),
+            **_readback_fields(defaults),
         }
     )
 
 
 def _control_target_schema(defaults: dict[str, Any], mode: str) -> vol.Schema:
     """Only when direct control is chosen: the number/input_number entity to
-    send the setpoint to, and its unit/sign convention. The previous target
-    is only pre-filled if it's still a number/input_number entity."""
+    send the setpoint to, and its unit/sign convention, and an optional
+    separate readback. The previous target is only pre-filled if it's still
+    a number/input_number entity."""
     domains = CONTROL_TARGET_DOMAINS[mode]
     current_target = defaults.get(CONF_CONTROL_TARGET_ENTITY)
     if current_target and current_target.split(".", 1)[0] in domains:
@@ -771,6 +790,8 @@ def _control_target_schema(defaults: dict[str, Any], mode: str) -> vol.Schema:
                     min=-100000, max=100000, step="any", mode=selector.NumberSelectorMode.BOX
                 )
             ),
+            # (as of 2026.11.42) an optional separate readback - empty: the target itself
+            **_readback_fields(defaults, exclude=current_target),
         }
     )
 
@@ -863,8 +884,10 @@ class _EssManagerSteps:
          the cars (as of 2026.10.11)
       5b. `hp_meter` and `hp` - only with the heat pump model: its metering,
          and its sensors and weather forecast (as of 2026.10.16)
-      6. `control` - whether ESS Manager sends the setpoint itself
-      7. `control_target` - only when it does: where to, unit, sign, idle
+      6. `control` - whether ESS Manager sends the setpoint itself; with
+         "Status sensor only" also the setpoint the own automation writes
+      7. `control_target` - only when it does: where to, unit, sign, idle,
+         and an optional separate readback
 
     The flow ends after `control` (Status sensor only) or `control_target`.
 
@@ -1197,9 +1220,16 @@ class _EssManagerSteps:
 
     async def async_step_control(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
-            self._data.update(user_input)
-            if user_input.get(CONF_CONTROL_MODE) in CONTROL_TARGET_DOMAINS:
+            data = _clean(user_input)
+            if data.get(CONF_CONTROL_MODE) in CONTROL_TARGET_DOMAINS:
+                # direct control: the readback is asked on the next page
+                data.pop(CONF_GRID_SETPOINT_ENTITY, None)
+                data.pop(CONF_GRID_SETPOINT_SIGN, None)
+                self._data.update(data)
                 return await self.async_step_control_target()
+            # always stored, also when left empty - an older value must not stay behind unseen
+            data[CONF_GRID_SETPOINT_ENTITY] = data.get(CONF_GRID_SETPOINT_ENTITY) or None
+            self._data.update(data)
             return await self._async_finish(self._data)
         return self.async_show_form(step_id="control", data_schema=_control_schema(self._defaults()))
 
@@ -1211,7 +1241,11 @@ class _EssManagerSteps:
             if target.split(".", 1)[0] not in CONTROL_TARGET_DOMAINS[mode]:
                 errors["base"] = "control_target_wrong_type"
             else:
-                self._data.update(user_input)
+                data = _clean(user_input)
+                # empty or the target itself: the target's own value is the readback
+                if data.get(CONF_GRID_SETPOINT_ENTITY) in (None, "", target):
+                    data[CONF_GRID_SETPOINT_ENTITY] = None
+                self._data.update(data)
                 return await self._async_finish(self._data)
         return self.async_show_form(
             step_id="control_target",

@@ -12,6 +12,21 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.42] - 2026-11-13
+
+### Settings
+- **The grid/inverter setpoint moved to the Battery control pages.** It
+  belongs to the choice made there, so it's no longer on the Sensors page.
+  With "Status sensor only" the Battery control page itself asks for the
+  setpoint your own automation writes (and its polarity). With direct
+  control the next page (Battery control - target) has an optional
+  separate readback - what the inverter actually took over - for when the
+  entity ESS Manager sets is only an in-between; left empty, that entity
+  itself is the readback, as before. A readback equal to the controlled
+  entity is cleared on saving, and switching between the two choices no
+  longer leaves an older value stored unseen. Existing settings keep
+  working unchanged; nothing to do after the update.
+
 ## [2026.11.41] - 2026-11-13
 
 ### Cards

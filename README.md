@@ -409,16 +409,21 @@ integration producing the same shape works):
   Solcast's day sensors each cover their own day, so they simply follow
   on. A sensor with neither attribute counts as no sun at all, so the
   integration logs a warning for it once.
-- **Grid/inverter setpoint** *(optional but recommended)*: the entity that
-  holds your current commanded charge/discharge power - a sensor, a
-  `number` or an `input_number` (for example the input_number your own ESS
-  automation writes to). Right below it you choose its polarity:
+- **Grid/inverter setpoint** *(optional but recommended; on the Battery
+  control pages as of 2026.11.42)*: the entity that holds your current
+  commanded charge/discharge power - a sensor, a `number` or an
+  `input_number`. With **Status sensor only** it's asked on the Battery
+  control page itself: the setpoint your own ESS automation writes. With
+  **direct control** it's an optional separate readback on the next page
+  (Battery control - target): what the inverter actually took over, for
+  when the entity ESS Manager sets is only an in-between (e.g. an
+  input_number an automation passes on); left empty, the entity ESS
+  Manager sets is used. Right below it you choose its polarity:
   "Positive = import from the grid (battery charges)" (the default) or
   "Positive = export to the grid (battery discharges)". W or kW is
   taken from the entity's unit, so give an input_number a unit of `W` or
   `kW` (no unit counts as W). Used to make the "Status" sensor's engaged-vs-starting
-  distinction accurate; nothing is ever written to it. With direct control
-  of a number entity you can leave it empty (see below).
+  distinction accurate; nothing is ever written to it.
 - **Cell voltage differential** *(optional)*: only needed if you enable the
   full-charge balancing plan.
 - **Battery pack voltage** *(required if you enable the full-charge balancing
@@ -1494,8 +1499,8 @@ step 4 above. You'll have to repeat this for every update.
 The setup wizard walks through these pages:
 
 1. **Sensors** - name, battery SOC sensor, price sensor, solar forecast
-   sensor(s), grid/inverter setpoint and its polarity (optional), the
-   household usage source, and a switch for full-charge balancing.
+   sensor(s), the household usage source, and a switch for full-charge
+   balancing.
 2. **Usage source** - for the Energy dashboard: shows which statistics it
    found, plus the lookback weeks; for a consumption sensor: pick the
    sensor(s), plus the lookback weeks.
@@ -1509,10 +1514,12 @@ The setup wizard walks through these pages:
    the house from the grid at low prices - its page with the battery's
    power sensor follows).
 6. **Battery control** - whether ESS Manager sends the setpoint itself
-   (see "Direct control"). "Status sensor only" is the default.
+   (see "Direct control"). "Status sensor only" is the default; with it,
+   the setpoint your own automation writes and its polarity (optional) are
+   on this page too *(as of 2026.11.42 - before, on the Sensors page)*.
 7. **Battery control - target** - only when direct control is chosen: the
    number/input_number entity, its unit (W/kW), sign convention and idle
-   value.
+   value, and an optional separate readback with its polarity.
 
 Capacity, normal charge/discharge speed, min/max SOC and the full charge
 target voltage seed a set of `number` entities (see below) that you
@@ -1778,9 +1785,14 @@ your automation does for a few days, then choose direct control and
 **disable your own ESS automation** so the two don't fight over the
 setpoint.
 
-If you leave the grid/inverter setpoint on the first page empty, the
-number entity you control is used as the setpoint readback for the Status
-(`Start charge` vs `Actief`).
+If you leave the separate readback on the Battery control - target page
+empty, the number entity you control is used as the setpoint readback for
+the Status (`Start charge` vs `Actief`). Pick one when the entity you
+control is only an in-between and the inverter reports what it really
+took over - then the Status shows whether the inverter followed. A
+readback equal to the controlled entity is cleared on saving (it's the
+same thing), and switching between Status sensor only and direct control
+never leaves an older readback behind unseen *(as of 2026.11.42)*.
 
 When does `Start charge` become `Actief` (and `Start discharge` become
 `Actief`)? Once the readback holds at least half of the charge (discharge)

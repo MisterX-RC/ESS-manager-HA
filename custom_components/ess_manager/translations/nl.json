@@ -9,8 +9,6 @@
           "battery_soc_entity": "Laadstandsensor van de accu (%)",
           "price_entity": "Stroomprijssensor (Nordpool-stijl, met kwartierprijzen voor vandaag/morgen)",
           "solar_forecast_entities": "Zonnevoorspelling(en): Solcast (attribuut detailedHourly - voeg zoveel dagsensoren toe als nodig voor je horizon) of Helios Forecast (de sensor Power now van elke Helios-installatie - meerdere worden opgeteld, bijv. één per dakvlak)",
-          "grid_setpoint_entity": "Net-/omvormer-setpoint (optioneel) - een sensor, number of input_number met het huidige opgedragen vermogen (W of kW, volgens de eenheid). Voor Start of Actief in de status; met directe sturing van een number-entiteit mag het leeg blijven",
-          "grid_setpoint_sign": "Richting van het net-/omvormer-setpoint (alleen als er hierboven een gekozen is)",
           "usage_source": "Bron voor de verbruiksvoorspelling - de volgende pagina stelt die in",
           "enable_full_charge_plan": "Periodiek vol laden en balanceren aan (laadt met een interval tot 100% en houdt dat even vast zodat het BMS de cellen kan balanceren) - de sensoren volgen op de volgende pagina",
           "price_incl_mode": "Prijzen inclusief belastingen - waar de planning kosten en opbrengsten mee rekent, en wat de prijskaart toont (de volgende pagina stelt het in)"
@@ -150,19 +148,23 @@
       },
       "control": {
         "title": "Accusturing",
-        "description": "Moet ESS Manager het laad-/ontlaadsetpoint zelf naar je omvormer sturen?\n\n**Alleen statussensor** (standaard) - er wordt niets verstuurd. ESS Manager beslist alleen, via zijn Status-sensor, en je eigen automatisering (zie dashboard/automation_example.yaml) zet dat om in een commando.\n\n**Een number / input_number entiteit instellen** - ESS Manager stuurt het setpoint elke cyclus zelf, met de laad-/ontlaadsnelheden waarmee de plannen zijn berekend - als netsetpoint: het huis wordt eruit gedekt en de accu krijgt de rest, tot zijn maximale snelheid. Met de schakelaar \"Automatic control\" kun je het op elk moment pauzeren; hij stuurt ook idle als een update mislukt, als de integratie wordt ontladen en als Home Assistant stopt. Schakel je dit in, zet dan je eigen ESS-automatisering uit zodat de twee elkaar niet tegenwerken.\n\nDe sensor \"Planned setpoint\" toont wat er verstuurd zou worden, ook als dit uit staat, zodat je het eerst met je automatisering kunt vergelijken.",
+        "description": "Moet ESS Manager het laad-/ontlaadsetpoint zelf naar je omvormer sturen?\n\n**Alleen statussensor** (standaard) - er wordt niets verstuurd. ESS Manager beslist alleen, via zijn Status-sensor, en je eigen automatisering (zie dashboard/automation_example.yaml) zet dat om in een commando.\n\n**Een number / input_number entiteit instellen** - ESS Manager stuurt het setpoint elke cyclus zelf, met de laad-/ontlaadsnelheden waarmee de plannen zijn berekend - als netsetpoint: het huis wordt eruit gedekt en de accu krijgt de rest, tot zijn maximale snelheid. Met de schakelaar \"Automatic control\" kun je het op elk moment pauzeren; hij stuurt ook idle als een update mislukt, als de integratie wordt ontladen en als Home Assistant stopt. Schakel je dit in, zet dan je eigen ESS-automatisering uit zodat de twee elkaar niet tegenwerken.\n\nDe sensor \"Planned setpoint\" toont wat er verstuurd zou worden, ook als dit uit staat, zodat je het eerst met je automatisering kunt vergelijken.\n\nBij **Alleen statussensor** kies je hieronder het setpoint dat je eigen automatisering zet, zodat de status Start of Actief kan tonen. Bij directe sturing worden deze twee velden genegeerd: de volgende pagina vraagt naar de terugmelding.",
         "data": {
-          "control_mode": "Sturing"
+          "control_mode": "Sturing",
+          "grid_setpoint_entity": "Setpoint dat je eigen automatisering zet (optioneel, alleen bij Alleen statussensor) - een sensor, number of input_number met het huidige opgedragen vermogen (W of kW, volgens de eenheid). Voor Start of Actief in de status",
+          "grid_setpoint_sign": "Richting van dat setpoint"
         }
       },
       "control_target": {
         "title": "Accusturing - setpoint",
-        "description": "De entiteit waar het setpoint naartoe gaat - bijvoorbeeld de `number`-entiteit voor het net-setpoint van je omvormer, of de `input_number` die je omvormerautomatisering leest.\n\nDe rust-waarde wordt precies zo verstuurd als ingevuld wanneer de accu niets hoeft te doen (meestal 0; sommige Victron-systemen staan in rust op -30 W).\n\nLaat je het net-/omvormer-setpoint op de eerste pagina leeg, dan dient deze entiteit als terugmelding voor de status.",
+        "description": "De entiteit waar het setpoint naartoe gaat - bijvoorbeeld de `number`-entiteit voor het net-setpoint van je omvormer, of de `input_number` die je omvormerautomatisering leest.\n\nDe rust-waarde wordt precies zo verstuurd als ingevuld wanneer de accu niets hoeft te doen (meestal 0; sommige Victron-systemen staan in rust op -30 W).\n\nDe terugmelding is waarmee de status Start of Actief bepaalt. Laat hem leeg om de setpoint-entiteit zelf te gebruiken; kies een aparte als de setpoint-entiteit alleen een tussenstap is (bijv. een input_number die een automatisering doorgeeft) en de omvormer zelf meldt wat hij echt heeft overgenomen.",
         "data": {
           "control_target_entity": "Setpoint-entiteit (number / input_number)",
           "control_unit": "Eenheid van het setpoint",
           "control_sign": "Richting van het setpoint",
-          "control_idle_value": "Rust-waarde (in de eenheid hierboven)"
+          "control_idle_value": "Rust-waarde (in de eenheid hierboven)",
+          "grid_setpoint_entity": "Aparte terugmelding (optioneel) - een sensor, number of input_number met wat de omvormer echt heeft overgenomen. Leeg: de setpoint-entiteit hierboven wordt gebruikt",
+          "grid_setpoint_sign": "Richting van de terugmelding"
         }
       },
       "night_limit": {
@@ -270,8 +272,6 @@
           "battery_soc_entity": "Laadstandsensor van de accu (%)",
           "price_entity": "Stroomprijssensor (Nordpool-stijl, met kwartierprijzen voor vandaag/morgen)",
           "solar_forecast_entities": "Zonnevoorspelling(en): Solcast (attribuut detailedHourly - voeg zoveel dagsensoren toe als nodig voor je horizon) of Helios Forecast (de sensor Power now van elke Helios-installatie - meerdere worden opgeteld, bijv. één per dakvlak)",
-          "grid_setpoint_entity": "Net-/omvormer-setpoint (optioneel) - een sensor, number of input_number met het huidige opgedragen vermogen (W of kW, volgens de eenheid). Voor Start of Actief in de status; met directe sturing van een number-entiteit mag het leeg blijven",
-          "grid_setpoint_sign": "Richting van het net-/omvormer-setpoint (alleen als er hierboven een gekozen is)",
           "usage_source": "Bron voor de verbruiksvoorspelling - de volgende pagina stelt die in",
           "enable_full_charge_plan": "Periodiek vol laden en balanceren aan (laadt met een interval tot 100% en houdt dat even vast zodat het BMS de cellen kan balanceren) - de sensoren volgen op de volgende pagina",
           "price_incl_mode": "Prijzen inclusief belastingen - waar de planning kosten en opbrengsten mee rekent, en wat de prijskaart toont (de volgende pagina stelt het in)"
@@ -405,19 +405,23 @@
       },
       "control": {
         "title": "Accusturing",
-        "description": "Moet ESS Manager het laad-/ontlaadsetpoint zelf naar je omvormer sturen?\n\n**Alleen statussensor** (standaard) - er wordt niets verstuurd. ESS Manager beslist alleen, via zijn Status-sensor, en je eigen automatisering (zie dashboard/automation_example.yaml) zet dat om in een commando.\n\n**Een number / input_number entiteit instellen** - ESS Manager stuurt het setpoint elke cyclus zelf, met de laad-/ontlaadsnelheden waarmee de plannen zijn berekend - als netsetpoint: het huis wordt eruit gedekt en de accu krijgt de rest, tot zijn maximale snelheid. Met de schakelaar \"Automatic control\" kun je het op elk moment pauzeren; hij stuurt ook idle als een update mislukt, als de integratie wordt ontladen en als Home Assistant stopt. Schakel je dit in, zet dan je eigen ESS-automatisering uit zodat de twee elkaar niet tegenwerken.\n\nDe sensor \"Planned setpoint\" toont wat er verstuurd zou worden, ook als dit uit staat, zodat je het eerst met je automatisering kunt vergelijken.",
+        "description": "Moet ESS Manager het laad-/ontlaadsetpoint zelf naar je omvormer sturen?\n\n**Alleen statussensor** (standaard) - er wordt niets verstuurd. ESS Manager beslist alleen, via zijn Status-sensor, en je eigen automatisering (zie dashboard/automation_example.yaml) zet dat om in een commando.\n\n**Een number / input_number entiteit instellen** - ESS Manager stuurt het setpoint elke cyclus zelf, met de laad-/ontlaadsnelheden waarmee de plannen zijn berekend - als netsetpoint: het huis wordt eruit gedekt en de accu krijgt de rest, tot zijn maximale snelheid. Met de schakelaar \"Automatic control\" kun je het op elk moment pauzeren; hij stuurt ook idle als een update mislukt, als de integratie wordt ontladen en als Home Assistant stopt. Schakel je dit in, zet dan je eigen ESS-automatisering uit zodat de twee elkaar niet tegenwerken.\n\nDe sensor \"Planned setpoint\" toont wat er verstuurd zou worden, ook als dit uit staat, zodat je het eerst met je automatisering kunt vergelijken.\n\nBij **Alleen statussensor** kies je hieronder het setpoint dat je eigen automatisering zet, zodat de status Start of Actief kan tonen. Bij directe sturing worden deze twee velden genegeerd: de volgende pagina vraagt naar de terugmelding.",
         "data": {
-          "control_mode": "Sturing"
+          "control_mode": "Sturing",
+          "grid_setpoint_entity": "Setpoint dat je eigen automatisering zet (optioneel, alleen bij Alleen statussensor) - een sensor, number of input_number met het huidige opgedragen vermogen (W of kW, volgens de eenheid). Voor Start of Actief in de status",
+          "grid_setpoint_sign": "Richting van dat setpoint"
         }
       },
       "control_target": {
         "title": "Accusturing - setpoint",
-        "description": "De entiteit waar het setpoint naartoe gaat - bijvoorbeeld de `number`-entiteit voor het net-setpoint van je omvormer, of de `input_number` die je omvormerautomatisering leest.\n\nDe rust-waarde wordt precies zo verstuurd als ingevuld wanneer de accu niets hoeft te doen (meestal 0; sommige Victron-systemen staan in rust op -30 W).\n\nLaat je het net-/omvormer-setpoint op de eerste pagina leeg, dan dient deze entiteit als terugmelding voor de status.",
+        "description": "De entiteit waar het setpoint naartoe gaat - bijvoorbeeld de `number`-entiteit voor het net-setpoint van je omvormer, of de `input_number` die je omvormerautomatisering leest.\n\nDe rust-waarde wordt precies zo verstuurd als ingevuld wanneer de accu niets hoeft te doen (meestal 0; sommige Victron-systemen staan in rust op -30 W).\n\nDe terugmelding is waarmee de status Start of Actief bepaalt. Laat hem leeg om de setpoint-entiteit zelf te gebruiken; kies een aparte als de setpoint-entiteit alleen een tussenstap is (bijv. een input_number die een automatisering doorgeeft) en de omvormer zelf meldt wat hij echt heeft overgenomen.",
         "data": {
           "control_target_entity": "Setpoint-entiteit (number / input_number)",
           "control_unit": "Eenheid van het setpoint",
           "control_sign": "Richting van het setpoint",
-          "control_idle_value": "Rust-waarde (in de eenheid hierboven)"
+          "control_idle_value": "Rust-waarde (in de eenheid hierboven)",
+          "grid_setpoint_entity": "Aparte terugmelding (optioneel) - een sensor, number of input_number met wat de omvormer echt heeft overgenomen. Leeg: de setpoint-entiteit hierboven wordt gebruikt",
+          "grid_setpoint_sign": "Richting van de terugmelding"
         }
       },
       "night_limit": {
