@@ -205,7 +205,7 @@ const I18N = {
     fl_waits: "A higher stage waits for", fl_wait_inputs: "a sensor, the thermostat helper or the house model's heat plan",
     fl_wait_emission: (n, need) => `the floor's heat output: ${n} of ${need} running hours`,
     fl_wait_emission_err: (e) => `the floor's heat output fits better (now ${e} % off)`,
-    fl_wait_response: (n, need) => `the heat pump following the setpoint: ${n} of ${need} running hours`,
+    fl_wait_response: (n, need, p, mp) => `the heat pump following the setpoint: ${n} of ${need} running hours` + (mp ? `, ${p} of ${mp} separate periods` : ``),
     fl_wait_house: "the house model's self-check (Indoor tab)", fl_wait_thermostat_off: "the thermostat switched on again (it's off: no heating)",
     fl_u_t: "Floor output", fl_u_unit: "kW per \u00b0C", fl_p_t: "Heat pump", fl_p_unit: "kW min - max", fl_delta_t: "Supply - return",
     fl_sp_t: "Return setpoint", fl_sp_unit: "planned / now", fl_debt_t: "Heat owed", fl_slab_t: "Floor", fl_slab_unit: "in the screed",
@@ -412,7 +412,7 @@ const I18N = {
     fl_waits: "Een hogere stap wacht op", fl_wait_inputs: "een sensor, de hulpschakelaar van de thermostaat of het warmteplan van het huismodel",
     fl_wait_emission: (n, need) => `de warmteafgifte van de vloer: ${n} van ${need} draaiuren`,
     fl_wait_emission_err: (e) => `een betere fit van de warmteafgifte (nu ${e} % ernaast)`,
-    fl_wait_response: (n, need) => `de warmtepomp die het setpoint volgt: ${n} van ${need} draaiuren`,
+    fl_wait_response: (n, need, p, mp) => `de warmtepomp die het setpoint volgt: ${n} van ${need} draaiuren` + (mp ? `, ${p} van ${mp} aparte perioden` : ``),
     fl_wait_house: "de zelfcontrole van het huismodel (tabblad Binnen)", fl_wait_thermostat_off: "de thermostaat weer aan (hij staat uit: niet stoken)",
     fl_u_t: "Afgifte vloer", fl_u_unit: "kW per \u00b0C", fl_p_t: "Warmtepomp", fl_p_unit: "kW min - max", fl_delta_t: "Aanvoer - retour",
     fl_sp_t: "Retoursetpoint", fl_sp_unit: "gepland / nu", fl_debt_t: "Warmte te goed", fl_slab_t: "Vloer", fl_slab_unit: "in de dekvloer",
@@ -4194,7 +4194,11 @@ class EssManagerHeatPumpCard extends EssChartCard {
     for (const w of fl.waiting || []) {
       if (w === "inputs") waits.push(this._t("fl_wait_inputs"));
       else if (w === "emission") waits.push((m.n || 0) >= (fl.min_hours || 30) && m.err != null ? this._t("fl_wait_emission_err")(Math.round(m.err * 100)) : this._t("fl_wait_emission")(m.n || 0, fl.min_hours || 30));
-      else if (w === "response") waits.push(this._t("fl_wait_response")((fl.response || {}).n || 0, (fl.response || {}).min_hours || 24));
+      else if (w === "response") {
+        // (2026.11.44) the hours needed follow how steadily it followed, from several periods
+        const rs = fl.response || {};
+        waits.push(this._t("fl_wait_response")(rs.n || 0, rs.needed || rs.min_hours || 24, rs.periods || 0, rs.min_periods || 0));
+      }
       else if (w === "house") waits.push(this._t("fl_wait_house"));
       else if (w === "thermostat_off") waits.push(this._t("fl_wait_thermostat_off"));
     }

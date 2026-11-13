@@ -1781,7 +1781,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {
                 "mode": self.floor_mode, "stage": fc.STAGE_COOLING, "waiting": [],
                 "model": {k: (self.floor.model or {}).get(k) for k in ("u", "delta", "p_min", "p_max", "n", "err", "ok", "slab")},
-                "min_hours": fc.MIN_EMIT_HOURS, "response": {"n": 0, "err": None, "ok": False, "min_hours": fc.MIN_RESPONSE_HOURS},
+                "min_hours": fc.MIN_EMIT_HOURS, "response": {"n": 0, "err": None, "ok": False, "needed": fc.MIN_RESPONSE_HOURS, "periods": 0,
+                             "min_periods": fc.RESPONSE_MIN_PERIODS, "min_hours": fc.MIN_RESPONSE_HOURS},
                 "now": {"reason": "cooling"}, "next": [], "select": self.floor_mode_entity_id,
                 "recent": [{k: r.get(k) for k in ("h", "th_kwh", "plan_kwh", "sp", "run_s", "room", "slab", "heat_s", "dhw_s")}
                            for r in self.floor.records if r["h"] >= hour0 - 24 * 3600],
@@ -1916,7 +1917,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "waiting": waiting,
             "model": {k: model.get(k) for k in ("u", "delta", "p_min", "p_max", "n", "err", "ok", "slab")},
             "min_hours": fc.MIN_EMIT_HOURS,
-            "response": {**response, "min_hours": fc.MIN_RESPONSE_HOURS},
+            "response": {**response, "min_hours": response.get("needed", fc.MIN_RESPONSE_HOURS)},
             "house_ok": house_ok,
             "cop": cop,
             "now": {

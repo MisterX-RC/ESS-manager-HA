@@ -4568,11 +4568,31 @@ check("floor: stages need the one before",
       and fcm.effective_stage("setpoint", True, True, True, True)[0] == "setpoint"
       and fcm.effective_stage("full", True, True, True, False)[0] == "watch"
       and fcm.effective_stage("watch", True, True, True, True)[0] == "watch")
-_resp = [{"h": 100 + i, "run_s": 3000, "p_th": 2.0, "p_target": 2.2} for i in range(30)]
+# 30 running hours, 3 a night over 10 nights
+_resp = [{"h": (d * 24 + 2 + k) * 3600, "run_s": 3000, "p_th": 2.0, "p_target": 2.2} for d in range(10) for k in range(3)]
 check("floor: response check - the heat pump followed the target power",
-      fcm.response_check(_resp, 100)["ok"] and not fcm.response_check(_resp, 115)["ok"]
-      and not fcm.response_check([{**r, "p_th": 1.0} for r in _resp], 100)["ok"]
+      fcm.response_check(_resp, 0)["ok"] and not fcm.response_check(_resp, (8 * 24) * 3600)["ok"]
+      and not fcm.response_check([{**r, "p_th": 1.0} for r in _resp], 0)["ok"]
       and fcm.response_check(_resp, None)["n"] == 0)
+# 2026.11.44: the hours needed follow how steadily it followed - at least 8 over 3 separate periods, at most 24
+def _resp_rows(errs, per_night=2):
+    return [{"h": ((i // per_night) * 24 + 1 + i % per_night) * 3600, "run_s": 3000,
+             "p_th": 3.3 * (1 + e), "p_target": 3.3} for i, e in enumerate(errs)]
+
+
+_rs_steady = fcm.response_check(_resp_rows([0.06, 0.07, 0.01, 0.07, 0.05, 0.06, 0.02, 0.07]), 0)
+_rs_few = fcm.response_check(_resp_rows([0.06, 0.07, 0.01, 0.07]), 0)
+_rs_one_night = fcm.response_check(_resp_rows([0.05] * 10, per_night=10), 0)
+_rs_wobbly = fcm.response_check(_resp_rows([0.05, 0.45, 0.10, 0.35, 0.02, 0.30, 0.15, 0.25, 0.05, 0.40]), 0)
+check("floor response: steady hours over 4 nights pass after 8 hours (not 24)",
+      _rs_steady["ok"] and _rs_steady["needed"] == fcm.RESPONSE_MIN_HOURS == 8 and _rs_steady["periods"] == 4)
+check("floor response: 4 steady hours or one long night aren't enough - at least 8 hours from 3 separate periods",
+      not _rs_few["ok"] and _rs_few["periods"] == 2
+      and not _rs_one_night["ok"] and _rs_one_night["periods"] == 1 and _rs_one_night["n"] == 10)
+_rs_bad = fcm.response_check(_resp_rows([0.25, 0.32, 0.20, 0.35, 0.28, 0.22, 0.31, 0.26]), 0)
+check("floor response: a heat pump that follows unsteadily needs more hours (13; close to the 30 % limit 16; at most 24)",
+      not _rs_wobbly["ok"] and _rs_wobbly["needed"] == 13 and _rs_wobbly["err"] <= fcm.RESPONSE_MAX_ERR
+      and _rs_bad["needed"] == 16 and not _rs_bad["ok"])
 # the runtime: pump settling, hourly records, store
 _fr = fcm.FloorRuntime()
 _h0 = 1_800_000_000 // 3600 * 3600

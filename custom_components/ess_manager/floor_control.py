@@ -40,6 +40,8 @@ Pure Python (no Home Assistant), unit-tested in tests/test_pipeline.py.
 """
 from __future__ import annotations
 
+import math
+
 from typing import Any, Optional
 
 MODE_WATCH = "watch"
@@ -69,8 +71,19 @@ SP_LIMITS = (20.0, 35.0)     # return setpoint, degC (within the entity's own ra
 SP_WRITE_EVERY_S = 300
 MIN_EMIT_HOURS = 30          # settled running hours to learn the floor from
 EMIT_MAX_ERR = 0.25          # mean error of the emission model, share of the power
-MIN_RESPONSE_HOURS = 24      # running hours in the setpoint stage ...
+MIN_RESPONSE_HOURS = 24      # running hours in the setpoint stage at most ...
 RESPONSE_MAX_ERR = 0.30      # ... with the heat pump following the target power this well
+# (as of 2026.11.44) fewer when the heat pump follows steadily: the hours'
+# errors (|delivered - target| / target) on average RESPONSE_Z standard errors
+# below RESPONSE_MAX_ERR - but at least RESPONSE_MIN_HOURS, spread over at
+# least RESPONSE_MIN_PERIODS separate heating periods (runs more than
+# RESPONSE_PERIOD_GAP_H apart, e.g. different nights): the test is about the
+# heat pump following the setpoint in different situations, not only about
+# the spread of a few hours of the same night
+RESPONSE_MIN_HOURS = 8
+RESPONSE_MIN_PERIODS = 3
+RESPONSE_PERIOD_GAP_H = 6
+RESPONSE_Z = 2.0
 COMFORT_BAND = 1.0           # degC from the wanted temperature: heat on / off regardless
 COMFORT_HARD = 1.5           # degC: also outside the minimum run / off time
 DEBT_CAP_H = 2.0             # heat owed / ahead at most this many hours of maximum power
@@ -139,9 +152,23 @@ def response_check(records: list[dict[str, Any]], since_ts: Optional[float]) -> 
     rows = [r for r in records if since_ts is not None and r["h"] >= since_ts and (r.get("run_s") or 0) >= 1800
             and r.get("p_th") and r.get("p_target")]
     if not rows:
-        return {"n": 0, "err": None, "ok": False}
+        return {"n": 0, "err": None, "ok": False, "needed": MIN_RESPONSE_HOURS, "periods": 0}
     err = sum(abs(r["p_th"] - r["p_target"]) for r in rows) / max(sum(r["p_target"] for r in rows), 1e-9)
-    return {"n": len(rows), "err": round(err, 3), "ok": len(rows) >= MIN_RESPONSE_HOURS and err <= RESPONSE_MAX_ERR}
+    # (as of 2026.11.44) the hours needed follow how steadily it followed, and
+    # they have to come from several separate heating periods
+    rel = [abs(r["p_th"] - r["p_target"]) / r["p_target"] for r in rows]
+    mean = sum(rel) / len(rel)
+    sd = (sum((v - mean) ** 2 for v in rel) / (len(rel) - 1)) ** 0.5 if len(rel) > 1 else None
+    if sd is None or mean >= RESPONSE_MAX_ERR:
+        needed = MIN_RESPONSE_HOURS
+    else:
+        raw = math.ceil((RESPONSE_Z * sd / (RESPONSE_MAX_ERR - mean)) ** 2 - 1e-9)
+        needed = min(max(raw, RESPONSE_MIN_HOURS), MIN_RESPONSE_HOURS)
+    hours = sorted(r["h"] for r in rows)
+    periods = 1 + sum(1 for a, b in zip(hours, hours[1:]) if b - a > RESPONSE_PERIOD_GAP_H * 3600)
+    ok = len(rows) >= needed and periods >= RESPONSE_MIN_PERIODS and err <= RESPONSE_MAX_ERR
+    return {"n": len(rows), "err": round(err, 3), "ok": ok, "needed": needed, "periods": periods,
+            "min_periods": RESPONSE_MIN_PERIODS, "sd": round(sd, 3) if sd is not None else None}
 
 
 def return_setpoint(model: dict[str, Any], p_kw: float, t_ref: float, lo: float, hi: float, step: float) -> Optional[float]:

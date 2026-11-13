@@ -1200,7 +1200,20 @@ proven itself:
 |---|---|---|
 | Watch (default) | nothing changes: the thermostat switches, the return setpoint stays; ESS Manager learns and shows what it would do | - |
 | Return setpoint | ESS Manager sets the return setpoint by the planned heat, the thermostat still switches heat demand | the floor's heat output is learned: 30 settled running hours, at most 25 % off on the newest hours |
-| Full | ESS Manager also switches heat demand; the thermostat is only where the wanted temperature is set | the heat pump delivered the target power within 30 % for 24 running hours in the return setpoint stage, and the house model passed its self-check |
+| Full | ESS Manager also switches heat demand; the thermostat is only where the wanted temperature is set | the heat pump delivered the target power within 30 % in the return setpoint stage - 8 to 24 running hours depending on how steadily (see below), from at least 3 separate heating periods - and the house model passed its self-check |
+
+*(As of 2026.11.44)* **How many running hours the response check needs**
+follows how steadily the heat pump delivered the target power (24 fixed
+before): each settled running hour's error (|delivered - target| / target)
+must on average be clearly below 30 % - at least 2 standard errors. Needed
+= (2 × spread ÷ (0.30 - average error))², at least 8 and at most 24 hours,
+and the hours have to come from at least 3 separate heating periods (runs
+more than 6 hours apart, such as different nights): a few hours of one
+night say little about other situations. A heat pump that follows closely
+reaches Full after 8 hours over 3 nights; one that wavers needs more. The
+check keeps running in Full and falls back to Return setpoint when it no
+longer holds. The diagnostics show `response.needed`, `response.periods`
+and `response.sd`; the card shows the hours and periods still to go.
 
 *(As of 2026.11.35)* The house model's self-check runs every night, also in
 Full - and the days ESS Manager switched are judged as it switched them

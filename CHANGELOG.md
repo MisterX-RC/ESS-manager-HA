@@ -12,6 +12,24 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.44] - 2026-11-13
+
+### Floor control
+- **The response check needs as many running hours as the heat pump's
+  steadiness asks** (24 fixed before). Before ESS Manager may also switch
+  the heat demand (stage Full), the heat pump has to show in the Return
+  setpoint stage that it delivers the target power. Each settled running
+  hour's error (|delivered - target| / target) must now on average be at
+  least 2 standard errors below the 30 % limit: needed = (2 × spread ÷
+  (0.30 - average error))², at least 8 and at most 24 hours. The hours also
+  have to come from at least 3 separate heating periods (runs more than 6
+  hours apart, such as different nights), so a single long night isn't
+  enough. A heat pump that follows closely reaches Full after 8 hours over 3
+  nights instead of 24; one that wavers still needs up to 24. The check keeps
+  running in Full, as before. Diagnostics: `response.needed`,
+  `response.periods`, `response.sd`; the Floor tab of the heat pump card
+  shows the hours and periods still to go.
+
 ## [2026.11.43] - 2026-11-13
 
 ### Heat pump - house model
