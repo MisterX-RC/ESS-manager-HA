@@ -211,3 +211,35 @@ async def test_floor_full_hours_kept_for_the_house_model(hass, freezer, monkeypa
         freezer.tick(timedelta(minutes=1))
         await co.async_refresh()
     assert not co.hp.ess_switches and sum(co.hp.thermostat_series("ess").values()) == before
+
+
+async def test_floor_minimum_floor_temperature(hass, freezer):
+    """The minimum floor temperature (2026.11.45): the return setpoint never asks
+    for less than keeps the mean water there, and the card gets the setting and
+    the temperature above which the house would get too warm."""
+    co, calls = await _floor_a(hass, freezer)
+    freezer.tick(timedelta(minutes=1))
+    await co.async_refresh()
+    mf = co.data["heat_pump"]["floor"]["min_floor"]
+    assert mf["entity"] and mf["t_c"] is None and mf["sp_min"] is None and not mf["active"]
+    sp_off = co.data["heat_pump"]["floor"]["now"]["sp_planned"]
+
+    await co._numbers["floor_min_temperature"].async_set_native_value(32.0)
+    # an hourly forecast at 5 degC, for the limit
+    t0 = dt_util.now().replace(minute=0, second=0, microsecond=0)
+    co._hp_hourly = [{"datetime": (t0 + timedelta(hours=i)).isoformat(), "temperature": 5.0, "wind_speed": 0.0}
+                     for i in range(48)]
+    # a house model in the hour-by-hour sense, for the limit
+    co.hp.house = {**(co.hp.house or {}), "model": {"a": 0.0, "k": 0.004, "g": 0.06, "kw": None, "ks": 0.0, "kg": 0.0,
+                                                     "tau": 2.0, "qmax": 4.0, "thermal": True}}
+    freezer.tick(timedelta(minutes=6))
+    await co.async_refresh()
+    fl = co.data["heat_pump"]["floor"]
+    mf = fl["min_floor"]
+    # 32 - delta/2 (3.86 / 2) = 30.07, rounded up to the 0.5 step
+    assert mf["t_c"] == 32.0 and mf["active"] and mf["sp_min"] == 30.5
+    assert sp_off < 30.5 and fl["now"]["sp_planned"] == 30.5
+    assert any(c[2].get("entity_id") == "number.qube_return_sp" and c[2].get("value") == 30.5 for c in calls)
+    assert all(n["sp"] is None or n["sp"] >= 30.5 for n in fl["next"])
+    # 21 + 0.004 x 16 / 0.06 / 0.4332 = 23.5 (no sun in the test): 32 is far too warm
+    assert mf["target_c"] == 21.0 and mf["limit_c"] is not None and 23.0 <= mf["limit_c"] <= 24.0 and mf["too_warm"]

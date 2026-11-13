@@ -405,6 +405,9 @@ NUM_HP_NIGHT_FROM = "hp_night_from"
 # floor control (as of 2026.10.38): the highest return setpoint it may write
 # (a PVC floor pipe, say) - within the built-in 20..35 degC
 NUM_FLOOR_MAX_RETURN = "floor_max_return"
+# (as of 2026.11.45) the minimum floor temperature (mean water temperature) for
+# comfort, on the heat pump card's Indoor tab - 0 = off
+NUM_FLOOR_MIN_TEMP = "floor_min_temperature"
 
 # (key, name, icon, min, max, step, unit, default_fn(config_entry.data))
 # default_fn takes the config entry's `data` dict and returns the seed value
@@ -610,6 +613,7 @@ NUMBER_DEFINITIONS = [
     (NUM_HP_DAY_FROM, "Heat pump day from", "mdi:clock-start", 0, 23, 1, "h", lambda data: 7),
     (NUM_HP_NIGHT_FROM, "Heat pump night from", "mdi:clock-end", 0, 23, 1, "h", lambda data: 22),
     (NUM_FLOOR_MAX_RETURN, "Floor control maximum return setpoint", "mdi:thermometer-high", 20, 35, 0.5, "\u00b0C", lambda data: 35.0),
+    (NUM_FLOOR_MIN_TEMP, "Floor control minimum floor temperature", "mdi:heating-coil", 0, 35, 0.5, "\u00b0C", lambda data: 0.0),
 ]
 
 # ---------------------------------------------------------------------------
@@ -640,7 +644,7 @@ PLAN_ENTITY_KEYS = {
     CONF_HP_ENABLED: ("heat_pump_model",),
     # steering's settings and switch (as of 2026.10.17)
     HP_STEERING_PLAN: (NUM_HP_DAY_TEMP, NUM_HP_NIGHT_TEMP, NUM_HP_BUFFER_DELTA, NUM_HP_DAY_FROM, NUM_HP_NIGHT_FROM, "heat_pump_steering"),
-    FLOOR_PLAN: (NUM_FLOOR_MAX_RETURN,),
+    FLOOR_PLAN: (NUM_FLOOR_MAX_RETURN, NUM_FLOOR_MIN_TEMP),
     CONF_ENABLE_FULL_CHARGE_PLAN: (
         NUM_FULL_CHARGE_INTERVAL_DAYS,
         NUM_FULL_CHARGE_MAX_HOLD_MINUTES,

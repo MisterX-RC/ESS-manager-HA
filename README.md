@@ -1174,6 +1174,34 @@ becomes
   (full at 1.2 °C), and 1 °C too cold the return setpoint never goes below
   the one the heat pump had before.
 
+*(as of 2026.11.45)* **Minimum floor temperature** (number **Floor control
+minimum floor temperature**, on the Indoor tab of the heat pump card under
+the buffer range; 0 = off, the default; on the card "+" from off jumps to
+20 °C). For comfort - warm feet - the floor is kept at least at this
+temperature, taken as the **mean water temperature** ((supply + return) / 2)
+the floor model works with; the floor's surface itself is somewhat cooler.
+With the circulation pump stopped the water can't be measured, so the
+minimum is planned rather than switched on a reading: the floor held at
+that temperature gives off U × (minimum - wanted room) kW (with a floor
+sensor model: minus the screed), and floor control's heat plan never plans
+less than that per hour. In the Full stage that heat is what ESS Manager
+switches the heat demand for, and the house forecast on the Indoor tab
+includes it; the comfort limits (1 °C too warm: off) still win. In the
+Return setpoint stage, where the thermostat switches, only the return
+setpoint is held up: never below minimum - half the supply-return
+difference, rounded up to the setpoint's step (the planned setpoints on the
+Floor tab too).
+A floor held at a temperature gives off heat whether the house needs it or
+not. From the house model (heat loss at the forecast weather and wanted
+temperatures, minus sun and the house's own electricity) ESS Manager works
+out the temperature above which the floor gives more than the house loses
+over the next 24 hours: mean wanted room + mean heat needed / U. A minimum
+above it shows a **warning bar** under the setting (the house gets warmer
+than wanted); the limit follows the weather, so on mild or sunny days the
+bar can appear and on cold days go away again. Diagnostics: the floor
+attribute's `min_floor` (`t_c`, `limit_c`, `target_c`, `too_warm`, `sp_min`,
+`active`).
+
 *(as of 2026.11.33)* **Down gently while the compressor runs.** A big drop
 of the return setpoint below the return made the heat pump switch off and
 start again instead of modulating down. So while the compressor runs (the

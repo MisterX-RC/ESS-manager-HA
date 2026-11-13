@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 from . import heatpump as hp
 from . import heatpump_house as hh
+from . import floor_control as fc
 from . import thermostat as th
 
 # days the card shows; the forecast itself covers every hour it can
@@ -71,6 +72,10 @@ class HeatPumpRuntime:
         # demand itself (floor control "full", thermo["ess"]); and whether it does now
         self._ess_last: Optional[float] = None
         self.ess_switches = False
+        # (as of 2026.11.45) the minimum floor temperature, set by the coordinator
+        # each cycle: {"t": degC, "model": floor emission model, "slab": the floor
+        # sensor now} or None - see with_floor_min
+        self.floor_min: Optional[dict[str, Any]] = None
         # steering (as of 2026.10.17): {last_set, override_until}
         self.steer: dict[str, Any] = {}
         self._heat_acc: Optional[list[float]] = None
@@ -377,9 +382,30 @@ class HeatPumpRuntime:
         inputs = hourly[:n]
         if not inputs or inputs[0][0] is None:
             return None
+        hm = self.with_floor_min(hm, inputs, target[:n], copm, cop_fallback)
         temps, q_el = hh.simulate(hm, indoor, inputs, target[:n], self.q_hist(hour0_epoch, inputs[0][0]), copm)
         q_th = [round(q * (hh.cop_at(copm, inp[0]) if copm else cop_fallback), 3) for q, inp in zip(q_el, inputs)]
         return {"temps": temps, "q_el": q_el, "q_th": q_th}
+
+    def with_floor_min(self, hm: Optional[dict[str, Any]], inputs: list, target: list[float],
+                       copm: Optional[dict[str, Any]], cop_fallback: float = fc.DEFAULT_COP) -> Optional[dict[str, Any]]:
+        """The house model with the minimum floor temperature's heat per hour
+        in it (as of 2026.11.45, `q_min`, model units) - a copy, for what
+        floor control plans; the model itself when it's off."""
+        spec = self.floor_min
+        if not hm or not spec:
+            return hm
+        fm = spec.get("model") or {}
+        n = min(len(inputs), len(target))
+        slab = spec.get("slab")
+        refs = [slab] * n if (fm.get("slab") and slab is not None) else list(target[:n])
+        q_th = fc.min_floor_heat(fm, spec.get("t"), refs)
+        if not any(q_th):
+            return hm
+        if not hm.get("thermal"):
+            # the model in electricity: the heat pump's electricity for that heat
+            q_th = [q / (hh.cop_at(copm, inp[0]) if copm else cop_fallback) for q, inp in zip(q_th, inputs)]
+        return {**hm, "q_min": [round(q, 4) for q in q_th]}
 
     @staticmethod
     def _window(win, hour0_epoch, tz):
@@ -427,10 +453,15 @@ class HeatPumpRuntime:
             # steering: the day/night temperatures, the buffer plan on top
             # once the model passed its self-check (worked out once an hour)
             target = list(schedule[:n])
+            if self.ess_switches:
+                # floor control switches: the minimum floor temperature in its plan (2026.11.45)
+                hm = self.with_floor_min(hm, inputs, target, copm)
             plan = None
             if stage == hh.STAGE_STEERING and prices and prices.get("buy"):
-                key = (hour0_epoch, house.get("day"), tuple(schedule[:n]), delta, round(indoor, 1))
-                if self._plan_cache and self._plan_cache[0][:3] == key[:3] and self._plan_cache[0][3] == delta:
+                fmin = (self.floor_min or {}).get("t") if self.ess_switches else None
+                key = (hour0_epoch, house.get("day"), tuple(schedule[:n]), delta, round(indoor, 1), fmin)
+                if (self._plan_cache and self._plan_cache[0][:3] == key[:3] and self._plan_cache[0][3] == delta
+                        and self._plan_cache[0][5:] == key[5:]):
                     plan = self._plan_cache[1]
                 else:
                     plan = hh.plan_buffer(hm, copm, indoor, inputs, target, self.q_hist(hour0_epoch, t_out),
@@ -448,6 +479,8 @@ class HeatPumpRuntime:
             out["setpoint_now"] = target[0] if target else None
         else:
             target = hh.targets(profile, level, hour0_epoch, n, tz)
+            if self.ess_switches and target:
+                hm = self.with_floor_min(hm, inputs, target, copm)
         if not target:
             return out
         temps, q = hh.simulate(hm, indoor, inputs, target, self.q_hist(hour0_epoch, t_out), copm)

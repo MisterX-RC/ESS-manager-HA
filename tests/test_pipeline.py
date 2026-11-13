@@ -6569,6 +6569,58 @@ check("status card: all blocks empty -> class all-none, blocks share the row",
 check("status card: on a phone the all-none blocks keep flex none (under each other)",
       ".blocks.three.all-none > .block.none { flex: none; }" in _tpl)
 
+
+# 2026.11.45: minimum floor temperature - the heat the floor gives off at it,
+# the return setpoint that keeps the water there, the "too warm" limit
+_mf_floor = {"u": 0.4, "delta": 4.0, "slab": False}
+check("min floor: heat per hour = U x (minimum - wanted room), never below 0",
+      floor_control.min_floor_heat(_mf_floor, 23.0, [21.0, 20.0, 24.0]) == [0.8, 1.2, 0.0])
+check("min floor: off (0 or None) gives no heat",
+      floor_control.min_floor_heat(_mf_floor, 0.0, [21.0]) == [] and floor_control.min_floor_heat(_mf_floor, None, [21.0]) == [])
+check("min floor: return setpoint = minimum - half the supply-return difference, rounded up to the step",
+      floor_control.min_floor_setpoint(_mf_floor, 23.0, 0.5) == 21.0
+      and floor_control.min_floor_setpoint({**_mf_floor, "delta": 3.7}, 23.0, 0.5) == 21.5
+      and floor_control.min_floor_setpoint(_mf_floor, 0.0, 0.5) is None)
+check("min floor: limit = mean wanted room + mean steady heat / U",
+      floor_control.min_floor_limit(_mf_floor, [21.0] * 12 + [19.0] * 12, [1.0] * 12 + [0.6] * 12) == 22.0)
+check("min floor: limit without the floor model is unknown",
+      floor_control.min_floor_limit({"u": None}, [21.0], [1.0]) is None)
+_mf_house = {"a": 0.0, "k": 0.004, "g": 0.06, "kw": None, "ks": 0.03, "kg": 0.0, "tau": 2.0, "qmax": 4.0, "thermal": True}
+_mf_in = [(5.0, 0.0, 0.0)] * 72
+_mf_ss = heatpump_house.steady_heat(_mf_house, None, _mf_in, [21.0] * 72)
+check("min floor: steady heat = heat loss / what a kW adds", abs(_mf_ss[0] - 0.004 * 16 / 0.06) < 1e-3)
+_mf_t, _mf_q = heatpump_house.simulate(_mf_house, 21.0, _mf_in, [21.0] * 72, [_mf_ss[0]] * 35, None)
+check("min floor: the smooth controller settles on the steady heat", abs(_mf_q[-1] - _mf_ss[0]) < 0.02)
+check("min floor: sun lowers the steady heat",
+      heatpump_house.steady_heat(_mf_house, None, [(5.0, 0.0, 1.0)], [21.0])[0] < _mf_ss[0])
+_mf_t2, _mf_q2 = heatpump_house.simulate({**_mf_house, "q_min": [2.0] * 72}, 21.0, _mf_in, [21.0] * 72, [_mf_ss[0]] * 35, None)
+check("min floor: with q_min the controller never gives less and the room rises above the target",
+      min(_mf_q2) >= 2.0 - 1e-6 and _mf_t2[-1] > 21.5)
+_mf_t3, _ = heatpump_house.simulate({**_mf_house, "q_min": [2.0] * 72}, 21.0, _mf_in, None, [_mf_ss[0]] * 35, None,
+                                    fixed_q=[0.5] * 72)
+_mf_t4, _ = heatpump_house.simulate(_mf_house, 21.0, _mf_in, None, [_mf_ss[0]] * 35, None, fixed_q=[0.5] * 72)
+check("min floor: q_min is ignored when the heat is given (self-check with measured heat)", _mf_t3 == _mf_t4)
+_mf_rt = heatpump_runtime.HeatPumpRuntime()
+check("min floor: runtime without a minimum keeps the model itself", _mf_rt.with_floor_min(_mf_house, _mf_in, [21.0] * 72, None) is _mf_house)
+_mf_rt.floor_min = {"t": 23.0, "model": _mf_floor, "slab": None}
+_mf_m = _mf_rt.with_floor_min(_mf_house, _mf_in[:3], [21.0, 20.0, 24.0], None)
+check("min floor: runtime adds q_min per hour from the wanted room (thermal model)",
+      _mf_m["q_min"] == [0.8, 1.2, 0.0] and "q_min" not in _mf_house)
+_mf_rt.floor_min = {"t": 23.0, "model": {**_mf_floor, "slab": True}, "slab": 22.0}
+check("min floor: with a floor-sensor model the floor sensor is the reference",
+      _mf_rt.with_floor_min(_mf_house, _mf_in[:2], [21.0, 21.0], None)["q_min"] == [0.4, 0.4])
+_mf_rt.floor_min = {"t": 23.0, "model": _mf_floor, "slab": None}
+check("min floor: an electricity model gets the heat divided by the COP",
+      _mf_rt.with_floor_min({**_mf_house, "thermal": False}, _mf_in[:1], [21.0], None, 4.0)["q_min"] == [0.2])
+
+_mf_lim = floor_control.min_floor_limit(_mf_floor, [21.0] * 24, _mf_ss[:24])
+_mf_lo = heatpump_house.simulate({**_mf_house, "q_min": floor_control.min_floor_heat(_mf_floor, _mf_lim - 0.5, [21.0] * 72)},
+                                 21.0, _mf_in, [21.0] * 72, [_mf_ss[0]] * 35, None)[0]
+_mf_hi = heatpump_house.simulate({**_mf_house, "q_min": floor_control.min_floor_heat(_mf_floor, _mf_lim + 1.0, [21.0] * 72)},
+                                 21.0, _mf_in, [21.0] * 72, [_mf_ss[0]] * 35, None)[0]
+check("min floor: below the limit the room stays on its target, above it the house gets too warm",
+      abs(_mf_lo[-1] - 21.0) < 0.05 and _mf_hi[-1] > 21.5)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

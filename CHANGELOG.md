@@ -12,6 +12,28 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.45] - 2026-11-13
+
+### Floor control
+- **Minimum floor temperature** (new number **Floor control minimum floor
+  temperature**, on the Indoor tab of the heat pump card under the buffer
+  range; 0 = off, the default). The floor is kept at least at this mean
+  water temperature for comfort. Because the water can't be measured while
+  the circulation pump stands still, it is planned: the heat the floor
+  gives off at that temperature (U × (minimum - wanted room)) is the least
+  floor control's heat plan asks per hour. In the Full stage ESS Manager
+  switches the heat demand for it and the house forecast includes it (the
+  comfort limits still win); in the Return setpoint stage only the return
+  setpoint is held up (never below minimum - half the supply-return
+  difference, rounded up to the step).
+- **Warning when the minimum makes the house too warm**: from the house
+  model ESS Manager works out the temperature above which the floor gives
+  off more heat than the house loses over the next 24 hours (mean wanted
+  room + mean heat needed ÷ U, at the forecast weather, sun and the house's
+  own electricity included). A minimum above it shows a warning bar under
+  the setting; the limit follows the weather. Diagnostics: `min_floor` in
+  the floor attribute.
+
 ## [2026.11.44] - 2026-11-13
 
 ### Floor control

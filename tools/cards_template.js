@@ -198,6 +198,8 @@ const I18N = {
     // heat pump card, floor tab (2026.10.23)
     hp_tab_floor: "Floor", fl_mode: "Floor control", fl_mode_watch: "Watch", fl_mode_setpoint: "Return setpoint", fl_mode_full: "Full",
     fl_max_return: "Max. return setpoint",
+    hp_floor_min_t: "Min. floor temperature",
+    hp_floor_min_warn: (lim, tgt) => `Above ${lim} °C the house gets warmer than the wanted ${tgt} °C over the next 24 hours: the floor then gives off more heat than the house loses.`,
     fl_stage_watch: "Watching along: the thermostat switches, ESS Manager learns the floor",
     fl_stage_setpoint: "ESS Manager sets the return setpoint, the thermostat switches heat demand",
     fl_stage_full: "ESS Manager heats the floor: return setpoint and heat demand",
@@ -404,6 +406,8 @@ const I18N = {
     hp_tau: (h) => `tijdconstante ${h} uur`, hp_thermal_learning: "Afkoelsnelheid van het huis nog niet geleerd: daar zijn uren voor nodig waarin de warmtepomp niet stookte (uit de statistieken van de binnensensor, of wat er van de temperatuur van de thermostaat is bijgehouden).",
     ed_hp_color: "Warmtepomp", ed_fc_color: "Accent",
     fl_max_return: "Max. retoursetpoint",
+    hp_floor_min_t: "Min. vloertemperatuur",
+    hp_floor_min_warn: (lim, tgt) => `Boven ${lim} °C wordt het huis de komende 24 uur warmer dan de gewenste ${tgt} °C: de vloer geeft dan meer warmte af dan het huis verliest.`,
     hp_tab_floor: "Vloer", fl_mode: "Vloersturing", fl_mode_watch: "Meekijken", fl_mode_setpoint: "Retoursetpoint", fl_mode_full: "Volledig",
     fl_stage_watch: "Meekijken: de thermostaat schakelt, ESS Manager leert de vloer",
     fl_stage_setpoint: "ESS Manager zet het retoursetpoint, de thermostaat schakelt de warmtevraag",
@@ -596,6 +600,7 @@ const ICONS = {
   check: '<path d="M5 12l5 5 9-10"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   home: '<path d="M3 11l9-7 9 7v9H3z"/>',
+  alert: '<path d="M12 3 2 21h20zM12 10v5M12 18h.01"/>',
   plugoff: '<path d="M9 2v4M15 2v4M7 6h10v4a5 5 0 0 1-10 0zM12 15v7M3 3l18 18"/>',
   cog: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
 };
@@ -4151,6 +4156,9 @@ class EssManagerHeatPumpCard extends EssChartCard {
           if (!st) return;
           const step = Number(st.attributes.step) || 0.5;
           let v = Number(st.state) + Number(el.getAttribute("data-step")) * step;
+          // a setting with an "off" below a usable range (2026.11.45): + from off jumps in, - below it is off
+          const onAt = el.hasAttribute("data-on") ? Number(el.getAttribute("data-on")) : null;
+          if (onAt != null) v = v > Number(st.state) ? Math.max(v, onAt) : v < onAt ? Number(st.attributes.min ?? 0) : v;
           v = Math.min(Number(st.attributes.max ?? v), Math.max(Number(st.attributes.min ?? v), v));
           this._hass.callService("number", "set_value", { entity_id: id, value: Math.round(v * 10) / 10 });
         })
@@ -4414,9 +4422,26 @@ class EssManagerHeatPumpCard extends EssChartCard {
       };
       html += row(this._t("hp_day_t"), c.day, "°C", 1) + row(this._t("hp_night_t"), c.night, "°C", 1)
         + row(this._t("hp_day_from_t"), c.day_from, this._t("hp_hour"), 0) + row(this._t("hp_night_from_t"), c.night_from, this._t("hp_hour"), 0)
-        + row(this._t("hp_delta_t"), c.delta, "°C", 1);
+        + row(this._t("hp_delta_t"), c.delta, "°C", 1) + this._floorMin(hp);
       if (on && hm.stage !== "steering") html += `<div class="hp-note">${esc(this._t("hp_steer_wait"))}</div>`;
       if (hm.steer && hm.steer.override_until) html += `<div class="hp-note">${esc(this._t("hp_override")(formats(this._hass).time(hm.steer.override_until * 1000)))}</div>`;
+    } else {
+      html += this._floorMin(hp);
+    }
+    return html;
+  }
+
+  _floorMin(hp) {
+    // the minimum floor temperature (2026.11.45): 0 = off, "+" from off jumps to 20 °C;
+    // a warning when it's above what the house can take without getting too warm
+    const mf = hp.floor && hp.floor.min_floor;
+    const st = mf && mf.entity && this._hass.states[mf.entity];
+    if (!st) return "";
+    const v = Number(st.state);
+    const shown = v > 0 ? `${this._num(v, 1)} °C` : this._t("hp_off_short");
+    let html = `<div class="hp-ctl"><span>${esc(this._t("hp_floor_min_t"))}</span><span class="val"><button type="button" data-step="-1" data-on="20" data-entity="${esc(mf.entity)}" aria-label="-">−</button><span style="min-width:56px;text-align:center">${esc(shown)}</span><button type="button" data-step="1" data-on="20" data-entity="${esc(mf.entity)}" aria-label="+">+</button></span></div>`;
+    if (v > 0 && mf.too_warm && mf.limit_c != null) {
+      html += `<div class="hp-banner warn">${icon("alert", HP_WARN, 18)}<div>${esc(this._t("hp_floor_min_warn")(this._num(mf.limit_c, 1), this._num(mf.target_c, 1)))}</div></div>`;
     }
     return html;
   }

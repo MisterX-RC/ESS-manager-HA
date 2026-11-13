@@ -455,9 +455,13 @@ def simulate(
     `free` (as of 2026.11.35): hours in which ESS Manager switched the heat
     demand itself (floor control "full") - played as it plans them, with the
     smooth controller on the wanted temperature (target - mid_c), even with a
-    thermostat in the model."""
+    thermostat in the model.
+    `model["q_min"]` (as of 2026.11.45, only in the copies floor control
+    plans with): the heat per hour from the start at least (model units) -
+    the minimum floor temperature; the smooth controller never gives less."""
     w = kernel(model["tau"])
     th = model.get("thermostat") if fixed_q is None else None
+    q_min = model.get("q_min") if fixed_q is None else None
     on = on0
     since = 10 ** 9  # s since the thermostat last switched
     a, k, g = model["a"], model["k"], model["g"]
@@ -522,6 +526,10 @@ def simulate(
             loss = k * (tgt - tout) + kw * wind * (tgt - tout) - ks * sun - kg * gain - a
             need = loss + KP * (tgt - t)            # degC this hour
             q = (need - g * prev) / (g * w[0])      # what this hour's heat has to add
+            # (as of 2026.11.45) the minimum floor temperature: at least the heat
+            # the floor gives off at it (floor control works it out, model units)
+            if q_min and i < len(q_min) and q_min[i]:
+                q = max(q, q_min[i])
             q = max(0.0, min(q, model["qmax"]))
             q_el = q / cop
         lag = w[0] * q + prev
@@ -929,6 +937,31 @@ def without_thermostat(model: Optional[dict[str, Any]]) -> Optional[dict[str, An
     if not model or not model.get("thermostat"):
         return model
     return {k: v for k, v in model.items() if k != "thermostat"}
+
+
+def steady_heat(model: Optional[dict[str, Any]], copm: Optional[dict[str, Any]], inputs: list,
+                target: list[float]) -> list[float]:
+    """The heat per hour (thermal kW) that holds the house on `target` once
+    everything has settled (as of 2026.11.45): the heat loss at that hour's
+    weather minus sun and the house's own electricity, divided by what a kW
+    of heat adds - the floor's delay left out. Negative where the gains
+    alone keep the house above the target. Empty without a model."""
+    if not model or not model.get("g"):
+        return []
+    a, k, g = model["a"], model["k"], model["g"]
+    kw, ks, kg = model.get("kw") or 0.0, model.get("ks") or 0.0, model.get("kg") or 0.0
+    out = []
+    for row, tgt in zip(inputs, target):
+        tout = row[0]
+        if tout is None or tgt is None:
+            break
+        wind, sun = row[1] or 0.0, row[2] or 0.0
+        gain = (row[3] if len(row) > 3 else None) or 0.0
+        loss = k * (tgt - tout) + kw * wind * (tgt - tout) - ks * sun - kg * gain - a
+        q = loss / g
+        # the model in electricity: its heat is the electricity times the COP
+        out.append(round(q if model.get("thermal") else q * cop_at(copm, tout), 3))
+    return out
 
 
 def with_thermostat(model: dict[str, Any], thermo: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:

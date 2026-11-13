@@ -84,6 +84,7 @@ from .const import (
     HP_STEERING_PLAN,
     FLOOR_PLAN,
     NUM_FLOOR_MAX_RETURN,
+    NUM_FLOOR_MIN_TEMP,
     NUM_HP_DAY_TEMP,
     NUM_HP_NIGHT_TEMP,
     NUM_HP_BUFFER_DELTA,
@@ -1693,6 +1694,23 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         lo, hi = fc.SP_LIMITS
         return min(max(self.get_number(NUM_FLOOR_MAX_RETURN, hi), lo), hi)
 
+    def floor_min_temperature(self) -> Optional[float]:
+        """The minimum floor temperature set on the card (as of 2026.11.45),
+        None when off."""
+        t = self.get_number(NUM_FLOOR_MIN_TEMP, 0.0)
+        return t if t and t > fc.MIN_FLOOR_OFF else None
+
+    def _floor_min_spec(self, conf: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """What the heat pump's planning needs of the minimum floor
+        temperature (as of 2026.11.45): set, floor control set up and heating,
+        the floor's emission learned."""
+        t = self.floor_min_temperature()
+        model = self.floor.model or {}
+        if t is None or not self.floor_configured(conf) or self.floor_cooling(conf) or not model.get("ok"):
+            return None
+        return {"t": t, "model": {k: model.get(k) for k in ("u", "delta", "slab")},
+                "slab": self._temp_state(conf.get(CONF_FLOOR_SLAB_ENTITY))}
+
     async def _async_floor_setpoint(self, entity_id: str, value: float) -> None:
         # never above the maximum - also when handing the old setpoint back
         value = min(value, self.floor_max_return())
@@ -1860,6 +1878,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         sp_step = _float_or(sp_state.attributes.get("step"), 0.5) if sp_state is not None else 0.5
         t_ref = readings["t_slab"] if model.get("slab") and readings["t_slab"] is not None else indoor
         sp_planned = fc.return_setpoint(model, p_sp, t_ref, lo, hi, sp_step) if t_ref is not None else None
+        # (as of 2026.11.45) never below what keeps the water at the minimum floor temperature
+        sp_min = fc.min_floor_setpoint(model, (self.hp.floor_min or {}).get("t"), sp_step)
+        if sp_min is not None:
+            sp_min = min(max(sp_min, lo), hi)
+            if sp_planned is not None:
+                sp_planned = max(sp_planned, sp_min)
         # a COMFORT_BAND too cold: never below the setpoint the heat pump had before
         if (sp_planned is not None and floor.baseline_sp is not None and indoor is not None and setpoint is not None
                 and setpoint - indoor >= fc.COMFORT_BAND):
@@ -1906,6 +1930,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if plan:
             for i, q in enumerate(plan["q_th"][:12]):
                 sp_i = fc.return_setpoint(model, min(max(q, p_min), p_max), t_ref, lo, hi, sp_step) if (t_ref is not None and q > 0.05) else None
+                if sp_i is not None and sp_min is not None:
+                    sp_i = max(sp_i, sp_min)
                 nxt.append({"h": hour0 + i * 3600, "kwh": q, "sp": sp_i, "temp": plan["temps"][i + 1] if i + 1 < len(plan["temps"]) else None})
         recent = [
             {k: r.get(k) for k in ("h", "th_kwh", "plan_kwh", "sp", "run_s", "room", "slab", "heat_s", "dhw_s")}
@@ -1933,7 +1959,32 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "select": self.floor_mode_entity_id,
             "max_return": getattr(self._numbers.get(NUM_FLOOR_MAX_RETURN), "entity_id", None),
             "max_return_c": hi,
+            "min_floor": self._floor_min_info(model, targets, hourly, readings["t_slab"], sp_min),
         }
+
+    def _floor_min_info(self, model: dict[str, Any], targets: Optional[list[float]], hourly: list,
+                        t_slab: Optional[float], sp_min: Optional[float]) -> dict[str, Any]:
+        """The card's minimum floor temperature (as of 2026.11.45): the setting,
+        and the temperature above which the house would get warmer than wanted
+        the next 24 hours - the floor held there gives off more than the house
+        loses (house model, at the forecast weather and wanted temperatures)."""
+        t = self.floor_min_temperature()
+        out: dict[str, Any] = {
+            "entity": getattr(self._numbers.get(NUM_FLOOR_MIN_TEMP), "entity_id", None),
+            "t_c": t, "limit_c": None, "target_c": None, "too_warm": False, "sp_min": sp_min,
+            "active": self.hp.floor_min is not None,
+        }
+        house = self.hp.house or {}
+        n = min(len(targets or []), len(hourly or []), fc.MIN_FLOOR_HOURS)
+        if not n or not model.get("u") or not house.get("model"):
+            return out
+        need = heatpump_house.steady_heat(house["model"], house.get("cop"), hourly[:n], targets[:n])
+        refs = [t_slab] * n if (model.get("slab") and t_slab is not None) else list(targets[:n])
+        limit = fc.min_floor_limit(model, refs, need)
+        out["limit_c"] = limit
+        out["target_c"] = round(sum(targets[:n]) / n, 1)
+        out["too_warm"] = bool(t is not None and limit is not None and t > limit)
+        return out
 
     async def _async_set_climate(self, entity_id: str, temperature: float) -> None:
         await self.hass.services.async_call(
@@ -2058,6 +2109,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # hour-by-hour model are pure Python and too heavy for the event loop
         # on a small machine - the arguments are all gathered here first
         steering = self.hp_steering_active(conf)
+        # the minimum floor temperature in floor control's plans (as of 2026.11.45)
+        self.hp.floor_min = self._floor_min_spec(conf)
         total, attribute, used = await self.hass.async_add_executor_job(functools.partial(
             self.hp.compute,
             meter, now, tz, hour0, FORECAST_HOURS, weather, sun_by_day,

@@ -183,6 +183,53 @@ def return_setpoint(model: dict[str, Any], p_kw: float, t_ref: float, lo: float,
     return min(max(sp, lo), hi)
 
 
+# (as of 2026.11.45) the minimum floor temperature set on the card: the mean
+# water temperature ((supply + return) / 2) the floor is kept at at least -
+# with the pump stopped the water can't be measured, so it's planned as the
+# heat the floor gives off at that temperature (U x (minimum - reference)),
+# per hour, and the return setpoint never asks for less. 0 = off.
+MIN_FLOOR_OFF = 0.0
+MIN_FLOOR_HOURS = 24          # the "too warm" limit: averaged over the next day
+
+
+def min_floor_heat(model: dict[str, Any], t_min: Optional[float], refs: list[Optional[float]]) -> list[float]:
+    """The heat per hour (thermal kW) the floor gives off with its water at
+    `t_min` (mean) - one per reference temperature (the wanted room per hour,
+    or the floor sensor when the model learned on it); empty when off."""
+    u = model.get("u")
+    if not u or not t_min or t_min <= MIN_FLOOR_OFF:
+        return []
+    return [round(max(u * (t_min - r), 0.0), 3) if r is not None else 0.0 for r in refs]
+
+
+def min_floor_setpoint(model: dict[str, Any], t_min: Optional[float], step: float) -> Optional[float]:
+    """The lowest return setpoint that keeps the mean water at `t_min` while
+    the heat pump runs (return = mean - half the supply-return difference),
+    rounded up to the entity's step; None when off."""
+    delta = model.get("delta")
+    if not t_min or t_min <= MIN_FLOOR_OFF or delta is None:
+        return None
+    sp = t_min - delta / 2
+    if step and step > 0:
+        sp = math.ceil(round(sp / step, 6)) * step
+    return round(sp, 2)
+
+
+def min_floor_limit(model: dict[str, Any], refs: list[Optional[float]], need_kw: list[float]) -> Optional[float]:
+    """The minimum floor temperature above which the house gets warmer than
+    wanted (as of 2026.11.45): a floor held at t gives off U x (t - ref) on
+    average, the house needs `need_kw` (steady-state heat per hour, the
+    house model) - above mean(ref) + mean(need) / U it gives more than the
+    house loses. None without both models."""
+    u = model.get("u")
+    pairs = [(r, q) for r, q in zip(refs, need_kw) if r is not None and q is not None][:MIN_FLOOR_HOURS]
+    if not u or not pairs:
+        return None
+    ref = sum(r for r, _ in pairs) / len(pairs)
+    need = sum(q for _, q in pairs) / len(pairs)
+    return round(ref + need / u, 1)
+
+
 def compressor_running(hp_state: Optional[str], valve: Optional[str], p_th: Optional[float]) -> bool:
     """The compressor heats the floor right now (as of 2026.11.33): with a
     Qube device its status (heating or starting up, the valve not on hot
