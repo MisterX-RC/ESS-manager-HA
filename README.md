@@ -2098,7 +2098,9 @@ name and "none") and the planned ones share the rest of the width - a
 sale and a charge are never planned at the same time, so at most two are
 wide; a block narrower than about 200 px gets compact lines ("5,1 🔋 67 %",
 "0,2 kWh kept"). On a phone (up to 380 px) they're under each other, an
-empty block a low bar. `show_grid: false` in the card's YAML hides the
+empty block a low bar. *(As of 2026.11.41)* with nothing planned at all
+the three empty blocks share the full width evenly instead of three narrow
+strips on the left. `show_grid: false` in the card's YAML hides the
 grid block. *(As of 2026.11.19)* tapping a planned block (or its "+2") opens
 the **planning panel**: every plan from now on in time order - charges,
 sales, the house from the grid, the full charge (with until when it

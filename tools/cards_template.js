@@ -2389,6 +2389,9 @@ class EssManagerStatusCard extends HTMLElement {
       .blocks.three > .block.none .head { flex-direction: column; }
       .blocks.three > .block.none .name { flex-direction: column; gap: 6px; font-size: 11px; text-align: center; white-space: normal; flex-grow: 0; }
       .blocks.three > .block.none .empty { padding: 0; font-size: 11px; }
+      /* nothing planned at all (2026.11.41): the three empty blocks share the
+         full width instead of three narrow strips on the left */
+      .blocks.three.all-none > .block.none { flex: 1 1 0; }
       @container (max-width: 200px) {
         .stat { flex-wrap: wrap; row-gap: 2px; justify-content: center; }
         .stat .unit, .stat .arrow, .stat .long { display: none; }
@@ -2396,7 +2399,7 @@ class EssManagerStatusCard extends HTMLElement {
       }
       @container card (max-width: 380px) {
         .blocks.three { flex-direction: column; }
-        .blocks.three > .block, .blocks.three > .block.none { flex: none; }
+        .blocks.three > .block, .blocks.three > .block.none, .blocks.three.all-none > .block.none { flex: none; }
         .blocks.three > .block.none { flex-direction: row; justify-content: space-between; padding: 8px 10px; }
         .blocks.three > .block.none .head { flex-direction: row; }
         .blocks.three > .block.none .name { flex-direction: row; font-size: 13px; }
@@ -2431,9 +2434,13 @@ class EssManagerStatusCard extends HTMLElement {
     `;
     // the grid block when the integration plans grid use (the attribute is there)
     const gridOn = Array.isArray(attrs.grid_use) && attrs.grid_use_enabled !== false && this._config.show_grid !== false;
+    const blockHtml = [this._block("sell", plans.sell, opt), this._block("buy", plans.buy, opt)];
+    if (gridOn) blockHtml.push(this._gridBlock(attrs.grid_use, opt));
+    // all blocks empty: they share the row evenly (no narrow strips)
+    const allNone = gridOn && blockHtml.every((b) => /^<div class="block[^"]* none"/.test(b));
     const changed = setCardContent(this, css, `
       <div class="top"><span class="title">${esc(opt.title)}</span><span class="status"><i style="background:${dot}"></i>${esc(statusText(this._hass, stateObj.state))}</span>${settings}${toggle}</div>
-      <div class="blocks${gridOn ? " three" : ""}">${this._block("sell", plans.sell, opt)}${this._block("buy", plans.buy, opt)}${gridOn ? this._gridBlock(attrs.grid_use, opt) : ""}</div>
+      <div class="blocks${gridOn ? " three" : ""}${allNone ? " all-none" : ""}">${blockHtml.join("")}</div>
       <div class="tiles">${this._planTile("spike", attrs.spike_plan, opt)}${this._planTile("negative", attrs.negative_price_plan, opt)}</div>
       ${timeline}
     `);

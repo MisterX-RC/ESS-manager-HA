@@ -12,6 +12,16 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.41] - 2026-11-13
+
+### Cards
+- **Status card: with nothing planned the three blocks share the full
+  width.** Sell, charge and house-from-the-grid without a plan used to
+  shrink to three narrow strips on the left of the row (the narrow strip is
+  meant to give a planned block more room). When none of the three has a
+  plan they now divide the row evenly; with a plan an empty block stays a
+  narrow strip, and on a phone (blocks under each other) nothing changes.
+
 ## [2026.11.40] - 2026-11-13
 
 ### House from the grid

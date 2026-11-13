@@ -6508,6 +6508,16 @@ check("deficit grid use: cheap quarter after the charge, before the top, is not"
 check("deficit grid use: without a deficit the quarter before the charge stays out (old rule)",
       not (set(range(0, 4)) & set(_h2b)))
 
+# 2026.11.41: status card - with nothing planned the three empty blocks share
+# the row (no narrow strips); on a phone they stay low bars under each other
+_tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "cards_template.js"), encoding="utf-8").read()
+check("status card: all blocks empty -> class all-none, blocks share the row",
+      ".blocks.three.all-none > .block.none { flex: 1 1 0; }" in _tpl
+      and '${allNone ? " all-none" : ""}' in _tpl
+      and "blockHtml.every(" in _tpl)
+check("status card: on a phone the all-none blocks keep flex none (under each other)",
+      ".blocks.three.all-none > .block.none { flex: none; }" in _tpl)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:
