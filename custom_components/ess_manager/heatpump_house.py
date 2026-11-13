@@ -28,7 +28,7 @@ from . import thermostat
 HOUR = 3600
 # what the model is built from changes with these (as of 2026.11.11): a new
 # version learns again right away instead of the next day
-MODEL_VERSION = "2026.11.38"   # the thermostat only played on days with a known wanted temperature: checked again right after the update
+MODEL_VERSION = "2026.11.43"   # the days needed follow their spread: checked again right after the update
 # the floor's delay (as of 2026.11.9 36 hours back and up to 24 h - up to
 # then 12 and 6: a concrete floor heated in a block of a few hours gives its
 # heat off over far more hours, and the day's simulation drifted)
@@ -40,7 +40,13 @@ MIN_COP_HOURS = 48
 COP_MIN, COP_MAX = 1.5, 8.0
 KP = 0.3                        # the emulated controller: share of the gap closed per hour
 TEST_DAYS = 14                  # the self-check: the newest heating days ...
-MIN_TEST_DAYS = 10              # ... at least this many
+MIN_TEST_DAYS = 6               # ... at least this many (10 fixed before 2026.11.43) ...
+# ... and (as of 2026.11.43) as many as the spread of the days asks: each test
+# day's margin (GATE_RATIO x the pattern's error - the model's error, per block)
+# must be on average clearly above zero, MARGIN_Z standard errors - steady good
+# days pass after MIN_TEST_DAYS, days that differ a lot need more (up to
+# TEST_DAYS; more than that and the self-check waits for steadier days)
+MARGIN_Z = 2.0
 TEST_HEAT_KWH = 1.0             # a day with at least this much heating counts as a test day
 GATE_RATIO = 0.9                # hourly energy error at most 90% of the pattern's
 GATE_TEMP_C = 0.6               # and the indoor temperature within this on average
@@ -570,7 +576,8 @@ def review(
     hour (both scaled to the measured day total - only the placement counts)
     against the usual pattern, and the indoor temperature with the measured
     heating against the measured one. `passed` = good enough to plan with."""
-    return _verdict(_review_sums(model, copm, days, profile, shape, tz))
+    per_day: list[dict[str, Any]] = []
+    return _gate_days(_verdict(_review_sums(model, copm, days, profile, shape, tz, per_day)), per_day)
 
 
 def _review_sums(
@@ -706,6 +713,42 @@ def _verdict(sums: list[float], min_days: int = MIN_TEST_DAYS) -> dict[str, Any]
     # hour_error_kwh / pattern_error_kwh: per block of block_hours (as of 2026.11.35)
     return {"days": n_days, "hour_error_kwh": sim_mae, "pattern_error_kwh": pat_mae,
             "temp_error_c": temp_mae, "passed": passed, "block_hours": BLOCK_HOURS}
+
+
+def needed_days(per_day: list[dict[str, Any]]) -> dict[str, Any]:
+    """How many test days the self-check needs (as of 2026.11.43), from the
+    days' margins - GATE_RATIO x the pattern's error minus the model's error,
+    per block: n = (MARGIN_Z x sd / mean)^2, at least MIN_TEST_DAYS. Like the
+    learned thermostat's switches: steady days pass sooner, scattered days
+    need more. `needed_days` None: the margin isn't above zero on average (the
+    gate fails anyway); `needed_raw` above TEST_DAYS: the days differ too much
+    for the test window - not passed until steadier days come in."""
+    m = [GATE_RATIO * r["pattern_kwh"] - r["error_kwh"] for r in per_day
+         if r.get("pattern_kwh") is not None and r.get("error_kwh") is not None]
+    out: dict[str, Any] = {"needed_days": None, "needed_raw": None, "margin_kwh": None, "margin_sd_kwh": None}
+    if len(m) < 2:
+        out["needed_days"] = MIN_TEST_DAYS
+        return out
+    mean = sum(m) / len(m)
+    sd = (sum((v - mean) ** 2 for v in m) / (len(m) - 1)) ** 0.5
+    out["margin_kwh"] = round(mean, 3)
+    out["margin_sd_kwh"] = round(sd, 3)
+    if mean <= 0:
+        return out
+    raw = max(math.ceil((MARGIN_Z * sd / mean) ** 2 - 1e-9), MIN_TEST_DAYS)
+    out["needed_raw"] = raw
+    out["needed_days"] = min(raw, TEST_DAYS)
+    return out
+
+
+def _gate_days(rev: dict[str, Any], per_day: list[dict[str, Any]]) -> dict[str, Any]:
+    """The verdict with the needed number of days (as of 2026.11.43)."""
+    nd = needed_days(per_day)
+    rev.update(nd)
+    if rev.get("passed") and (nd["needed_raw"] is None or nd["needed_raw"] > TEST_DAYS
+                              or rev["days"] < nd["needed_days"]):
+        rev["passed"] = False
+    return rev
 
 
 def learn(
@@ -844,6 +887,8 @@ def _cross_review(test_days, indoor, outdoor, heat, wind, sun, cool, copm, heat_
     # (as of 2026.11.37) each test day on its own, newest first - which days score badly and why
     order = {d["d"]: i for i, d in enumerate(test_days)}
     rev["per_day"] = sorted(days_th if use_th else days_ctrl, key=lambda r: order.get(r["d"], 99))
+    # (as of 2026.11.43) the number of days needed follows the days' spread
+    _gate_days(rev, rev["per_day"])
     rev["method"] = "cross"
     rev["folds"] = folds_fitted
     # (as of 2026.11.35) the test hours ESS Manager switched the heat demand itself

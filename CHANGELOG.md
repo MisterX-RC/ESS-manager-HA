@@ -12,6 +12,31 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.43] - 2026-11-13
+
+### Heat pump - house model
+- **Yesterday no longer drops out of the self-check.** The house model is
+  fitted once a day in the first cycle after midnight. Home Assistant
+  writes an hour's statistics a few seconds after the hour, so that cycle
+  could come before the last hour of yesterday was there - and a test day
+  only counts when it's complete, so all of yesterday was left out until
+  the next night (the self-check was always a day behind). The fit now
+  waits until yesterday's last hour is in the statistics, trying again
+  every 5 minutes; after two hours (a sensor that stopped) it fits without
+  it, as before.
+- **The number of test days needed follows how much the days differ**
+  (10 fixed before), like the learned thermostat's switches. Each test
+  day's margin is 0.9 × the usual pattern's error minus the model's error
+  (per 6-hour block); the average margin must be at least 2 standard
+  errors above zero. Needed = (2 × spread ÷ average margin)², at least 6
+  and at most 14 (the test window): steady good days pass after 6, days
+  that differ a lot need more, and with more than 14 needed the model
+  isn't used until steadier days come in. The temperature test and the
+  drift guard are unchanged. Diagnostics: `review.needed_days`,
+  `review.needed_raw`, `review.margin_kwh`, `review.margin_sd_kwh`; the
+  Indoor tab of the heat pump card shows how many days are needed. The
+  house model is checked again right after the update.
+
 ## [2026.11.42] - 2026-11-13
 
 ### Settings

@@ -1069,8 +1069,24 @@ the heat pump page in Configure, as of 2026.10.17:
   is kept from its first read on): a day from before that would have the
   thermostat switch around a guessed wanted temperature. Those days are left
   out while the thermostat is used (`review.skipped_days`), the thermostat is
-  compared with the smooth controller on the same days, and at least 10 such
-  days are still needed.
+  compared with the smooth controller on the same days.
+  *(As of 2026.11.43)* **how many test days are needed follows how much the
+  days differ** (10 fixed before), like the learned thermostat's switches:
+  each day's margin is 0.9 × the pattern's error minus the model's error
+  (per block), and its average must be clearly above zero - at least 2
+  standard errors. Needed = (2 × spread ÷ average margin)², at least 6 and
+  at most the 14 test days: steady good days pass after 6, days that differ
+  a lot need more, and with more than 14 needed the self-check waits for
+  steadier days (the oldest ones move out of the window). One bad day
+  among few counts heavily - that's on purpose. In the diagnostics
+  `review.needed_days`, `review.needed_raw` (before the 6-14 limits),
+  `review.margin_kwh` and `review.margin_sd_kwh`; the card's Indoor tab
+  shows how many days are needed. The fit itself runs once a day just
+  after midnight and *(as of 2026.11.43)* waits until yesterday's last hour
+  is in Home Assistant's statistics (they're written a few seconds after the
+  hour; at most two hours, then it fits without it as before) - before, the
+  first cycle after midnight could come first, and all of yesterday was left
+  out of the self-check until the next night.
   **The thermostat learned from the house** *(as of 2026.11.20)*: with a
   thermostat (a climate entity as the wanted temperature) ESS Manager reads
   its history every day and keeps each switch of its heat demand

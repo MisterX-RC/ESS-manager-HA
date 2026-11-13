@@ -199,6 +199,11 @@ from .usage_forecast import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# (as of 2026.11.43) the daily house fit waits for yesterday's last hour in the
+# statistics: retried every LAST_HOUR_RETRY_S, at most LAST_HOUR_WAIT_S after midnight
+LAST_HOUR_RETRY_S = 300
+LAST_HOUR_WAIT_S = 7200
+
 # Repairs issue kind for a usage forecast that is mostly without history
 # (as of v0.3.5) - see _update_usage_history_issue.
 USAGE_HISTORY_ISSUE = "usage_forecast_no_history"
@@ -1449,6 +1454,20 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             means[indoor_id] = {h: v for h, v in self.hp.indoor_series().items() if start.timestamp() <= h < end.timestamp()}
         deltas = {k: heatpump.hourly_deltas(v) for k, v in sums.items()}
         energy = heatpump.add_series(*[deltas.get(e, {}) for e in [*heat, *cool]])
+        # (as of 2026.11.43) yesterday's last hour: the recorder writes an hour's
+        # statistics a few seconds after the hour, the first cycle after midnight
+        # can come before that - then all of yesterday fell out of the house
+        # model's self-check (a day counts only when complete) until the next
+        # night. Wait for it, retried every few minutes; past LAST_HOUR_WAIT_S
+        # after midnight (a sensor that stopped) fitted without it, as before.
+        last_h = int(end.timestamp()) - 3600
+        outdoor_id = conf.get(CONF_HP_OUTDOOR_ENTITY)
+        if (last_h not in energy or (outdoor_id and last_h not in (means.get(outdoor_id) or {}))) \
+                and dt_util.utcnow().timestamp() - end.timestamp() < LAST_HOUR_WAIT_S:
+            self._hp_thermal_tried_at = dt_util.utcnow().timestamp() - 3600 + LAST_HOUR_RETRY_S
+            _LOGGER.debug("ESS Manager (%s): yesterday's last hour not in the statistics yet - house model waits",
+                          self.entry.title)
+            return
         sun = heatpump.add_series(*[deltas.get(e, {}) for e in solar_ids]) if solar_ids else None
         wind = means.get(conf.get(CONF_HP_WIND_ENTITY)) if conf.get(CONF_HP_WIND_ENTITY) else None
         # the usual indoor temperature per hour comes from these days

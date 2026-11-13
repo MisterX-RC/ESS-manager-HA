@@ -6443,10 +6443,41 @@ _ku8 = _fz_learn_sp(_fz_days_th + _fz_days_ess, 42)  # ... for the newest 7
 check("self-check: days without a known wanted temperature left out while the thermostat is used, compared on the same days",
       _ku["review"]["thermostat"]["used"] and len(_ku["review"]["skipped_days"]) == 4
       and _ku["review"]["days"] == 10 and _ku["review"]["thermostat"]["days"] == 10 and len(_ku["review"]["per_day"]) == 10
-      and _ku["review"]["passed"] and all(d not in [r["d"] for r in _ku["review"]["per_day"]] for d in _ku["review"]["skipped_days"]))
+      and all(d not in [r["d"] for r in _ku["review"]["per_day"]] for d in _ku["review"]["skipped_days"])
+      # (2026.11.43) whether 10 days are enough follows their spread
+      and _ku["review"]["passed"] == (_ku["review"]["days"] >= _ku["review"]["needed_days"]))
 check("self-check: ... and fewer than 10 known days don't pass yet",
       _ku8["review"]["thermostat"]["used"] and len(_ku8["review"]["skipped_days"]) == 7
       and _ku8["review"]["days"] == 7 and not _ku8["review"]["passed"])
+# 2026.11.43: the days the self-check needs follow their spread - each day's margin (0.9 x the
+# pattern's error - the model's) on average 2 standard errors above zero, 6 to 14 days
+def _nd_days(pairs):
+    return [{"error_kwh": e, "pattern_kwh": p} for e, p in pairs]
+
+
+_nd_steady = _hh.needed_days(_nd_days([(0.2, 0.6)] * 7))
+_nd_spread = _hh.needed_days(_nd_days([(0.1, 0.6), (0.5, 1.0), (0.3, 0.3), (0.6, 0.4), (0.4, 0.6), (0.1, 0.5), (0.2, 0.5)]))
+_nd_bad = _hh.needed_days(_nd_days([(0.6, 0.5)] * 8))
+_nd_wild = _hh.needed_days(_nd_days([(0.1, 0.6), (0.6, 0.4), (0.1, 0.7), (0.5, 0.3), (0.2, 0.5), (0.5, 0.4)]))
+check("self-check days needed: steady good days need only the minimum (6)",
+      _nd_steady["needed_days"] == _hh.MIN_TEST_DAYS == 6 and _nd_steady["margin_sd_kwh"] == 0.0)
+check("self-check days needed: scattered days need more - (2 x sd / mean)^2 rounded up",
+      _nd_spread["needed_days"] == __import__("math").ceil((2 * _nd_spread["margin_sd_kwh"] / _nd_spread["margin_kwh"]) ** 2 - 1e-6)
+      and _nd_spread["needed_days"] > 7)
+check("self-check days needed: no margin on average - none (the gate fails anyway); too scattered - more than the window",
+      _nd_bad["needed_days"] is None and _nd_bad["margin_kwh"] < 0
+      and _nd_wild["needed_raw"] > _hh.TEST_DAYS and _nd_wild["needed_days"] == _hh.TEST_DAYS)
+_gd_rev = {"days": 7, "passed": True}
+_hh._gate_days(_gd_rev, _nd_days([(0.1, 0.6), (0.5, 1.0), (0.3, 0.3), (0.6, 0.4), (0.4, 0.6), (0.1, 0.5), (0.2, 0.5)]))
+_gd_ok = {"days": 7, "passed": True}
+_hh._gate_days(_gd_ok, _nd_days([(0.2, 0.6)] * 7))
+_gd_wild = {"days": 14, "passed": True}
+_hh._gate_days(_gd_wild, _nd_days([(0.1, 0.6), (0.6, 0.4), (0.1, 0.7), (0.5, 0.3), (0.2, 0.5), (0.5, 0.4)] * 2 + [(0.1, 0.6)] * 2))
+check("self-check days needed: 7 steady days pass, 7 scattered days wait, days too scattered for the window wait",
+      _gd_ok["passed"] and _gd_ok["needed_days"] == 6 and not _gd_rev["passed"] and _gd_rev["needed_days"] > 7
+      and (_gd_wild["needed_raw"] <= _hh.TEST_DAYS or not _gd_wild["passed"]))
+check("self-check days needed: the synthetic thermostat house - 14 days with this spread pass, 7 don't",
+      _fz_r1["review"]["passed"] and _fz_r1["review"]["needed_days"] <= 14 and not _ku8["review"]["passed"])
 check("self-check: all days known - none left out",
       _fz_r1["review"]["skipped_days"] == [] and _fz_r1["review"]["thermostat"]["days"] == 14)
 

@@ -175,7 +175,9 @@ const I18N = {
     hp_stage_learning: "Hour-by-hour model: still learning", hp_stage_shadow: "Hour-by-hour model: watching along (the planning uses the usual pattern)",
     hp_stage_used: "Hour-by-hour model: used for the planning", hp_stage_steering: "Hour-by-hour model: used, steering the thermostat",
     hp_review: (d, a, b, t, bh) => `Self-check over ${d} heating days: energy per ${bh > 1 ? bh + " hours" : "hour"} ±${a} kWh (usual pattern ±${b}), indoor ±${t} °C.`,
-    hp_review_wait: (d) => `Self-check waits for enough heating days (${d} of 10).`,
+    hp_review_wait: (d, n) => `Self-check waits for enough heating days (${d} of ${n}).`,
+    hp_review_days: (d, n) => `With this spread between the days ${n} heating days are needed (now ${d}).`,
+    hp_review_spread: (d) => `The days still differ too much to be sure (${d} heating days) - waiting for steadier days.`,
     hp_thermo_learning: (a, an, b, bn) => `Thermostat being learned: on ${a} of ${an}, off ${b} of ${bn} clean switches (fewer needed when they are close together).`,
     hp_thermo_learned: (on, off) => `Thermostat learned: heat on at ${on} °C, off at ${off} °C from the wanted temperature.`,
     hp_review_drift: (d, a, b, bh) => `The newest ${d} heating days run worse (±${a} kWh per ${bh > 1 ? bh + " hours" : "hour"}, pattern ±${b}) - the usual pattern stays until it settles.`,
@@ -381,7 +383,9 @@ const I18N = {
     hp_stage_learning: "Uurmodel: leert nog", hp_stage_shadow: "Uurmodel: kijkt mee (de planning gebruikt het gebruikelijke patroon)",
     hp_stage_used: "Uurmodel: gebruikt voor de planning", hp_stage_steering: "Uurmodel: gebruikt, stuurt de thermostaat",
     hp_review: (d, a, b, t, bh) => `Zelfcontrole over ${d} stookdagen: energie per ${bh > 1 ? bh + " uur" : "uur"} ±${a} kWh (gebruikelijk patroon ±${b}), binnen ±${t} °C.`,
-    hp_review_wait: (d) => `Zelfcontrole wacht op genoeg stookdagen (${d} van 10).`,
+    hp_review_wait: (d, n) => `Zelfcontrole wacht op genoeg stookdagen (${d} van ${n}).`,
+    hp_review_days: (d, n) => `Met deze spreiding tussen de dagen zijn ${n} stookdagen nodig (nu ${d}).`,
+    hp_review_spread: (d) => `De dagen wisselen nog te veel om zeker te zijn (${d} stookdagen) - wacht op rustiger dagen.`,
     hp_thermo_learning: (a, an, b, bn) => `Thermostaat wordt geleerd: aan ${a} van ${an}, uit ${b} van ${bn} schone schakelingen (minder nodig als ze dicht bij elkaar liggen).`,
     hp_thermo_learned: (on, off) => `Thermostaat geleerd: warmte aan bij ${on} °C, uit bij ${off} °C t.o.v. de gewenste temperatuur.`,
     hp_review_drift: (d, a, b, bh) => `De nieuwste ${d} stookdagen lopen slechter (±${a} kWh per ${bh > 1 ? bh + " uur" : "uur"}, patroon ±${b}) - het vaste patroon blijft tot het weer klopt.`,
@@ -4318,8 +4322,11 @@ class EssManagerHeatPumpCard extends EssChartCard {
       // the drift guard (2026.11.12)
       const rc = rev.recent;
       if (rc && rc.drift) html += `<br>${esc(this._t("hp_review_drift")(rc.days, this._num(rc.hour_error_kwh, 2), this._num(rc.pattern_error_kwh, 2), rev.block_hours || 1))}`;
+      // the days needed follow their spread (2026.11.43)
+      else if (!rev.passed && rev.needed_raw != null && rev.needed_raw > 14) html += `<br>${esc(this._t("hp_review_spread")(rev.days))}`;
+      else if (!rev.passed && rev.needed_days != null && rev.days < rev.needed_days) html += `<br>${esc(this._t("hp_review_days")(rev.days, rev.needed_days))}`;
     } else if (hm.stage !== "learning") {
-      html += `<br>${esc(this._t("hp_review_wait")(rev.days || 0))}`;
+      html += `<br>${esc(this._t("hp_review_wait")(rev.days || 0, rev.needed_days || 6))}`;
     }
     // the learned thermostat (2026.11.36: how many switches are needed depends on their spread)
     const th = hm.thermostat;
