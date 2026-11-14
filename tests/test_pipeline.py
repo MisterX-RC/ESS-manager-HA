@@ -5112,7 +5112,7 @@ _vrtE.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_vin(False)
 _hE = int(_vn.replace(minute=0).timestamp())
 _predE = {"id": "h:energy", "start": _hE + 3600, "kwh": 12.0, "mode": "fixed", "current_a": 10, "label": ev.LABEL_HISTORY, "enabled": True, "car": None}
 _vrtE._victron_track([_predE], True, "connected", 500.0, int(_vn.timestamp()), 10.0)
-check("no answer: a session predicted from the charging energy is taken over (10 A, 12 kWh)",
+check("no answer: a predicted session (fixed, 10 A, 12 kWh) is taken over",
       _vrtE.flow["adopted"] == "h:energy" and _vrtE.flow["choice"] == "asap" and _vrtE.flow["current_a"] == 10
       and _vrtE.flow["step"] == "confirm"
       and evc.charger_target(_vrtE.flow, int(_vn.timestamp()), 6, 16) == {"mode": "manual", "charge": True, "current": 10, "why": "asap"})
@@ -6693,6 +6693,72 @@ check("solar p90: Solcast day sensors - each hour from the sensor that covers it
       forecasting.solar_p90_forecast([_p9_d1, _p9_d2], _p9_now, 3) == [1.4, 0.7, None])
 check("solar p90: ... an hour a sensor has a forecast but no p90 for stays None",
       forecasting.solar_p90_forecast([_p9_d1, _p9_d3], _p9_now, 3) == [1.4, None, None])
+
+# 2026.11.48: predictions from the plug-in log per block in which the car is
+# plugged in (more than half the weeks), not per plug-in hour
+_F = datetime(2026, 11, 20, tzinfo=_ams2)  # a Friday
+def _flog(spans, choice=None, deadline=None, kwh=8.0, car="c1"):
+    out = []
+    for w, on, off in spans:
+        d = _F - timedelta(weeks=w)
+        a = datetime.combine(d.date(), datetime.min.time(), tzinfo=_ams2) + on
+        b = datetime.combine(d.date(), datetime.min.time(), tzinfo=_ams2) + off
+        dl = int((datetime.combine(d.date(), datetime.min.time(), tzinfo=_ams2) + deadline).timestamp()) if deadline else None
+        out.append({"car": car, "on": int(a.timestamp()), "off": int(b.timestamp()), "kwh": kwh, "choice": choice, "deadline": dl})
+    return out
+_hm = lambda h, m=0: timedelta(hours=h, minutes=m)
+_fri = _flog([(1, _hm(17, 10), _hm(31, 30)), (2, _hm(19, 40), _hm(32, 15)), (3, _hm(21, 5), _hm(31, 45)),
+              (4, _hm(18, 20), _hm(33)), (5, _hm(22, 10), _hm(31, 10))])
+_cf = ev.detect_connections(_fri, [_F], 6, 1, 6, 16, _ams2)
+_t = lambda e: datetime.fromtimestamp(e, _ams2).strftime("%a %H:%M")
+check("log blocks: Friday plug-ins 17:10-22:10 (over two hours apart) -> one 'full by' session from 21:15 to Sat 07:30, from 17:10 on",
+      len(_cf) == 1 and _cf[0]["mode"] == "deadline" and _t(_cf[0]["start"]) == "Fri 21:15"
+      and _t(_cf[0]["deadline"]) == "Sat 07:30" and _t(_cf[0]["plug_from"]) == "Fri 17:10"
+      and _cf[0]["weeks"] == 5 and _cf[0]["kwh"] == 8.0 and _cf[0]["id"] == "h:2026-11-20T21")
+check("log blocks: only 3 of 6 weeks -> no session", ev.detect_connections(_fri[:3], [_F], 6, 1, 6, 16, _ams2) == [])
+_two = _flog([(w, _hm(8), _hm(12)) for w in (1, 2, 3, 4)] + [(w, _hm(18), _hm(23)) for w in (2, 3, 4, 5)], kwh=3.0)
+_c2 = ev.detect_connections(_two, [_F], 6, 1, 6, 16, _ams2)
+check("log blocks: a morning and an evening block -> two sessions",
+      [_t(c["start"]) for c in _c2] == ["Fri 08:00", "Fri 18:00"])
+check("log blocks: a block under an hour is no session",
+      ev.detect_connections(_flog([(w, _hm(18), _hm(18, 40)) for w in (1, 2, 3, 4)]), [_F], 6, 1, 6, 16, _ams2) == [])
+_dl9 = ev.detect_connections(_flog([(w, _hm(18), _hm(31, 30)) for w in (1, 2, 3, 4)], "deadline", _hm(33)), [_F], 6, 1, 6, 16, _ams2)
+_dl6 = ev.detect_connections(_flog([(w, _hm(18), _hm(31, 30)) for w in (1, 2, 3, 4)], "deadline", _hm(30)), [_F], 6, 1, 6, 16, _ams2)
+check("log blocks: the chosen 'full by' time at most the block's end (09:00 chosen, gone at 07:30 -> 07:30; 06:00 stays)",
+      _t(_dl9[0]["deadline"]) == "Sat 07:30" and _t(_dl6[0]["deadline"]) == "Sat 06:00")
+_long = ev.detect_connections(_flog([(w, _hm(18), _hm(80)) for w in (1, 2, 3, 4)]), [_F], 6, 1, 6, 16, _ams2)
+check("log blocks: a car plugged in for days -> followed 36 hours (full by Sat 12:00)",
+      len(_long) == 1 and _t(_long[0]["deadline"]) == "Sat 12:00")
+_dup = _flog([(w, _hm(18), _hm(22)) for w in (1, 2, 3)] + [(w, _hm(19), _hm(21)) for w in (1, 2, 3)])
+check("log blocks: two connections in one week count as one week (3 weeks -> none)",
+      ev.detect_connections(_dup, [_F], 6, 1, 6, 16, _ams2) == [])
+_short = ev.detect_connections(_flog([(w, _hm(18), _hm(20)) for w in (1, 2, 3, 4)], kwh=6.0), [_F], 6, 1, 6, 16, _ams2)
+check("log blocks: no choice and a block too short to wait -> fixed at the max from the block's start",
+      _short[0]["mode"] == "fixed" and _short[0]["current_a"] == 16 and _t(_short[0]["start"]) == "Fri 18:00")
+# plugging in at the earliest plug-in of the block takes it over (before 2026.11.48 only from 2 hours before its start)
+_vrtP = ev_runtime.EvRuntime()
+_vrtP.morning_day = "2026-11-03"
+_vrtP.update(_vconf, _vn, _ams2, 6, [0.0] * 121, 0.0, 500.0, victron=_vin(False))
+_predP = {"id": "h:block", "start": _hE + 4 * 3600, "kwh": 12.0, "mode": "fixed", "current_a": 10, "label": ev.LABEL_HISTORY,
+          "enabled": True, "car": None, "plug_from": int(_vn.timestamp()) - 600}
+_vrtP2 = _copy.deepcopy(_vrtP)
+_vrtP._victron_track([_predP], True, "connected", 500.0, int(_vn.timestamp()), 10.0)
+_vrtP2._victron_track([{k: v for k, v in _predP.items() if k != "plug_from"}], True, "connected", 500.0, int(_vn.timestamp()), 10.0)
+check("log blocks: plugged in 4 hours before the block, after its earliest plug-in -> taken over; without plug_from not",
+      _vrtP.flow.get("adopted") == "h:block" and _vrtP2.flow.get("adopted") is None)
+# with a charger of its own no predictions from the charging energy (they'd follow the planned 'full by' hours)
+_vrtH = ev_runtime.EvRuntime()
+_vrtH.history = (_evh, _sur)
+_nH = datetime(2026, 10, 12, 9, 0, tzinfo=_ams2)
+_, _aH = _vrtH.update({**_vconf, "predict": True}, _nH, _ams2, 6, [0.0] * 121, 0.0, 0.0, victron=_vin(False))
+_vrtH2 = ev_runtime.EvRuntime()
+_vrtH2.history = (_evh, _sur)
+_, _aH2 = _vrtH2.update({**_vconf, "predict": True}, _nH, _ams2, 6, [0.0] * 121, 0.0, 0.0)
+check("charger with a plug-in log: no predictions from the charging energy before six weeks of log; without a charger there are",
+      not any(x["id"].startswith("h:") for x in _aH["sessions"]) and any(x["id"].startswith("h:2026-10-12T18") for x in _aH2["sessions"]))
+check("log blocks: the attribute shows from when plugging in takes a predicted session over",
+      bool(_aH2["sessions"]) and all("plug_from" in x for x in _aH2["sessions"]))
+
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

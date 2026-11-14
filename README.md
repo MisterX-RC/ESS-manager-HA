@@ -732,27 +732,49 @@ target in ESS Manager to the car's own charge limit). The EV card shows
 the factor per car ("State-of-charge correction: x1.08 (5 charges)"), the
 diagnostics the last samples.
 
-**The plug-in log and the predictions** (as of 2026.10.29). With the Victron
-charger ESS Manager keeps its own log of every time a car was plugged in
-(car, plugged in, unplugged, kWh, the way of charging chosen, the time for
-"full by"), 12 weeks long - the recorder keeps plugged-in states only about
-10 days. Once the log covers your usage lookback (usually 6 weeks), the
-predicted sessions come from it, per connection instead of per charge: a
-"full by" that the prices split into two blocks is one session. A
-connection that comes back on the same weekday around the same time (within
-two hours) in more than half the weeks becomes a session with the average
-energy and the way of charging chosen most often - "full by" the usual time
-(the times chosen, else the usual unplug time), also without a choice when
-the car usually stays plugged in well over twice as long as charging takes.
-Until then the predictions come from the charging energy, as before.
+**The plug-in log and the predictions** (as of 2026.10.29; the zappi as of
+2026.11.21). With a charger of its own (Victron or zappi) ESS Manager keeps
+its own log of every time a car was plugged in (car, plugged in, unplugged,
+kWh, the way of charging chosen, the time for "full by"), 12 weeks long -
+the recorder keeps plugged-in states only about 10 days. Once the log
+covers your usage lookback (usually 6 weeks), the predicted sessions come
+from it, per connection instead of per charge: a "full by" that the prices
+split into two blocks is one session.
+
+*(As of 2026.11.48)* a prediction is a **block in which the car is usually
+plugged in**, not a plug-in time. For each day the connections of the same
+weekday in the lookback weeks are laid over each other (followed up to 36
+hours past that day's midnight, so Friday evening to Saturday morning stays
+Friday); where the car was plugged in in more than half the weeks, for at
+least an hour, that block becomes a session. A car plugged in every Friday
+evening at very different times (17:10, 19:40, 21:05, ...) and unplugged on
+Saturday morning gets one session from when it's there in most weeks (the
+start rounded up to the quarter) to when it's still there in most weeks.
+The session has the average energy of those connections per week, the car
+and the way of charging chosen most often, and "full by" the usual time
+chosen (at most the block's end) - else the block's end, also without a
+choice when the block is at least 3 hours and well over twice as long as
+charging takes; a shorter block without a choice charges at a fixed current
+from its start. Plugging in from the **earliest plug-in** of that block on
+takes the session over (attribute `plug_from`), so an early plug-in still
+charges "full by" in the cheapest quarters from then on. Up to 2026.11.47
+connections were grouped by plug-in hour (within two hours of each other),
+so a car whose plug-in times were further apart never got a prediction.
+
+Until the log covers the lookback there are **no** predictions with a
+charger of its own (as of 2026.11.48): the charging energy then follows the
+hours the planning chose for "full by", not when the car was there, so it
+would predict sessions at the wrong time and of the wrong kind. Without a
+charger of its own the predictions come from the charging energy, as before.
 
 **Planned "full by" sessions.** A planned session can be "full by" as well
 (on the card, or predicted from the log): it's forecast with its own plan
 (calm by preference - the lowest current at most 2 ct/kWh dearer than the cheapest - done an hour before its time, sun
 first, the cheapest hours, dear quarters out of the house battery; where the prices for then aren't known yet, a calm charge
 from its start), and the battery forecast leaves its grid part out. **Plugged
-in during a planned session** - one predicted from the log or from the
-charging energy, edited or added on the card - its plan is taken over right
+in during a planned session** - one predicted from the log (from its
+earliest plug-in on, see above) or from the charging energy, edited or
+added on the card - its plan is taken over right
 away, and the phone only asks
 "the planned session is taken over: full by 07:30, 9 kWh. Is that right?" -
 **Yes** keeps it (the end time follows), **Something else** brings the usual

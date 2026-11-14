@@ -12,6 +12,29 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.48] - 2026-11-14
+
+### Electric car
+- **Predictions from the plug-in log per block the car is plugged in.**
+  With a charger of its own (Victron or zappi), once the plug-in log covers
+  the usage lookback, a predicted session is now a block in which the car
+  is plugged in in more than half the weeks (same weekday, followed up to
+  36 hours past midnight, at least an hour), instead of a group of plug-in
+  times within two hours of each other. A car plugged in on the same
+  evening every week at times further apart than that now gets a session:
+  from when it's there in most weeks to when it's still there in most
+  weeks, "full by" the usual chosen time (at most the block's end) or the
+  block's end. The average energy, car and way of charging come from the
+  connections touching the block.
+- **Taken over from the earliest plug-in.** Such a session carries
+  `plug_from` (the earliest plug-in of its block, also in the attribute):
+  plugging in from then on takes it over, so an early plug-in still charges
+  "full by" in the cheapest quarters from that moment.
+- **No predictions from the charging energy with a charger of its own.**
+  Its charging hours follow what the planning chose for "full by", not when
+  the car was there, so until the plug-in log covers the lookback there are
+  no predictions. Without a charger of its own nothing changes.
+
 ## [2026.11.47] - 2026-11-14
 
 ### Low charge plan

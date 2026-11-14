@@ -270,7 +270,10 @@ class _VictronMixin:
                 continue
             start = int(s["start"])
             end = max(int(s.get("end") or 0), start + ev.START_GRACE, int(s.get("deadline") or 0))
-            if start - EARLY <= now_epoch < end:
+            # (as of 2026.11.48) a session predicted from the plug-in log is taken
+            # over from the earliest plug-in of its block on (`plug_from`)
+            early = min(start - EARLY, int(s.get("plug_from") or start))
+            if early <= now_epoch < end:
                 if expected is None:
                     expected = s.get("kwh")
                 # every planned or predicted session counts (as of 2026.10.31;
@@ -1164,7 +1167,10 @@ class EvRuntime(_VictronMixin):
         if predict and from_log:
             # (as of 2026.10.29) per connection, from the plug-in log
             predicted = ev.detect_connections(self.log, midnights, lookback_weeks, phases, min_a, max_a, tz)
-        elif predict and self.history:
+        elif predict and self.history and victron is None:
+            # (as of 2026.11.48) only without a charger of its own: with one the
+            # charging hours are the ones the planning chose ("full by"), not
+            # when the car is there - it waits for the plug-in log instead
             predicted = ev.detect_sessions(
                 self.history[0], self.history[1], midnights, lookback_weeks, phases, min_a, max_a, tz
             )
@@ -1293,6 +1299,8 @@ class EvRuntime(_VictronMixin):
                 # (as of 2026.10.29) "full by" and where a prediction comes from
                 "deadline": iso(s.get("deadline")) if s.get("deadline") else None,
                 "source": s.get("source"),
+                # (as of 2026.11.48) from the plug-in log: plugging in from then on takes it over
+                "plug_from": iso(s.get("plug_from")) if s.get("plug_from") else None,
                 "full_by": (
                     {"current_a": s["full_by"].get("current_a"), "tight": bool(s["full_by"].get("tight")),
                      "windows": [[iso(a), iso(b)] for a, b in s["full_by"].get("windows") or []],

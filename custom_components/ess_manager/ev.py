@@ -290,6 +290,45 @@ def _median(values: list[float]) -> float:
     return ordered[n // 2] if n % 2 else (ordered[n // 2 - 1] + ordered[n // 2]) / 2
 
 
+# (as of 2026.11.48) a prediction from the plug-in log is a block in which the
+# car is plugged in; it's followed this far past its plug-in day's midnight
+# (Friday evening to Saturday morning stays Friday) ...
+CONNECTION_SPAN = 36 * HOUR
+# ... and a block shorter than this is no session
+CONNECTION_MIN_BLOCK = HOUR
+QUARTER = 900
+
+
+def _present_blocks(weeks: dict[int, list[tuple[int, int]]], need: float) -> list[tuple[int, int]]:
+    """The blocks (offsets from midnight) in which more than `need` of the
+    weeks have the car plugged in. `weeks`: week -> its connections as
+    (on, off) offsets; overlapping connections in one week count once."""
+    events: list[tuple[int, int, int]] = []
+    for week, spans in weeks.items():
+        merged: list[list[int]] = []
+        for on, off in sorted(spans):
+            if merged and on <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], off)
+            else:
+                merged.append([on, off])
+        for on, off in merged:
+            events.append((on, 1, week))
+            events.append((off, -1, week))
+    # at one moment an unplug goes before a plug-in (touching spans don't overlap)
+    events.sort(key=lambda e: (e[0], e[1]))
+    blocks: list[tuple[int, int]] = []
+    count = 0
+    since: Optional[int] = None
+    for at, step, _ in events:
+        count += step
+        if count > need and since is None:
+            since = at
+        elif count <= need and since is not None:
+            blocks.append((since, at))
+            since = None
+    return blocks
+
+
 def detect_connections(
     log: list[dict[str, Any]],
     days: list[datetime],
@@ -299,53 +338,65 @@ def detect_connections(
     max_a: float,
     tz: tzinfo,
 ) -> list[dict[str, Any]]:
-    """Predicted sessions from the plug-in log (Victron charger, as of
-    2026.10.29) instead of the charging energy: one session per time the
-    car was plugged in, so two charge blocks in one connection (a "full by"
-    split by the prices) are one session. For each day, the connections of
-    the same weekday 1..lookback_weeks back are grouped by plug-in hour
-    (within two hours of each other); a group in more than half the weeks
-    becomes a session at its most common hour, with the average energy and
-    the most common car. Its way of charging is the one chosen most often;
-    "full by" - also without a choice when the car stays plugged in well
-    over twice as long as charging takes - with as time the usual one
-    (the times chosen, else the usual unplug time), counted from the
-    plug-in."""
+    """Predicted sessions from the plug-in log (Victron charger as of
+    2026.10.29, zappi as of 2026.11.21): one session per block in which the
+    car is usually plugged in (as of 2026.11.48; up to then per plug-in
+    hour, so a car plugged in every Friday evening at times further apart
+    than two hours never got one). For each day the connections plugged in
+    on the same weekday 1..lookback_weeks back are laid over each other
+    (offsets from their day's midnight, up to CONNECTION_SPAN): a block in
+    which the car was plugged in in more than half the weeks, at least
+    CONNECTION_MIN_BLOCK long, becomes a session from the block's start
+    (rounded up to the quarter). The connections touching the block give
+    the energy (their average per week), the most common car and way of
+    charging, and `plug_from`: the earliest plug-in among them - plugging in
+    from then on takes the session over. "Full by": chosen most often, or
+    without a choice when the block is at least 3 hours and over twice as
+    long as charging takes; its time is the usual chosen time (the median),
+    at most the block's end, else the block's end - rounded down to the
+    quarter. Otherwise it charges at a fixed current from the block's start
+    (the max, or the min when "slow" was chosen most), or on the sun."""
     out: list[dict[str, Any]] = []
     need = lookback_weeks / 2.0
     p_max = power_kw(max_a, phases)
     for day in days:
-        found: list[dict[str, Any]] = []
+        midnight = _local_epoch(day, 0, tz)
+        conns: list[dict[str, Any]] = []
+        weeks: dict[int, list[tuple[int, int]]] = {}
         for week in range(1, lookback_weeks + 1):
             past = day - timedelta(weeks=week)
             start = _local_epoch(past, 0, tz)
             end = int(datetime.combine(past.date() + timedelta(days=1), time(0), tzinfo=tz).timestamp())
             for c in log:
                 if start <= int(c.get("on", 0)) < end and c.get("off"):
-                    found.append({**c, "week": week, "hour": datetime.fromtimestamp(int(c["on"]), tz).hour})
-        found.sort(key=lambda r: (r["hour"], r["week"]))
-        groups: list[list[dict[str, Any]]] = []
-        for c in found:
-            if groups and c["hour"] - groups[-1][0]["hour"] <= 2:
-                groups[-1].append(c)
-            else:
-                groups.append([c])
-        for group in groups:
-            weeks = sorted({c["week"] for c in group})
-            if len(weeks) <= need:
+                    on = int(c["on"]) - start
+                    off = min(int(c["off"]) - start, CONNECTION_SPAN)
+                    if off <= on:
+                        continue
+                    conns.append({**c, "week": week, "on_off": on, "off_off": off, "midnight": start})
+                    weeks.setdefault(week, []).append((on, off))
+        seen: set[str] = set()
+        for b_on, b_off in _present_blocks(weeks, need):
+            if b_off - b_on < CONNECTION_MIN_BLOCK:
                 continue
-            hours = [c["hour"] for c in group]
-            hour = max(sorted(set(hours)), key=hours.count)
-            kwh = sum(float(c.get("kwh") or 0.0) for c in group) / len(weeks)
+            group = [c for c in conns if c["on_off"] < b_off and c["off_off"] > b_on]
+            weeks_in = sorted({c["week"] for c in group})
+            if len(weeks_in) <= need:
+                continue
+            kwh = sum(float(c.get("kwh") or 0.0) for c in group) / len(weeks_in)
             cars = [c.get("car") for c in group if c.get("car")]
             car = max(sorted(set(cars)), key=cars.count) if cars else None
             choices = [c.get("choice") for c in group if c.get("choice")]
             choice = max(sorted(set(choices)), key=choices.count) if choices else None
-            stay = _median([int(c["off"]) - int(c["on"]) for c in group])
-            start_epoch = _local_epoch(day, hour, tz)
+            begin = -(-b_on // QUARTER) * QUARTER
+            start_epoch = midnight + begin
+            key = session_key(start_epoch, tz)
+            if key in seen:
+                continue
+            seen.add(key)
             session = {
-                "id": "h:" + session_key(start_epoch, tz),
-                "key": session_key(start_epoch, tz),
+                "id": "h:" + key,
+                "key": key,
                 "start": start_epoch,
                 "kwh": round(kwh, 2),
                 "mode": MODE_FIXED,
@@ -356,22 +407,25 @@ def detect_connections(
                 "enabled": True,
                 "label": LABEL_HISTORY,
                 "solar_history": False,
-                "weeks": len(weeks),
+                "weeks": len(weeks_in),
                 "source": "log",
                 "deadline": None,
+                "plug_from": min(midnight + min(c["on_off"] for c in group), start_epoch),
+                "block_end": midnight + b_off,
             }
-            long_stay = p_max > 0 and stay >= 3 * HOUR and kwh / p_max * HOUR * 2 < stay
+            block = b_off - begin
+            long_stay = p_max > 0 and block >= 3 * HOUR and kwh / p_max * HOUR * 2 < block
             if choice == "deadline" or (choice is None and long_stay):
-                # the usual time of day (counted from the plug-in day's midnight)
-                def from_midnight(c: dict[str, Any], key: str) -> int:
-                    on_day = datetime.fromtimestamp(int(c["on"]), tz)
-                    return int(c[key]) - _local_epoch(on_day, 0, tz)
-
-                offsets = [from_midnight(c, "deadline") for c in group if c.get("choice") == "deadline" and c.get("deadline")]
-                if not offsets:
-                    offsets = [from_midnight(c, "off") for c in group]
-                dl = _local_epoch(day, 0, tz) + int(_median(offsets))
-                session.update({"mode": MODE_DEADLINE, "current_a": None, "deadline": dl - dl % 900})
+                offsets = [
+                    int(c["deadline"]) - c["midnight"]
+                    for c in group if c.get("choice") == "deadline" and c.get("deadline")
+                ]
+                at = min(int(_median(offsets)), b_off) if offsets else b_off
+                if at <= begin + QUARTER:
+                    # a usual time before the block (or right at its start): its end
+                    at = b_off
+                dl = midnight + at
+                session.update({"mode": MODE_DEADLINE, "current_a": None, "deadline": dl - dl % QUARTER})
             elif choice == "solar":
                 session.update({"mode": MODE_SOLAR, "current_a": None})
             elif choice == "calm":
