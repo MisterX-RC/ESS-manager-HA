@@ -2838,6 +2838,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         usage_forecast, usage_short_added = await self._async_short_term(conf, usage_source, now, usage_forecast)
 
         solar_points: list[list[dict]] = []
+        solar_attrs: list = []
         waiting_for: list[str] = []
         unreadable: list[str] = []
         for entity_id in conf.get(CONF_SOLAR_FORECAST_ENTITIES, []):
@@ -2847,6 +2848,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if state is not None:
                 points = forecasting.solar_points_from_attributes(state.attributes)
                 solar_points.append(points)
+                solar_attrs.append(state.attributes)
                 # Logged once per sensor (as of 2026.10.21): a sensor without a
                 # known forecast attribute would otherwise count as no sun at all.
                 # a known attribute that's empty for now (a Solcast day sensor
@@ -3752,6 +3754,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # also referencing the raw price entity directly.
             "today_price_units": len(today_price),
             "solar_120h": solar_forecast,
+            # the high side of the solar forecast (Helios p90 / Solcast
+            # pv_estimate90) per hour, None without one (as of 2026.11.46):
+            # diagnostics only, not a sensor attribute
+            "solar_120h_p90": forecasting.solar_p90_forecast(solar_attrs, now, FORECAST_HOURS),
             # Today's measured hours for the battery card (as of v0.5.1).
             "history_today": self._history_today(now, merged_solar_points),
             "energy_usage_120h": usage_forecast,

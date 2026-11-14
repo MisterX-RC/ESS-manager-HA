@@ -242,7 +242,16 @@ for it (under 100% at every later hour) as long as it can. Making a block
 long enough can add more than needed; what's then left over is dropped in
 the way that leaves the cheapest plan (as of 2026.10.32 - up to then whole
 blocks went first, so a cheap short block could go while dearer quarters
-added to lengthen another block stayed).
+added to lengthen another block stayed). A block also stops lower when the
+sun after it - before the next block - would take the battery over 100%
+(as of 2026.11.46): it keeps its quarters, so its minimum length, but stops
+earlier on its level, and the sun fills the battery to the top instead of
+going to the grid. Never so low that an hour in between drops under min SOC
+plus the Safety buffer. Up to then a block lengthened to the minimum
+duration, or one just before a sunny afternoon, bought energy the sun
+after it then sent to the grid. The high side of the solar forecast
+(Helios Forecast's p90, Solcast's pv_estimate90) is in the diagnostics per
+hour (`solar_120h_p90`), not used in the planning yet.
 
 **Selling in the priciest quarters too** (as of 2026.10.10). A sale isn't
 one window either: it goes into the priciest quarters before the moment

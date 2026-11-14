@@ -14,7 +14,7 @@ from . import units
 from .const import FORECAST_HOURS
 
 
-def solar_points_from_attributes(attributes) -> list[dict]:
+def solar_points_from_attributes(attributes, field: str = "watts") -> list[dict]:
     """One solar-forecast entity's points, Solcast-shaped (as of 2026.10.21).
 
     Two formats are recognised by themselves, no setting needed:
@@ -26,20 +26,29 @@ def solar_points_from_attributes(attributes) -> list[dict]:
       hour with only some quarters - the end of the horizon - counts its
       average, not a partial sum).
     Anything else gives no points.
+
+    `field` (as of 2026.11.46): "p90" gives the high side of the forecast
+    instead - Helios' p90 per quarter (null until it has learned enough),
+    Solcast's pv_estimate90 - in the same shape; points without it are left
+    out.
     """
     attrs = attributes or {}
     hourly = attrs.get("detailedHourly")
     if hourly:
-        return list(hourly)
+        if field == "watts":
+            return list(hourly)
+        key = "pv_estimate90" if field == "p90" else field
+        return [{"period_start": p.get("period_start"), "pv_estimate": p.get(key)}
+                for p in hourly if isinstance(p, dict) and p.get(key) is not None]
     quarters = attrs.get("forecast")
     if not isinstance(quarters, (list, tuple)):
         return []
     sums: dict[datetime, list[float]] = {}
     for point in quarters:
-        if not isinstance(point, dict) or "watts" not in point:
+        if not isinstance(point, dict) or field not in point:
             continue
         ts = _as_datetime(point.get("datetime"))
-        watts = point.get("watts")
+        watts = point.get(field)
         if ts is None or watts is None:
             continue
         try:
@@ -597,3 +606,15 @@ def grid_use_rates(
         x = float(net[h]) if h < len(net) and net[h] is not None else 0.0
         out[u] = round(min(-x / de, cap) / 4, 4) if x < 0 else 0.0
     return out
+
+
+def solar_p90_forecast(entities_attributes: list, now: datetime, hours: int = FORECAST_HOURS) -> Optional[list]:
+    """The high side of the solar forecast per hour, like build_solar_forecast
+    (as of 2026.11.46, for the diagnostics): the sum of every entity's p90;
+    an hour that not every entity has a p90 for is None, and None as a
+    whole when no entity has any."""
+    per_entity = [build_solar_forecast(solar_points_from_attributes(a, "p90"), now, hours) for a in entities_attributes]
+    if not per_entity or not any(v is not None for values in per_entity for v in values):
+        return None
+    return [None if any(values[h] is None for values in per_entity) else round(sum(values[h] for values in per_entity), 4)
+            for h in range(hours)]

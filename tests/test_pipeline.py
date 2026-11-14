@@ -4290,9 +4290,11 @@ _sun = plans.compute_low_charge_plan(None, 0, _sun_fc, datetime(2026, 10, 19, 0,
                                      min_charge_units=2, peak_kwh=max(_sun_fc))
 check("lowest dip: across a day that fills to 100 %, the later dip's part is bought after it (where it fits)",
       _sun["active"] and _sun["lowest_kwh"] == 5.0
-      # before the full day only the first dip's own (minimum) block; the later dip's 2 kWh after it
-      and sum(b["kwh"] for b in _sun["blocks"] if b["start_unit"] < 4 * 7) == 3.5
-      and sum(b["kwh"] for b in _sun["blocks"] if b["start_unit"] >= 4 * 7) == 2.0)
+      # before the full day only the first dip's own (minimum) block - as of 2026.11.46 it stops at what
+      # keeps that dip at 9 + 1.5 (2.0 of its 3.5 kWh: the rest the sun would send to the grid); the
+      # later dip's part after it (3.5 kWh, up to 2026.11.45 2.0)
+      and sum(b["kwh"] for b in _sun["blocks"] if b["start_unit"] < 4 * 7) == 2.0
+      and sum(b["kwh"] for b in _sun["blocks"] if b["start_unit"] >= 4 * 7) == 3.5)
 # 2026.10.20: a fit that gave no model isn't tried again every cycle, only once an hour (or on new data)
 _rf = heatpump_runtime.HeatPumpRuntime()
 _rf.merge(_hpj[-5:], _hp_today)
@@ -6620,6 +6622,41 @@ _mf_hi = heatpump_house.simulate({**_mf_house, "q_min": floor_control.min_floor_
                                  21.0, _mf_in, [21.0] * 72, [_mf_ss[0]] * 35, None)[0]
 check("min floor: below the limit the room stays on its target, above it the house gets too warm",
       abs(_mf_lo[-1] - 21.0) < 0.05 and _mf_hi[-1] > 21.5)
+
+# 2026.11.46: a charge block stops lower when the sun after it (before the next block) would take the battery
+# over the top - it keeps its quarters (minimum length) but stops earlier on its level; never so low that an
+# hour in between drops under the floor given (the threshold plus the Safety buffer)
+_so_base = [20.0, 22.0, 25.0, 28.0, 29.5, 29.0, 27.0]
+_so = plans._charge_blocks([4, 5, 6], [1.5] * 12, 4.5, _so_base, 20.0, 0, 0, 30.0, floor_kwh=10.0)
+check("sun after a block: it stops 4.0 lower (0.5 of its 4.5 kWh, at 22.0: the sun then fills it to exactly 30)",
+      len(_so) == 1 and _so[0]["kwh"] == 0.5 and _so[0]["target_level_kwh"] == 22.0)
+_so_old = plans._charge_blocks([4, 5, 6], [1.5] * 12, 4.5, _so_base, 20.0, 0, 0, 30.0)
+check("sun after a block: ... without a floor given (full charge) unchanged", _so_old[0]["kwh"] == 4.5)
+_so_dip = plans._charge_blocks([4, 5, 6], [1.5] * 12, 4.5, [20.0, 12.0, 8.0, 7.0, 29.5, 29.0], 20.0, 0, 0, 30.0,
+                               floor_kwh=10.0)
+check("sun after a block: ... a dip before the sun keeps it at the floor (7.0 + 4.5 -> 1.5 kWh room, not 4.0)",
+      abs(_so_dip[0]["kwh"] - 3.0) < 1e-6)
+_so_next = plans._charge_blocks([4, 5, 6, 16, 17], [1.5] * 24, 6.0, [20.0, 22.0, 24.0, 25.0, 26.5, 29.0], 20.0, 0, 0,
+                                30.0, floor_kwh=10.0)
+check("sun after a block: ... only the hours up to the next block count: the first keeps its 4.5 kWh, the second "
+      "(1.5 kWh, the sun after it fills the battery anyway) goes", abs(_so_next[0]["kwh"] - 4.5) < 1e-6 and len(_so_next) == 1)
+
+# 2026.11.46: the high side of the solar forecast for the diagnostics - Helios p90 per quarter (null without a
+# band yet), Solcast pv_estimate90; summed over the entities, an hour one of them lacks is None
+_p9_now = datetime(2026, 11, 14, 12, 10)
+_p9_h = {"forecast": [{"datetime": "2026-11-14T12:00:00", "watts": 2000.0, "p10": 1500.0, "p90": 2400.0},
+                      {"datetime": "2026-11-14T12:15:00", "watts": 2000.0, "p10": 1500.0, "p90": 2800.0},
+                      {"datetime": "2026-11-14T13:00:00", "watts": 1000.0, "p10": None, "p90": None}]}
+_p9_s = {"detailedHourly": [{"period_start": "2026-11-14T12:00:00", "pv_estimate": 1.0, "pv_estimate90": 1.5},
+                            {"period_start": "2026-11-14T13:00:00", "pv_estimate": 0.5, "pv_estimate90": 0.8}]}
+_p9 = forecasting.solar_p90_forecast([_p9_h, _p9_s], _p9_now, 3)
+check("solar p90: Helios p90 (mean of the hour's quarters) + Solcast pv_estimate90; an hour without Helios' band is None",
+      _p9 == [round(2.6 + 1.5, 4), None, None])
+check("solar p90: ... no band anywhere -> None; the normal forecast reads as before",
+      forecasting.solar_p90_forecast([{"forecast": [{"datetime": "2026-11-14T12:00:00", "watts": 5.0, "p90": None}]}],
+                                     _p9_now, 3) is None
+      and forecasting.solar_points_from_attributes(_p9_h)[0]["pv_estimate"] == 2.0
+      and forecasting.solar_points_from_attributes(_p9_s) == _p9_s["detailedHourly"])
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

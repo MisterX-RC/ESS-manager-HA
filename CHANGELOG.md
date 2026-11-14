@@ -12,6 +12,26 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.46] - 2026-11-14
+
+### Low charge plan
+- **A charge block no longer buys what the sun after it sends to the
+  grid.** When the solar forecast after a block - up to the start of the
+  next block - would take the battery over 100%, the block now stops that
+  much lower. It keeps its quarters (so its minimum duration) but stops
+  earlier on its level, and the sun fills the battery to the top. It never
+  stops so low that an hour in between drops under min SOC plus the Safety
+  buffer. What's then not bought before the sun can go to a block after it.
+  Before, a block lengthened to the Minimum charge duration, or one in the
+  sunny hours, could fill the battery so far that the afternoon sun went to
+  the grid while that energy had just been bought.
+
+### Diagnostics
+- **The high side of the solar forecast per hour** (`solar_120h_p90`): the
+  p90 of Helios Forecast (summed over its sensors, None for an hour without
+  a band yet) or Solcast's pv_estimate90. Only in the diagnostics for now,
+  not used in the planning.
+
 ## [2026.11.45] - 2026-11-13
 
 ### Floor control

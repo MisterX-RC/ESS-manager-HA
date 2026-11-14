@@ -661,12 +661,23 @@ def _charge_blocks(
     hour0_unit: int,
     cap_kwh: float,
     holds: Optional[dict[int, float]] = None,
+    floor_kwh: Optional[float] = None,
 ) -> list[dict]:
     """The chosen quarters as blocks: [{start_unit, end_unit, kwh,
     target_level_kwh, rates}] - kwh what the grid adds in the block (the
     last one only up to `total_kwh`), target_level_kwh the battery level it
     stops at: the forecast level at its end plus everything planned up to
-    and including it (at most `cap_kwh`)."""
+    and including it (at most `cap_kwh`).
+
+    As of 2026.11.46 (with `floor_kwh` given): when the sun after a block -
+    before the next one starts - would take the battery over `cap_kwh`, the
+    block stops that much lower. It keeps its quarters (and so its minimum
+    length) but stops earlier on its level; the sun then fills it to the top
+    instead of going to the grid. Never lower than what keeps every hour in
+    between at `floor_kwh` or above (the callers: the threshold plus the
+    Safety buffer, so the buffer before the sun stays). Before, a block lengthened to the
+    minimum length (or one in a sunny hour) bought what the sun after it
+    then sent to the grid."""
     blocks: list[dict] = []
     cumulative = 0.0
     for u in units:
@@ -676,17 +687,62 @@ def _charge_blocks(
         else:
             blocks.append({"start_unit": u, "end_unit": u + 1, "rates": [round(rates[u], 4)]})
     out = []
-    for block in blocks:
+    for i, block in enumerate(blocks):
         energy = min(sum(block["rates"]), max(total_kwh - cumulative, 0.0))
-        cumulative += energy
         level_end = _level_at(base, battery_now_kwh, cur_unit, hour0_unit, block["end_unit"])
         # the house from the grid before it (as of 2026.10.41) keeps that much in
         held = sum(k for u, k in (holds or {}).items() if u < block["end_unit"])
+        if floor_kwh is not None and base and math.isfinite(cap_kwh) and energy > 0:
+            energy -= _sun_overflow_after(
+                base, hour0_unit, block["end_unit"],
+                blocks[i + 1]["start_unit"] if i + 1 < len(blocks) else None,
+                level_end + cumulative + energy + held, cumulative + energy,
+                holds, cap_kwh, floor_kwh, energy,
+            )
+        cumulative += energy
         block["kwh"] = round(energy, 3)
         block["target_level_kwh"] = round(min(level_end + cumulative + held, cap_kwh), 3)
-        if energy > 0:
+        if energy > 1e-6:
             out.append(block)
     return out
+
+
+def _sun_overflow_after(
+    base: list[float],
+    hour0_unit: int,
+    end_unit: int,
+    next_start: Optional[int],
+    level_end: float,
+    planned: float,
+    holds: Optional[dict[int, float]],
+    cap_kwh: float,
+    floor_kwh: float,
+    energy: float,
+) -> float:
+    """How much less a charge block should put in (2026.11.46): what the
+    forecast after it - up to the start of the next block - would take
+    over `cap_kwh` (the sun), at most its own `energy`, and never so much
+    that an hour in between (before that peak) drops under `floor_kwh`.
+    `level_end` is the level the block stops at (uncapped), `planned` what
+    all blocks up to it add on top of `base`."""
+    first_h = max((end_unit - hour0_unit) // 4, 0)
+    last_h = len(base) - 1 if next_start is None else min(max((next_start - hour0_unit) // 4 - 1, -1), len(base) - 1)
+    peak = level_end
+    lowest = level_end
+    lowest_before_peak = level_end
+    for h in range(first_h, last_h + 1):
+        h_end = hour0_unit + 4 * (h + 1)
+        held = sum(k for u, k in (holds or {}).items() if u < h_end)
+        lvl = base[h] + planned + held
+        if lvl > peak:
+            peak = lvl
+            lowest_before_peak = lowest
+        lowest = min(lowest, lvl)
+    over = peak - cap_kwh
+    if over <= 0.01:
+        return 0.0
+    room = max(lowest_before_peak - floor_kwh, 0.0)
+    return max(min(over, energy, room), 0.0)
 
 
 # a quarter the forecast has solar covering the house (nothing to save),
@@ -1591,7 +1647,8 @@ def compute_low_charge_plan(
         grid = _grid_use_fields(holds, hold_rates)
         hold_map = dict(zip(grid.get("grid_units", []), grid.get("grid_unit_kwh", [])))
         blocks = _charge_blocks(units, charge_rates, max(total_kwh - grid.get("grid_kwh", 0.0), 0.0), forecast,
-                                battery_now_kwh, cur_unit, hour0_unit, upper_limit_kwh, holds=hold_map)
+                                battery_now_kwh, cur_unit, hour0_unit, upper_limit_kwh, holds=hold_map,
+                                floor_kwh=low_threshold_kwh + max(charge_buffer_kwh, 0.0))
         if not blocks:
             # everything needed after the known prices: planned when they come
             # (or met by taking the house from the grid, as of 2026.10.41)
@@ -1866,7 +1923,8 @@ def _soft_low_charge(
             grid = _grid_use_fields(holds, hold_rates)
             hold_map = dict(zip(grid.get("grid_units", []), grid.get("grid_unit_kwh", [])))
             blocks = _charge_blocks(units, charge_rates, max(total_kwh - grid.get("grid_kwh", 0.0), 0.0), forecast,
-                                    battery_now_kwh, cur_unit, hour0_unit, upper_limit_kwh, holds=hold_map)
+                                    battery_now_kwh, cur_unit, hour0_unit, upper_limit_kwh, holds=hold_map,
+                                    floor_kwh=low_threshold_kwh + max(charge_buffer_kwh, 0.0))
             if not blocks:
                 if need_hard > 0 or grid:
                     return {"active": False, "breach_unit": breach_unit, "deferred_kwh": target_kwh, **grid}
