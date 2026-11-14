@@ -6658,6 +6658,42 @@ check("solar p90: ... no band anywhere -> None; the normal forecast reads as bef
       and forecasting.solar_points_from_attributes(_p9_h)[0]["pv_estimate"] == 2.0
       and forecasting.solar_points_from_attributes(_p9_s) == _p9_s["detailedHourly"])
 
+# 2026.11.47: the high side of the solar forecast (p90) as room after a block - the extra sun per hour (never
+# negative, the current hour 0: its p90 only covers the later quarters), added up from the block's end for
+# the peak; the floor check stays on the forecast itself
+check("solar extra p90: p90 - forecast per hour, never negative; the current hour and hours without a band 0",
+      forecasting.solar_extra_p90([0.3, 1.5, 0.8, None], [0.4, 1.0, 1.0, 0.5]) == [0.0, 0.5, 0.0, 0.0]
+      and forecasting.solar_extra_p90(None, [1.0]) is None)
+_px_base = [20.0, 22.0, 25.0, 27.0, 28.0, 27.5, 26.0]
+_px0 = plans._charge_blocks([4, 5, 6], [1.0] * 12, 3.0, _px_base, 20.0, 0, 0, 30.0, floor_kwh=10.0)
+_px1 = plans._charge_blocks([4, 5, 6], [1.0] * 12, 3.0, _px_base, 20.0, 0, 0, 30.0, floor_kwh=10.0,
+                            sun_extra=[0.0, 0.0, 0.5, 0.5, 0.5, 0.0, 0.0])
+check("p90 room: without it the block keeps 2.0 of 3.0 (forecast peak 28 + 3 -> 1 over); with 1.5 extra sun "
+      "by the peak it stops 1.5 lower still (0.5)", abs(_px0[0]["kwh"] - 2.0) < 1e-6 and abs(_px1[0]["kwh"] - 0.5) < 1e-6)
+_px_dip = plans._charge_blocks([4, 5, 6], [1.0] * 12, 3.0, [20.0, 12.0, 10.5, 9.5, 28.0, 27.0], 20.0, 0, 0, 30.0,
+                               floor_kwh=10.0, sun_extra=[0.0, 0.0, 0.0, 0.0, 3.0, 0.0])
+check("p90 room: ... the floor check stays on the forecast (dip 9.5 + 3.0 -> room 2.5 above 10, not more)",
+      abs(_px_dip[0]["kwh"] - 0.5) < 1e-6)
+# a later block that starts while the battery would already be full doesn't end the hours looked at (it can't
+# make room); one with room does
+_pw = plans._charge_blocks([4, 5, 6, 16, 17], [1.0] * 24, 5.0, [20.0, 24.0, 27.0, 28.5, 29.5, 28.0], 20.0, 0, 0,
+                           30.0, floor_kwh=10.0)
+check("later block at the top: the first block still sees the sun past it (stops lower: 3.0 -> 0.5 kWh)",
+      abs(_pw[0]["kwh"] - 0.5) < 1e-6)
+_pw2 = plans._charge_blocks([4, 5, 6, 16, 17], [1.0] * 24, 5.0, [20.0, 22.0, 23.0, 23.5, 29.5, 28.0], 20.0, 0, 0,
+                            30.0, floor_kwh=10.0)
+check("later block with room: the hours stop at it, the first block keeps its 3.0 kWh", abs(_pw2[0]["kwh"] - 3.0) < 1e-6)
+
+# 2026.11.47: Solcast's day sensors each cover their own day - an entity that doesn't cover an hour adds nothing
+# (up to then every hour of such a setup was None: the other day sensors had no p90 for it)
+_p9_d1 = {"detailedHourly": [{"period_start": "2026-11-14T12:00:00", "pv_estimate": 1.0, "pv_estimate90": 1.4}]}
+_p9_d2 = {"detailedHourly": [{"period_start": "2026-11-14T13:00:00", "pv_estimate": 0.5, "pv_estimate90": 0.7}]}
+_p9_d3 = {"detailedHourly": [{"period_start": "2026-11-14T13:00:00", "pv_estimate": 0.5}]}
+check("solar p90: Solcast day sensors - each hour from the sensor that covers it; an hour nobody covers is None",
+      forecasting.solar_p90_forecast([_p9_d1, _p9_d2], _p9_now, 3) == [1.4, 0.7, None])
+check("solar p90: ... an hour a sensor has a forecast but no p90 for stays None",
+      forecasting.solar_p90_forecast([_p9_d1, _p9_d3], _p9_now, 3) == [1.4, None, None])
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

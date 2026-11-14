@@ -12,6 +12,33 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.47] - 2026-11-14
+
+### Low charge plan
+- **Room for a sunnier afternoon than forecast.** When a charge block
+  stops lower because the sun after it would fill the battery (2026.11.46),
+  that check now counts the high side of the solar forecast - Helios
+  Forecast's p90 or Solcast's pv_estimate90 - instead of the forecast
+  itself. A block before the sun then leaves room for an afternoon as
+  sunny as the forecast's upper band, instead of exporting what didn't fit.
+  The check that no hour before the sun drops under min SOC plus the
+  Safety buffer stays on the forecast itself. Hours without a band (and the
+  current hour, whose band only covers its later quarters) count the
+  forecast. On an ordinary day the battery can end a little under 100%
+  after such a block.
+- **A later block at the top no longer hides the sun after it.** The hours
+  a block looks at for that check used to end at the next block. A next
+  block starting while the battery would already be full can't make room,
+  so the hours now go on past it; only a later block that still has room to
+  fill ends them.
+
+### Diagnostics
+- **The high side of the solar forecast with Solcast's day sensors**: each
+  day sensor covers only its own day, so an hour now takes the p90 of the
+  sensor that covers it. Before, every hour of such a setup came out empty
+  (the other day sensors had no p90 for it). The normal Solcast forecast is
+  read as before.
+
 ## [2026.11.46] - 2026-11-14
 
 ### Low charge plan

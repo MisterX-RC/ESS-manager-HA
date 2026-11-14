@@ -249,9 +249,15 @@ earlier on its level, and the sun fills the battery to the top instead of
 going to the grid. Never so low that an hour in between drops under min SOC
 plus the Safety buffer. Up to then a block lengthened to the minimum
 duration, or one just before a sunny afternoon, bought energy the sun
-after it then sent to the grid. The high side of the solar forecast
-(Helios Forecast's p90, Solcast's pv_estimate90) is in the diagnostics per
-hour (`solar_120h_p90`), not used in the planning yet.
+after it then sent to the grid. As of 2026.11.47 that check counts the
+high side of the solar forecast (Helios Forecast's p90, Solcast's
+pv_estimate90) instead of the forecast itself, so the block leaves room for
+a sunnier afternoon than expected (the floor check stays on the forecast;
+the current hour and hours without a band count the forecast). After such a
+block the battery can end a little under 100% on an ordinary day; on a
+sunny one the room is filled by the sun instead of exported. A later block
+only ends the hours looked at when it still has room to fill. The high
+side per hour is in the diagnostics (`solar_120h_p90`).
 
 **Selling in the priciest quarters too** (as of 2026.10.10). A sale isn't
 one window either: it goes into the priciest quarters before the moment

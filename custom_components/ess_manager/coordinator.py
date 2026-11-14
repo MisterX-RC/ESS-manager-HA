@@ -2980,6 +2980,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # -- forecasting pipeline ----------------------------------------------
         merged_solar_points = forecasting.merge_hourly_points(solar_points)
         solar_forecast = forecasting.build_solar_forecast(merged_solar_points, now, FORECAST_HOURS)
+        solar_p90 = forecasting.solar_p90_forecast(solar_attrs, now, FORECAST_HOURS)
         net_energy = forecasting.build_net_energy(solar_forecast, usage_forecast)
         # The heat pump (as of 2026.10.16): with its own metering its energy
         # is left out of the usage history and added here from the model;
@@ -3399,6 +3400,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 charge_imports=charge_imports,
                 # cheap quarters from the grid on price alone with a deficit (2026.11.40)
                 deficit=solar_mode["mode"] == forecasting.SOLAR_MODE_DEFICIT,
+                # the high side of the solar forecast for a block's stop
+                # level (2026.11.47)
+                sun_extra=forecasting.solar_extra_p90(solar_p90, solar_forecast),
             )
             # a quarter that started with the house from the grid is finished that way (2026.11.30)
             if grid_use_rates is not None and not replan:
@@ -3757,7 +3761,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # the high side of the solar forecast (Helios p90 / Solcast
             # pv_estimate90) per hour, None without one (as of 2026.11.46):
             # diagnostics only, not a sensor attribute
-            "solar_120h_p90": forecasting.solar_p90_forecast(solar_attrs, now, FORECAST_HOURS),
+            "solar_120h_p90": solar_p90,
             # Today's measured hours for the battery card (as of v0.5.1).
             "history_today": self._history_today(now, merged_solar_points),
             "energy_usage_120h": usage_forecast,

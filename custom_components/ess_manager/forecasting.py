@@ -610,11 +610,35 @@ def grid_use_rates(
 
 def solar_p90_forecast(entities_attributes: list, now: datetime, hours: int = FORECAST_HOURS) -> Optional[list]:
     """The high side of the solar forecast per hour, like build_solar_forecast
-    (as of 2026.11.46, for the diagnostics): the sum of every entity's p90;
-    an hour that not every entity has a p90 for is None, and None as a
-    whole when no entity has any."""
-    per_entity = [build_solar_forecast(solar_points_from_attributes(a, "p90"), now, hours) for a in entities_attributes]
-    if not per_entity or not any(v is not None for values in per_entity for v in values):
+    (as of 2026.11.46): the sum of every entity's p90. An entity that
+    doesn't cover an hour at all (Solcast's day sensors each cover their own
+    day, as of 2026.11.47) adds nothing; an hour an entity has a forecast
+    but no p90 for is None, and so is an hour no entity covers. None as a
+    whole when no entity has any p90."""
+    per_entity = []
+    for a in entities_attributes:
+        per_entity.append((build_solar_forecast(solar_points_from_attributes(a), now, hours),
+                           build_solar_forecast(solar_points_from_attributes(a, "p90"), now, hours)))
+    if not per_entity or not any(v is not None for _, p90 in per_entity for v in p90):
         return None
-    return [None if any(values[h] is None for values in per_entity) else round(sum(values[h] for values in per_entity), 4)
-            for h in range(hours)]
+    out: list[Optional[float]] = []
+    for h in range(hours):
+        covered = [(mid[h], p90[h]) for mid, p90 in per_entity if mid[h] is not None or p90[h] is not None]
+        if not covered or any(hi is None for _, hi in covered):
+            out.append(None)
+        else:
+            out.append(round(sum(hi for _, hi in covered), 4))
+    return out
+
+
+def solar_extra_p90(p90: Optional[list], forecast: list) -> Optional[list[float]]:
+    """Per hour how much more sun the high side gives than the forecast
+    (as of 2026.11.47), never negative; None without a p90. The current
+    hour counts 0: its past quarters carry no band, so its p90 is the mean
+    of only the later (lower-sun) quarters. An hour without a p90 counts 0."""
+    if not p90:
+        return None
+    out = []
+    for h, (hi, mid) in enumerate(zip(p90, forecast)):
+        out.append(0.0 if h == 0 or hi is None else round(max(float(hi) - float(mid or 0.0), 0.0), 4))
+    return out
