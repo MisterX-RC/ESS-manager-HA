@@ -12,6 +12,25 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.49] - 2026-11-15
+
+### Cards
+- **EV card: easier state-of-charge controls, also on a phone.** The
+  controls for the state of charge now and the target (in the panel for the
+  plugged-in car and when editing or adding a session) sit one under the
+  other over the full width instead of side by side, which doubles the
+  slider's precision on a narrow screen. The slider is bigger (thicker
+  track, larger thumb) and a vertical swipe over it scrolls the page
+  instead of moving it. Next to the value come **−** and **+** buttons
+  (1% per tap, hold to keep going), and the value itself is a field: tap
+  it and the number pad opens; the number is applied on Enter or when
+  leaving the field, empty or nonsense puts the old value back, out of
+  range is held to 0-100, and the state of charge still stops at the
+  target and the target at the state of charge. Under the target come
+  quick picks 60 / 70 / 80 / 90 / 100%. The card doesn't redraw while a
+  value is being typed. The charging current and kWh sliders are
+  unchanged.
+
 ## [2026.11.48] - 2026-11-14
 
 ### Electric car

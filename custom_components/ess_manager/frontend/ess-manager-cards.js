@@ -2580,6 +2580,23 @@ const EV_CSS = `
   .slider .lab label { color: var(--secondary-text-color, #a0a0a0); }
   .slider .lab span { font-weight: 600; }
   .slider input { width: 100%; accent-color: var(--ev); }
+  /* the state-of-charge controls (as of 2026.11.49): one under the other, a bigger
+     slider, - and + buttons and the value as a field that opens the number pad */
+  .socs { display: flex; flex-direction: column; gap: 14px; }
+  .soc .lab { align-items: center; }
+  .socval { display: inline-flex; align-items: center; gap: 6px; }
+  .socval .step { width: 36px; height: 36px; flex: none; border-radius: 50%; border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.35)); background: transparent; color: var(--primary-text-color, inherit); font: inherit; font-size: 20px; line-height: 1; padding: 0; cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  .socval .step:active { background: rgba(127, 127, 127, 0.18); }
+  .socval .num { width: 3.2em; box-sizing: border-box; text-align: right; font: inherit; font-size: 16px; font-weight: 600; color: var(--primary-text-color, inherit); background: transparent; border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.35)); border-radius: 8px; padding: 5px 6px; accent-color: auto; }
+  .socval .num:focus { outline: none; border-color: var(--acc, var(--ev)); }
+  .socval .pct { font-weight: 600; margin-left: -3px; }
+  .soc input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 32px; margin: 0; background: transparent; touch-action: pan-y; cursor: pointer; }
+  .soc input[type="range"]::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; background: linear-gradient(to right, var(--acc, var(--ev)) var(--pos, 0%), var(--divider-color, rgba(127, 127, 127, 0.3)) var(--pos, 0%)); }
+  .soc input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 26px; height: 26px; margin-top: -9px; border-radius: 50%; background: var(--acc, var(--ev)); border: 3px solid var(--card-background-color, #fff); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
+  .soc input[type="range"]::-moz-range-track { height: 8px; border-radius: 4px; background: var(--divider-color, rgba(127, 127, 127, 0.3)); }
+  .soc input[type="range"]::-moz-range-progress { height: 8px; border-radius: 4px; background: var(--acc, var(--ev)); }
+  .soc input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--acc, var(--ev)); border: 3px solid var(--card-background-color, #fff); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
+  .soc .seg { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .slider .ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color, #7a7a7a); }
   .socbig { position: relative; height: 22px; border-radius: 11px; background: rgba(127,127,127,.3); }
   .socbig i { position: absolute; top: 0; bottom: 0; }
@@ -3081,9 +3098,9 @@ class EssManagerEvCard extends EssChartCard {
       if (p.day !== "any") out += `<label class="fld">${esc(this._t("ev_full_at"))}<input type="time" data-p="hour" value="${esc(p.hour)}"></label>`;
     }
     if (car && car.capacity_kwh) {
-      out += `<div class="grid2">
-        ${this._pslider("soc", this._t("ev_soc_now"), p.soc, 0, 100, 1, `${Math.round(p.soc)}%`, "var(--secondary-text-color,#9b9b9b)")}
-        ${this._pslider("target", this._t("ev_target"), p.target, 0, 100, 1, `${Math.round(p.target)}%`)}
+      out += `<div class="socs">
+        ${this._socCtl("data-ps", "soc", "psoc", this._t("ev_soc_now"), p.soc, "var(--secondary-text-color,#9b9b9b)")}
+        ${this._socCtl("data-ps", "target", "ptarget", this._t("ev_target"), p.target, null, true)}
       </div>`;
     } else {
       out += this._pslider("kwh", this._t("ev_energy"), p.kwh, 0.5, Math.max(100, Math.ceil(p.kwh)), 0.5, this._kwh(p.kwh));
@@ -3095,6 +3112,27 @@ class EssManagerEvCard extends EssChartCard {
       <button type="button" class="btn" data-act="plan-cancel">${esc(this._t("ev_cancel"))}</button>
       <button type="button" class="btn primary" data-act="plan-go" ${this._saving || (cars.length > 1 && !p.car) ? "disabled" : ""}>${esc(this._t(p.active ? "ev_go_save" : "ev_go_start"))}</button></div>`;
     return out;
+  }
+
+  // A state-of-charge control (as of 2026.11.49): slider over the full width, - and +
+  // (hold to repeat), the value as a field that opens the number pad, and for the
+  // target quick picks. The wiring is in _wire (socWire), the live sync in _live.
+  _socCtl(attr, key, id, label, value, accent, quick) {
+    const v = clamp(Math.round(Number(value) || 0), 0, 100);
+    const lab = esc(label);
+    const picks = quick ? this._seg("data-q", [60, 70, 80, 90, 100].map((q) => [String(q), `${q}%`]), String(v), 5) : "";
+    return `
+      <div class="slider soc"${accent ? ` style="--acc:${accent}"` : ""}>
+        <div class="lab"><label for="ev-${id}">${lab}</label>
+          <span class="socval">
+            <button type="button" class="step" data-step="-1" aria-label="${lab} -1%">\u2212</button>
+            <input class="num" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off" enterkeyhint="done" value="${v}" aria-label="${lab}"><span class="pct">%</span>
+            <button type="button" class="step" data-step="1" aria-label="${lab} +1%">+</button>
+          </span>
+        </div>
+        <input id="ev-${id}" type="range" ${attr}="${key}" min="0" max="100" step="1" value="${v}" style="--pos:${v}%">
+        ${picks}
+      </div>`;
   }
 
   _pslider(key, label, value, min, max, step, text, accent) {
@@ -3557,9 +3595,9 @@ class EssManagerEvCard extends EssChartCard {
     if (car && car.capacity_kwh) {
       if (e.start_soc == null) e.start_soc = Math.max((e.target_soc || 80) - Math.round((e.kwh / evCap(car)) * 100), 0);
       if (e.target_soc == null) e.target_soc = Number(car.target_soc) || 80;
-      out += `<div class="grid2">
-        ${this._slider("start_soc", this._t(e.running ? "ev_start_soc" : "ev_soc_plug"), e.start_soc, 0, 100, 1, `${Math.round(e.start_soc)}%`, "var(--secondary-text-color,#9b9b9b)")}
-        ${this._slider("target_soc", this._t("ev_target"), e.target_soc, 0, 100, 1, `${Math.round(e.target_soc)}%`)}
+      out += `<div class="socs">
+        ${this._socCtl("data-s", "start_soc", "start_soc", this._t(e.running ? "ev_start_soc" : "ev_soc_plug"), e.start_soc, "var(--secondary-text-color,#9b9b9b)")}
+        ${this._socCtl("data-s", "target_soc", "target_soc", this._t("ev_target"), e.target_soc, null, true)}
       </div>`;
     } else {
       out += this._slider("kwh", this._t("ev_energy"), e.kwh, 0.5, Math.max(100, Math.ceil(e.kwh)), 0.5, this._kwh(e.kwh));
@@ -3656,6 +3694,7 @@ class EssManagerEvCard extends EssChartCard {
     const active = this.shadowRoot.activeElement;
     if (active && active.tagName === "SELECT") return; // nor a list that's open
     if (active && active.tagName === "INPUT" && active.type === "time") return; // nor a time being typed
+    if (active && active.tagName === "INPUT" && active.classList.contains("num")) return; // nor a state of charge being typed
     const st = this._hass.states[this._config.entity];
     const opt = this._opt();
     const css = BASE_CSS + EV_CSS + `ha-card { --ev: ${opt.ev_color}; --evsun: ${opt.solar_color}; }`;
@@ -3721,10 +3760,17 @@ class EssManagerEvCard extends EssChartCard {
       if (el) el.innerHTML = html;
     };
     const phases = ev.phases || 3;
+    // the state-of-charge controls follow their slider (as of 2026.11.49)
+    root.querySelectorAll(".soc").forEach((box) => {
+      const r = box.querySelector('input[type="range"]');
+      if (!r) return;
+      r.style.setProperty("--pos", `${((Number(r.value) - Number(r.min)) / (Number(r.max) - Number(r.min))) * 100}%`);
+      const num = box.querySelector("input.num");
+      if (num && root.activeElement !== num) num.value = r.value;
+      box.querySelectorAll("[data-q]").forEach((c) => c.setAttribute("aria-checked", String(c.getAttribute("data-q") === r.value)));
+    });
     if (this._plan) {
       const p = this._plan;
-      set("psoc", `${Math.round(p.soc)}%`);
-      set("ptarget", `${Math.round(p.target)}%`);
       set("pkwh", esc(this._kwh(p.kwh)));
       const a = clamp(Math.round(p.current), ev.min_current, ev.max_current);
       set("pcur", `${a} A \u00b7 ${esc(this._kw(evPower(a, phases)))}`);
@@ -3732,8 +3778,6 @@ class EssManagerEvCard extends EssChartCard {
     }
     const e = this._edit;
     if (e) {
-      set("start_soc", `${Math.round(e.start_soc)}%`);
-      set("target_soc", `${Math.round(e.target_soc)}%`);
       set("kwh", esc(this._kwh(e.kwh)));
       const a = this._editAmps(ev, e);
       set("amp", `${a} A \u00b7 ${esc(this._kw(evPower(a, phases)))}`);
@@ -3814,6 +3858,78 @@ class EssManagerEvCard extends EssChartCard {
       });
       el.addEventListener("change", () => this._rerender());
     };
+    // (as of 2026.11.49) the extras of a state-of-charge slider: - and + (hold to
+    // repeat), the value field (number pad; applied on Enter or leaving the field,
+    // empty or nonsense puts the value back) and the quick picks. Everything goes
+    // through the same apply as the slider, so the state of charge still stops at
+    // the target and the target at the state of charge.
+    const socWire = (el, apply) => {
+      const box = el.closest(".soc");
+      if (!box) return;
+      const min = Number(el.min);
+      const max = Number(el.max);
+      const setVal = (v) => {
+        v = clamp(Math.round(v), min, max);
+        const held = apply(v);
+        el.value = String(held != null ? held : v);
+        this._live(ev);
+      };
+      const num = box.querySelector("input.num");
+      if (num) {
+        num.addEventListener("focus", () => num.select());
+        num.addEventListener("keydown", (k) => {
+          if (k.key === "Enter") {
+            k.preventDefault();
+            num.blur();
+          }
+        });
+        num.addEventListener("change", () => {
+          const v = parseInt(String(num.value).replace(/[^0-9]/g, ""), 10);
+          if (Number.isFinite(v)) setVal(v);
+          num.value = el.value;
+          // after the focus has moved: a tap straight into the other field keeps it
+          setTimeout(() => this._rerender(), 0);
+        });
+      }
+      box.querySelectorAll("[data-step]").forEach((b) => {
+        const d = Number(b.getAttribute("data-step"));
+        let timer = null;
+        let held = false;
+        const stop = () => {
+          if (!held) return;
+          held = false;
+          clearTimeout(timer);
+          clearInterval(timer);
+          timer = null;
+          this._rerender();
+        };
+        b.addEventListener("pointerdown", (pe) => {
+          if (pe.button !== 0) return;
+          pe.preventDefault();
+          const act = this.shadowRoot.activeElement;
+          if (act && act.classList && act.classList.contains("num")) act.blur();
+          held = true;
+          this._dragging = true;
+          setVal(Number(el.value) + d);
+          timer = setTimeout(() => {
+            timer = setInterval(() => setVal(Number(el.value) + d), 80);
+          }, 400);
+        });
+        for (const type of ["pointerup", "pointercancel", "pointerleave"]) b.addEventListener(type, stop);
+        b.addEventListener("contextmenu", (ce) => ce.preventDefault());
+        b.addEventListener("click", (ce) => {
+          // keyboard (Enter/space) - a pointer already stepped on pointerdown
+          if (ce.detail === 0) {
+            setVal(Number(el.value) + d);
+            this._rerender();
+          }
+        });
+      });
+      box.querySelectorAll("[data-q]").forEach((c) => c.addEventListener("click", () => {
+        setVal(Number(c.getAttribute("data-q")));
+        this._rerender();
+      }));
+    };
     if (this._plan) {
       const p = this._plan;
       root.querySelectorAll("[data-ph]").forEach((el) => el.addEventListener("click", () => {
@@ -3846,7 +3962,7 @@ class EssManagerEvCard extends EssChartCard {
       });
       root.querySelectorAll("input[data-ps]").forEach((el) => {
         const key = el.getAttribute("data-ps");
-        sliding(el, (v) => {
+        const apply = (v) => {
           // (as of 2026.11.7) the state of charge stops at the target and
           // the target at the state of charge - neither pushes the other
           // (up to then the target went up with the state of charge, and
@@ -3855,7 +3971,9 @@ class EssManagerEvCard extends EssChartCard {
           if (key === "target" && v < p.soc) v = p.soc;
           p[key] = v;
           return v;
-        });
+        };
+        sliding(el, apply);
+        socWire(el, apply);
       });
     }
     if (!this._edit) return;
@@ -3905,7 +4023,7 @@ class EssManagerEvCard extends EssChartCard {
     });
     root.querySelectorAll("input[data-s]").forEach((el) => {
       const key = el.getAttribute("data-s");
-      sliding(el, (v) => {
+      const apply = (v) => {
         // (as of 2026.11.7) the state of charge stops at the target and the target at the state of charge
         if (key === "start_soc" && e.target_soc != null && v > e.target_soc) v = e.target_soc;
         if (key === "target_soc" && e.start_soc != null && v < e.start_soc) v = e.start_soc;
@@ -3913,7 +4031,9 @@ class EssManagerEvCard extends EssChartCard {
         const car = this._car(ev, e.car);
         if (car && car.capacity_kwh && key !== "current_a") e.kwh = this._editKwh(ev, e);
         return v;
-      });
+      };
+      sliding(el, apply);
+      socWire(el, apply);
     });
   }
 

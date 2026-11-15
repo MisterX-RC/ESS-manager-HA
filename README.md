@@ -825,7 +825,15 @@ away and the end time arrives as a notification, the same as after
 answering there. With a plan the block shows the progress (state of
 charge), for "full by" a timeline of the grid windows up to the deadline,
 and **Change** opens the panel again - for Fast/Slow with a slider for the
-charging current; the end time follows the slider. Below, **Planned**: the
+charging current; the end time follows the slider. *(As of 2026.11.49)* The
+state-of-charge controls (now and target, in both panels) sit one under the
+other over the full width, with a bigger slider that leaves a vertical swipe
+to scrolling, **−** and **+** buttons (1% per tap, hold to keep going) and
+the value as a field: tap it and the number pad opens, type the number and
+press Enter (or leave the field) - empty or nonsense puts the old value
+back, a value out of range is held to 0-100 and the state of charge still
+stops at the target (and the target at the state of charge). Under the
+target, quick picks **60 / 70 / 80 / 90 / 100%**. Below, **Planned**: the
 predicted and added sessions, each with its way of charging (fast, slow or
 on the sun); tap one to edit it in the same kind of panel (day, plug-in
 time, way of charging, state of charge when plugged in and target; for

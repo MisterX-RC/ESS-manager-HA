@@ -6760,6 +6760,18 @@ check("log blocks: the attribute shows from when plugging in takes a predicted s
       bool(_aH2["sessions"]) and all("plug_from" in x for x in _aH2["sessions"]))
 
 
+# --- 2026.11.49: EV card state-of-charge controls (number pad, -/+, quick picks) ---
+with open(os.path.join(_REPO_ROOT, "tools", "cards_template.js"), encoding="utf-8") as _fh_soc:
+    _soc_src = _fh_soc.read()
+check("EV card: state of charge and target sit one under the other (no grid2 around them)",
+      _soc_src.count('<div class="socs">') == 2 and "_pslider(\"soc\"" not in _soc_src and "_slider(\"start_soc\"" not in _soc_src)
+check("EV card: the value is a field that opens the number pad, with - and + and quick picks for the target",
+      'inputmode="numeric"' in _soc_src and 'data-step="-1"' in _soc_src and 'data-step="1"' in _soc_src
+      and "[60, 70, 80, 90, 100]" in _soc_src and 'this._socCtl("data-ps", "target", "ptarget"' in _soc_src
+      and 'this._socCtl("data-s", "target_soc", "target_soc"' in _soc_src)
+check("EV card: no redraw while a state of charge is being typed, and -/+/field/quick picks go through the slider's apply",
+      'active.classList.contains("num")) return;' in _soc_src and _soc_src.count("socWire(el, apply);") == 2)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:
