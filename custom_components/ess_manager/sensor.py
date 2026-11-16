@@ -64,6 +64,8 @@ STATUS_ATTRIBUTES = [
     "negative_price_plan",
     "spike_plan",
     "low_charge_plan",
+    # the reference price of the last week (as of 2026.11.50) - price_reference.py
+    "price_reference",
     "high_discharge_plan",
     "full_charge_plan",
     "cell_voltage_differential_mv",

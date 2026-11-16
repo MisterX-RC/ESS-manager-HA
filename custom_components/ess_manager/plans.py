@@ -274,6 +274,7 @@ def _schedule_charge(
     hold_factor: float = 1.0,
     holds_out: Optional[list[int]] = None,
     deficit: bool = False,
+    price_ref: Optional[float] = None,
 ) -> list[int]:
     """The cheapest quarters to charge in (as of 2026.10.6), possibly split
     over several blocks, each part of the amount bought before it's needed.
@@ -413,6 +414,15 @@ def _schedule_charge(
     # losses of putting energy in and taking it out again (2026.10.41):
     # above it, a charge at that lowest price would be cheaper
     hold_max = (min(known) / (ce * hold_factor) if known and hold_factor > 0 else math.inf)
+    # the reference price of the last week (as of 2026.11.50), only passed
+    # while tomorrow's prices aren't known: on a dear day "the cheapest
+    # quarter left today" is itself dear - then the house from the grid only
+    # below what a charge usually costs (after the losses), and soft parts
+    # only bought at most at that price. Hard parts are not held back.
+    if price_ref is not None:
+        soft_max = min(soft_max, price_ref)
+        if hold_factor > 0:
+            hold_max = min(hold_max, price_ref / (ce * hold_factor))
 
     met: list[tuple[int, float, bool]] = []
     for deadline, need, hard in sorted(requirements):
@@ -1437,6 +1447,7 @@ def compute_low_charge_plan(
     charge_imports: Optional[list[float]] = None,
     deficit: bool = False,
     sun_extra: Optional[list[float]] = None,
+    price_ref: Optional[float] = None,
 ) -> dict:
     """The charge window is picked by `buy_price` (price + transport, as of
     v0.4.0; defaults to all_price).
@@ -1555,7 +1566,7 @@ def compute_low_charge_plan(
             forecast, cur_unit, now, charge_speed_kw, low_threshold_kwh, floor_kwh, minimum_charge_target_kwh,
             upper_limit_kwh, usage, all_price, battery_now_kwh, high_threshold_kwh, buy_price, charge_efficiency,
             discharge_efficiency, peak_kwh, charge_rates, charge_buffer_kwh, min_charge_units, follow_up,
-            hold_rates, hold_factor, charge_imports, deficit, sun_extra,
+            hold_rates, hold_factor, charge_imports, deficit, sun_extra, price_ref,
         )
         if soft is not None:
             return _carry(soft)
@@ -1647,6 +1658,7 @@ def compute_low_charge_plan(
                 reqs, charge_rates, buy, all_price, cur_unit, len(buy), charge_imports or charge_speed_kw / 4,
                 charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
                 hold_rates=hold_rates, hold_factor=hold_factor, holds_out=holds, deficit=deficit,
+                price_ref=price_ref,
             )
 
         if follow_up:
@@ -1752,6 +1764,7 @@ def _soft_low_charge(
     charge_imports: Optional[list[float]] = None,
     deficit: bool = False,
     sun_extra: Optional[list[float]] = None,
+    price_ref: Optional[float] = None,
 ) -> Optional[dict]:
     """compute_low_charge_plan in solar deficit mode (as of v0.5.13), with
     the surplus minimum as the hard floor below the deficit minimum - see
@@ -1924,6 +1937,7 @@ def _soft_low_charge(
                     reqs, charge_rates, buy, all_price, cur_unit, len(buy), charge_imports or charge_speed_kw / 4,
                     charge_efficiency, max(min_charge_units, 1), forecast, hour0_unit, upper_limit_kwh,
                     hold_rates=hold_rates, hold_factor=hold_factor, holds_out=holds, deficit=deficit,
+                    price_ref=price_ref,
                 )
 
             if follow_up:

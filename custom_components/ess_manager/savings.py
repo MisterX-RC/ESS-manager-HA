@@ -302,6 +302,10 @@ class SavingsData:
             n = int(round((de - ds).total_seconds() / QUARTER))
             kept = self.prices.get(d.isoformat())
             raw_prices = list(kept) if kept and len(kept) == n else quarter_prices(states, ds.timestamp(), n)
+            if not kept and all(p is not None for p in raw_prices):
+                # a day from the recorder is kept too: the reference price of
+                # the last week reads these (as of 2026.11.50)
+                self.prices[d.isoformat()] = list(raw_prices)
             why: list[str] = []
             rows = day_rows(ds.timestamp(), n, de.timestamp(), stats, sources, buy_of(raw_prices, ds), raw_prices, why,
                             socs, stock, eff)

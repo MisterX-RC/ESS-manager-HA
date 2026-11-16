@@ -36,6 +36,7 @@ from .accuracy_runtime import AccuracyRuntime
 from .problems import ProblemTracker, below_minimum
 from . import sensor_watch as sw
 from . import price_incl as pi
+from . import price_reference
 from . import savings as sv
 from . import floor_control as fc
 from .const import (
@@ -386,6 +387,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._price_incl_entity: Optional[str] = None
         self._price_sampled_ts = 0.0
         self._buy_line: tuple[float, float] = (1.0, 0.0)
+        self._price_reference_attr: Optional[dict[str, Any]] = None
         # What the battery saves (as of 2026.11.0) - savings.py; the days in
         # their own store, worked out in the background.
         self.savings_store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_savings")
@@ -2544,6 +2546,28 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {"price_incl": attr if mode != pi.MODE_NONE else None, "all_buy_price_incl": None}
         return {"price_incl": attr, "all_buy_price_incl": pi.apply_line(buy_price, line)}
 
+    def _price_reference_now(self, now: datetime, tomorrow_known: bool, hours_to_empty: Optional[int]) -> Optional[float]:
+        """The reference price (buy price incl, as the plans use it) when it
+        applies now, else None (as of 2026.11.50). From the day prices the
+        savings keep (the last 14 days, also filled from the recorder)."""
+        today = now.date()
+        days: dict[str, Optional[float]] = {}
+        for day, prices in self.savings.prices.items():
+            try:
+                d = date.fromisoformat(day)
+            except ValueError:
+                continue
+            if not (1 <= (today - d).days <= price_reference.LOOKBACK_DAYS):
+                continue
+            start = dt_util.start_of_local_day(d)
+            buy = self._savings_buy_of(list(prices), start)
+            a, b = self._buy_line
+            days[day] = price_reference.day_value([None if p is None else a * p + b for p in buy])
+        ref = price_reference.reference(days, today)
+        reason = price_reference.active_reason(ref, tomorrow_known, now.hour, hours_to_empty)
+        self._price_reference_attr = price_reference.attribute(ref, reason, days, today)
+        return ref if reason == "active" else None
+
     # -- what the battery saves (as of 2026.11.0) ------------------------------
     def _savings_buy_of(self, prices: list[Optional[float]], day_start: datetime) -> list[Optional[float]]:
         """A day's buy prices: price + transport (the tariff now), bare -
@@ -3370,6 +3394,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             forecast_with_spike_clipped, _ = forecasting.clip_at_capacity(forecast_for_low, battery_now_kwh, upper_limit_kwh)
             horizon_peak_kwh = max(forecast_for_low[0 : planning_horizon_hours + 1] or [battery_now_kwh])
             prev_low_plan = self._low_charge_plan
+            # the reference price of the last week (as of 2026.11.50): only
+            # while tomorrow's prices aren't known, see price_reference.py
+            ref_price = self._price_reference_now(
+                now, bool(tomorrow_price),
+                price_reference.hours_below(forecast_for_low[0 : planning_horizon_hours + 1], low_threshold_kwh))
             self._low_charge_plan = plans.compute_low_charge_plan(
                 self._low_charge_plan,
                 current_price_unit,
@@ -3403,6 +3432,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # the high side of the solar forecast for a block's stop
                 # level (2026.11.47)
                 sun_extra=forecasting.solar_extra_p90(solar_p90, solar_forecast),
+                price_ref=ref_price,
             )
             # a quarter that started with the house from the grid is finished that way (2026.11.30)
             if grid_use_rates is not None and not replan:
@@ -3793,6 +3823,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "negative_price_plan": self._negative_price_plan,
             "spike_plan": self._spike_plan,
             "low_charge_plan": self._low_charge_plan,
+            "price_reference": self._price_reference_attr,
             "high_discharge_plan": self._high_discharge_plan,
             "full_charge_plan": self._full_charge_plan,
             "cell_voltage_differential_mv": voltage_diff,

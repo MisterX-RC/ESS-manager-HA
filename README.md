@@ -178,6 +178,28 @@ Five planning engines, all documented in detail in the code
    it and that moment - the charge then simply needs less (it stops at its
    target). Without a charge in between, what's kept in the battery would go
    to the grid later, so there it stays out. In a surplus nothing changes.
+   *(As of 2026.11.50)* **a reference price from the last week** while
+   tomorrow's prices aren't known yet: until then the planner only sees the
+   rest of today, and on a day that is dear as a whole "the cheapest quarter
+   left today" is itself dear - the house was taken from the grid and the
+   battery topped up at prices well above what a charge normally costs. The
+   reference is what a charge usually cost: per day the average buy price of
+   its **6 cheapest hours**, and of the last **7 days** the **median** (at
+   least 3 days; one day with very low or negative prices doesn't drag it
+   along). While it applies, the house only comes from the grid below
+   min(lowest known price, reference) / (charge x discharge efficiency), and
+   what is needed **after** the known prices is only bought at or below the
+   reference - the rest waits for tomorrow's prices, and once those are in
+   the plan is made over today and tomorrow as before. It only applies
+   while no prices after today are known, **before 18:00** and when the
+   battery doesn't drop below the low threshold within **12 hours** (the
+   safety net: otherwise it plans as before, in the cheapest quarters left
+   today). **Hard** parts (below the threshold before the end of the known
+   prices) are never held back by it. The day prices come from those the
+   savings card keeps (the last 14 days; days missing are read from the
+   recorder). The `price_reference` attribute shows the price, whether it
+   applies (`reason`: `active`, `tomorrow_known`, `after_18`, `empty_soon`,
+   `too_few_days`) and the value per day. No setting.
    A quarter that started from the grid is finished that way
    (as of 2026.11.30), like a running charge window - unless a charge takes
    it over: with the battery nearly full and the sun filling it to the top

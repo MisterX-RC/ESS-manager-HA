@@ -12,6 +12,27 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.50] - 2026-11-16
+
+### Planning
+- **A reference price from the last week while tomorrow's prices aren't
+  known.** Until tomorrow's prices are published, the planner only saw the
+  rest of today: on a day that is dear as a whole, the house was taken from
+  the grid and the battery was topped up at prices well above what a charge
+  normally costs, just because they were the cheapest left today. Now a
+  reference price is worked out - per day the average buy price of its 6
+  cheapest hours, the median over the last 7 days (at least 3) - and while
+  no prices after today are known, the house only comes from the grid below
+  min(lowest known price, reference) after the charge and discharge losses,
+  and what is needed after the known prices is only bought at or below the
+  reference; the rest waits for tomorrow's prices. Safety net: from 18:00,
+  or when the battery would drop below the low threshold within 12 hours,
+  it plans as before. Needs before the end of the known prices are never
+  held back. Once tomorrow's prices are in nothing changes. The day prices
+  come from those the savings card keeps (days missing in it are now kept
+  when read from the recorder). New attribute `price_reference` (price,
+  whether it applies and why, value per day). No new setting.
+
 ## [2026.11.49] - 2026-11-15
 
 ### Cards

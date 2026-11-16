@@ -40,6 +40,7 @@ transport = _load("transport")
 sensor_watch = _load("sensor_watch")
 price_incl = _load("price_incl")
 savings = _load("savings")
+price_reference = _load("price_reference")
 
 FAILURES = []
 
@@ -6771,6 +6772,74 @@ check("EV card: the value is a field that opens the number pad, with - and + and
       and 'this._socCtl("data-s", "target_soc", "target_soc"' in _soc_src)
 check("EV card: no redraw while a state of charge is being typed, and -/+/field/quick picks go through the slider's apply",
       'active.classList.contains("num")) return;' in _soc_src and _soc_src.count("socWire(el, apply);") == 2)
+
+
+# --- 2026.11.50: reference price of the last week (while tomorrow's prices aren't known) ---
+from datetime import date as _rp_date
+_rp_day = [0.30] * 24 + [0.20] * 24 + [0.40] * 48          # 6 cheapest hours = 0.20 + 0.30 / ... -> 0.20 x6
+check("reference: a day's value is the average of its 6 cheapest hours", abs(price_reference.day_value(_rp_day) - 0.20) < 1e-9)
+check("reference: a day with fewer than 20 hours known has no value", price_reference.day_value([0.2] * 76 + [None] * 20) is None)
+_rp_vals = {"2026-03-03": 0.20, "2026-03-04": 0.22, "2026-03-05": 0.21, "2026-03-06": 0.30, "2026-03-07": 0.28,
+            "2026-03-08": 0.25, "2026-03-09": 0.26, "2026-03-10": 0.10, "2026-02-20": 0.05}
+check("reference: median of the 7 days before today (today and older days left out)",
+      abs(price_reference.reference(_rp_vals, _rp_date(2026, 3, 10)) - 0.25) < 1e-9)
+check("reference: fewer than 3 days -> none",
+      price_reference.reference({"2026-03-09": 0.2, "2026-03-08": 0.2}, _rp_date(2026, 3, 10)) is None)
+check("reference: one very cheap day doesn't drag it down (median)",
+      abs(price_reference.reference({"2026-03-07": 0.30, "2026-03-08": 0.31, "2026-03-09": -0.20}, _rp_date(2026, 3, 10)) - 0.30) < 1e-9)
+check("reference: only while tomorrow is unknown, before 18:00 and not empty within 12 hours",
+      price_reference.active_reason(0.3, False, 10, 20) == "active"
+      and price_reference.active_reason(0.3, True, 10, 20) == "tomorrow_known"
+      and price_reference.active_reason(0.3, False, 18, 20) == "after_18"
+      and price_reference.active_reason(0.3, False, 10, 12) == "empty_soon"
+      and price_reference.active_reason(0.3, False, 10, None) == "active"
+      and price_reference.active_reason(None, False, 10, None) == "too_few_days")
+check("reference: hours below the threshold", price_reference.hours_below([20, 15, 8.9, 5], 9.0) == 2
+      and price_reference.hours_below([20, 15], 9.0) is None)
+
+
+def _rp_sched(req, ref, hrate=0.3):
+    n = len(_rp_buy)
+    holds = []
+    chosen = plans._schedule_charge(
+        req, [1.5] * n, _rp_buy, _rp_buy, 0, n, 1.5, 0.95, 1, [15.0] * 13, 0, 30.0,
+        hold_rates=[hrate] * n, hold_factor=0.95, holds_out=holds, deficit=True, price_ref=ref)
+    return chosen, holds
+
+
+# a dear day: every known quarter 0.48-0.55, a need after the known prices (soft)
+_rp_buy = [0.50] * 16 + [0.48] * 8 + [0.55] * 24
+_rp_c0, _rp_h0 = _rp_sched([(60, 6.0, True)], None)
+_rp_c1, _rp_h1 = _rp_sched([(60, 6.0, True)], 0.40)
+_rp_c2, _rp_h2 = _rp_sched([(20, 10.0, True)], 0.40)
+_rp_c4, _ = _rp_sched([(60, 6.0, True)], None, hrate=0.0)
+_rp_c5, _ = _rp_sched([(60, 6.0, True)], 0.40, hrate=0.0)
+check("reference: without it a dear day takes the house from the grid for a need after the known prices",
+      bool(_rp_h0))
+check("reference: without it (no house from the grid) a dear day charges for after the known prices", bool(_rp_c4))
+check("reference: below today's prices - no house from the grid and no soft charge", not _rp_c1 and not _rp_h1 and not _rp_c5)
+check("reference: a hard need (before the end of the known prices) is still met, charge included",
+      bool(_rp_c2) and bool(_rp_h2))
+_rp_c3, _rp_h3 = _rp_sched([(60, 6.0, True)], 0.70)
+check("reference: above today's prices it changes nothing", _rp_c3 == _rp_c0 and _rp_h3 == _rp_h0)
+
+
+# the savings keep a day's prices read from the recorder too (2026.11.50 - the reference reads them)
+import asyncio as _rp_aio
+from datetime import timezone as _rp_tz
+_rp_sv = savings.SavingsData()
+_rp_now = datetime(2026, 3, 10, 9, 0, tzinfo=_rp_tz.utc)
+_rp_d0 = datetime(2026, 3, 9, 0, 0, tzinfo=_rp_tz.utc).timestamp()
+
+async def _rp_stats(ids, start, end):
+    return {}
+
+async def _rp_prices(start, end):
+    return [(_rp_d0 - 3600 + 900 * q, 0.1 + q / 1000) for q in range(100)]
+
+_rp_aio.run(_rp_sv.async_fill(_rp_now, 1, {"import": ["sensor.x"]}, _rp_stats, _rp_prices, lambda p, d: p))
+check("savings: a day's prices from the recorder are kept (for the reference price)",
+      len(_rp_sv.prices.get("2026-03-09") or []) == 96 and abs(_rp_sv.prices["2026-03-09"][0] - 0.104) < 1e-9)
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
