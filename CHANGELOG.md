@@ -12,6 +12,22 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.51] - 2026-11-16
+
+### Cards
+- **Status card: a running block is outlined.** A charge, sale or
+  house-from-the-grid block now gets an outline in its own colour (blue,
+  red, purple) while it runs - until its stop time, also once the target is
+  reached. A block driven by the spike, negative price or full-charge plan
+  is outlined in that plan's colour, but now also only while it runs: before,
+  that outline showed as soon as the plan existed, so it didn't tell whether
+  the block was running. The chip naming the plan stays as before.
+- **Status card: the plan chip fits in a narrow block.** With three blocks
+  side by side (and on a phone) the chip ("Negative price", "Spike",
+  "Balancing") ran into the next block. In a narrow block it now shows only
+  the plan's icon (the name as a tooltip), and on a phone the block names
+  are set a little tighter so name and chip fit.
+
 ## [2026.11.50] - 2026-11-16
 
 ### Planning

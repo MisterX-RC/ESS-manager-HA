@@ -44,8 +44,9 @@ price and the cheapest / most expensive moment still to come.
 
 **Status** - the planned sale (Sell) and charge (Buy) side by side, with
 start, stop, a bar that fills as the battery gets there, the energy and
-the target SOC; an active spike or negative price plan outlines the block
-it drives. Below: the price plan status and a timeline of what the battery
+the target SOC; a block that is running gets an outline in its colour (or
+in the colour of the spike, negative price or balancing plan that drives
+it). Below: the price plan status and a timeline of what the battery
 did over the last hours. Top right: the control toggle and a Settings
 button to the ESS Manager device page.
 
@@ -2252,9 +2253,15 @@ the window runs - how far it is, measured on the energy (it fills as the
 battery moves towards the plan's target, and says how long is left; hover
 it for the kWh done), the energy (kWh) and the target battery level (SOC
 expected after it). An active spike or negative price plan shows in the
-block it drives, with a chip and an outline in that plan's colour (a spike
-drives both blocks: the cheap charge and the sale in the peak); full-charge
-balancing gets a chip too. While the battery waits at 100% for the cells to
+block it drives, with a chip in that plan's colour (a spike drives both
+blocks: the cheap charge and the sale in the peak); full-charge balancing
+gets a chip too. In a narrow block (three blocks side by side, or on a
+phone) the chip shows only the plan's icon, with its name as a tooltip.
+A block that is running - charge, sale or the house from the grid - is
+outlined: in the colour of the plan that drives it (spike, negative price,
+balancing), otherwise in the block's own colour. The outline stays until
+the block's stop time, also once the target is reached; a block that is
+only planned has no outline. While the battery waits at 100% for the cells to
 balance, the Buy block turns lilac: the bar runs from the start of the wait
 to the "Full charge max hold" timeout ("max 1 h 20 min" left), and below it
 the cell voltage difference against the goal ("18 mV → < 10 mV", green

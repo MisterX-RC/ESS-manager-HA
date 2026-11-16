@@ -1916,7 +1916,7 @@ class EssManagerCardEditor extends HTMLElement {
 // Sell (left) and Buy (right): start / stop, a bar that fills with the
 // energy done (not the time - a plan stops on its target), energy and target
 // SOC; an active spike or negative price plan shows in the block it drives
-// (chip + outline). Below: spike and negative price status, the control
+// (chip; a running block is outlined, as of 2026.11.51). Below: spike and negative price status, the control
 // toggle and a slim timeline of the Battery action sensor's history.
 // the solar surplus in the planning panel (as of 2026.11.21) - the price card's default colour
 const SURPLUS_COLOR = "rgb(242, 201, 76)";
@@ -2076,10 +2076,13 @@ class EssManagerStatusCard extends HTMLElement {
       negative_price: [this._t("negative"), opt.negative_color, "negative"],
       full_charge: [this._t("balancing"), BALANCE_COLOR, "balancing"],
     }[plan.source];
-    // the plan that drives the block outlines it in its colour: spike, negative price, full-charge balancing
-    const outline = plan && ["spike", "negative_price", "full_charge"].includes(plan.source) ? chipInfo[1] : "transparent";
+    // a running block is outlined (as of 2026.11.51): in the colour of the
+    // plan that drives it (spike, negative price, full-charge balancing),
+    // else in the block's own colour; a planned block has no outline - the
+    // chip names the plan either way
+    const outline = plan && plan.started ? (chipInfo ? chipInfo[1] : color) : "transparent";
     const head = `<div class="head"><span class="name" style="color:${color}">${icon(sell ? "up" : "down", color, 16, 2.2)}${esc(this._t(sell ? "plan_sell" : "plan_buy"))}</span>${
-      chipInfo ? `<span class="chip" style="background:${tint(chipInfo[1], 0.18)};color:${chipInfo[1]}">${icon(chipInfo[2], chipInfo[1], 12, 2.4)}${esc(chipInfo[0])}</span>` : ""
+      chipInfo ? `<span class="chip" title="${esc(chipInfo[0])}" style="background:${tint(chipInfo[1], 0.18)};color:${chipInfo[1]}">${icon(chipInfo[2], chipInfo[1], 12, 2.4)}<span class="ctext">${esc(chipInfo[0])}</span></span>` : ""
     }</div>`;
     if (!plan) {
       return `<div class="block none" style="border-color:transparent">${head}<div class="empty"><span class="long">${esc(this._t(sell ? "no_sell" : "no_buy"))}</span><span class="short">${esc(this._t("none_short"))}</span></div></div>`;
@@ -2220,7 +2223,8 @@ class EssManagerStatusCard extends HTMLElement {
     const stat = kwh >= 0.05
       ? `<div class="stat">${icon("home", color, 16)}<b>${this._num(kwh, 1)}</b><span class="dim long">${esc(this._t("grid_kept"))}</span><span class="dim short">${esc(this._t("grid_kept_short"))}</span></div>`
       : `<div class="stat" title="${esc(this._t("grid_sun_tip"))}">${icon("sun", color, 16)}<span class="dim">${esc(this._t("grid_sun"))}</span></div>`;
-    return `<div class="block grid-block" style="border-color:transparent">${head}
+    // outlined in its colour while it runs (as of 2026.11.51)
+    return `<div class="block grid-block" style="border-color:${running ? color : "transparent"}">${head}
       <div class="times"><span>${running ? "" : `<span class="dim">${esc(this._weekday(w.start))}</span> `}${esc(this._time(w.start))}</span><span>${esc(this._time(w.stop))}${more ? ` <span class="dim" title="${esc(tip)}">${esc(this._t("more_blocks")(more))}</span>` : ""}</span></div>
       <div class="bar" style="background:${tint(color, 0.22)}"><div class="fill" style="width:${fill.toFixed(1)}%;background:${color}"></div><div class="bartext">${esc(inBar)}</div></div>
       ${stat}
@@ -2401,6 +2405,11 @@ class EssManagerStatusCard extends HTMLElement {
       /* nothing planned at all (2026.11.41): the three empty blocks share the
          full width instead of three narrow strips on the left */
       .blocks.three.all-none > .block.none { flex: 1 1 0; }
+      /* a narrow block (as of 2026.11.51): the plan chip as its icon only (the
+         name as a tooltip), and below 180 px a tighter block name so name and
+         chip fit - the chip ran into the next block before */
+      @container (max-width: 230px) { .block .chip { padding: 3px 5px; } .chip .ctext { display: none; } }
+      @container (max-width: 180px) { .block .head { gap: 4px; } .block .head .name { font-size: 12px; letter-spacing: 0.02em; gap: 3px; min-width: 0; } .block .head .chip { padding: 3px 4px; flex-shrink: 0; } }
       @container (max-width: 200px) {
         .stat { flex-wrap: wrap; row-gap: 2px; justify-content: center; }
         .stat .unit, .stat .arrow, .stat .long { display: none; }
