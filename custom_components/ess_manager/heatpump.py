@@ -1176,9 +1176,13 @@ def wind_hours(samples: list[tuple[float, Optional[float], Optional[float]]], st
                     y += weight * math.sin(math.radians(d))
                     nd += 1
             t += step
-        if len(ws) >= 6:
-            wd = round(math.degrees(math.atan2(y, x)) % 360, 1) if nd and (abs(x) > 1e-9 or abs(y) > 1e-9) else None
-            out[h] = [round(sum(ws) / len(ws), 2), wd]
+        # (as of 2026.11.55) speed and direction each on their own: they can
+        # come from different entities (a wind sensor, the weather entity)
+        w_mean = round(sum(ws) / len(ws), 2) if len(ws) >= 6 else None
+        wd = (round(math.degrees(math.atan2(y, x)) % 360, 1)
+              if nd >= 6 and (abs(x) > 1e-9 or abs(y) > 1e-9) else None)
+        if w_mean is not None or wd is not None:
+            out[h] = [w_mean, wd]
         h += HOUR
     return out
 

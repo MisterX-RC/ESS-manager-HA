@@ -6934,6 +6934,14 @@ check("day model: a model stored before 2026.11.54 (no w_med) still predicts a d
           - heatpump.predict_row(_wn_old, {"d": "x", "t": 5.0, "w": 0.0}, 5.0)) < 1e-9)
 
 
+
+# (2026.11.55) speed and direction each on their own (different entities)
+_wn2 = heatpump.wind_hours([(_wn_h0 - 60, None, 200.0)], _wn_h0, _wn_h0 + 3600)
+_wn3 = heatpump.wind_hours([(_wn_h0 - 60, 7.0, None)], _wn_h0, _wn_h0 + 3600)
+check("weather wind: an hour with only a direction, or only a speed",
+      _wn2.get(_wn_h0) == [None, 200.0] and _wn3.get(_wn_h0) == [7.0, None])
+
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

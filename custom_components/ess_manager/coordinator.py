@@ -1506,40 +1506,82 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         direction = heatpump.bearing(attrs.get("wind_bearing"))
         return None if speed is None and direction is None else (speed, direction)
 
+    def _hp_wind_sources(self, conf: dict[str, Any]) -> dict[str, Optional[str]]:
+        """Where the wind comes from (as of 2026.11.55): the speed from the wind
+        sensor, else the weather entity; the direction from the direction
+        sensor, else the weather entity."""
+        weather = conf.get(CONF_HP_WEATHER_ENTITY) or None
+        return {"speed": conf.get(CONF_HP_WIND_ENTITY) or weather, "dir": conf.get(CONF_HP_WIND_DIR_ENTITY) or weather}
+
     async def _async_hp_wind_backfill(self, conf: dict[str, Any], now: datetime) -> None:
-        """Once per weather entity: its recorded states (the recorder's ~10
-        days) as hourly wind - so the series doesn't start empty."""
-        entity_id = conf.get(CONF_HP_WEATHER_ENTITY)
-        if not entity_id or self.hp.wind_src == entity_id or now.timestamp() < self._hp_wind_tried_at + 3600:
+        """Once per set of wind sources: their recorded states (the recorder's
+        ~10 days) as hourly wind - so the series doesn't start empty. The speed
+        from the wind sensor's own history (as of 2026.11.55; it may have no
+        statistics yet) or the weather entity's, the direction likewise. Nothing
+        read (an entity left out of the recorder): tried again a day later."""
+        src = self._hp_wind_sources(conf)
+        if not src["speed"] and not src["dir"]:
             return
-        self._hp_wind_tried_at = now.timestamp()
+        key = f"speed:{src['speed'] or '-'}|dir:{src['dir'] or '-'}"
+        if self.hp.wind_src == key or now.timestamp() < self._hp_wind_tried_at:
+            return
         start = now - timedelta(days=11)
-        try:
-            states = await async_fetch_state_changes(self.hass, entity_id, start, now)
-        except Exception as err:  # noqa: BLE001 - a recorder that can't be read: live only
-            _LOGGER.debug("ESS Manager (%s): weather history not read for the wind: %s", self.entry.title, err)
-            return
-        samples = []
-        for st in states:
-            if st.state in ("unknown", "unavailable"):
-                continue
-            ww = self._weather_wind_of(st.attributes)
-            if ww is not None:
-                samples.append((st.last_updated.timestamp(), ww[0], ww[1]))
-        samples.sort(key=lambda x: x[0])
-        hours = heatpump.wind_hours(samples, start.timestamp(), now.timestamp() // 3600 * 3600)
-        self.hp.add_wind_hours(hours, now.timestamp(), src=entity_id)
-        self.hp.fill_wind_days(dt_util.get_default_time_zone())
-        _LOGGER.info("ESS Manager (%s): wind from %s - %d hours read from the recorder", self.entry.title, entity_id, len(hours))
+        end_h = now.timestamp() // 3600 * 3600
+        read: dict[str, int] = {}
+        states_by: dict[str, list] = {}
+        for entity_id in {e for e in src.values() if e}:
+            try:
+                states_by[entity_id] = await async_fetch_state_changes(self.hass, entity_id, start, now)
+            except Exception as err:  # noqa: BLE001 - a recorder that can't be read: live only
+                _LOGGER.debug("ESS Manager (%s): history of %s not read for the wind: %s", self.entry.title, entity_id, err)
+                states_by[entity_id] = []
+            read[entity_id] = len(states_by[entity_id])
+
+        def samples(entity_id: Optional[str], part: str) -> list[tuple[float, Optional[float], Optional[float]]]:
+            out = []
+            for st in states_by.get(entity_id or "", []):
+                if st.state in ("unknown", "unavailable"):
+                    continue
+                if entity_id.startswith("weather."):
+                    ww = self._weather_wind_of(st.attributes)
+                    if ww is None:
+                        continue
+                    value = ww[0] if part == "speed" else ww[1]
+                elif part == "speed":
+                    try:
+                        value = float(st.state) * WIND_FACTORS.get(st.attributes.get("unit_of_measurement") or "m/s", 1.0)
+                    except (TypeError, ValueError):
+                        continue
+                else:
+                    value = heatpump.bearing(st.state)
+                if value is not None:
+                    out.append((st.last_updated.timestamp(), value if part == "speed" else None,
+                                value if part == "dir" else None))
+            return sorted(out, key=lambda x: x[0])
+
+        speed_h = heatpump.wind_hours(samples(src["speed"], "speed"), start.timestamp(), end_h)
+        dir_h = heatpump.wind_hours(samples(src["dir"], "dir"), start.timestamp(), end_h)
+        hours = {h: [(speed_h.get(h) or [None, None])[0], (dir_h.get(h) or [None, None])[1]]
+                 for h in set(speed_h) | set(dir_h)}
+        self.hp.wind_read = {"at": now.isoformat(timespec="seconds"), "states": read,
+                             "hours_speed": len(speed_h), "hours_dir": len(dir_h)}
+        if hours:
+            self.hp.add_wind_hours(hours, now.timestamp(), src=key)
+            self.hp.fill_wind_days(dt_util.get_default_time_zone())
+        else:
+            self._hp_wind_tried_at = now.timestamp() + 86400        # nothing in the recorder: again tomorrow
+        _LOGGER.info("ESS Manager (%s): wind history read - speed %d hours (%s), direction %d hours (%s)", self.entry.title,
+                     len(speed_h), src["speed"], len(dir_h), src["dir"])
 
     def _hp_wind_hourly(self, conf: dict[str, Any], means: dict[str, dict[int, float]]) -> Optional[dict[int, float]]:
         """The wind per hour for the house's fits: the wind sensor's statistics,
         or (as of 2026.11.54) the series recorded from the weather entity."""
+        own = self.hp.wind_series() if (conf.get(CONF_HP_WIND_ENTITY) or conf.get(CONF_HP_WEATHER_ENTITY)) else {}
         if conf.get(CONF_HP_WIND_ENTITY):
-            return means.get(conf[CONF_HP_WIND_ENTITY])
-        if conf.get(CONF_HP_WEATHER_ENTITY):
-            return self.hp.wind_series() or None
-        return None
+            # (as of 2026.11.55) the statistics win; hours they lack (a sensor that
+            # got them only lately) come from the series recorded here
+            return {**own, **(means.get(conf[CONF_HP_WIND_ENTITY]) or {})} or None
+        return own or None
 
     async def _async_hp_weather(self, conf: dict[str, Any], now: datetime, tz) -> dict[str, Any]:
         """The weather entity's forecast per day, read every 30 minutes."""
@@ -2330,7 +2372,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 wind = weather_wind[0]
             if not conf.get(CONF_HP_WIND_DIR_ENTITY):
                 wind_dir = weather_wind[1]
-            await self._async_hp_wind_backfill(conf, now)
+        await self._async_hp_wind_backfill(conf, now)
         hour_now = int(now.timestamp()) // 3600
         if hour_now != self._hp_wind_fill_hour:
             self._hp_wind_fill_hour = hour_now

@@ -70,6 +70,8 @@ class HeatPumpRuntime:
         # the weather entity its recorder history was read from (once)
         self.wind_hist: dict[str, list] = {}
         self.wind_src: Optional[str] = None
+        # (as of 2026.11.55) the last read of the recorder for the wind (diagnostics)
+        self.wind_read: Optional[dict[str, Any]] = None
         self._wind_hour: Optional[list[float]] = None
         # the thermostat's switches, wanted temperature and heat demand
         # seconds per hour (as of 2026.11.20, thermostat.py) - read from the
@@ -111,6 +113,7 @@ class HeatPumpRuntime:
         self.heat_hist = dict(data.get("heat_hist") or {})
         self.wind_hist = dict(data.get("wind_hist") or {})
         self.wind_src = data.get("wind_src")
+        self.wind_read = data.get("wind_read")
         self.steer = dict(data.get("steer") or {})
         t = data.get("thermo") or {}
         self.thermo = {"events": list(t.get("events") or []), "sp": dict(t.get("sp") or {}), "on": dict(t.get("on") or {}),
@@ -136,6 +139,7 @@ class HeatPumpRuntime:
             "heat_hist": self.heat_hist,
             "wind_hist": self.wind_hist,
             "wind_src": self.wind_src,
+            "wind_read": self.wind_read,
             "steer": self.steer,
             "thermo": self.thermo,
         }
@@ -256,7 +260,13 @@ class HeatPumpRuntime:
         """Hours read from the recorder (the weather entity's states): what was
         recorded live stays; older than WIND_HIST_DAYS goes."""
         for h, v in hours.items():
-            self.wind_hist.setdefault(str(int(h)), v)
+            have = self.wind_hist.get(str(int(h)))
+            if have is None:
+                self.wind_hist[str(int(h))] = list(v)
+            else:
+                # (as of 2026.11.55) what was recorded live stays; a part it lacks is filled
+                self.wind_hist[str(int(h))] = [have[0] if have[0] is not None else v[0],
+                                               have[1] if have[1] is not None else v[1]]
         if src is not None:
             self.wind_src = src
         self._prune_wind(now_epoch)
@@ -702,6 +712,8 @@ class HeatPumpRuntime:
                 "source": self.wind_src,
                 "days": sum(1 for r in self.journal if r.get("w") is not None),
                 "days_needed": hp.MIN_WIND_DAYS,
+                # (as of 2026.11.55) the recorder read: states per entity, hours each
+                "read": self.wind_read,
             },
             "oldest_day": next((r["d"] for r in self.journal if r.get("e") is not None), None),
             "heating_days": heating_days,

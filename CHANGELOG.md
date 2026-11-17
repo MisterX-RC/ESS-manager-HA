@@ -12,6 +12,22 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.55] - 2026-11-17
+
+### Heat pump
+- **Wind history from the wind sensor itself.** The start of the hourly wind
+  series is now read per part: the speed from the wind speed sensor's own
+  recorded states when one is set (useful when it has no statistics yet),
+  else from the weather entity; the direction from the direction sensor,
+  else from the weather entity. Before, only the weather entity was read.
+- **Tried again a day later** when nothing could be read (for example a
+  weather entity left out of the recorder) - before, it was tried once.
+- With a wind sensor, the house model and the cooling fit fill the hours its
+  statistics lack from the series recorded by ESS Manager.
+- `heat_pump.wind.read` in the Status sensor and diagnostics: when the
+  recorder was read, the states per entity and the hours of speed and
+  direction it gave.
+
 ## [2026.11.54] - 2026-11-17
 
 ### Heat pump
