@@ -12,6 +12,26 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.54] - 2026-11-17
+
+### Heat pump
+- **Wind from the weather entity.** Without a wind speed or wind direction
+  sensor of its own, the heat pump model now takes them from the weather
+  entity's current state (wind speed converted to m/s, wind bearing) -
+  nothing to set up. Since a weather entity has no statistics, ESS Manager
+  keeps its own hourly wind series (about two months) and, once, reads the
+  recorder's ~10 days of the weather entity's states to start with. Journal
+  days without wind are filled from it. Learning and forecasting then use
+  the same source. A wind sensor that is set still wins.
+- **The day model uses wind sooner.** Wind is used once it's known on 21
+  cool days (or, as before, on 60 % of them): with a long journal from
+  before a wind source that took most of a winter. Days without wind now
+  count at the median wind of the days that have it instead of 0, which
+  pulled the wind term. The wind direction keeps its own rule (30 cool days
+  in 3 directions).
+- New in the Status sensor and diagnostics: `heat_pump.wind` (hours
+  recorded, source, journal days with wind, days needed).
+
 ## [2026.11.53] - 2026-11-17
 
 ### Cards

@@ -6881,6 +6881,59 @@ check("manual setpoint: value in the output's unit, sign and step, within +/-20 
       and control.manual_value(25, "W", "charge_positive", 1) == 20000.0)
 
 
+
+# wind from the weather entity (2026.11.54): hourly means, journal days, the day model's rule
+import random as _wn_rand
+from datetime import date as _wn_date, timedelta as _wn_td, timezone as _wn_tz
+_wn_h0 = 1_000_000 * 3600
+_wn = heatpump.wind_hours([(_wn_h0 - 60, 4.0, 350.0), (_wn_h0 + 1800, 8.0, 10.0)], _wn_h0, _wn_h0 + 3600)
+check("weather wind: an hour's mean speed over its samples (held until the next state)",
+      _wn.get(_wn_h0, [None])[0] == 6.0)
+check("weather wind: the direction as a vector - 350 and 10 give about north (towards the stronger 10), not 180",
+      _wn[_wn_h0][1] is not None and 0.0 < _wn[_wn_h0][1] < 6.0)
+check("weather wind: no samples before an hour -> no hour", heatpump.wind_hours([(_wn_h0 + 7200, 3.0, 90.0)], _wn_h0, _wn_h0 + 3600) == {})
+check("weather wind: a compass text isn't a bearing, a number is", heatpump.bearing("NW") is None and heatpump.bearing("370") == 10.0)
+_wn_tzz = _wn_tz.utc
+_wn_start = heatpump.local_day_start(_wn_date(2026, 11, 10), _wn_tzz)
+_wn_hist = {str(_wn_start + i * 3600): [5.0, 270.0] for i in range(14)}
+_wn_j = [{"d": "2026-11-10", "e": 4.0, "t": 6.0}, {"d": "2026-11-11", "e": 4.0, "t": 6.0},
+         {"d": "2026-11-09", "e": 4.0, "t": 6.0, "w": 3.0}]
+_wn_n = heatpump.fill_wind_days(_wn_j, _wn_hist, _wn_tzz)
+check("weather wind: a day with 12+ hours gets w and wd; one without stays empty; a day with w keeps it",
+      _wn_j[0].get("w") == 5.0 and _wn_j[0].get("wd") == 270.0 and "w" not in _wn_j[1] and _wn_j[2]["w"] == 3.0
+      and _wn_j[2].get("wd") is None and _wn_n == 2)
+# the day model: 120 cool days, wind only on the last N; kWh = 0.6 x HDD x (1 + 0.04 x wind)
+def _wn_journal(n_wind, w_missing_as=None):
+    rng = _wn_rand.Random(7)
+    rows = []
+    d0 = _wn_date(2026, 7, 1)
+    for i in range(140):
+        t = 3.0 + 8.0 * rng.random()
+        w = 2.0 + 10.0 * rng.random()
+        hdd = max(0.0, 14.0 - t)
+        row = {"d": (d0 + _wn_td(days=i)).isoformat(), "t": round(t, 2), "e": round(0.1 + 0.6 * hdd * (1 + 0.04 * w), 3)}
+        if i >= 140 - n_wind:
+            row["w"] = round(w, 2)
+        rows.append(row)
+    return rows
+_wn_today = _wn_date(2026, 7, 1) + _wn_td(days=140)
+_wn_m20 = heatpump.fit(_wn_journal(20), _wn_today)
+_wn_m25 = heatpump.fit(_wn_journal(25), _wn_today)
+check("day model: wind not used with 20 cool days with wind out of 140", _wn_m20 is not None and not _wn_m20["use"].get("wind"))
+check("day model: wind used from 21 cool days with wind (median for the others)",
+      _wn_m25 is not None and _wn_m25["use"].get("wind") and _wn_m25["use"].get("w_med") is not None)
+_wn_sum = heatpump.summary(_wn_m25) if _wn_m25 else {}
+check("day model: the learned wind term is positive (more heat with wind)",
+      (_wn_sum.get("wind_kwh_per_ms_degree") or 0) > 0)
+_wn_m60 = heatpump.fit(_wn_journal(140), _wn_today)
+check("day model: with wind on every day the term is close to the truth (0.6 x 0.04 = 0.024)",
+      _wn_m60 is not None and abs(heatpump.summary(_wn_m60)["wind_kwh_per_ms_degree"] - 0.024) < 0.006)
+_wn_old = {**_wn_m60, "use": {k: v for k, v in _wn_m60["use"].items() if k != "w_med"}}
+check("day model: a model stored before 2026.11.54 (no w_med) still predicts a day without wind as 0 m/s",
+      abs(heatpump.predict_row(_wn_old, {"d": "x", "t": 5.0}, 5.0)
+          - heatpump.predict_row(_wn_old, {"d": "x", "t": 5.0, "w": 0.0}, 5.0)) < 1e-9)
+
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

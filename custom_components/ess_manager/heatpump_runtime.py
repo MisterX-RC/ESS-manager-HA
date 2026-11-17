@@ -7,6 +7,7 @@ the weather forecast and the states and passes them in. See heatpump.py.
 """
 from __future__ import annotations
 
+import math
 from datetime import date, datetime, timedelta, tzinfo
 from typing import Any, Optional
 
@@ -64,6 +65,12 @@ class HeatPumpRuntime:
         # hour recorded live {epoch: kWh}
         self.house: Optional[dict[str, Any]] = None
         self.heat_hist: dict[str, float] = {}
+        # (as of 2026.11.54) the wind per hour {epoch: [m/s, degrees or None]},
+        # recorded here - the weather entity has no statistics; wind_src is
+        # the weather entity its recorder history was read from (once)
+        self.wind_hist: dict[str, list] = {}
+        self.wind_src: Optional[str] = None
+        self._wind_hour: Optional[list[float]] = None
         # the thermostat's switches, wanted temperature and heat demand
         # seconds per hour (as of 2026.11.20, thermostat.py) - read from the
         # recorder daily, kept here beyond its ~10 days
@@ -102,6 +109,8 @@ class HeatPumpRuntime:
         self.setpoints = dict(data.get("setpoints") or {})
         self.house = data.get("house")
         self.heat_hist = dict(data.get("heat_hist") or {})
+        self.wind_hist = dict(data.get("wind_hist") or {})
+        self.wind_src = data.get("wind_src")
         self.steer = dict(data.get("steer") or {})
         t = data.get("thermo") or {}
         self.thermo = {"events": list(t.get("events") or []), "sp": dict(t.get("sp") or {}), "on": dict(t.get("on") or {}),
@@ -125,6 +134,8 @@ class HeatPumpRuntime:
             "setpoints": self.setpoints,
             "house": self.house,
             "heat_hist": self.heat_hist,
+            "wind_hist": self.wind_hist,
+            "wind_src": self.wind_src,
             "steer": self.steer,
             "thermo": self.thermo,
         }
@@ -240,6 +251,56 @@ class HeatPumpRuntime:
     def indoor_series(self) -> dict[int, float]:
         return {int(k): v for k, v in self.indoor_hist.items()}
 
+    # -- wind per hour (as of 2026.11.54) ---------------------------------------
+    def add_wind_hours(self, hours: dict[int, list], now_epoch: float, src: Optional[str] = None) -> None:
+        """Hours read from the recorder (the weather entity's states): what was
+        recorded live stays; older than WIND_HIST_DAYS goes."""
+        for h, v in hours.items():
+            self.wind_hist.setdefault(str(int(h)), v)
+        if src is not None:
+            self.wind_src = src
+        self._prune_wind(now_epoch)
+
+    def _prune_wind(self, now_epoch: float) -> None:
+        cutoff = now_epoch - hp.WIND_HIST_DAYS * 86400
+        self.wind_hist = {k: v for k, v in self.wind_hist.items() if int(k) >= cutoff}
+
+    def wind_series(self) -> dict[int, float]:
+        return {int(k): v[0] for k, v in self.wind_hist.items() if v and v[0] is not None}
+
+    def fill_wind_days(self, tz: tzinfo) -> None:
+        """Journal rows without wind get it from the hourly series."""
+        if hp.fill_wind_days(self.journal, self.wind_hist, tz):
+            self.dirty = True
+
+    def _note_wind(self, now: datetime, wind: Optional[float], wind_dir: Optional[float]) -> None:
+        """The hour's wind into wind_hist when the hour is over (mean speed,
+        speed-weighted mean direction)."""
+        hour = int(now.timestamp()) // hp.HOUR * hp.HOUR
+        acc = self._wind_hour
+        if acc is not None and acc[0] != hour:
+            if acc[2]:
+                wd = None
+                if acc[5] and (abs(acc[3]) > 1e-9 or abs(acc[4]) > 1e-9):
+                    wd = round(math.degrees(math.atan2(acc[4], acc[3])) % 360, 1)
+                self.wind_hist[str(int(acc[0]))] = [round(acc[1] / acc[2], 2), wd]
+                self._prune_wind(now.timestamp())
+            acc = None
+        if wind is None and wind_dir is None:
+            self._wind_hour = acc
+            return
+        if acc is None:
+            acc = [hour, 0.0, 0, 0.0, 0.0, 0]
+        if wind is not None:
+            acc[1] += float(wind)
+            acc[2] += 1
+        if wind_dir is not None:
+            weight = wind if wind is not None and wind > 0 else 1.0
+            acc[3] += weight * math.cos(math.radians(wind_dir))
+            acc[4] += weight * math.sin(math.radians(wind_dir))
+            acc[5] += 1
+        self._wind_hour = acc
+
     def forget_indoor(self) -> None:
         """Before the rows are read again with another indoor sensor."""
         for r in self.journal:
@@ -276,6 +337,7 @@ class HeatPumpRuntime:
 
         add("t", t_out)
         add("w", wind)
+        self._note_wind(now, wind, wind_dir)
         add("sp", setpoint)
         add("ti", indoor)
         if indoor is not None:
@@ -633,6 +695,14 @@ class HeatPumpRuntime:
             "total_kwh": round(sum(d["kwh"] for d in card_days if d["kwh"] is not None), 2) if usable else None,
             "average_total_kwh": round(sum(d["average_kwh"] for d in card_days if d["average_kwh"] is not None), 2),
             "journal_days": len([r for r in self.journal if r.get("e") is not None]),
+            # (as of 2026.11.54) wind: hours recorded, journal days with wind, and
+            # the cool days the day model needs before it uses it
+            "wind": {
+                "hours": len(self.wind_hist),
+                "source": self.wind_src,
+                "days": sum(1 for r in self.journal if r.get("w") is not None),
+                "days_needed": hp.MIN_WIND_DAYS,
+            },
             "oldest_day": next((r["d"] for r in self.journal if r.get("e") is not None), None),
             "heating_days": heating_days,
             "heating_days_needed": hp.MIN_HEATING_DAYS,

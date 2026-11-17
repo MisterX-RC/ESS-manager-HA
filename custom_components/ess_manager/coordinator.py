@@ -498,6 +498,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._hp_backfill_tried_at: Optional[datetime] = None
         self._hp_hourly: list[dict[str, Any]] = []
         self._hp_wind_factor = 1.0
+        # (as of 2026.11.54) wind from the weather entity: the hour the journal
+        # was last filled from the series, the last recorder read
+        self._hp_wind_fill_hour: Optional[int] = None
+        self._hp_wind_tried_at = 0.0
         self._hp_thermal_tried_at = 0.0
         self._hp_demand_day: Optional[str] = None
         # (2026.11.28) what the last read of the thermostat's history found - for the diagnostics
@@ -1478,6 +1482,65 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             means.get(indoor_id) if indoor_id else None,
         )
 
+    # -- wind from the weather entity (as of 2026.11.54) ---------------------------
+    def _hp_weather_wind(self, conf: dict[str, Any]) -> Optional[tuple[Optional[float], Optional[float]]]:
+        """(m/s, degrees) from the weather entity's current state, when it's
+        needed (a wind speed or direction sensor isn't set) and there is one;
+        None otherwise."""
+        entity_id = conf.get(CONF_HP_WEATHER_ENTITY)
+        if not entity_id or (conf.get(CONF_HP_WIND_ENTITY) and conf.get(CONF_HP_WIND_DIR_ENTITY)):
+            return None
+        st = self.hass.states.get(entity_id)
+        if st is None or st.state in ("unknown", "unavailable"):
+            return None
+        return self._weather_wind_of(st.attributes)
+
+    @staticmethod
+    def _weather_wind_of(attrs: Any) -> Optional[tuple[Optional[float], Optional[float]]]:
+        try:
+            speed = float(attrs.get("wind_speed")) if attrs.get("wind_speed") is not None else None
+        except (TypeError, ValueError):
+            speed = None
+        if speed is not None:
+            speed = round(speed * WIND_FACTORS.get(attrs.get("wind_speed_unit") or "km/h", 1.0), 2)
+        direction = heatpump.bearing(attrs.get("wind_bearing"))
+        return None if speed is None and direction is None else (speed, direction)
+
+    async def _async_hp_wind_backfill(self, conf: dict[str, Any], now: datetime) -> None:
+        """Once per weather entity: its recorded states (the recorder's ~10
+        days) as hourly wind - so the series doesn't start empty."""
+        entity_id = conf.get(CONF_HP_WEATHER_ENTITY)
+        if not entity_id or self.hp.wind_src == entity_id or now.timestamp() < self._hp_wind_tried_at + 3600:
+            return
+        self._hp_wind_tried_at = now.timestamp()
+        start = now - timedelta(days=11)
+        try:
+            states = await async_fetch_state_changes(self.hass, entity_id, start, now)
+        except Exception as err:  # noqa: BLE001 - a recorder that can't be read: live only
+            _LOGGER.debug("ESS Manager (%s): weather history not read for the wind: %s", self.entry.title, err)
+            return
+        samples = []
+        for st in states:
+            if st.state in ("unknown", "unavailable"):
+                continue
+            ww = self._weather_wind_of(st.attributes)
+            if ww is not None:
+                samples.append((st.last_updated.timestamp(), ww[0], ww[1]))
+        samples.sort(key=lambda x: x[0])
+        hours = heatpump.wind_hours(samples, start.timestamp(), now.timestamp() // 3600 * 3600)
+        self.hp.add_wind_hours(hours, now.timestamp(), src=entity_id)
+        self.hp.fill_wind_days(dt_util.get_default_time_zone())
+        _LOGGER.info("ESS Manager (%s): wind from %s - %d hours read from the recorder", self.entry.title, entity_id, len(hours))
+
+    def _hp_wind_hourly(self, conf: dict[str, Any], means: dict[str, dict[int, float]]) -> Optional[dict[int, float]]:
+        """The wind per hour for the house's fits: the wind sensor's statistics,
+        or (as of 2026.11.54) the series recorded from the weather entity."""
+        if conf.get(CONF_HP_WIND_ENTITY):
+            return means.get(conf[CONF_HP_WIND_ENTITY])
+        if conf.get(CONF_HP_WEATHER_ENTITY):
+            return self.hp.wind_series() or None
+        return None
+
     async def _async_hp_weather(self, conf: dict[str, Any], now: datetime, tz) -> dict[str, Any]:
         """The weather entity's forecast per day, read every 30 minutes."""
         entity_id = conf.get(CONF_HP_WEATHER_ENTITY)
@@ -1657,7 +1720,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                           self.entry.title)
             return
         sun = heatpump.add_series(*[deltas.get(e, {}) for e in solar_ids]) if solar_ids else None
-        wind = means.get(conf.get(CONF_HP_WIND_ENTITY)) if conf.get(CONF_HP_WIND_ENTITY) else None
+        wind = self._hp_wind_hourly(conf, means)
         # the usual indoor temperature per hour comes from these days
         self.hp.indoor_days = heatpump.indoor_hours(means.get(indoor_id) or {}, tz)
         self.hp.thermal = heatpump.fit_thermal(
@@ -2259,6 +2322,19 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if wind is not None and st:
                 wind *= WIND_FACTORS.get(st.attributes.get("unit_of_measurement") or "m/s", 1.0)
         wind_dir = _get_float_state(self.hass, conf.get(CONF_HP_WIND_DIR_ENTITY), default=None) if conf.get(CONF_HP_WIND_DIR_ENTITY) else None
+        # (as of 2026.11.54) without wind sensors of its own: the weather entity's
+        # current wind speed and direction
+        weather_wind = self._hp_weather_wind(conf)
+        if weather_wind is not None:
+            if not conf.get(CONF_HP_WIND_ENTITY):
+                wind = weather_wind[0]
+            if not conf.get(CONF_HP_WIND_DIR_ENTITY):
+                wind_dir = weather_wind[1]
+            await self._async_hp_wind_backfill(conf, now)
+        hour_now = int(now.timestamp()) // 3600
+        if hour_now != self._hp_wind_fill_hour:
+            self._hp_wind_fill_hour = hour_now
+            self.hp.fill_wind_days(tz)
         setpoint = self._hp_setpoint(conf)
         indoor_id, from_stats = self._hp_indoor_source(conf)
         indoor = None

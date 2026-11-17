@@ -209,7 +209,9 @@ def _features(row: dict[str, Any], teff: float, tb: float, tc: Optional[float], 
     hdd = max(0.0, tb + off - teff)
     x = [1.0, hdd]
     if use.get("wind"):
-        w = row.get("w") or 0.0
+        # (as of 2026.11.54) a day without wind gets the median of the days that
+        # have it - not 0, which would pull the wind term (older models: 0)
+        w = row.get("w") if row.get("w") is not None else use.get("w_med", 0.0)
         x.append(w * hdd)
         if use.get("dir"):
             wd = row.get("wd")
@@ -406,7 +408,9 @@ def _fit_rows(rows, teffs, today: date, with_cooling: bool) -> Optional[dict[str
     # 2026.10.38 - before, all days, so a summer-warm house set it)
     tis = sorted(r["ti"] for r in cold if r.get("ti") is not None)
     use: dict[str, Any] = {
-        "wind": share("w") >= 0.6,
+        # wind: on 60 % of the cool days, or (as of 2026.11.54) on MIN_WIND_DAYS
+        # of them - a long journal from before a wind source took half a winter
+        "wind": share("w") >= 0.6 or sum(1 for r in cold if r.get("w") is not None) >= MIN_WIND_DAYS,
         "sun": share("s") >= 0.6,
         "sp": share("sp") >= 0.6 and len(sps) >= MIN_ROWS and (max(sps) - min(sps)) >= 0.3,
         "sp_ref": sorted(sps)[len(sps) // 2] if sps else 20.0,
@@ -416,6 +420,9 @@ def _fit_rows(rows, teffs, today: date, with_cooling: bool) -> Optional[dict[str
     }
     if use["ti"]:
         use["sp"] = False
+    if use["wind"]:
+        ws = sorted(r["w"] for r in cold if r.get("w") is not None)
+        use["w_med"] = ws[len(ws) // 2] if ws else 0.0
     dir_days = [r for r in cold if r.get("wd") is not None and r.get("w") is not None]
     sectors = {int(((r["wd"] + 45) % 360) // 90) for r in dir_days}
     use["dir"] = use["wind"] and len(dir_days) >= MIN_DIRECTION_DAYS and len(sectors) >= 3
@@ -1114,3 +1121,92 @@ def hourly_weather(
         s = sun[i] if sun is not None and i < len(sun) else None
         out.append((t, w, s))
     return out
+
+
+# -- wind from the weather entity (as of 2026.11.54) ------------------------------
+# Without a wind sensor of its own, the wind speed and direction come from the
+# weather entity's current state (wind_speed, wind_bearing). It has no
+# statistics, so ESS Manager keeps its own hourly series (heatpump_runtime
+# wind_hist: {epoch: [m/s, degrees or None]}), filled live and, once, from the
+# recorder's ~10 days of the weather entity's states.
+WIND_HIST_DAYS = 62
+# a day's wind (journal row w / wd) needs this many of its hours
+WIND_DAY_HOURS = 12
+# the day model uses wind once this many cool days have it (or, as before,
+# 60 % of them); days without get the median of those that have it
+MIN_WIND_DAYS = 21
+
+
+def bearing(value: Any) -> Optional[float]:
+    """A wind direction in degrees (0-360) from a number or a numeric text;
+    None otherwise (a compass text like "NW" isn't used)."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return v % 360.0 if math.isfinite(v) else None
+
+
+def wind_hours(samples: list[tuple[float, Optional[float], Optional[float]]], start: float, end: float,
+               step: float = 300.0) -> dict[int, list[Optional[float]]]:
+    """Hourly wind from the weather entity's recorded states: `samples` are
+    (epoch, m/s, degrees) sorted by time, each holding until the next. Each
+    hour from start to end is sampled every `step` seconds: the mean speed and
+    the speed-weighted mean direction (as a vector, so 350 and 10 give 0)."""
+    out: dict[int, list[Optional[float]]] = {}
+    if not samples:
+        return out
+    h = int(start) // HOUR * HOUR
+    i = 0
+    while h + HOUR <= end:
+        ws: list[float] = []
+        x = y = 0.0
+        nd = 0
+        t = h + step / 2
+        while t < h + HOUR:
+            while i + 1 < len(samples) and samples[i + 1][0] <= t:
+                i += 1
+            if samples[i][0] <= t:
+                _, w, d = samples[i]
+                if w is not None:
+                    ws.append(w)
+                if d is not None:
+                    weight = w if w is not None and w > 0 else 1.0
+                    x += weight * math.cos(math.radians(d))
+                    y += weight * math.sin(math.radians(d))
+                    nd += 1
+            t += step
+        if len(ws) >= 6:
+            wd = round(math.degrees(math.atan2(y, x)) % 360, 1) if nd and (abs(x) > 1e-9 or abs(y) > 1e-9) else None
+            out[h] = [round(sum(ws) / len(ws), 2), wd]
+        h += HOUR
+    return out
+
+
+def fill_wind_days(journal: list[dict[str, Any]], wind_hist: dict[str, list], tz: tzinfo) -> int:
+    """Journal rows without wind (w) or direction (wd) get it from the hourly
+    series, when it has WIND_DAY_HOURS of the day. Returns how many rows changed."""
+    if not wind_hist:
+        return 0
+    hist = {int(k): v for k, v in wind_hist.items()}
+    changed = 0
+    for row in journal:
+        if row.get("w") is not None and row.get("wd") is not None:
+            continue
+        d = date.fromisoformat(row["d"])
+        start = local_day_start(d, tz)
+        end = local_day_start(d + timedelta(days=1), tz)
+        vals = [hist[h] for h in range(start, end, HOUR) if h in hist]
+        ws = [v[0] for v in vals if v[0] is not None]
+        if len(ws) < WIND_DAY_HOURS:
+            continue
+        if row.get("w") is None:
+            row["w"] = round(sum(ws) / len(ws), 2)
+            changed += 1
+        if row.get("wd") is None:
+            x = sum((v[0] or 1.0) * math.cos(math.radians(v[1])) for v in vals if v[1] is not None)
+            y = sum((v[0] or 1.0) * math.sin(math.radians(v[1])) for v in vals if v[1] is not None)
+            if sum(1 for v in vals if v[1] is not None) >= WIND_DAY_HOURS and (abs(x) > 1e-9 or abs(y) > 1e-9):
+                row["wd"] = round(math.degrees(math.atan2(y, x)) % 360, 1)
+                changed += 1
+    return changed

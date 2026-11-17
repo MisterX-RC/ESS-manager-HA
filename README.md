@@ -997,7 +997,8 @@ its usage from the weather**); two pages follow:
   long-term statistics; one from the internet, like the heat pump's own, is
   fine), the **weather forecast** (a weather entity: Met.no, Buienradar,
   Open-Meteo, ...; read per day, per hour where it has it) and optionally
-  wind speed, wind direction, indoor temperature (it also teaches the model
+  wind speed, wind direction (without them the weather entity's own wind
+  is used, as of 2026.11.54), indoor temperature (it also teaches the model
   how fast the house cools - see below; without it a thermostat's own
   temperature is used) and the wanted
   temperature (a thermostat or a sensor/number).
@@ -1011,6 +1012,22 @@ its usage from the weather**); two pages follow:
   the first start it's filled from the long-term statistics that already
   exist; after that yesterday is added every day. What has no statistics
   (a wind direction, a thermostat) is recorded live from then on.
+- **Wind from the weather entity** *(as of 2026.11.54)*: without a wind
+  speed or wind direction sensor of its own, the model takes them from the
+  weather entity's current state (`wind_speed` in its `wind_speed_unit`,
+  converted to m/s, and `wind_bearing`) - nothing to set up. A weather
+  entity has no statistics, so ESS Manager keeps its own hourly series (mean
+  speed, speed-weighted mean direction, about two months) and, once per
+  weather entity, reads the recorder's ~10 days of its states to start with.
+  Journal days without wind are filled from that series (12 hours of the
+  day needed). Learning and forecasting then use the same source. A wind
+  sensor that is set still wins (its statistics as before). The day model
+  uses wind once it's known on **21 cool days** (or, as before, on 60 % of
+  them) - days without get the median of those that have it, not 0; the
+  wind direction still needs 30 cool days in 3 directions. The house model
+  and the cooling fit use a wind term once 70 % of their hours have it (as
+  before). `heat_pump.wind` shows the hours recorded, the source, the
+  journal days with wind and the days needed.
 - **The slow part, an energy signature**: per day, kWh = base + kWh per
   degree below the balance temperature (+ wind x degrees, + wind direction
   once there are enough days in most directions) - sun (+ kWh per degree
