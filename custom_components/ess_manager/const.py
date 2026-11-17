@@ -284,6 +284,8 @@ SERVICE_EV_SESSION_SAVE = "ev_session_save"
 SERVICE_EV_SESSION_REMOVE = "ev_session_remove"
 # the plugged-in car's plan from the EV card (Victron charger, as of 2026.10.27)
 SERVICE_EV_CHARGE_PLAN = "ev_charge_plan"
+# (as of 2026.11.52) the EV card's buttons while the charger is driven by hand
+SERVICE_EV_MANUAL = "ev_manual"
 
 # Seed values only - the live, user-adjustable copies of these live as
 # `number` entities once the config entry is set up (see number.py). These

@@ -119,3 +119,26 @@ ev_charge_plan:
           max: 250
           step: 0.1
           unit_of_measurement: kWh
+ev_manual:
+  fields:
+    entity_id:
+      example: sensor.ess_manager_status
+      selector:
+        entity:
+          integration: ess_manager
+          domain: sensor
+    action:
+      example: fast
+      selector:
+        select:
+          options:
+            - slow
+            - fast
+            - "off"
+    source:
+      example: grid
+      selector:
+        select:
+          options:
+            - grid
+            - battery

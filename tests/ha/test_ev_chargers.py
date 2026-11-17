@@ -232,3 +232,148 @@ async def test_victron_grid_window_keeps_the_battery_out(hass, freezer):
     hass.states.async_set(ids["ev_v_power"], "3000", {"unit_of_measurement": "W"})
     await coordinator.async_refresh()
     assert coordinator._ev_offset_w == 3000.0
+
+
+# -- EV charger control switch and manual charging (as of 2026.11.52) -----------------
+def _switch_entity(hass, entry, key):
+    from homeassistant.helpers import entity_registry as er
+    from homeassistant.helpers.entity_platform import async_get_platforms
+
+    eid = er.async_get(hass).async_get_entity_id("switch", "ess_manager", f"{entry.entry_id}_{key}")
+    for platform in async_get_platforms(hass, "ess_manager"):
+        if platform.domain == "switch" and eid in platform.entities:
+            return platform.entities[eid]
+    raise AssertionError(f"no switch {key}")
+
+
+async def test_ev_control_switch_and_manual_victron(hass, freezer):
+    """Off: the plan isn't sent to the charger; the card's buttons drive it
+    once; from the grid the setpoint covers the car, from the battery not.
+    Automatic control off switches it off and keeps it off."""
+    import pytest
+    from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+
+    now = dt_util.now()
+    base_states(hass, now)
+    device, ids = charger_device(hass, "victron_gx", VICTRON)
+    hass.states.async_set(ids["ev_status"], "connected")
+    hass.states.async_set(ids["ev_v_power"], "0", {"unit_of_measurement": "W"})
+    hass.states.async_set(ids["ev_v_energy"], "500.0", {"unit_of_measurement": "kWh"})
+    hass.states.async_set(ids["ev_mode"], "auto", {"options": ["manual", "auto", "scheduled"]})
+    hass.states.async_set(ids["ev_current"], "6", {"min": 6, "max": 16})
+    hass.states.async_set(ids["ev_charge"], "off")
+    entry, coordinator = await _setup(hass, {"ev_charger": "victron", "ev_victron_device": device,
+                                             "ev_energy_entity": ids["ev_v_energy"], "ev_power_entity": ids["ev_v_power"]})
+    ev_switch = _switch_entity(hass, entry, "ev_charger_control")
+    auto_switch = _switch_entity(hass, entry, "automatic_control")
+    assert ev_switch.is_on and coordinator.ev_auto()
+    manual = coordinator.data["ev"]["manual"]
+    assert manual["auto"] and manual["switch"] == ev_switch.entity_id and manual["connected"]
+    # while the plan drives it, the buttons are refused
+    with pytest.raises(ServiceValidationError):
+        await coordinator.async_ev_manual("fast", None)
+
+    calls: list = []
+    for d, sv in (("select", "select_option"), ("number", "set_value"), ("switch", "turn_on"), ("switch", "turn_off")):
+        record_calls(hass, d, sv, calls)
+    await ev_switch.async_turn_off()
+    assert not coordinator.ev_auto()
+    # a plan is chosen, but nothing goes to the charger
+    coordinator.ev.set_plan({"choice": "asap", "soc": 40}, int(now.timestamp()))
+    await coordinator.async_refresh()
+    assert calls == []
+    manual = coordinator.data["ev"]["manual"]
+    assert not manual["auto"] and manual["active"] == "off" and manual["source"] == "grid" and manual["battery_steered"]
+    # "fast" by hand: manual mode, the max current, charging on - once
+    await coordinator.async_ev_manual("fast", None)
+    assert ("select", "select_option", {"entity_id": ids["ev_mode"], "option": "manual"}) in calls
+    assert ("number", "set_value", {"entity_id": ids["ev_current"], "value": 13.0}) in calls
+    assert ("switch", "turn_on", {"entity_id": ids["ev_charge"]}) in calls
+    n = len(calls)
+    await coordinator.async_refresh()
+    assert len(calls) == n                                      # not again (nor the plan's values)
+    assert coordinator.data["ev"]["manual"]["active"] == "fast"
+    # from the grid: the setpoint covers what the car takes
+    hass.states.async_set(ids["ev_v_power"], "3000", {"unit_of_measurement": "W"})
+    await coordinator.async_refresh()
+    assert coordinator._ev_offset_w == 3000.0
+    # from the battery: no offset (stored)
+    await coordinator.async_ev_manual(None, "battery")
+    await coordinator.async_refresh()
+    assert coordinator.ev_manual_source == "battery" and coordinator._ev_offset_w == 0.0
+    # "slow" and "off"
+    await coordinator.async_ev_manual("slow", None)
+    assert ("number", "set_value", {"entity_id": ids["ev_current"], "value": 6.0}) in calls
+    await coordinator.async_refresh()
+    assert coordinator.data["ev"]["manual"]["active"] == "slow"
+    await coordinator.async_ev_manual("off", None)
+    assert calls[-1] == ("switch", "turn_off", {"entity_id": ids["ev_charge"]})
+    # Automatic control off: EV charger control goes off too and can't come back on
+    await ev_switch.async_turn_on()
+    assert ev_switch.is_on
+    await auto_switch.async_turn_off()
+    assert not ev_switch.is_on and not coordinator.ev_control_on
+    assert hass.states.get(ev_switch.entity_id).state == "off"
+    with pytest.raises(HomeAssistantError):
+        await ev_switch.async_turn_on()
+    await coordinator.async_refresh()
+    assert not coordinator.data["ev"]["manual"]["can_auto"] and not coordinator.data["ev"]["manual"]["battery_steered"]
+    # both back on: the plan's values go to the charger again
+    await auto_switch.async_turn_on()
+    assert not ev_switch.is_on                                  # stays off until switched on itself
+    calls.clear()
+    await ev_switch.async_turn_on()
+    await coordinator.async_refresh()
+    assert ("number", "set_value", {"entity_id": ids["ev_current"], "value": 13.0}) in calls
+    assert ("switch", "turn_on", {"entity_id": ids["ev_charge"]}) in calls
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    assert diag["switches"]["ev_charger_control"] is True and diag["switches"]["ev_manual_source"] == "battery"
+
+
+async def test_ev_manual_zappi_no_notifications(hass, freezer):
+    """zappi by hand: slow = Eco, fast = Fast, off = Stopped; plugging in
+    while it's off sends no notification (with it on, it does)."""
+    import pytest
+    from homeassistant.exceptions import ServiceValidationError
+
+    now = dt_util.now()
+    base_states(hass, now)
+    device, ids = charger_device(hass, "myenergi", ZAPPI)
+    mode, plug, status = ids["myenergi_zappi_charge_mode"], ids["myenergi_zappi_plug_status"], ids["myenergi_zappi_status"]
+    hass.states.async_set(mode, "Stopped", {"options": ["Fast", "Eco", "Eco+", "Stopped"]})
+    hass.states.async_set(plug, "EV Disconnected")
+    hass.states.async_set(status, "Paused")
+    hass.states.async_set(ids["myenergi_zappi_locked"], "off")
+    hass.states.async_set(ids["myenergi_zappi_charge_when_locked"], "on")
+    sent: list = []
+    record_calls(hass, "notify", "phone", sent, apply_state=False)
+    entry, coordinator = await _setup(hass, {"ev_charger": "zappi", "ev_zappi_device": device,
+                                             "ev_energy_entity": "sensor.ev_energy", "ev_power_entity": "sensor.ev_power",
+                                             "ev_notify_services": ["phone"]})
+    calls: list = []
+    record_calls(hass, "select", "select_option", calls)
+    ev_switch = _switch_entity(hass, entry, "ev_charger_control")
+    await ev_switch.async_turn_off()
+    # no car: the buttons are refused
+    with pytest.raises(ServiceValidationError):
+        await coordinator.async_ev_manual("fast", None)
+    assert coordinator.data["ev"]["manual"]["connected"] is False
+    # plugged in while driven by hand: no question on the phone
+    hass.states.async_set(plug, "EV Connected")
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert coordinator.ev.flow is not None and sent == []
+    for action, zmode in (("slow", "Eco"), ("fast", "Fast"), ("off", "Stopped")):
+        await coordinator.async_ev_manual(action, None)
+        assert calls[-1] == ("select", "select_option", {"entity_id": mode, "option": zmode})
+        await coordinator.async_refresh()
+        assert coordinator.data["ev"]["manual"]["active"] == action
+    assert coordinator._ev_cmds[-1]["why"] == "manual_off"
+    # unplug and plug in with it on: the question goes out (the same set-up notifies)
+    await ev_switch.async_turn_on()
+    hass.states.async_set(plug, "EV Disconnected")
+    await coordinator.async_refresh()
+    hass.states.async_set(plug, "EV Connected")
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert sent

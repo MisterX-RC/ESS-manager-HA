@@ -142,6 +142,9 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     }
     result["switches"] = {
         "automatic_control": coordinator.controller.enabled,
+        # (as of 2026.11.52) the EV charger control switch and manual charging
+        "ev_charger_control": coordinator.ev_control_on,
+        "ev_manual_source": coordinator.ev_manual_source,
         "heat_pump_steering": getattr(coordinator, "hp_steering_on", None),
     }
     result["decisions_24h"] = _jsonable(coordinator.decision_history())

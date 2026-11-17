@@ -937,6 +937,43 @@ on a command - the EV card says so: `charger.blocked`), and remove boost
 timers and smart boost in the myenergi app (they work in Eco and Eco+):
 ESS Manager plans the charging.
 
+### EV charger control and manual charging
+
+*(As of 2026.11.52)* With a charger of its own (Victron or zappi) the device
+has an **EV charger control** switch, also on top of the EV card ("Automatic
+charging"). On (default): ESS Manager drives the charger as the plugged-in
+car's plan says, as described above. Off:
+
+- the plan is still worked out and shown, but **greyed and not usable**,
+  marked "not active" - nothing of it is sent to the charger;
+- **no EV notifications** go out (no question at plug-in, no 09:00 question);
+- an orange block on top of the card drives the charger **by hand**:
+
+  | Button | Victron EV charger | zappi |
+  |---|---|---|
+  | Slow | manual mode, minimum current, charging on | Eco |
+  | Fast | manual mode, maximum current, charging on | Fast |
+  | Off | charging off | Stopped |
+
+  Each press sends one command; after that the charger is left alone (a
+  change on the charger or in its app stays). The button that matches the
+  charger's own state is highlighted. Without a car plugged in the buttons
+  are greyed out;
+- a choice **From grid / From battery** at the top of that block: from the
+  grid, the grid setpoint goes up by what the car takes (as in a planned grid
+  window), so the house battery stays out of it; from the battery, the car
+  counts as house usage. Kept across restarts. It only applies while the
+  battery's setpoint is sent (direct control with Automatic control on).
+
+Switching it off leaves the charger as it is. Switching it on again sends
+the plan's values afresh. With direct control, switching **Automatic
+control** (the battery) off switches EV charger control off too - the plan
+can't be followed without the battery's setpoint - and it can't be switched
+on again until Automatic control is on. The card's buttons call the service
+`ess_manager.ev_manual` (`action`: slow / fast / off, `source`: grid /
+battery). Diagnostics: `switches.ev_charger_control`,
+`switches.ev_manual_source`, and per cycle `ev.manual`.
+
 ## Heat pump
 
 For a heat pump whose electricity follows the weather (as of 2026.10.16).
@@ -1673,6 +1710,7 @@ and are listed on the device page under "hidden entities"):
 | Spike arbitrage plan | Spike status, Spike margin, Spike discharge speed |
 | Full-charge balancing | Next full charge in, Full charge interval, Full charge max hold, Full charge target voltage |
 | Direct control ("Status sensor only") | Automatic control |
+| Electric car off, or without a charger of its own (Victron / zappi) | EV charger control |
 
 Switching one on again always shows its entities, even ones you hid
 yourself. Only changes of the setting count: if you unhide an entity anyway,
@@ -1883,6 +1921,8 @@ Safety:
 - **Automatic control** switch (an entity on the device): turn it off to
   take over by hand - it sends idle once, then leaves the target alone
   until you turn it back on. Its state survives restarts; on by default.
+  Turning it off also turns **EV charger control** off (see "EV charger
+  control and manual charging" under Electric car).
   While direct control isn't set up ("Status sensor only"), the switch is
   hidden (it has nothing to control); choosing a number / input_number
   entity in Configure shows it again - see "Hidden entities" under

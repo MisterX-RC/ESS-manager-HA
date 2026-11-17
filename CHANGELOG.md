@@ -12,6 +12,31 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.52] - 2026-11-17
+
+### Electric car
+- **EV charger control switch and manual charging.** With a charger of its
+  own (Victron EV charger or zappi) there's a new switch **EV charger
+  control**, also on top of the EV card ("Automatic charging"). On (default):
+  the charger follows the plan, as before. Off: the plan is still shown but
+  greyed, marked "not active" and not usable; nothing of it is sent to the
+  charger and no EV notifications go out. Instead an orange block on top of
+  the card has three buttons - **Slow** (zappi Eco, Victron minimum
+  current), **Fast** (zappi Fast, Victron maximum current) and **Off** - that
+  send one command each; the button matching the charger's own state is
+  highlighted, and the buttons are greyed out while no car is plugged in.
+- **From grid / From battery** at the top of that block: from the grid the
+  grid setpoint goes up by what the car takes, so the house battery stays
+  out of it; from the battery the car counts as house usage. Kept across
+  restarts.
+- With direct control, switching **Automatic control** off switches EV
+  charger control off too, and it can't be switched on again until
+  Automatic control is on. Before, Automatic control alone paused the
+  charger. Switching EV charger control on again sends the plan's values
+  afresh.
+- New service `ess_manager.ev_manual` (used by the card); diagnostics show
+  the switch, the source and `ev.manual`.
+
 ## [2026.11.51] - 2026-11-16
 
 ### Cards

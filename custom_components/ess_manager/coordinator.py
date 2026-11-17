@@ -17,7 +17,8 @@ from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
@@ -26,7 +27,7 @@ from homeassistant.util import dt as dt_util
 
 from . import control, display, forecasting, plans, transport, units
 from .ev_runtime import EvRuntime
-from . import ev_charger as evc, ev_notify as evn
+from . import ev_charger as evc, ev_manual as evm, ev_notify as evn
 from . import heatpump
 from .heatpump_runtime import HeatPumpRuntime
 from . import heatpump_house
@@ -519,6 +520,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.auto_buffer_on = False
         self.auto_buffer_entity_id: Optional[str] = None
         self.hp_steering_entity: Any = None
+        # (as of 2026.11.52) the "EV charger control" switch (switch.py) and
+        # manual charging from the card (ev_manual.py): where a manual charge
+        # comes from (stored), and the last button pressed (diagnostics)
+        self.ev_control_on = True
+        self.ev_control_entity: Any = None
+        self.ev_manual_source = evm.DEFAULT_SOURCE
+        self._ev_manual_last: Optional[dict[str, Any]] = None
 
     def control_settings(self) -> ControlSettings:
         return ControlSettings({**self.entry.data, **self.entry.options})
@@ -646,6 +654,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.hp.restore(data.get("hp"))
             self.acc.restore(data.get("accuracy"))
             self.floor.restore(data.get("floor"))
+            if data.get("ev_manual_source") in evm.SOURCES:
+                self.ev_manual_source = data["ev_manual_source"]
             if "solar_mode" not in data:
                 # stored by a version from before 2026.10.8: take it from
                 # the Solar mode sensor's history, once
@@ -716,7 +726,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stat = self.hass.states.get(ents.get("status", ""))
         status = evc.zappi_status(plug.state if plug else None, stat.state if stat else None)
         connected = self.ev.flow is not None if status is None else status != evc.STATUS_DISCONNECTED
-        notify = [s for s in (conf.get(CONF_EV_NOTIFY) or []) if self.hass.services.has_service("notify", s)]
+        notify = self._ev_notify_services(conf)
         mode_state = self.hass.states.get(ents.get("mode", ""))
         locked = self.hass.states.get(ents.get("locked", ""))
         when_locked = self.hass.states.get(ents.get("when_locked", ""))
@@ -752,7 +762,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             connected = self.ev.flow is not None
         else:
             connected = status != evc.STATUS_DISCONNECTED
-        notify = [s for s in (conf.get(CONF_EV_NOTIFY) or []) if self.hass.services.has_service("notify", s)]
+        notify = self._ev_notify_services(conf)
         mode_state = self.hass.states.get(ents.get("mode", ""))
         current_state = self.hass.states.get(ents.get("current", ""))
         return {
@@ -772,6 +782,26 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "battery": battery,
             "price_start": int(units.local_midnight(now).timestamp()),
         }
+
+    def _ev_notify_services(self, conf: dict[str, Any]) -> list[str]:
+        """The phones for an own charger's EV notifications - none while the
+        charger is driven by hand (as of 2026.11.52)."""
+        if not self.ev_auto():
+            return []
+        return [s for s in (conf.get(CONF_EV_NOTIFY) or []) if self.hass.services.has_service("notify", s)]
+
+    def ev_auto(self, settings: Optional[ControlSettings] = None) -> bool:
+        """Whether ESS Manager drives the EV charger now (as of 2026.11.52):
+        the "EV charger control" switch on, and - with direct control - the
+        Automatic control switch on too."""
+        settings = settings or self.control_settings()
+        return bool(self.ev_control_on) and not (settings.active and not self.controller.enabled)
+
+    def ev_battery_steered(self, settings: Optional[ControlSettings] = None) -> bool:
+        """Whether the battery's setpoint is sent (so a manual charge can be
+        kept out of the battery)."""
+        settings = settings or self.control_settings()
+        return bool(settings.active and self.controller.enabled)
 
     def _ev_notify_ctx(self, conf: dict[str, Any]) -> dict[str, Any]:
         """The phones to ask on without the Victron charger (as of 2026.10.37):
@@ -998,7 +1028,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             mode = evc.ZAPPI_REST
             resting = True
         self._ev_target = {"mode": mode, "why": (target or {}).get("why") or ("unplugged" if resting else None)} if mode else None
-        if mode is None or (control_settings.active and not self.controller.enabled):
+        if mode is None or not self.ev_auto(control_settings):
             return
         # (as of 2026.11.30) what was sent and whether the zappi took it on: a
         # mode counts as applied ("zappi_ok") only once the zappi shows it - up
@@ -1104,7 +1134,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             target = dict(evc.REST_TARGET)
             resting = True
         self._ev_target = target
-        if target is None or (control_settings.active and not self.controller.enabled):
+        if target is None or not self.ev_auto(control_settings):
             return
         flow = self.ev.flow
         applied: dict[str, Any] = flow.setdefault("applied", {}) if flow is not None else {}
@@ -1176,6 +1206,112 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # back at rest (or already was): leave the charger alone from now on
             self.ev.rest_charger = False
 
+    # -- manual charging (as of 2026.11.52, ev_manual.py) ---------------------------
+    def _ev_manual_attr(self, conf: dict[str, Any], charger: dict[str, Any], ents: dict[str, str],
+                        settings: ControlSettings) -> dict[str, Any]:
+        """For the EV card: whether the plan drives the charger, the switch,
+        where a manual charge comes from and which button the charger matches."""
+        def state(role: str) -> Optional[str]:
+            st = self.hass.states.get(ents.get(role, ""))
+            return st.state if st is not None and st.state not in ("unknown", "unavailable") else None
+        charge = state("charge")
+        current = state("current")
+        try:
+            current_a = float(current) if current is not None else None
+        except ValueError:
+            current_a = None
+        min_a = float(conf.get(CONF_EV_MIN_CURRENT, DEFAULT_EV_MIN_CURRENT))
+        max_a = float(conf.get(CONF_EV_MAX_CURRENT, DEFAULT_EV_MAX_CURRENT))
+        return {
+            "auto": self.ev_auto(settings),
+            "switch": getattr(self.ev_control_entity, "entity_id", None),
+            # can't be switched on while Automatic control (the battery) is off
+            "can_auto": not (settings.active and not self.controller.enabled),
+            "source": self.ev_manual_source,
+            "battery_steered": self.ev_battery_steered(settings),
+            "connected": bool(charger.get("connected")),
+            "active": evm.active_action(charger.get("charger") or evc.CHARGER_VICTRON, state("mode"),
+                                        None if charge is None else charge == "on", current_a, min_a, max_a),
+            "last": self._ev_manual_last,
+        }
+
+    @callback
+    def set_ev_control(self, on: bool) -> None:
+        """The EV charger control switch (or Automatic control switching off).
+        Back on: the plan's values are checked against the charger afresh."""
+        on = bool(on)
+        if on and not self.ev_control_on:
+            if self.ev.flow is not None:
+                self.ev.flow["applied"] = {}
+            self._zappi_rest_applied = {}
+        self.ev_control_on = on
+        entity = self.ev_control_entity
+        if entity is not None and entity.hass is not None:
+            entity.sync_from_coordinator()
+
+    async def async_ev_manual(self, action: Optional[str], source: Optional[str]) -> None:
+        """A button on the EV card while the charger is driven by hand: one
+        command to the charger (slow / fast / off), and/or where a manual
+        charge comes from (grid / battery)."""
+        conf = {**self.entry.data, **self.entry.options}
+        if source is not None:
+            self.ev_manual_source = source
+            await self.async_persist_state()
+        if action is None:
+            await self.async_request_refresh()
+            return
+        if not conf.get(CONF_EV_ENABLED) or conf.get(CONF_EV_CHARGER) not in (EV_CHARGER_VICTRON, EV_CHARGER_ZAPPI):
+            raise ServiceValidationError("Manual charging needs a Victron EV charger or a zappi")
+        if self.ev_auto():
+            raise ServiceValidationError("EV charger control is on: the plan drives the charger")
+        zappi = conf.get(CONF_EV_CHARGER) == EV_CHARGER_ZAPPI
+        ents = (self._zappi_entities(conf.get(CONF_EV_ZAPPI_DEVICE)) if zappi
+                else self._victron_entities(conf.get(CONF_EV_VICTRON_DEVICE)))
+        now = self.now()
+        charger = (self._zappi_inputs(conf, ents, now, []) if zappi else self._victron_inputs(conf, ents, now, []))
+        if not charger.get("connected"):
+            raise ServiceValidationError("No car is plugged in")
+        calls: list[tuple[str, str, dict[str, Any]]] = []
+        if zappi:
+            mode = evm.ZAPPI_MODES[action]
+            st = self.hass.states.get(ents.get("mode", ""))
+            if st is None:
+                raise ServiceValidationError("The zappi's charge mode can't be found")
+            calls.append(("select", "select_option", {"entity_id": ents["mode"], "option": mode}))
+        else:
+            target = evm.victron_target(action, float(conf.get(CONF_EV_MIN_CURRENT, DEFAULT_EV_MIN_CURRENT)),
+                                        float(conf.get(CONF_EV_MAX_CURRENT, DEFAULT_EV_MAX_CURRENT)))
+            mode_st = self.hass.states.get(ents.get("mode", ""))
+            if target["mode"] and mode_st is not None and mode_st.state != target["mode"] \
+                    and target["mode"] in (mode_st.attributes.get("options") or [target["mode"]]):
+                calls.append(("select", "select_option", {"entity_id": ents["mode"], "option": target["mode"]}))
+            cur_st = self.hass.states.get(ents.get("current", ""))
+            if target["current"] is not None and cur_st is not None:
+                want = float(target["current"])
+                lo, hi = cur_st.attributes.get("min"), cur_st.attributes.get("max")
+                if lo is not None:
+                    want = max(want, float(lo))
+                if hi is not None:
+                    want = min(want, float(hi))
+                calls.append(("number", "set_value", {"entity_id": ents["current"], "value": want}))
+            if ents.get("charge"):
+                calls.append(("switch", "turn_on" if target["charge"] else "turn_off", {"entity_id": ents["charge"]}))
+        before = self.hass.states.get(ents.get("mode", ""))
+        for domain, service, data in calls:
+            try:
+                await asyncio.wait_for(self.hass.services.async_call(domain, service, data, blocking=True), 20)
+            except Exception as err:  # noqa: BLE001
+                message = f"EV charger: {domain}.{service} on {data['entity_id']} failed: {type(err).__name__}: {err}"
+                self._ev_error = message
+                _LOGGER.warning("ESS Manager (%s): %s", self.entry.title, message)
+                raise HomeAssistantError(message) from err
+        self._ev_error = None
+        self._ev_manual_last = {"action": action, "at": dt_util.now().isoformat(timespec="seconds")}
+        if zappi:
+            self._zappi_sent(conf, evm.ZAPPI_MODES[action], before.state if before else None, f"manual_{action}")
+        _LOGGER.info("ESS Manager (%s): EV charger by hand: %s", self.entry.title, action)
+        await self.async_request_refresh()
+
     async def _async_ev_send(self) -> None:
         """The notifications the EV runtime queued (questions, plans)."""
         outbox, self.ev.outbox = self.ev.outbox, []
@@ -1225,6 +1361,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "hp": self.hp.as_store(),
                 "accuracy": self.acc.as_store(),
                 "floor": self.floor.as_store(),
+                "ev_manual_source": self.ev_manual_source,
             }
         )
 
@@ -3694,6 +3831,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # the house battery stays out of it
         ev_offset_kw = (self._ev_grid_offset_kw(ev_victron, ev_entities, now) if ev_victron
                         else self._ev_charge_offset_kw(conf, control_action))
+        if ev_victron is not None and not self.ev_auto(control_settings):
+            # (as of 2026.11.52) charging by hand: from the grid, the setpoint
+            # goes up by what the car takes; from the battery, nothing
+            ev_offset_kw = evm.grid_offset_kw(
+                self.ev_manual_source,
+                _state_in_unit(self.hass, ev_entities.get("power") or ev_victron.get("power_entity"), ("kW",), 1000.0))
         # the night limit on the battery (as of 2026.11.22): the setpoint follows
         # the battery's power so it charges / gives at most the night speeds
         night_extra_kw = 0.0
@@ -3723,6 +3866,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_zappi(conf, ev_entities, now, control_settings)
         elif ev_victron is not None:
             await self._async_ev_charger(conf, ev_entities, now, control_settings)
+        if ev_victron is not None and isinstance(ev_attribute, dict):
+            ev_attribute["manual"] = self._ev_manual_attr(conf, ev_victron, ev_entities, control_settings)
         await self._async_ev_send()
         control_attr = self.controller.as_attribute(control_settings, control_action, control_power_kw)
         self._report_control_problem(now)

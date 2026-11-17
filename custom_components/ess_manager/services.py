@@ -1,5 +1,5 @@
 """The EV card's services (as of 2026.10.11): save or remove a charging
-session; and (as of 2026.10.27, Victron charger) the plugged-in car's plan. The card passes its Status sensor as `entity_id`, which picks the
+session; and (as of 2026.10.27, Victron charger) the plugged-in car's plan; and (as of 2026.11.52) manual charging. The card passes its Status sensor as `entity_id`, which picks the
 installation; with a single installation it may be left out."""
 from __future__ import annotations
 
@@ -12,9 +12,10 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN, SERVICE_EV_CHARGE_PLAN, SERVICE_EV_SESSION_REMOVE, SERVICE_EV_SESSION_SAVE
+from .const import DOMAIN, SERVICE_EV_CHARGE_PLAN, SERVICE_EV_MANUAL, SERVICE_EV_SESSION_REMOVE, SERVICE_EV_SESSION_SAVE
 from .ev_charger import CHOICES, DAYS
 from .ev import MODE_DEADLINE, MODE_FIXED, MODE_SOLAR
+from .ev_manual import ACTIONS, SOURCES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,6 +50,15 @@ PLAN_SCHEMA = vol.Schema(
         vol.Optional("kwh"): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=250))),
         vol.Optional("target_soc"): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=100))),
         vol.Optional("current_a"): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0, max=100))),
+    }
+)
+
+# (as of 2026.11.52) manual charging: a button (slow / fast / off) and/or where it comes from
+MANUAL_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entity_id"): cv.entity_id,
+        vol.Optional("action"): vol.In(list(ACTIONS)),
+        vol.Optional("source"): vol.In(list(SOURCES)),
     }
 )
 
@@ -120,7 +130,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     hass.services.async_register(DOMAIN, SERVICE_EV_CHARGE_PLAN, _plan, schema=PLAN_SCHEMA)
 
+    async def _manual(call: ServiceCall) -> None:
+        coordinator = _coordinator(hass, call)
+        await coordinator.async_ev_manual(call.data.get("action"), call.data.get("source"))
+
+    hass.services.async_register(DOMAIN, SERVICE_EV_MANUAL, _manual, schema=MANUAL_SCHEMA)
+
 
 def async_unload_services(hass: HomeAssistant) -> None:
-    for service in (SERVICE_EV_SESSION_SAVE, SERVICE_EV_SESSION_REMOVE, SERVICE_EV_CHARGE_PLAN):
+    for service in (SERVICE_EV_SESSION_SAVE, SERVICE_EV_SESSION_REMOVE, SERVICE_EV_CHARGE_PLAN, SERVICE_EV_MANUAL):
         hass.services.async_remove(DOMAIN, service)

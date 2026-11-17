@@ -6841,6 +6841,29 @@ _rp_aio.run(_rp_sv.async_fill(_rp_now, 1, {"import": ["sensor.x"]}, _rp_stats, _
 check("savings: a day's prices from the recorder are kept (for the reference price)",
       len(_rp_sv.prices.get("2026-03-09") or []) == 96 and abs(_rp_sv.prices["2026-03-09"][0] - 0.104) < 1e-9)
 
+
+# manual EV charging (2026.11.52): which button the charger matches, the Victron's values, the grid offset
+ev_manual = _load("ev_manual")
+_em = ev_manual
+check("manual EV: zappi Eco/Fast/Stopped -> slow/fast/off, Eco+ none",
+      [_em.active_action("zappi", m, None, None, 6, 13) for m in ("Eco", "Fast", "Stopped", "Eco+")] == ["slow", "fast", "off", None])
+check("manual EV: Victron charging off -> off; manual at min/max -> slow/fast; auto mode or between -> none",
+      _em.active_action("victron", "auto", False, 10, 6, 13) == "off"
+      and _em.active_action("victron", "manual", True, 6, 6, 13) == "slow"
+      and _em.active_action("victron", "manual", True, 13.0, 6, 13) == "fast"
+      and _em.active_action("victron", "auto", True, 13, 6, 13) is None
+      and _em.active_action("victron", "manual", True, 10, 6, 13) is None
+      and _em.active_action("victron", "manual", None, 10, 6, 13) is None)
+check("manual EV: min = max counts as fast", _em.active_action("victron", "manual", True, 13, 13, 13) == "fast")
+check("manual EV: Victron slow/fast = manual at min/max, charging on; off = charging off, mode left",
+      _em.victron_target("slow", 6, 13) == {"mode": "manual", "charge": True, "current": 6, "why": "manual_slow"}
+      and _em.victron_target("fast", 6, 13)["current"] == 13
+      and _em.victron_target("off", 6, 13)["mode"] is None and _em.victron_target("off", 6, 13)["charge"] is False)
+check("manual EV: from the grid the setpoint covers what the car takes, from the battery nothing",
+      _em.grid_offset_kw("grid", 2990) == 3.0 and _em.grid_offset_kw("battery", 2990) == 0.0
+      and _em.grid_offset_kw("grid", 20) == 0.0 and _em.grid_offset_kw("grid", None) == 0.0)
+
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

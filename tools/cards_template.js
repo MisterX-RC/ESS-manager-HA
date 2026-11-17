@@ -112,6 +112,18 @@ const I18N = {
     ev_back_average: "Back to average", ev_remove: "Delete", ev_cancel: "Cancel", ev_save: "Save",
     ev_left: (k) => `${k} to go`, ev_at: "done at", ev_in_plan: (k) => `${k} in the planning`,
     // the EV card as of 2026.10.29: one session model, one panel
+    // (as of 2026.11.52) EV charger control and manual charging
+    ev_ctl: "Automatic charging", ev_ctl_tip: "On: the charger follows the plan. Off: drive it by hand with the buttons.",
+    ev_ctl_locked: "Switch Automatic control (the battery) on first - the plan can't be followed without it.",
+    ev_man_head: "Manual - the plan isn't followed", ev_not_active: "not active",
+    ev_man_src_grid: "From grid", ev_man_src_batt: "From battery",
+    ev_man_src_grid_t: "the house battery stays out of it", ev_man_src_batt_t: "the car also takes from the house battery",
+    ev_man_src_none: "the battery isn't steered (Automatic control off): the car counts as house usage",
+    ev_man_slow: "Slow", ev_man_fast: "Fast", ev_man_off: "Off", ev_man_off_sub: "stop charging",
+    ev_man_plug: (c, kw) => `${c} plugged in · charging ${kw}`, ev_man_idle: (c) => `${c} plugged in · not charging`,
+    ev_man_none: "No car plugged in",
+    ev_man_text: "Your choice goes to the charger once and stays until you choose something else. No notifications on the phone.",
+    ev_man_wait: "The buttons work once a car is plugged in.", ev_man_pending: "sent - waiting for the charger",
     ev_now: "Now", ev_planned: "Planned", ev_plan_add: "Plan a session", ev_n_planned: (n) => `${n} planned`, ev_n_busy: "1 charging",
     ev_st_plugged: (c) => `${c} plugged in`, ev_st_charging: (c, kw) => `${c} charging · ${kw}`, ev_st_done: (c) => `${c} · done`, ev_st_running: "Charging now",
     ev_chip_wait: "waiting for a choice", ev_chip_ext: "started by the charger", ev_chip_asap: (a) => `fast · ${a} A`, ev_chip_calm: (a) => `slow · ${a} A`,
@@ -323,6 +335,18 @@ const I18N = {
     ev_hist_mark: (p) => `streepje = verwachte stand bij start volgens historie (${p}%)`,
     ev_back_average: "Terug naar gemiddelde", ev_remove: "Verwijderen", ev_cancel: "Annuleren", ev_save: "Opslaan",
     ev_left: (k) => `Nog ${k}`, ev_at: "klaar om", ev_in_plan: (k) => `${k} in de planning`,
+    // (as of 2026.11.52) EV-laderbesturing en handmatig laden
+    ev_ctl: "Automatisch laden", ev_ctl_tip: "Aan: de lader volgt de planning. Uit: met de knoppen met de hand sturen.",
+    ev_ctl_locked: "Zet eerst Automatic control (de accu) aan - zonder accusturing kan de planning niet gevolgd worden.",
+    ev_man_head: "Handmatig - de planning wordt niet gevolgd", ev_not_active: "niet actief",
+    ev_man_src_grid: "Uit net", ev_man_src_batt: "Uit accu",
+    ev_man_src_grid_t: "de thuisaccu blijft erbuiten", ev_man_src_batt_t: "de auto laadt ook uit de thuisaccu",
+    ev_man_src_none: "de accu wordt niet gestuurd (Automatic control uit): de auto telt als huisverbruik",
+    ev_man_slow: "Langzaam", ev_man_fast: "Snel", ev_man_off: "Uit", ev_man_off_sub: "laden stoppen",
+    ev_man_plug: (c, kw) => `${c} aangesloten · laadt ${kw}`, ev_man_idle: (c) => `${c} aangesloten · laadt niet`,
+    ev_man_none: "Geen auto aangesloten",
+    ev_man_text: "Je keuze gaat één keer naar de lader en blijft staan tot je iets anders kiest. Geen meldingen op de telefoon.",
+    ev_man_wait: "De knoppen werken zodra er een auto is aangesloten.", ev_man_pending: "verstuurd - wacht op de lader",
     ev_now: "Nu", ev_planned: "Gepland", ev_plan_add: "Sessie plannen", ev_n_planned: (n) => `${n} gepland`, ev_n_busy: "1 bezig",
     ev_st_plugged: (c) => `${c} aangesloten`, ev_st_charging: (c, kw) => `${c} laadt · ${kw}`, ev_st_done: (c) => `${c} · klaar`, ev_st_running: "Laadt nu",
     ev_chip_wait: "wacht op keuze", ev_chip_ext: "door lader gestart", ev_chip_asap: (a) => `snel · ${a} A`, ev_chip_calm: (a) => `rustig · ${a} A`,
@@ -2530,6 +2554,36 @@ const EV_HIST_BORDER = "#e5534b";
 const evPower = (amps, phases) => Math.max(Number(amps) || 0, 0) * EV_VOLTAGE * Math.max(Number(phases) || 1, 1) / 1000;
 
 const EV_CSS = `
+  /* (as of 2026.11.52) EV charger control and manual charging */
+  .ctlsw { display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: 12px; color: var(--secondary-text-color, #a0a0a0); white-space: nowrap; background: none; border: 0; padding: 4px 0; cursor: pointer; }
+  .ctlsw:disabled { cursor: not-allowed; opacity: .6; }
+  .ctlsw .tg { width: 36px; height: 20px; border-radius: 10px; background: rgba(127,127,127,.5); position: relative; flex-shrink: 0; }
+  .ctlsw .tg::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 8px; background: #fff; transition: left .2s; }
+  .ctlsw[aria-checked="true"] .tg { background: var(--ev); }
+  .ctlsw[aria-checked="true"] .tg::after { left: 18px; }
+  .man { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px; border: 2px dashed #f2994a; background: color-mix(in srgb, #f2994a 10%, transparent); }
+  .manhead { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: #f2994a; }
+  .mantext { font-size: 12px; color: var(--secondary-text-color, #a0a0a0); }
+  .msrc { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 10px; background: rgba(127,127,127,.15); }
+  .msrc button { min-height: 36px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+  .msrc button[aria-checked="true"] { background: #f2994a; color: #1f140a; font-weight: 600; }
+  .msrc.dis { opacity: .4; }
+  .msrc.dis button { cursor: not-allowed; }
+  .plug { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .plug .pd { width: 10px; height: 10px; border-radius: 5px; background: #6fcf97; box-shadow: 0 0 0 3px rgba(111,207,151,.25); flex-shrink: 0; }
+  .plug.no .pd { background: #777; box-shadow: none; }
+  .mbtns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .mb { min-height: 60px; border-radius: 12px; border: 1px solid rgba(127,127,127,.45); background: var(--ha-card-background, var(--card-background-color, #1c1c1c)); color: inherit; font: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 6px 4px; cursor: pointer; }
+  .mb b { font-size: 14px; font-weight: 600; }
+  .mb span { font-size: 11px; color: var(--secondary-text-color, #a0a0a0); text-align: center; }
+  .mb[aria-checked="true"] { background: var(--ev); border-color: var(--ev); color: #0f1f19; }
+  .mb[aria-checked="true"] span { color: #0f1f19; }
+  .mb.off[aria-checked="true"] { background: #5a5a5a; border-color: #5a5a5a; color: #fff; }
+  .mb.off[aria-checked="true"] span { color: #ddd; }
+  .mb.pend { outline: 2px dashed var(--ev); outline-offset: 2px; }
+  .mb:disabled { opacity: .35; filter: grayscale(1); cursor: not-allowed; }
+  .paused { display: flex; flex-direction: column; gap: 16px; opacity: .4; filter: grayscale(.7); pointer-events: none; user-select: none; }
+  .sec .np { margin-left: 6px; padding: 1px 6px; border-radius: 6px; background: rgba(242,153,74,.2); color: #f2994a; letter-spacing: 0; text-transform: none; font-weight: 600; }
   .pl { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
   .pl-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--secondary-text-color,#a0a0a0); }
   .pl-head .dim { font-weight: 400; letter-spacing: 0; text-transform: none; text-align: right; }
@@ -3697,6 +3751,56 @@ class EssManagerEvCard extends EssChartCard {
   }
 
   // -- rendering -------------------------------------------------------------------------
+  // -- EV charger control and manual charging (as of 2026.11.52) --------------------
+  _ctlSwitch(ev) {
+    const m = ev.manual;
+    if (!m || !m.switch) return "";
+    const locked = !m.auto && !m.can_auto;
+    return `<button type="button" class="ctlsw" role="switch" aria-checked="${m.auto ? "true" : "false"}" data-act="ctl"${locked ? " disabled" : ""} title="${esc(this._t(locked ? "ev_ctl_locked" : "ev_ctl_tip"))}"><span>${esc(this._t("ev_ctl"))}</span><span class="tg"></span></button>`;
+  }
+
+  _manBlock(ev, nu) {
+    const m = ev.manual;
+    const phases = ev.phases || 3;
+    const zappi = ev.charger && ev.charger.type === "zappi";
+    const car = this._carFor(ev, nu && nu.cs ? { car: nu.cs.car } : null);
+    const name = car ? car.name : this._t("ev_car");
+    const charging = Number(ev.power_w) > 50;
+    // what was pressed, until the charger shows it (the zappi's cloud takes up to a minute)
+    const pend = this._manPend && this._manPend.action !== m.active && Date.now() - this._manPend.at < 180000 ? this._manPend.action : null;
+    if (this._manPend && !pend) this._manPend = null;
+    const src = m.source === "battery" ? "battery" : "grid";
+    const srcDis = !m.battery_steered;
+    let out = `<div class="man"><div class="manhead">✋ ${esc(this._t("ev_man_head"))}</div>`;
+    out += `<div class="msrc${srcDis ? " dis" : ""}" role="radiogroup">`
+      + ["grid", "battery"].map((k) => `<button type="button" role="radio" data-src="${k}" aria-checked="${src === k}"${srcDis ? " disabled" : ""}>${esc(this._t(k === "grid" ? "ev_man_src_grid" : "ev_man_src_batt"))}</button>`).join("")
+      + `</div><div class="mantext">${esc(this._t(srcDis ? "ev_man_src_none" : src === "grid" ? "ev_man_src_grid_t" : "ev_man_src_batt_t"))}</div>`;
+    out += `<div class="plug${m.connected ? "" : " no"}"><span class="pd"></span>${esc(!m.connected ? this._t("ev_man_none") : charging ? this._t("ev_man_plug")(name, this._kw(ev.power_w / 1000)) : this._t("ev_man_idle")(name))}</div>`;
+    const sub = (a) => `${Math.round(a)} A · ${this._kw(evPower(a, phases))}`;
+    const items = [
+      ["slow", this._t("ev_man_slow"), zappi ? "Eco" : sub(ev.min_current), ""],
+      ["fast", this._t("ev_man_fast"), zappi ? `Fast · ${this._kw(evPower(ev.max_current, phases))}` : sub(ev.max_current), ""],
+      ["off", this._t("ev_man_off"), this._t("ev_man_off_sub"), " off"],
+    ];
+    out += `<div class="mbtns">` + items.map(([k, t, s, cls]) =>
+      `<button type="button" class="mb${cls}${pend === k ? " pend" : ""}" data-man="${k}" aria-checked="${m.active === k}"${m.connected && !this._saving ? "" : " disabled"}><b>${esc(t)}</b><span>${esc(s)}</span></button>`).join("") + `</div>`;
+    out += `<div class="mantext">${esc(pend ? this._t("ev_man_pending") : this._t(m.connected ? "ev_man_text" : "ev_man_wait"))}</div>`;
+    if (this._error) out += `<div class="err">${esc(this._error)}</div>`;
+    return out + `</div>`;
+  }
+
+  async _setCtl(ev) {
+    const m = ev.manual;
+    if (!m || !m.switch) return;
+    try {
+      await this._hass.callService("switch", m.auto ? "turn_off" : "turn_on", { entity_id: m.switch });
+      this._error = null;
+    } catch (err) {
+      this._error = (err && err.message) || String(err);
+      this._rerender();
+    }
+  }
+
   _render() {
     if (!this._hass || !this._config || !this.shadowRoot) return;
     if (this._dragging) return; // never replace a slider while it's being dragged
@@ -3735,10 +3839,16 @@ class EssManagerEvCard extends EssChartCard {
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
           <div style="font-size:20px;font-weight:600;white-space:nowrap">${esc(this._kwh(total))}</div>
           <div class="dim" style="font-size:12px">${esc(sub)}</div>
+          ${this._ctlSwitch(ev)}
         </div>
       </div>`;
-    if (nu) html += `<div class="sec">${esc(this._t("ev_now"))}</div>${this._nuBlock(ev, nu)}`;
-    html += `<div class="sec">${esc(this._t("ev_planned"))}</div><div class="ev-list">`;
+    // (as of 2026.11.52) driven by hand: the buttons on top; the plan below
+    // is still shown, greyed and not usable (inert)
+    const manual = !!(ev.manual && !ev.manual.auto);
+    const np = manual ? `<span class="np">${esc(this._t("ev_not_active"))}</span>` : "";
+    if (manual) html += this._manBlock(ev, nu) + `<div class="paused" inert aria-disabled="true">`;
+    if (nu) html += `<div class="sec">${esc(this._t("ev_now"))}${np}</div>${this._nuBlock(ev, nu)}`;
+    html += `<div class="sec">${esc(this._t("ev_planned"))}${np}</div><div class="ev-list">`;
     if (!planned.length) html += `<div class="ev-empty">${esc(this._t(ev.predict ? "ev_none" : "ev_none_manual"))}</div>`;
     for (const s of planned) {
       html += this._row(ev, s);
@@ -3758,6 +3868,7 @@ class EssManagerEvCard extends EssChartCard {
         return n >= 3 ? `${who}×${this._num(Number(c.kwh_factor) || 1, 2)} (${this._t("ev_corr_n")(n)})` : `${who}${this._t("ev_corr_wait")(n, 3)}`;
       });
     if (corr.length) html += `<div class="dim" style="font-size:12px" title="${esc(this._t("ev_corr_tip"))}">${esc(this._t("ev_corr"))}: ${esc(corr.join(" · "))}</div>`;
+    if (manual) html += "</div>";
     if (setCardContent(this, css, html)) this._wire(ev);
   }
 
@@ -3823,6 +3934,17 @@ class EssManagerEvCard extends EssChartCard {
       const el = root.querySelector(`[data-act="${name}"]`);
       if (el) el.addEventListener("click", fn);
     };
+    // (as of 2026.11.52) the EV charger control switch and the manual buttons
+    act("ctl", () => this._setCtl(ev));
+    root.querySelectorAll("[data-man]").forEach((el) =>
+      el.addEventListener("click", () => {
+        this._manPend = { action: el.getAttribute("data-man"), at: Date.now() };
+        this._call("ev_manual", { action: el.getAttribute("data-man") });
+      })
+    );
+    root.querySelectorAll("[data-src]").forEach((el) =>
+      el.addEventListener("click", () => this._call("ev_manual", { source: el.getAttribute("data-src") }))
+    );
     act("add", () => {
       this._openNew(ev);
       this._rerender();

@@ -648,6 +648,24 @@
           "description": "Te laden energie (kWh) - voor een auto zonder accugrootte."
         }
       }
+    },
+    "ev_manual": {
+      "name": "Handmatig laden",
+      "description": "Terwijl de EV-laderbesturing uit staat: de lader met de hand sturen (langzaam, snel of uit, één commando) en/of kiezen waar een handmatige lading vandaan komt (net of thuisaccu).",
+      "fields": {
+        "entity_id": {
+          "name": "Statussensor",
+          "description": "De Status-sensor van de installatie (mag leeg met één installatie)."
+        },
+        "action": {
+          "name": "Actie",
+          "description": "slow = langzaam (zappi Eco, Victron minimale stroom), fast = snel (zappi Fast, Victron maximale stroom), off = uit."
+        },
+        "source": {
+          "name": "Bron",
+          "description": "grid = uit het net (de thuisaccu blijft erbuiten), battery = uit de thuisaccu."
+        }
+      }
     }
   }
 }

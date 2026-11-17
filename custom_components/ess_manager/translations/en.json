@@ -648,6 +648,24 @@
           "description": "The energy to charge (kWh) - for a car without a battery size."
         }
       }
+    },
+    "ev_manual": {
+      "name": "Manual charging",
+      "description": "While EV charger control is off: drive the charger by hand (slow, fast or off, one command) and/or choose where a manual charge comes from (grid or house battery).",
+      "fields": {
+        "entity_id": {
+          "name": "Status sensor",
+          "description": "The installation's Status sensor (may be left out with a single installation)."
+        },
+        "action": {
+          "name": "Action",
+          "description": "slow (zappi Eco, Victron minimum current), fast (zappi Fast, Victron maximum current) or off."
+        },
+        "source": {
+          "name": "Source",
+          "description": "grid (the house battery stays out of it) or battery (from the house battery)."
+        }
+      }
     }
   }
 }

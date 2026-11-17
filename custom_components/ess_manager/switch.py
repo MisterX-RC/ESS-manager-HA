@@ -18,11 +18,12 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, HP_STEERING_PLAN
+from .const import CONF_EV_CHARGER, CONF_EV_ENABLED, DOMAIN, EV_CHARGER_VICTRON, EV_CHARGER_ZAPPI, HP_STEERING_PLAN
 from .coordinator import EssManagerCoordinator
 from .visibility import async_sync_visibility
 
@@ -36,6 +37,7 @@ async def async_setup_entry(
         EssManagerAutomaticControlSwitch(coordinator, entry, device_info),
         EssManagerHeatPumpSteeringSwitch(coordinator, entry, device_info),
         EssManagerAutoBufferSwitch(coordinator, entry, device_info),
+        EssManagerEvChargerControlSwitch(coordinator, entry, device_info),
     ])
 
 
@@ -56,6 +58,9 @@ class EssManagerAutomaticControlSwitch(SwitchEntity, RestoreEntity):
         if last_state is not None and last_state.state in ("on", "off"):
             self._attr_is_on = last_state.state == "on"
         self._coordinator.controller.enabled = bool(self._attr_is_on)
+        if not self._attr_is_on and self._coordinator.control_settings().active:
+            # (as of 2026.11.52) the EV charger can't follow its plan without the battery
+            self._coordinator.set_ev_control(False)
         # Keep the control_mode/control_target attributes and the hidden
         # state current after a Configure change (the switch isn't a
         # coordinator entity otherwise; Configure only triggers a refresh).
@@ -91,6 +96,9 @@ class EssManagerAutomaticControlSwitch(SwitchEntity, RestoreEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         self._attr_is_on = False
         self._coordinator.controller.enabled = False
+        # (as of 2026.11.52) the EV charger control goes off with it (the
+        # charger is left as it is; the EV card's buttons drive it by hand)
+        self._coordinator.set_ev_control(False)
         self.async_write_ha_state()
         await self._coordinator.controller.async_idle(
             self._coordinator.control_settings(), "automatic control switched off", force=True
@@ -185,3 +193,73 @@ class EssManagerAutoBufferSwitch(SwitchEntity, RestoreEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._async_set(False)
+
+
+class EssManagerEvChargerControlSwitch(SwitchEntity, RestoreEntity):
+    """EV charger control (as of 2026.11.52): on, ESS Manager drives the
+    Victron EV charger / zappi as the plugged-in car's plan says. Off, the plan
+    is still shown but not followed, no EV notifications are sent, and the EV
+    card's buttons (slow / fast / off) drive the charger by hand - see
+    ev_manual.py. Goes off with Automatic control (the battery), and can't be
+    switched on while that's off. Only there with an own charger (hidden
+    otherwise); on by default; on the EV card."""
+
+    _attr_has_entity_name = True
+    _attr_name = "EV charger control"
+    _attr_icon = "mdi:ev-station"
+
+    def __init__(self, coordinator: EssManagerCoordinator, entry: ConfigEntry, device_info: DeviceInfo) -> None:
+        self._coordinator = coordinator
+        self._attr_unique_id = f"{entry.entry_id}_ev_charger_control"
+        self._attr_device_info = device_info
+        self._attr_is_on = True
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        on = True
+        if last_state is not None and last_state.state in ("on", "off"):
+            on = last_state.state == "on"
+        if self._coordinator.control_settings().active and not self._coordinator.controller.enabled:
+            on = False
+        self._coordinator.ev_control_entity = self
+        self._coordinator.set_ev_control(on)
+        self._attr_is_on = self._coordinator.ev_control_on
+        self.async_on_remove(self._coordinator.async_add_listener(self._handle_coordinator_update))
+        self._async_sync_visibility()
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._coordinator.ev_control_entity is self:
+            self._coordinator.ev_control_entity = None
+
+    @callback
+    def sync_from_coordinator(self) -> None:
+        """The coordinator changed it (Automatic control switched off)."""
+        if self._attr_is_on != self._coordinator.ev_control_on:
+            self._attr_is_on = self._coordinator.ev_control_on
+            self.async_write_ha_state()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._async_sync_visibility()
+
+    @callback
+    def _async_sync_visibility(self) -> None:
+        conf = {**self._coordinator.entry.data, **self._coordinator.entry.options}
+        async_sync_visibility(self, bool(conf.get(CONF_EV_ENABLED))
+                              and conf.get(CONF_EV_CHARGER) in (EV_CHARGER_VICTRON, EV_CHARGER_ZAPPI))
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        if self._coordinator.control_settings().active and not self._coordinator.controller.enabled:
+            raise HomeAssistantError("Switch Automatic control on first: the plan can't be followed without the battery")
+        self._coordinator.set_ev_control(True)
+        self._attr_is_on = True
+        self.async_write_ha_state()
+        await self._coordinator.async_request_refresh()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        # the charger is left as it is: from now on the card's buttons drive it
+        self._coordinator.set_ev_control(False)
+        self._attr_is_on = False
+        self.async_write_ha_state()
+        await self._coordinator.async_request_refresh()
