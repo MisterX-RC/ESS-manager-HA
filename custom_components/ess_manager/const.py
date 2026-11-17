@@ -286,6 +286,8 @@ SERVICE_EV_SESSION_REMOVE = "ev_session_remove"
 SERVICE_EV_CHARGE_PLAN = "ev_charge_plan"
 # (as of 2026.11.52) the EV card's buttons while the charger is driven by hand
 SERVICE_EV_MANUAL = "ev_manual"
+# (as of 2026.11.53) the status card's slider while Automatic control is off
+SERVICE_MANUAL_SETPOINT = "manual_setpoint"
 
 # Seed values only - the live, user-adjustable copies of these live as
 # `number` entities once the config entry is set up (see number.py). These

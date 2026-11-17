@@ -6864,6 +6864,23 @@ check("manual EV: from the grid the setpoint covers what the car takes, from the
       and _em.grid_offset_kw("grid", 20) == 0.0 and _em.grid_offset_kw("grid", None) == 0.0)
 
 
+
+# the grid setpoint by hand on the status card (2026.11.53): range, step, quick picks, conversion
+_mr = control.manual_range("kW", "charge_positive", -20.0, 20.0, 1.0, 15.0, 15.0)
+check("manual setpoint: kW entity +/-20, step 1, quick +/-20 and +/-12 (80 % of 15)",
+      _mr == {"min_kw": -20.0, "max_kw": 20.0, "step_kw": 1.0, "quick_kw": [-20.0, -12.0, 12.0, 20.0]})
+_mr = control.manual_range("W", "charge_positive", -10000.0, 10000.0, 1.0, 1.7, 2.8)
+check("manual setpoint: W entity capped by its own +/-10000 W, step at least 100 W, quick rounded towards 0",
+      _mr == {"min_kw": -10.0, "max_kw": 10.0, "step_kw": 0.1, "quick_kw": [-10.0, -2.2, 1.3, 10.0]})
+_mr = control.manual_range("W", "discharge_positive", -30000.0, 5000.0, None, 5.0, 5.0)
+check("manual setpoint: discharge-positive entity range flipped (+5000 W = -5 kW), no entity limit past 20 kW",
+      _mr["min_kw"] == -5.0 and _mr["max_kw"] == 20.0 and _mr["quick_kw"] == [-5.0, -4.0, 4.0, 20.0])
+check("manual setpoint: value in the output's unit, sign and step, within +/-20 kW",
+      control.manual_value(3.456, "W", "charge_positive", 10) == 3460.0
+      and control.manual_value(5.6, "kW", "discharge_positive", 1) == -6.0
+      and control.manual_value(25, "W", "charge_positive", 1) == 20000.0)
+
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

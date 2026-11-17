@@ -12,6 +12,27 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.53] - 2026-11-17
+
+### Cards
+- **Status card: the grid setpoint by hand.** While Automatic control is
+  off, an orange block under the header has a slider for the grid setpoint
+  - only with a setpoint entity set up (with "Status sensor only" there's no
+  switch and no slider). The slider runs over +/- 20 kW (the inverter's
+  whole range, within the entity's own min/max) in the entity's own step,
+  with - / +, and quick picks at +/- 20 kW, idle and 80 % of the configured
+  max battery charge and discharge power. A value is sent once when you let
+  go or press a button; a separate readback is shown next to it. The plan
+  blocks are greyed and can't be used meanwhile.
+
+### Control
+- New service `ess_manager.manual_setpoint` (`power_kw`, + = charge, or
+  `idle`): converts to the setpoint entity's unit, sign and step and sends
+  it once - only while Automatic control is off. Logged in the diagnostics'
+  `decisions_24h` as action `manual`. The Status sensor's `control`
+  attribute has a `manual` part with the slider's range, step and quick
+  picks.
+
 ## [2026.11.52] - 2026-11-17
 
 ### Electric car

@@ -666,6 +666,24 @@
           "description": "grid (the house battery stays out of it) or battery (from the house battery)."
         }
       }
+    },
+    "manual_setpoint": {
+      "name": "Grid setpoint by hand",
+      "description": "Only while Automatic control is off: sends this grid setpoint once to the setpoint entity (converted to its unit and sign). After that ESS Manager sends nothing until Automatic control is on again.",
+      "fields": {
+        "entity_id": {
+          "name": "Status sensor",
+          "description": "The installation's Status sensor (may be left out with a single installation)."
+        },
+        "power_kw": {
+          "name": "Power",
+          "description": "Grid setpoint in kW, + = charge (from the grid), - = discharge (to the grid); between -20 and +20."
+        },
+        "idle": {
+          "name": "Idle",
+          "description": "Send the configured idle value."
+        }
+      }
     }
   }
 }

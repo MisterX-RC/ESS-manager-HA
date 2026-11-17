@@ -1,5 +1,5 @@
 """The EV card's services (as of 2026.10.11): save or remove a charging
-session; and (as of 2026.10.27, Victron charger) the plugged-in car's plan; and (as of 2026.11.52) manual charging. The card passes its Status sensor as `entity_id`, which picks the
+session; and (as of 2026.10.27, Victron charger) the plugged-in car's plan; and (as of 2026.11.52) manual charging; and (as of 2026.11.53) the grid setpoint by hand. The card passes its Status sensor as `entity_id`, which picks the
 installation; with a single installation it may be left out."""
 from __future__ import annotations
 
@@ -12,7 +12,14 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN, SERVICE_EV_CHARGE_PLAN, SERVICE_EV_MANUAL, SERVICE_EV_SESSION_REMOVE, SERVICE_EV_SESSION_SAVE
+from .const import (
+    DOMAIN,
+    SERVICE_EV_CHARGE_PLAN,
+    SERVICE_EV_MANUAL,
+    SERVICE_EV_SESSION_REMOVE,
+    SERVICE_EV_SESSION_SAVE,
+    SERVICE_MANUAL_SETPOINT,
+)
 from .ev_charger import CHOICES, DAYS
 from .ev import MODE_DEADLINE, MODE_FIXED, MODE_SOLAR
 from .ev_manual import ACTIONS, SOURCES
@@ -59,6 +66,15 @@ MANUAL_SCHEMA = vol.Schema(
         vol.Optional("entity_id"): cv.entity_id,
         vol.Optional("action"): vol.In(list(ACTIONS)),
         vol.Optional("source"): vol.In(list(SOURCES)),
+    }
+)
+
+# (as of 2026.11.53) the grid setpoint by hand (kW, + = charge), or idle
+SETPOINT_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entity_id"): cv.entity_id,
+        vol.Optional("power_kw"): vol.All(vol.Coerce(float), vol.Range(min=-20, max=20)),
+        vol.Optional("idle"): cv.boolean,
     }
 )
 
@@ -136,7 +152,16 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     hass.services.async_register(DOMAIN, SERVICE_EV_MANUAL, _manual, schema=MANUAL_SCHEMA)
 
+    async def _setpoint(call: ServiceCall) -> None:
+        coordinator = _coordinator(hass, call)
+        if call.data.get("power_kw") is None and not call.data.get("idle"):
+            raise ServiceValidationError("Pass power_kw or idle")
+        await coordinator.async_manual_setpoint(call.data.get("power_kw"), bool(call.data.get("idle")))
+
+    hass.services.async_register(DOMAIN, SERVICE_MANUAL_SETPOINT, _setpoint, schema=SETPOINT_SCHEMA)
+
 
 def async_unload_services(hass: HomeAssistant) -> None:
-    for service in (SERVICE_EV_SESSION_SAVE, SERVICE_EV_SESSION_REMOVE, SERVICE_EV_CHARGE_PLAN, SERVICE_EV_MANUAL):
+    for service in (SERVICE_EV_SESSION_SAVE, SERVICE_EV_SESSION_REMOVE, SERVICE_EV_CHARGE_PLAN, SERVICE_EV_MANUAL,
+                    SERVICE_MANUAL_SETPOINT):
         hass.services.async_remove(DOMAIN, service)

@@ -666,6 +666,24 @@
           "description": "grid = uit het net (de thuisaccu blijft erbuiten), battery = uit de thuisaccu."
         }
       }
+    },
+    "manual_setpoint": {
+      "name": "Net-setpoint met de hand",
+      "description": "Alleen terwijl Automatic control uit staat: stuurt dit net-setpoint één keer naar de setpoint-entiteit (omgerekend naar haar eenheid en teken). Daarna stuurt ESS Manager niets tot Automatic control weer aan gaat.",
+      "fields": {
+        "entity_id": {
+          "name": "Statussensor",
+          "description": "De Status-sensor van de installatie (mag leeg met één installatie)."
+        },
+        "power_kw": {
+          "name": "Vermogen",
+          "description": "Net-setpoint in kW, + = laden (uit het net), − = ontladen (terugleveren); tussen −20 en +20."
+        },
+        "idle": {
+          "name": "Idle",
+          "description": "De ingestelde idle-waarde sturen."
+        }
+      }
     }
   }
 }

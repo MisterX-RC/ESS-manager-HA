@@ -3,7 +3,8 @@ control.py worked out to the user's number/input_number entity.
 
 Safety rules (as of v0.2.14):
 - Nothing is sent unless a control mode is chosen in Configure AND the
-  "Automatic control" switch is on. Turning the switch off sends idle once,
+  "Automatic control" switch is on - apart from a setpoint set by hand on
+  the status card while it's off (as of 2026.11.53, async_manual). Turning the switch off sends idle once,
   then leaves the target alone so it can be controlled by hand.
 - Fail-safe: when an update fails (SOC unavailable, price sensor missing,
   an unexpected error), idle is sent instead of leaving the last command
@@ -153,6 +154,22 @@ class EssController:
             if not settings.active or not (self.enabled or force):
                 return
             await self._async_send(settings, settings.idle_value, control.ACTION_IDLE, reason)
+
+    async def async_manual(self, settings: ControlSettings, value: float, reason: str) -> None:
+        """A setpoint set by hand on the status card (as of 2026.11.53), only
+        while Automatic control is off: sent once (already in the output's
+        own unit and sign), then left alone like any change made by hand.
+        Raises when it can't be sent."""
+        async with self._lock:
+            if not settings.active:
+                raise ValueError("No setpoint entity is set up for direct control")
+            if self.enabled:
+                raise ValueError("Automatic control is on: ESS Manager sets the setpoint itself")
+            await self._async_release_previous_target(settings)
+            self._last_error = None
+            await self._async_send(settings, value, control.ACTION_MANUAL, reason)
+            if self._last_error:
+                raise ValueError(self._last_error)
 
     async def _async_release_previous_target(self, settings: ControlSettings) -> None:
         """If Configure switched to another target (or turned control off)

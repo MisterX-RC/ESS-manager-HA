@@ -1206,6 +1206,54 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # back at rest (or already was): leave the charger alone from now on
             self.ev.rest_charger = False
 
+    # -- the setpoint by hand on the status card (as of 2026.11.53) ---------------
+    def _manual_setpoint_attr(self, conf: dict[str, Any], settings: ControlSettings) -> Optional[dict[str, Any]]:
+        """For the status card's slider while Automatic control is off: the
+        range, step and quick picks in kW (+ = charge), the idle value as kW
+        and the separate readback (if any). None without a setpoint entity."""
+        if not settings.active:
+            return None
+        state = self.hass.states.get(settings.target or "")
+        attrs = state.attributes if state is not None else {}
+        def num(key: str) -> Optional[float]:
+            try:
+                return float(attrs[key]) if attrs.get(key) is not None else None
+            except (TypeError, ValueError):
+                return None
+        out = control.manual_range(
+            settings.unit, settings.sign, num("min"), num("max"), num("step"),
+            float(conf.get(CONF_MAX_BATTERY_CHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_CHARGE_SPEED_KW)),
+            float(conf.get(CONF_MAX_BATTERY_DISCHARGE_SPEED_KW, DEFAULT_MAX_BATTERY_DISCHARGE_SPEED_KW)))
+        out["idle_kw"] = round(settings.idle_power_w / 1000.0, 3) + 0.0
+        out["readback"] = conf.get(CONF_GRID_SETPOINT_ENTITY) or None
+        out["readback_sign"] = conf.get(CONF_GRID_SETPOINT_SIGN) or DEFAULT_GRID_SETPOINT_SIGN
+        return out
+
+    async def async_manual_setpoint(self, power_kw: Optional[float], idle: bool) -> None:
+        """The status card's slider (service manual_setpoint): send this
+        setpoint once while Automatic control is off."""
+        settings = self.control_settings()
+        if idle or power_kw is None:
+            value, what = settings.idle_value, "idle"
+        else:
+            state = self.hass.states.get(settings.target or "")
+            step = None
+            if state is not None:
+                try:
+                    step = float(state.attributes.get("step")) if state.attributes.get("step") is not None else None
+                except (TypeError, ValueError):
+                    step = None
+            value = control.manual_value(power_kw, settings.unit, settings.sign, step)
+            what = f"{power_kw:+g} kW"
+        try:
+            await self.controller.async_manual(settings, value, "set by hand on the status card")
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        self._record_decision({"action": control.ACTION_MANUAL, "value": value, "unit": settings.unit,
+                               "sending": False, "status": None, "error": None, "night_limit": False,
+                               "reason": f"by hand: {what}"})
+        await self.async_request_refresh()
+
     # -- manual charging (as of 2026.11.52, ev_manual.py) ---------------------------
     def _ev_manual_attr(self, conf: dict[str, Any], charger: dict[str, Any], ents: dict[str, str],
                         settings: ControlSettings) -> dict[str, Any]:
@@ -3870,6 +3918,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ev_attribute["manual"] = self._ev_manual_attr(conf, ev_victron, ev_entities, control_settings)
         await self._async_ev_send()
         control_attr = self.controller.as_attribute(control_settings, control_action, control_power_kw)
+        control_attr["manual"] = self._manual_setpoint_attr(conf, control_settings)
         self._report_control_problem(now)
         self._record_decision({
             "action": control_action,

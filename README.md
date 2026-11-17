@@ -1923,6 +1923,22 @@ Safety:
   until you turn it back on. Its state survives restarts; on by default.
   Turning it off also turns **EV charger control** off (see "EV charger
   control and manual charging" under Electric car).
+- **Grid setpoint by hand** *(as of 2026.11.53)*: while Automatic control
+  is off, the status card shows an orange block with a slider for the grid
+  setpoint (only with a setpoint entity set up - with "Status sensor only"
+  there's no switch and no slider). The slider runs over +/- 20 kW (the
+  inverter's whole range; within the entity's own min/max), in the entity's
+  own step (at least 100 W for a W entity), with - / + and quick picks:
+  +/- 20 kW, idle, and 80 % of the configured max battery charge and
+  discharge power. A value is sent once when you let go (or press a button),
+  converted to the entity's own unit and sign - via the service
+  `ess_manager.manual_setpoint` (`power_kw`, + = charge; or `idle: true`),
+  which refuses while Automatic control is on. It shows in the diagnostics'
+  `decisions_24h` (action `manual`). The plan blocks below are greyed and
+  can't be used meanwhile. With a separate readback entity the inverter's
+  readback is shown next to it. The setpoint stays until you change it or
+  switch Automatic control back on (then ESS Manager takes over at the next
+  cycle).
   While direct control isn't set up ("Status sensor only"), the switch is
   hidden (it has nothing to control); choosing a number / input_number
   entity in Configure shows it again - see "Hidden entities" under

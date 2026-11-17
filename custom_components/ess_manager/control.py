@@ -167,3 +167,49 @@ def needs_write(
     if abs(current_state - desired) <= tolerance:
         return False
     return seconds_since_last_send is None or seconds_since_last_send >= resend_after_seconds
+
+
+# -- the setpoint set by hand on the status card (as of 2026.11.53) -------------------
+# While Automatic control is off, the status card sets the grid setpoint by
+# hand: a slider over +/- MANUAL_RANGE_KW (the inverter's whole range - the
+# configured charge/discharge speeds would leave too little for the house on
+# top), quick picks at MANUAL_QUICK_SHARE of the inverter's max charge and
+# discharge power, plus idle.
+ACTION_MANUAL = "manual"
+MANUAL_RANGE_KW = 20.0
+MANUAL_QUICK_SHARE = 0.8
+# a W setpoint moves in steps of at least this much on the slider
+MANUAL_MIN_STEP_KW = 0.1
+
+
+def manual_range(unit: str, sign: str, entity_min: Optional[float], entity_max: Optional[float],
+                 entity_step: Optional[float], max_charge_kw: float, max_discharge_kw: float) -> dict:
+    """The slider for the setpoint by hand, in kW with + = charge: its range
+    (+/- MANUAL_RANGE_KW, inside the entity's own min/max), its step (the
+    entity's step, at least MANUAL_MIN_STEP_KW) and the quick picks (-range,
+    -80 % discharge, +80 % charge, +range; rounded towards 0 on the step)."""
+    lo, hi = -MANUAL_RANGE_KW, MANUAL_RANGE_KW
+    ends = [output_to_power_w(v, unit, sign) / 1000.0 for v in (entity_min, entity_max) if v is not None]
+    if len(ends) == 2:
+        lo, hi = max(lo, min(ends)), min(hi, max(ends))
+    step = (float(entity_step) / 1000.0 if unit == UNIT_W else float(entity_step)) if entity_step else MANUAL_MIN_STEP_KW
+    step = max(step, MANUAL_MIN_STEP_KW)
+
+    def on_step(kw: float) -> float:
+        n = math.floor(abs(kw) / step + 1e-9)
+        return round(math.copysign(n * step, kw), 3) + 0.0
+
+    quick = [on_step(lo), on_step(-MANUAL_QUICK_SHARE * float(max_discharge_kw)),
+             on_step(MANUAL_QUICK_SHARE * float(max_charge_kw)), on_step(hi)]
+    quick = sorted({max(lo, min(hi, q)) for q in quick if q != 0})
+    return {"min_kw": round(lo, 3), "max_kw": round(hi, 3), "step_kw": round(step, 3), "quick_kw": quick}
+
+
+def manual_value(power_kw: float, unit: str, sign: str, entity_step: Optional[float]) -> float:
+    """A setpoint by hand (kW, + = charge) in the output's own unit and sign,
+    within +/- MANUAL_RANGE_KW and on the entity's step."""
+    power_kw = max(-MANUAL_RANGE_KW, min(MANUAL_RANGE_KW, float(power_kw)))
+    value = power_to_output(power_kw, unit, sign)
+    if entity_step:
+        value = round(round(value / float(entity_step)) * float(entity_step), 3)
+    return value + 0.0

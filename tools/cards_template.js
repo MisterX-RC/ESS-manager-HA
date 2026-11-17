@@ -36,6 +36,11 @@ const I18N = {
     more_blocks: (n) => `+${n}`, more_blocks_tip: (n) => `and ${n} more ${n === 1 ? "block" : "blocks"}`,
     balance_after: (t) => `then balancing at 100 % until ${t} at the latest`,
     active: "Active", inactive: "Inactive", below: "below", auto_control: "Automatic control",
+    // (as of 2026.11.53) the grid setpoint by hand while Automatic control is off
+    sp_head: "Grid setpoint by hand", sp_charge: "charging / house from the grid", sp_discharge: "discharging / to the grid", sp_idle: "idle",
+    sp_to: (e) => `sent to ${e} when you let go`, sp_readback: (v) => `Inverter reads back: ${v}`,
+    sp_note: "ESS Manager sends nothing while the switch is off; the setpoint stays until you change it or switch Automatic control back on.",
+    sp_pending: "sending…",
     h: "h", min: "min", ago: (h) => `-${h} h`, now: "now", settings: "Settings",
     // battery card
     battery_title: "Battery forecast", today: "today", horizon: "planning horizon",
@@ -265,6 +270,11 @@ const I18N = {
     more_blocks: (n) => `+${n}`, more_blocks_tip: (n) => `en nog ${n} ${n === 1 ? "blok" : "blokken"}`,
     balance_after: (t) => `daarna balanceren op 100 % tot uiterlijk ${t}`,
     active: "Actief", inactive: "Inactief", below: "onder", auto_control: "Automatische aansturing",
+    // (as of 2026.11.53) het net-setpoint met de hand terwijl Automatic control uit staat
+    sp_head: "Handmatig net-setpoint", sp_charge: "laden / huis uit het net", sp_discharge: "ontladen / terugleveren", sp_idle: "idle",
+    sp_to: (e) => `gaat bij loslaten naar ${e}`, sp_readback: (v) => `Teruglezing omvormer: ${v}`,
+    sp_note: "ESS Manager stuurt niets zolang de schakelaar uit staat; het setpoint blijft staan tot je het verandert of Automatic control weer aanzet.",
+    sp_pending: "versturen…",
     h: "u", min: "min", ago: (h) => `-${h} u`, now: "nu", settings: "Instellingen",
     battery_title: "Batterijprognose", today: "vandaag", horizon: "planningshorizon",
     offgrid_empty: (w) => `zonder stroomnet leeg ${w}`, offgrid_full: (w) => `zonder stroomnet vol ${w}`,
@@ -2336,7 +2346,14 @@ class EssManagerStatusCard extends HTMLElement {
     const actionObj = actionId ? this._hass.states[actionId] : null;
     const toggleId = this._toggleEntity(attrs);
     const toggleObj = toggleId ? this._hass.states[toggleId] : null;
-    const key = [stateObj, actionObj, toggleObj, this._history, hassLang(this._hass)];
+    // (as of 2026.11.53) the setpoint by hand: only with the integration's own
+    // Automatic control switch off and a setpoint entity set up
+    const ctl = attrs.control || {};
+    const manual = !this._config.automation && toggleObj && toggleObj.state === "off" && ctl.mode === "number" && ctl.target && ctl.manual ? ctl.manual : null;
+    const spObj = manual ? this._hass.states[ctl.target] : null;
+    const rbObj = manual && manual.readback ? this._hass.states[manual.readback] : null;
+    if (manual && this._spDrag) return; // never replace the slider while it's being dragged
+    const key = [stateObj, actionObj, toggleObj, this._history, hassLang(this._hass), spObj, rbObj, this._spPend];
     if (this._renderKey && key.every((v, i) => v === this._renderKey[i])) return;
     this._renderKey = key;
     if (opt.show_history && actionId && this._historyFor !== `${actionId}|${opt.hours}` && !this._historyLoading) {
@@ -2472,6 +2489,25 @@ class EssManagerStatusCard extends HTMLElement {
       .switch span { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 999px; background: #ffffff; transition: left .15s; }
       .switch.on span { left: 21px; }
       .timeline { display: flex; height: 14px; border-radius: 999px; overflow: hidden; }
+      .msp { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 14px; border: 2px dashed #f2994a; background: color-mix(in srgb, #f2994a 9%, transparent); }
+      .msp .h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .msp .t { font-size: 14px; font-weight: 600; color: #f2994a; }
+      .msp .v { font-size: 22px; font-weight: 700; white-space: nowrap; }
+      .msp .what { font-size: 13px; color: var(--secondary-text-color, #a0a0a0); overflow-wrap: anywhere; }
+      .msp .row { display: flex; align-items: center; gap: 10px; }
+      .msp .pm { width: 40px; height: 40px; border-radius: 20px; border: 1px solid rgba(127,127,127,.45); background: transparent; color: inherit; font-size: 20px; flex-shrink: 0; cursor: pointer; touch-action: manipulation; }
+      .msp input[type=range] { -webkit-appearance: none; appearance: none; flex: 1; min-width: 0; height: 8px; border-radius: 4px; margin: 0; touch-action: pan-y; cursor: pointer;
+        background: linear-gradient(to right, #555 0%, #555 var(--a), var(--c) var(--a), var(--c) var(--b), #555 var(--b), #555 100%); }
+      .msp input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; border-radius: 50%; background: #fff; border: 3px solid var(--card-background-color, #1c1c1c); box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+      .msp input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid var(--card-background-color, #1c1c1c); box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+      .msp .ticks { position: relative; height: 14px; font-size: 11px; color: var(--secondary-text-color, #a0a0a0); margin: 0 64px; }
+      .msp .ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+      .msp .q { display: flex; gap: 8px; flex-wrap: wrap; }
+      .msp .q button { min-height: 34px; padding: 0 14px; border-radius: 17px; border: 1px solid rgba(127,127,127,.45); background: transparent; color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+      .msp .q button[aria-pressed="true"] { background: #f2994a; border-color: #f2994a; color: #1f140a; font-weight: 600; }
+      .msp .note { font-size: 12px; color: var(--secondary-text-color, #a0a0a0); }
+      .msp .err { font-size: 12px; color: #ff8a65; }
+      .paused { display: flex; flex-direction: column; gap: 14px; opacity: .45; filter: grayscale(.6); pointer-events: none; user-select: none; }
       .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color, #a0a0a0); margin-top: -8px; }
     `;
     // the grid block when the integration plans grid use (the attribute is there)
@@ -2480,12 +2516,14 @@ class EssManagerStatusCard extends HTMLElement {
     if (gridOn) blockHtml.push(this._gridBlock(attrs.grid_use, opt));
     // all blocks empty: they share the row evenly (no narrow strips)
     const allNone = gridOn && blockHtml.every((b) => /^<div class="block[^"]* none"/.test(b));
+    const planHtml = `<div class="blocks${gridOn ? " three" : ""}${allNone ? " all-none" : ""}">${blockHtml.join("")}</div>
+      <div class="tiles">${this._planTile("spike", attrs.spike_plan, opt)}${this._planTile("negative", attrs.negative_price_plan, opt)}</div>`;
     const changed = setCardContent(this, css, `
       <div class="top"><span class="title">${esc(opt.title)}</span><span class="status"><i style="background:${dot}"></i>${esc(statusText(this._hass, stateObj.state))}</span>${settings}${toggle}</div>
-      <div class="blocks${gridOn ? " three" : ""}${allNone ? " all-none" : ""}">${blockHtml.join("")}</div>
-      <div class="tiles">${this._planTile("spike", attrs.spike_plan, opt)}${this._planTile("negative", attrs.negative_price_plan, opt)}</div>
+      ${manual ? this._spBlock(ctl, manual, spObj, rbObj) + `<div class="paused" inert aria-disabled="true">${planHtml}</div>` : planHtml}
       ${timeline}
     `);
+    if (changed && manual) this._spWire(ctl, manual);
     const button = changed ? this.shadowRoot.querySelector(".switch") : null;
     if (button) {
       button.addEventListener("click", () => this._hass.callService("homeassistant", "toggle", { entity_id: toggleId }));
@@ -2512,6 +2550,103 @@ class EssManagerStatusCard extends HTMLElement {
     if (!title || !top.querySelector(".setbtn")) return;
     top.classList.remove("tight");
     if (title.scrollWidth > title.clientWidth) top.classList.add("tight");
+  }
+
+  // -- the grid setpoint by hand (as of 2026.11.53) -----------------------------------
+  // kW with + = charge throughout; the integration converts to the entity's
+  // own unit and sign (service manual_setpoint)
+  _spKw(ctl, st) {
+    const v = st ? parseFloat(st.state) : NaN;
+    if (!isFinite(v)) return null;
+    let kw = ctl.unit === "W" ? v / 1000 : v;
+    if (ctl.sign === "discharge_positive") kw = -kw;
+    return kw;
+  }
+
+  _spFmt(ctl, kw) {
+    const sign = kw > 0 ? "+" : kw < 0 ? "−" : "";
+    const a = Math.abs(kw);
+    return ctl.unit === "W" ? `${sign}${this._num(Math.round(a * 1000), 0)} W` : `${sign}${this._num(a, Math.round(a) === a ? 0 : 1)} kW`;
+  }
+
+  _spBlock(ctl, m, spObj, rbObj) {
+    const live = this._spKw(ctl, spObj);
+    if (this._spPend && (Date.now() - this._spPend.at > 15000 || (live != null && Math.abs(live - this._spPend.kw) < m.step_kw / 2))) this._spPend = null;
+    const kw = this._spPend ? this._spPend.kw : live != null ? live : m.idle_kw;
+    const clamp = Math.max(m.min_kw, Math.min(m.max_kw, kw));
+    const pos = (x) => ((x - m.min_kw) / (m.max_kw - m.min_kw)) * 100;
+    const z = pos(Math.max(m.min_kw, Math.min(m.max_kw, 0)));
+    const p = pos(clamp);
+    const idle = Math.abs(kw - m.idle_kw) < m.step_kw / 2;
+    const what = idle ? this._t("sp_idle") : kw > 0 ? this._t("sp_charge") : this._t("sp_discharge");
+    let rb = "";
+    if (rbObj && m.readback !== ctl.target && isFinite(parseFloat(rbObj.state))) {
+      const unit = (rbObj.attributes.unit_of_measurement || "").toLowerCase();
+      let w = parseFloat(rbObj.state) * (unit === "kw" ? 1000 : unit === "mw" ? 1e6 : 1);
+      if (m.readback_sign === "discharge_positive") w = -w;
+      rb = this._t("sp_readback")(this._spFmt(ctl, w / 1000)) + " · ";
+    }
+    const quick = [...m.quick_kw.filter((q) => q < 0), "idle", ...m.quick_kw.filter((q) => q > 0)];
+    const qbtn = (q) => q === "idle"
+      ? `<button type="button" data-spq="idle" aria-pressed="${idle}">${esc(this._t("sp_idle"))}</button>`
+      : `<button type="button" data-spq="${q}" aria-pressed="${!idle && Math.abs(kw - q) < m.step_kw / 2}">${esc(this._spFmt(ctl, q))}</button>`;
+    return `<div class="msp">
+      <div class="h"><span class="t">✋ ${esc(this._t("sp_head"))}</span><span class="v" data-spv>${esc(this._spFmt(ctl, kw))}</span></div>
+      <div class="what" data-spw>${esc(what)} · ${esc(this._t("sp_to")(ctl.target))}</div>
+      <div class="row"><button type="button" class="pm" data-spd="-1" aria-label="−">−</button>
+        <input type="range" min="${m.min_kw}" max="${m.max_kw}" step="${m.step_kw}" value="${clamp}" style="--a:${Math.min(z, p)}%;--b:${Math.max(z, p)}%;--c:${kw >= 0 ? "#4fa3f7" : "#ef5350"}" aria-label="${esc(this._t("sp_head"))}">
+        <button type="button" class="pm" data-spd="1" aria-label="+">+</button></div>
+      <div class="ticks"><span style="left:0">${esc(this._spFmt(ctl, m.min_kw))}</span><span style="left:${z}%">0</span><span style="left:100%">${esc(this._spFmt(ctl, m.max_kw))}</span></div>
+      <div class="q">${quick.map(qbtn).join("")}</div>
+      <div class="note">${this._spPend ? esc(this._t("sp_pending")) + " · " : ""}${esc(rb)}${esc(this._t("sp_note"))}</div>
+      ${this._spErr ? `<div class="err">${esc(this._spErr)}</div>` : ""}
+    </div>`;
+  }
+
+  async _spSend(ctl, m, kw) {
+    const idle = kw === "idle";
+    const value = idle ? m.idle_kw : Math.max(m.min_kw, Math.min(m.max_kw, Math.round(kw / m.step_kw) * m.step_kw));
+    this._spPend = { kw: Math.round(value * 1000) / 1000, at: Date.now() };
+    this._spErr = null;
+    this._renderKey = null;
+    this._render();
+    try {
+      await this._hass.callService(ESS_DOMAIN, "manual_setpoint", { entity_id: this._config.entity, ...(idle ? { idle: true } : { power_kw: this._spPend.kw }) });
+    } catch (err) {
+      this._spPend = null;
+      this._spErr = (err && err.message) || String(err);
+      this._renderKey = null;
+      this._render();
+    }
+  }
+
+  _spWire(ctl, m) {
+    const root = this.shadowRoot;
+    const range = root.querySelector(".msp input[type=range]");
+    if (range) {
+      const live = () => {
+        const kw = Number(range.value);
+        const pos = (x) => ((x - m.min_kw) / (m.max_kw - m.min_kw)) * 100;
+        const z = pos(Math.max(m.min_kw, Math.min(m.max_kw, 0)));
+        range.style.setProperty("--a", `${Math.min(z, pos(kw))}%`);
+        range.style.setProperty("--b", `${Math.max(z, pos(kw))}%`);
+        range.style.setProperty("--c", kw >= 0 ? "#4fa3f7" : "#ef5350");
+        const v = root.querySelector("[data-spv]");
+        if (v) v.textContent = this._spFmt(ctl, kw);
+      };
+      range.addEventListener("pointerdown", () => { this._spDrag = true; });
+      range.addEventListener("input", () => { this._spDrag = true; live(); });
+      range.addEventListener("change", () => { this._spDrag = false; this._spSend(ctl, m, Number(range.value)); });
+      range.addEventListener("pointercancel", () => { this._spDrag = false; });
+    }
+    root.querySelectorAll("[data-spd]").forEach((el) => el.addEventListener("click", () => {
+      const cur = range ? Number(range.value) : 0;
+      this._spSend(ctl, m, cur + Number(el.getAttribute("data-spd")) * m.step_kw);
+    }));
+    root.querySelectorAll("[data-spq]").forEach((el) => el.addEventListener("click", () => {
+      const q = el.getAttribute("data-spq");
+      this._spSend(ctl, m, q === "idle" ? "idle" : Number(q));
+    }));
   }
 
   _openSettings() {
