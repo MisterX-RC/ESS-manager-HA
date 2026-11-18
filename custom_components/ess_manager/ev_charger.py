@@ -236,6 +236,7 @@ def plan_deadline(
     battery: Optional[dict[str, Any]] = None,
     keep_battery: Optional[list[int]] = None,
     sun: bool = True,
+    max_price: Optional[float] = None,
 ) -> dict[str, Any]:
     """Where a charge that has to be done by `deadline_epoch` gets its
     `need_kwh`: solar first (per quarter what the surplus `net` - kWh per
@@ -253,6 +254,9 @@ def plan_deadline(
     budget and its room (its max discharge minus the house, at least the
     car's power); per quarter the cheaper of the two. `keep_battery`: the
     battery quarters of a window that is running - kept.
+
+    `max_price` (as of 2026.11.57): quarters (grid or battery) dearer than
+    this aren't used - see plan_full_by_ref.
 
     Returns {"windows": [[start, end], ...] (merged, epochs - the grid part),
     "quarters": [start epochs], "battery_windows", "battery_quarters",
@@ -315,14 +319,17 @@ def plan_deadline(
     sun = {q: solar(q) for q in quarters}
     total = sum(grid_q * frac(q) if q in chosen else sun[q] for q in quarters)
 
+    def allowed(cost: Optional[float]) -> bool:
+        return cost is not None and (max_price is None or cost <= max_price + 1e-9)
+
     heap: list[tuple[float, int, int]] = []
     for q in quarters:
         if frac(q) <= 0 or q in chosen:
             continue
-        if price(q) is not None:
+        if allowed(price(q)):
             heap.append((price(q), q, 0))
         bc = batt_cost(q)
-        if bc is not None:
+        if allowed(bc):
             heap.append((bc, q, 1))
     heapq.heapify(heap)
 
@@ -358,10 +365,10 @@ def plan_deadline(
         options = []
         for n in (q - UNIT, q + UNIT):
             if n in quarters and frac(n) > 0 and n not in chosen:
-                if price(n) is not None:
+                if allowed(price(n)):
                     options.append((price(n), n, 0))
                 bc = batt_cost(n)
-                if bc is not None and budget >= grid_q * frac(n):
+                if allowed(bc) and budget >= grid_q * frac(n):
                     options.append((bc, n, 1))
         if options:
             _, n, kind = min(options)
@@ -456,6 +463,7 @@ def plan_full_by(
     keep_battery: Optional[list[int]] = None,
     sun: bool = True,
     sun_min_a: Optional[float] = None,
+    max_price: Optional[float] = None,
 ) -> dict[str, Any]:
     """"Full by" with its own speed (as of 2026.10.29): planned to be done
     `margin` before the deadline (sun first, the rest in the cheapest
@@ -482,7 +490,7 @@ def plan_full_by(
     for amps in range(lo, hi + 1):
         kw = power_kw(amps, phases)
         trial = plan_deadline(now_epoch, ready_by, need_kwh, net, hour0_epoch, prices, price_start_epoch, p_min, p_max, keep, kw,
-                              battery, keep_battery, sun)
+                              battery, keep_battery, sun, max_price)
         if trial["short_kwh"] <= 0.05:
             fits.append({**trial, "current_a": amps, "grid_kw": kw, "tight": False})
     if fits:
@@ -507,6 +515,98 @@ def plan_full_by(
     plan["ready_by"] = ready_by
     plan["reach_kwh"] = round(max(need_kwh, 0.0) - plan["short_kwh"], 2)
     return plan
+
+
+def plan_full_by_ref(
+    now_epoch: int,
+    deadline_epoch: int,
+    need_kwh: float,
+    net: list[Optional[float]],
+    hour0_epoch: int,
+    prices: list[Optional[float]],
+    price_start_epoch: int,
+    phases: int,
+    min_a: float,
+    max_a: float,
+    keep: Optional[list[int]] = None,
+    keep_a: Optional[int] = None,
+    margin: int = DEADLINE_MARGIN,
+    battery: Optional[dict[str, Any]] = None,
+    keep_battery: Optional[list[int]] = None,
+    sun: bool = True,
+    sun_min_a: Optional[float] = None,
+    price_ref: Optional[float] = None,
+) -> dict[str, Any]:
+    """plan_full_by with the reference price of the last week (as of
+    2026.11.57). When the car has to be done (`margin` before the deadline)
+    after the end of the known prices, the known quarters are used only at
+    or below `price_ref`; what they don't bring in waits for the prices of
+    the next day - as long as it fits, at the max power, between the end of
+    the known prices and the time it has to be done. It's then planned as a
+    window from the end of the known prices on (where it charges by itself
+    when no prices come in); once they're known, the deadline lies within
+    them and the cheapest quarters are chosen as before. Doesn't it fit, no
+    reference price, done within the known prices, or none known ahead:
+    plan_full_by as it is. Adds `price_ref`, `wait_kwh` and `wait_from`
+    (epoch, None when nothing waits)."""
+    args = (net, hour0_epoch, prices, price_start_epoch, phases)
+    prices_end = price_start_epoch + len(prices) * UNIT
+    ready = max(deadline_epoch - margin, now_epoch)
+    first = now_epoch - now_epoch % UNIT
+
+    def plain() -> dict[str, Any]:
+        plan = plan_full_by(now_epoch, deadline_epoch, need_kwh, *args, min_a, max_a, keep, keep_a, margin,
+                            battery, keep_battery, sun, sun_min_a)
+        return {**plan, "price_ref": price_ref, "wait_kwh": 0.0, "wait_from": None}
+
+    if price_ref is None or need_kwh <= 0.05 or ready <= prices_end or first >= prices_end:
+        return plain()
+    p_max = power_kw(max_a, phases)
+    p_min = power_kw(sun_min_a if sun_min_a is not None else min_a, phases)
+    # what the quarters at or below the reference bring in (at the max power)
+    probe = plan_deadline(now_epoch, ready, need_kwh, net, hour0_epoch, prices, price_start_epoch, p_min, p_max,
+                          keep, p_max, battery, keep_battery, sun, price_ref)
+    wait = float(probe["short_kwh"])
+    if wait <= 0.05:
+        plan = plan_full_by(now_epoch, deadline_epoch, need_kwh, *args, min_a, max_a, keep, keep_a, margin,
+                            battery, keep_battery, sun, sun_min_a, price_ref)
+        if not plan.get("tight"):
+            return {**plan, "price_ref": price_ref, "wait_kwh": 0.0, "wait_from": None}
+        return plain()
+    later_units = max((ready - ready % UNIT - prices_end) // UNIT, 0)
+
+    def fits(kw: float) -> int:
+        n = math.ceil(wait / (kw / 4) - 1e-9) if kw > 0 else 0
+        return n if 0 < n <= later_units else 0
+
+    now_kwh = need_kwh - wait
+    plan = plan_full_by(now_epoch, deadline_epoch, now_kwh, *args, min_a, max_a, keep, keep_a, margin,
+                        battery, keep_battery, sun, sun_min_a, price_ref)
+    if plan.get("tight") or not fits(float(plan["grid_kw"])):
+        # one current for all windows: the max, when the plan's own doesn't fit the rest in
+        plan = plan_full_by(now_epoch, deadline_epoch, now_kwh, *args, max_a, max_a, keep, keep_a, margin,
+                            battery, keep_battery, sun, sun_min_a, price_ref)
+    n = fits(float(plan["grid_kw"]))
+    if plan.get("tight") or not n:
+        return plain()
+    kw = float(plan["grid_kw"])
+    wait_window = [prices_end, prices_end + n * UNIT]
+    end = prices_end + int(wait / kw * 3600)
+    return {
+        **plan,
+        "windows": list(plan["windows"]) + [wait_window],
+        "quarters": list(plan["quarters"]) + list(range(prices_end, prices_end + n * UNIT, UNIT)),
+        "window_kwh": list(plan.get("window_kwh") or []) + [round(wait, 3)],
+        # its price isn't known yet
+        "window_cost": list(plan.get("window_cost") or []) + [None],
+        "grid_kwh": round(float(plan["grid_kwh"]) + wait, 2),
+        "short_kwh": 0.0,
+        "end": end,
+        "reach_kwh": round(need_kwh, 2),
+        "price_ref": price_ref,
+        "wait_kwh": round(wait, 2),
+        "wait_from": prices_end,
+    }
 
 
 def zappi_status(plug: Optional[str], status: Optional[str]) -> Optional[str]:
@@ -627,13 +727,16 @@ def planned_full_by(
     battery: Optional[dict[str, Any]] = None,
     sun: bool = True,
     sun_min_a: Optional[float] = None,
+    price_ref: Optional[float] = None,
 ) -> tuple[list[float], list[float], dict[str, Any]]:
     """A planned "full by" session (as of 2026.10.29) in the forecast: per
     hour what it takes (a full-hour value for hour 0) and the part of it in
     grid windows (the house battery stays out of that), plus {end, kwh,
     warning, plan}. Planned as for a plugged-in car from its start; where the
     prices for its time aren't known yet, a calm charge from the start at the
-    lowest current that gets it in an hour before its time."""
+    lowest current that gets it in an hour before its time - unless there's a
+    reference price (as of 2026.11.57): then planned as a plugged-in car
+    would be, see plan_full_by_ref."""
     start = max(int(session["start"]), now_epoch)
     deadline = int(session.get("deadline") or 0)
     need = max(float(session.get("kwh") or 0.0), 0.0)
@@ -641,9 +744,9 @@ def planned_full_by(
     if need <= 0 or deadline <= start:
         return zero, zero, {"end": start, "kwh": 0.0, "warning": None, "plan": None}
     prices_end = price_start_epoch + len(prices) * UNIT
-    if deadline - DEADLINE_MARGIN <= prices_end:
-        plan = plan_full_by(start, deadline, need, net, hour0_epoch, prices, price_start_epoch, phases, min_a, max_a,
-                            battery=battery, sun=sun, sun_min_a=sun_min_a)
+    if deadline - DEADLINE_MARGIN <= prices_end or (price_ref is not None and start - start % UNIT < prices_end):
+        plan = plan_full_by_ref(start, deadline, need, net, hour0_epoch, prices, price_start_epoch, phases, min_a, max_a,
+                                battery=battery, sun=sun, sun_min_a=sun_min_a, price_ref=price_ref)
     else:
         ready = max(deadline - DEADLINE_MARGIN, start + UNIT)
         amps = int(round(max_a))

@@ -6987,6 +6987,60 @@ check("wind forecast: no sensor forecast -> the weather entity's as it was",
       heatpump.apply_wind_forecast(_wf_weather, _wf_hourly, {}, _wn_tzz, 1 / 3.6) == (_wf_weather, _wf_hourly))
 
 
+# (2026.11.57) "full by" after the known prices: the reference price of the last week
+_rf_ps = int(datetime(2026, 11, 18, tzinfo=ZoneInfo("Europe/Amsterdam")).timestamp())   # Wed 00:00
+_rf_now = _rf_ps + 17 * 3600                                                            # Wed 17:00
+_rf_end = _rf_ps + 192 * 900                                                            # Fri 00:00: the known prices end
+_rf_dl = _rf_end + 7 * 3600                                                             # Fri 07:00
+_rf_pr = [0.34] * 192
+_rf_net = [0.0] * 80
+_rf_z = lambda need, ref, dl=_rf_dl, pr=_rf_pr, now=_rf_now: evc.plan_full_by_ref(
+    now, dl, need, _rf_net, now - now % 3600, pr, _rf_ps, 1, 13, 13, sun=False, sun_min_a=13, price_ref=ref)
+_rf_a = _rf_z(8.75, 0.30)
+check("full by after the known prices: no known quarter at or below the reference -> all of it waits, one window from the end of the known prices",
+      _rf_a["windows"] == [[_rf_end, _rf_end + 12 * 900]] and _rf_a["wait_kwh"] == 8.75 and _rf_a["wait_from"] == _rf_end
+      and _rf_a["grid_kwh"] == 8.75 and _rf_a["short_kwh"] == 0.0 and not _rf_a["tight"] and _rf_a["window_cost"][-1] is None
+      and _rf_a["price_ref"] == 0.30 and _rf_a["ready_by"] == _rf_dl - 3600)
+_rf_pr2 = list(_rf_pr)
+for _i in range(104, 108):        # Thu 02:00-03:00 at 0.28
+    _rf_pr2[_i] = 0.28
+_rf_b = _rf_z(8.75, 0.30, pr=_rf_pr2)
+check("full by after the known prices: the known quarters at or below the reference are used now, only the rest waits",
+      _rf_b["windows"][0] == [_rf_ps + 104 * 900, _rf_ps + 108 * 900] and abs(_rf_b["wait_kwh"] - (8.75 - 4 * evc.power_kw(13, 1) / 4)) < 0.01
+      and _rf_b["windows"][-1] == [_rf_end, _rf_end + 8 * 900] and abs(_rf_b["window_cost"][0] - 4 * evc.power_kw(13, 1) / 4 * 0.28) < 0.01)
+_rf_plain = evc.plan_full_by(_rf_now, _rf_dl, 8.75, _rf_net, _rf_now, _rf_pr, _rf_ps, 1, 13, 13, sun=False, sun_min_a=13)
+_rf_c = _rf_z(8.75, 0.40)
+check("full by after the known prices: everything fits at or below the reference -> the cheapest known quarters, nothing waits",
+      _rf_c["windows"] == _rf_plain["windows"] and _rf_c["wait_kwh"] == 0.0 and _rf_c["wait_from"] is None)
+check("full by: without a reference price -> as before", _rf_z(8.75, None)["windows"] == _rf_plain["windows"])
+_rf_dl_in = _rf_ps + 44 * 3600    # Thu 20:00: within the known prices
+check("full by within the known prices -> the cheapest quarters as before, also with a low reference",
+      _rf_z(8.75, 0.30, dl=_rf_dl_in)["windows"]
+      == evc.plan_full_by(_rf_now, _rf_dl_in, 8.75, _rf_net, _rf_now, _rf_pr, _rf_ps, 1, 13, 13, sun=False, sun_min_a=13)["windows"])
+_rf_dl_short = _rf_end + 2 * 3600    # Fri 02:00: only an hour of unknown prices before it's due
+_rf_d = _rf_z(8.75, 0.30, dl=_rf_dl_short)
+check("full by after the known prices: the rest doesn't fit in the unknown hours at the max -> the cheapest known quarters after all",
+      _rf_d["wait_from"] is None and _rf_d["windows"]
+      == evc.plan_full_by(_rf_now, _rf_dl_short, 8.75, _rf_net, _rf_now, _rf_pr, _rf_ps, 1, 13, 13, sun=False, sun_min_a=13)["windows"])
+_rf_e = _rf_z(3.0, 0.30, now=_rf_end + 900)
+check("full by: no known prices ahead any more (the next day's didn't come in) -> charging as before (right away)",
+      _rf_e["wait_from"] is None and _rf_e["windows"] and _rf_e["windows"][0][0] == _rf_end + 900)
+_rf_v = evc.plan_full_by_ref(_rf_now, _rf_dl, 10.0, _rf_net, _rf_now, _rf_pr, _rf_ps, 3, 6, 16, price_ref=0.30)
+check("full by after the known prices, a current range: the waiting part at the plan's own (calm) current, in one window",
+      _rf_v["current_a"] == 6 and _rf_v["windows"] == [[_rf_end, _rf_end + 10 * 900]] and _rf_v["wait_kwh"] == 10.0)
+_rf_s = {"start": _rf_now, "deadline": _rf_dl, "kwh": 8.75}
+_rf_p_old = evc.planned_full_by(_rf_s, _rf_now - 4 * 3600, _rf_now - 4 * 3600, 80, _rf_net, _rf_pr, _rf_ps, 1, 13, 13, sun=False, sun_min_a=13)
+_rf_p_new = evc.planned_full_by(_rf_s, _rf_now - 4 * 3600, _rf_now - 4 * 3600, 80, _rf_net, _rf_pr, _rf_ps, 1, 13, 13, sun=False, sun_min_a=13,
+                                price_ref=0.30)
+check("planned full by after the known prices: without a reference the calm estimate from the start, with one planned as plugged in",
+      _rf_p_old[2]["plan"]["estimate"] and not _rf_p_new[2]["plan"].get("estimate")
+      and _rf_p_new[2]["plan"]["windows"] == [[_rf_end, _rf_end + 12 * 900]] and abs(sum(_rf_p_new[0]) - 8.75) < 0.01)
+check("notification: the waiting part in words, the price with a decimal comma in Dutch",
+      "wacht op de prijzen" in evn.t("nl", "plan_wait", deadline="vr 07:00", kwh="8.75", now="0", windows="", wait="8.75",
+                                     ref=evn.price_text(0.3291, "nl"), start="vr 00:00")
+      and evn.price_text(0.3291, "nl") == "€0,33" and evn.price_text(0.3291, "en") == "€0.33")
+
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

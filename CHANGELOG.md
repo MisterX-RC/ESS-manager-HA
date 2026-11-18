@@ -12,6 +12,29 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.57] - 2026-11-18
+
+### Electric car
+- **"Full by" after the known prices: the reference price decides.** When
+  the car has to be done (an hour before the time given) later than the
+  prices known so far, the known quarters are only used at or below the
+  reference price of the last week (the one the battery planning uses
+  since 2026.11.50). What they don't bring in waits for the next day's
+  prices, as long as it fits at the maximum current between the end of the
+  known prices and the time it has to be done - planned from the end of the
+  known prices on, so it still charges in time when no new prices come in.
+  Once they're in, the cheapest quarters as before. Doesn't the rest fit,
+  or no reference price yet: as before. A planned "full by" (not plugged in
+  yet) is forecast the same way instead of as a calm charge from its start.
+  New in the plan and the session attributes: `price_ref`, `wait_kwh`,
+  `wait_from`; the plan's answer says what waits.
+
+### Cards
+- **EV card: the waiting part.** In a "full by" charge plan the window
+  after the known prices shows "price not known yet" (left out of the
+  estimated cost), with a note on what waits, from when, and the reference
+  price.
+
 ## [2026.11.56] - 2026-11-18
 
 ### Heat pump

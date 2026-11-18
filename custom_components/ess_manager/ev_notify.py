@@ -50,6 +50,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "plan_solar": "Charging on the solar surplus only: {kwh} kWh as far as the sun allows.",
         "plan_short": "Full by {deadline} doesn't fit: {kwh} kWh needed, {short} kWh short. Charging as much as possible{windows}.",
         "plan_any": "Charging on the sun first, the rest in the cheapest hours known: {kwh} kWh{windows}, full at about {end}.",
+        # (as of 2026.11.57) done after the known prices: part of it waits for the next day's prices
+        "plan_wait": "Full by {deadline}: {kwh} kWh. The prices for then aren't known yet: {now} kWh now in quarters at or below the usual price of the last week ({ref}/kWh){windows}, {wait} kWh waits for the next day's prices (in at about 13:00) - without them it charges from {start}.",
         "plan_unknown_end": "not known yet",
         "windows": " ({list})",
         "morning": "A charging session is planned today at {time} ({kwh} kWh). Still right?",
@@ -102,6 +104,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "plan_solar": "Laden op zon-overschot: {kwh} kWh zover de zon het toelaat.",
         "plan_short": "Vol om {deadline} past niet: {kwh} kWh nodig, {short} kWh tekort. Laden zoveel als kan{windows}.",
         "plan_any": "Eerst op de zon, de rest in de goedkoopste bekende uren: {kwh} kWh{windows}, vol rond {end}.",
+        "plan_wait": "Vol om {deadline}: {kwh} kWh. De prijzen voor dan zijn nog niet bekend: {now} kWh nu in kwartieren tot de gewone prijs van de afgelopen week ({ref}/kWh){windows}, {wait} kWh wacht op de prijzen van de volgende dag (rond 13:00) - komen die niet, dan laadt hij vanaf {start}.",
         "plan_unknown_end": "nog niet bekend",
         "windows": " ({list})",
         "morning": "Er staat vandaag om {time} een laadsessie gepland ({kwh} kWh). Klopt dat nog?",
@@ -172,6 +175,14 @@ def clock(epoch: Optional[int], tz: tzinfo, now_epoch: Optional[int] = None, lan
         days = {"en": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], "nl": ["ma", "di", "wo", "do", "vr", "za", "zo"]}
         return f"{days[language][when.weekday()]} {when:%H:%M}"
     return f"{when:%H:%M}"
+
+
+def price_text(value: Optional[float], language: str) -> str:
+    """"€0.33" / "€0,33" (as of 2026.11.57)."""
+    if value is None:
+        return "?"
+    text = f"€{float(value):.2f}"
+    return text.replace(".", ",") if language == "nl" else text
 
 
 def windows_text(windows: list[list[int]], tz: tzinfo, now_epoch: int, language: str) -> str:

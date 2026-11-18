@@ -2866,6 +2866,16 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         applies now, else None (as of 2026.11.50). From the day prices the
         savings keep (the last 14 days, also filled from the recorder)."""
         today = now.date()
+        ref, days = self._price_reference_value(now)
+        reason = price_reference.active_reason(ref, tomorrow_known, now.hour, hours_to_empty)
+        self._price_reference_attr = price_reference.attribute(ref, reason, days, today)
+        return ref if reason == "active" else None
+
+    def _price_reference_value(self, now: datetime) -> tuple[Optional[float], dict[str, Optional[float]]]:
+        """The reference price of the last week and its day values, whether
+        the battery's plans use it now or not - a car's "full by" after the
+        known prices uses it too (as of 2026.11.57)."""
+        today = now.date()
         days: dict[str, Optional[float]] = {}
         for day, prices in self.savings.prices.items():
             try:
@@ -2878,10 +2888,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             buy = self._savings_buy_of(list(prices), start)
             a, b = self._buy_line
             days[day] = price_reference.day_value([None if p is None else a * p + b for p in buy])
-        ref = price_reference.reference(days, today)
-        reason = price_reference.active_reason(ref, tomorrow_known, now.hour, hours_to_empty)
-        self._price_reference_attr = price_reference.attribute(ref, reason, days, today)
-        return ref if reason == "active" else None
+        return price_reference.reference(days, today), days
 
     # -- what the battery saves (as of 2026.11.0) ------------------------------
     def _savings_buy_of(self, prices: list[Optional[float]], day_start: datetime) -> list[Optional[float]]:
@@ -3365,6 +3372,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ev_entities = self._zappi_entities(conf.get(CONF_EV_ZAPPI_DEVICE))
             ev_victron = self._zappi_inputs(conf, ev_entities, now, plan_buy, ev_batt)
             ev_victron["power_entity"] = conf.get(CONF_EV_POWER_ENTITY)
+        if ev_victron is not None:
+            # (as of 2026.11.57) a "full by" after the known prices: the known
+            # quarters only up to the reference price, see ev_charger.plan_full_by_ref
+            ev_victron["price_ref"] = self._price_reference_value(now)[0]
         if conf.get(CONF_EV_ENABLED):
             ev_total, ev_attribute = self.ev.update(
                 {

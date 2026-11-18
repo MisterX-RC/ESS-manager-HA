@@ -142,7 +142,7 @@ const I18N = {
     ev_done_text: "Full according to the sums - the charger stays as it is, the car stops by itself when it's really full. Unplug the car to end the session.",
     ev_r_by_fixed: (amps, kw, a, b) => `${amps} A \u00b7 ${kw} \u00b7 planned to be done by ${a} (an hour before ${b})`, ev_r_estimate: "prices for then not known yet: estimated as a calm charge",
     ev_pl_title: "Charge plan", ev_pl_preview: "preview - saved, the integration plans it", ev_pl_grid: "grid", ev_pl_batt: "battery", ev_pl_sun: "sun",
-    ev_pl_cost: "Estimated cost", ev_pl_avg: (p) => `avg ${p}/kWh`, ev_pl_legend: "bars = price per quarter \u00b7 blue = grid \u00b7 green = house battery \u00b7 yellow = full by",
+    ev_pl_cost: "Estimated cost", ev_pl_avg: (p) => `avg ${p}/kWh`, ev_pl_unknown: "price not known yet", ev_pl_wait: (k, t, p) => `${k} waits for the next day's prices (in at about 13:00) - the known quarters only up to the usual price of the last week, ${p}/kWh; without new prices it charges from ${t}`, ev_pl_legend: "bars = price per quarter \u00b7 blue = grid \u00b7 green = house battery \u00b7 yellow = full by",
     ev_pl_batt_note: "battery: the cheapest refill after it, with the losses", ev_pl_blocks: (n) => (n === 1 ? "1 block" : `${n} blocks`), ev_pl_blocks_from: (n, t) => `${n === 1 ? "1 block" : `${n} blocks`} from ${t}`,
     ev_st_full: (c) => `${c} \u00b7 full by the sums`,
     ev_how_q: "How do you want to charge?", ev_how: "How", ev_h_asap: "Fast", ev_h_calm: "Slow", ev_h_solar: "On the sun", ev_h_by: "Full by",
@@ -371,7 +371,7 @@ const I18N = {
     ev_done_text: "Vol volgens de berekening - de lader blijft zoals hij staat, de auto stopt zelf als hij echt vol is. Koppel de auto los om de sessie af te sluiten.",
     ev_r_by_fixed: (amps, kw, a, b) => `${amps} A \u00b7 ${kw} \u00b7 gepland klaar om ${a} (een uur voor ${b})`, ev_r_estimate: "prijzen voor dan nog niet bekend: geschat als rustige lading",
     ev_pl_title: "Laadplan", ev_pl_preview: "voorbeeld - na opslaan plant de integratie het", ev_pl_grid: "net", ev_pl_batt: "accu", ev_pl_sun: "zon",
-    ev_pl_cost: "Geschatte kosten", ev_pl_avg: (p) => `gem. ${p}/kWh`, ev_pl_legend: "balkjes = prijs per kwartier \u00b7 blauw = net \u00b7 groen = thuisaccu \u00b7 geel = vol om",
+    ev_pl_cost: "Geschatte kosten", ev_pl_avg: (p) => `gem. ${p}/kWh`, ev_pl_unknown: "prijs nog onbekend", ev_pl_wait: (k, t, p) => `${k} wacht op de prijzen van de volgende dag (rond 13:00) - de bekende kwartieren alleen tot de gewone prijs van de afgelopen week, ${p}/kWh; zonder nieuwe prijzen laadt hij vanaf ${t}`, ev_pl_legend: "balkjes = prijs per kwartier \u00b7 blauw = net \u00b7 groen = thuisaccu \u00b7 geel = vol om",
     ev_pl_batt_note: "accu: goedkoopste aanvulmoment daarna, met de verliezen", ev_pl_blocks: (n) => (n === 1 ? "1 blok" : `${n} blokken`), ev_pl_blocks_from: (n, t) => `${n === 1 ? "1 blok" : `${n} blokken`} vanaf ${t}`,
     ev_st_full: (c) => `${c} \u00b7 vol volgens berekening`,
     ev_how_q: "Hoe wil je laden?", ev_how: "Hoe", ev_h_asap: "Snel", ev_h_calm: "Rustig", ev_h_solar: "Op zon", ev_h_by: "Vol om",
@@ -3141,6 +3141,7 @@ class EssManagerEvCard extends EssChartCard {
       readyBy: cs.ready_by ? Date.parse(cs.ready_by) : null,
       deadline: cs.deadline ? Date.parse(cs.deadline) : null,
       any: cs.day === "any",
+      waitFrom: cs.wait_from ? Date.parse(cs.wait_from) : null, waitKwh: Number(cs.wait_kwh) || 0, priceRef: cs.price_ref,
     };
   }
 
@@ -3515,6 +3516,7 @@ class EssManagerEvCard extends EssChartCard {
       end: fb.end ? Date.parse(fb.end) : s.end ? Date.parse(s.end) : null,
       readyBy: fb.ready_by ? Date.parse(fb.ready_by) : null,
       deadline: s.deadline ? Date.parse(s.deadline) : null,
+      waitFrom: fb.wait_from ? Date.parse(fb.wait_from) : null, waitKwh: Number(fb.wait_kwh) || 0, priceRef: fb.price_ref,
     };
   }
 
@@ -3583,16 +3585,19 @@ class EssManagerEvCard extends EssChartCard {
     }
     const f = formats(this._hass);
     const rows = [];
-    plan.windows.forEach(([a, b], k) => rows.push([a, b, "grid", plan.windowKwh[k] || 0, plan.windowCost[k] || 0]));
+    // (as of 2026.11.57) a window after the known prices: its price isn't known yet (cost null)
+    plan.windows.forEach(([a, b], k) => rows.push([a, b, "grid", plan.windowKwh[k] || 0, plan.windowCost[k] == null && plan.waitFrom && a >= plan.waitFrom ? null : plan.windowCost[k] || 0]));
     plan.bwindows.forEach(([a, b], k) => rows.push([a, b, "batt", plan.bwindowKwh[k] || 0, plan.bwindowCost[k] || 0]));
     rows.sort((x, y) => x[0] - y[0]);
-    let list = rows.map(([a, b, kind, k, c]) => `<div class="pl-row"><i style="background:${kind === "batt" ? EV_BATT : EV_GRID}"></i><b>${esc(this._time(a))} \u2013 ${esc(this._time(b))}</b><span style="color:${kind === "batt" ? EV_BATT : EV_GRID}">${esc(this._t(kind === "batt" ? "ev_pl_batt" : "ev_pl_grid"))}</span><span class="dim">${esc(`${plan.amps} A \u00b7 ${this._kwh(k)}`)}</span><span>${k > 0.01 ? esc(formatPrice(f, c / k)) : ""}</span></div>`).join("");
+    let list = rows.map(([a, b, kind, k, c]) => `<div class="pl-row"><i style="background:${kind === "batt" ? EV_BATT : EV_GRID}"></i><b>${esc(this._time(a))} \u2013 ${esc(this._time(b))}</b><span style="color:${kind === "batt" ? EV_BATT : EV_GRID}">${esc(this._t(kind === "batt" ? "ev_pl_batt" : "ev_pl_grid"))}</span><span class="dim">${esc(`${plan.amps} A \u00b7 ${this._kwh(k)}`)}</span><span${c == null ? ' class="dim"' : ""}>${c == null ? esc(this._t("ev_pl_unknown")) : k > 0.01 ? esc(formatPrice(f, c / k)) : ""}</span></div>`).join("");
     if (plan.solar > 0.05) list += `<div class="pl-row"><i style="background:var(--evsun)"></i><b>${esc(this._t("ev_pl_sun"))}</b><span></span><span class="dim">${esc(this._kwh(plan.solar))}</span><span></span></div>`;
-    const kwh = rows.reduce((a, r) => a + r[3], 0);
-    const cost = rows.reduce((a, r) => a + r[4], 0);
+    const priced = rows.filter((r) => r[4] != null);
+    const kwh = priced.reduce((a, r) => a + r[3], 0);
+    const cost = priced.reduce((a, r) => a + r[4], 0);
     const sum = kwh > 0.05 ? `<div class="pl-sum"><span class="dim">${esc(this._t("ev_pl_cost"))}</span><b>${esc(f.money(cost))} \u00b7 ${esc(this._t("ev_pl_avg")(formatPrice(f, cost / kwh)))}</b></div>` : "";
     const notes = [this._t("ev_pl_legend")];
     if (plan.bwindows.length) notes.push(this._t("ev_pl_batt_note"));
+    if (plan.waitFrom && plan.waitKwh > 0.05) notes.push(this._t("ev_pl_wait")(this._kwh(plan.waitKwh), this._when(plan.waitFrom), formatPrice(f, Number(plan.priceRef) || 0)));
     return `<div class="pl">
       <div class="pl-head"><span>${esc(this._t("ev_pl_title"))}</span>${plan.real ? "" : `<span class="dim">${esc(this._t("ev_pl_preview"))}</span>`}</div>
       <div class="pl-tl">${bars}<u></u></div>

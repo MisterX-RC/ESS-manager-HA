@@ -789,11 +789,14 @@ class _VictronMixin:
             margin = 0 if flow.get("deadline") is None else evc.DEADLINE_MARGIN
             running = keep or keep_batt
             plan_lo, plan_hi, sun, sun_lo = self._plan_range(min_a, max_a)
-            plan = evc.plan_full_by(
+            # (as of 2026.11.57) done after the known prices: the known
+            # quarters only up to the reference price of the last week, the
+            # rest waits for the next day's prices - see plan_full_by_ref
+            plan = evc.plan_full_by_ref(
                 now_epoch, deadline, left, house_net, hour0, prices, price_start, phases, plan_lo, plan_hi,
                 keep, ((flow.get("plan") or {}).get("current_a") if running else None), margin,
                 battery=self._battery(now_epoch, hour0, house_net, deadline), keep_battery=keep_batt, sun=sun,
-                sun_min_a=sun_lo,
+                sun_min_a=sun_lo, price_ref=self.ctx.get("price_ref"),
             )
             flow["windows"] = plan["windows"]
             flow["quarters"] = plan["quarters"]
@@ -827,6 +830,14 @@ class _VictronMixin:
                                    reach=f"{plan['reach_kwh']:g}", pct=reach, end=evn.clock(plan["end"], tz, now_epoch, lg)))
             elif flow.get("deadline") is None:
                 self._send(self._t("plan_any", kwh=f"{need:g}", windows=windows, end=evn.clock(plan["end"], tz, now_epoch, lg)))
+            elif plan.get("wait_from"):
+                # (as of 2026.11.57) part of it waits for the next day's prices
+                known = [w for w in plan["windows"] if w[0] < plan["wait_from"]]
+                self._send(self._t("plan_wait", deadline=evn.clock(plan["deadline"], tz, now_epoch, lg), kwh=f"{need:g}",
+                                   now=f"{max(plan['grid_kwh'] - plan['wait_kwh'], 0.0):g}",
+                                   windows=evn.windows_text(known, tz, now_epoch, lg), wait=f"{plan['wait_kwh']:g}",
+                                   ref=evn.price_text(plan["price_ref"], lg),
+                                   start=evn.clock(plan["wait_from"], tz, now_epoch, lg)))
             else:
                 self._send(self._t("plan_deadline", deadline=evn.clock(plan["deadline"], tz, now_epoch, lg), kwh=f"{need:g}",
                                    solar=f"{plan['solar_kwh']:g}", grid=f"{plan['grid_kwh']:g}", windows=windows,
@@ -1251,6 +1262,7 @@ class EvRuntime(_VictronMixin):
                     s, now_epoch, hour0, hours, net_left, self.ctx.get("prices") or [], int(self.ctx.get("price_start") or 0),
                     phases, plan_lo, plan_hi,
                     battery=self._battery(now_epoch, hour0, net_left, int(s.get("deadline") or 0)), sun=sun, sun_min_a=sun_lo,
+                    price_ref=self.ctx.get("price_ref"),
                 )
                 info = [{**s, "end": pinfo["end"], "charged_kwh": pinfo["kwh"], "warning": pinfo["warning"], "full_by": pinfo["plan"]}]
             else:
@@ -1317,6 +1329,10 @@ class EvRuntime(_VictronMixin):
                      "cost": s["full_by"].get("cost"),
                      "grid_kw": s["full_by"].get("grid_kw"),
                      "ready_by": iso(s["full_by"].get("ready_by")) if s["full_by"].get("ready_by") else None,
+                     # (as of 2026.11.57) what waits for the next day's prices
+                     "price_ref": s["full_by"].get("price_ref"),
+                     "wait_kwh": s["full_by"].get("wait_kwh"),
+                     "wait_from": iso(s["full_by"].get("wait_from")) if s["full_by"].get("wait_from") else None,
                      "end": iso(s.get("end")) if s.get("end") else None}
                     if s.get("full_by") else None
                 ),
@@ -1458,6 +1474,10 @@ class EvRuntime(_VictronMixin):
                 "ready_by": iso(plan.get("ready_by")),
                 "tight": bool(plan.get("tight")),
                 "reach_kwh": plan.get("reach_kwh"),
+                # (as of 2026.11.57) what waits for the next day's prices
+                "price_ref": plan.get("price_ref"),
+                "wait_kwh": plan.get("wait_kwh"),
+                "wait_from": iso(plan.get("wait_from")) if plan.get("wait_from") else None,
             }
         return out
 

@@ -234,6 +234,43 @@ async def test_victron_grid_window_keeps_the_battery_out(hass, freezer):
     assert coordinator._ev_offset_w == 3000.0
 
 
+async def test_victron_full_by_after_the_known_prices_waits(hass, freezer):
+    """A "full by" after the known prices (as of 2026.11.57): the known
+    quarters only up to the reference price of the last week - all dearer
+    here, so it waits for the next day's prices, planned from their end on."""
+    from datetime import datetime
+
+    tz = dt_util.get_default_time_zone()
+    freezer.move_to(dt_util.as_utc(datetime(2026, 11, 18, 17, 1, tzinfo=tz)))
+    now = dt_util.now()
+    base_states(hass, now)
+    hass.states.async_set("sensor.price", "0.40", {"today": [0.40] * 96, "tomorrow": [0.40] * 96, "tomorrow_valid": True,
+                                                  "unit_of_measurement": "EUR/kWh"})
+    device, ids = charger_device(hass, "victron_gx", VICTRON)
+    hass.states.async_set(ids["ev_status"], "connected")
+    hass.states.async_set(ids["ev_v_power"], "0", {"unit_of_measurement": "W"})
+    hass.states.async_set(ids["ev_v_energy"], "500.0", {"unit_of_measurement": "kWh"})
+    hass.states.async_set(ids["ev_mode"], "auto", {"options": ["manual", "auto", "scheduled"]})
+    hass.states.async_set(ids["ev_current"], "6", {"min": 6, "max": 16})
+    hass.states.async_set(ids["ev_charge"], "off")
+    entry, coordinator = await _setup(hass, {"ev_charger": "victron", "ev_victron_device": device,
+                                             "ev_energy_entity": ids["ev_v_energy"], "ev_power_entity": ids["ev_v_power"]})
+    # a week of days that were cheap: the reference price 0.10
+    for k in range(1, 8):
+        coordinator.savings.prices[(now.date() - timedelta(days=k)).isoformat()] = [0.10] * 96
+    calls: list = []
+    for d, sv in (("select", "select_option"), ("number", "set_value"), ("switch", "turn_on"), ("switch", "turn_off")):
+        record_calls(hass, d, sv, calls)
+    coordinator.ev.set_plan({"choice": "deadline", "day": "after", "hour": "07:00", "soc": 60}, int(now.timestamp()))
+    await coordinator.async_refresh()
+    plan = coordinator.ev.flow["plan"]
+    prices_end = int(datetime(2026, 11, 20, 0, 0, tzinfo=tz).timestamp())
+    assert abs(plan["price_ref"] - 0.10) < 1e-6 and plan["wait_from"] == prices_end and plan["wait_kwh"] > 0
+    assert coordinator.ev.flow["windows"] == [[prices_end, prices_end + len(plan["quarters"]) * 900]]
+    # between windows as always: the charger on its Auto mode (the sun only), not on a current of its own
+    assert not any(c[0] == "select" and c[2].get("option") == "manual" for c in calls)
+
+
 # -- EV charger control switch and manual charging (as of 2026.11.52) -----------------
 def _switch_entity(hass, entry, key):
     from homeassistant.helpers import entity_registry as er

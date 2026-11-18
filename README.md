@@ -674,6 +674,21 @@ possible**, **Slowly now** or **Full by a time**.
   is bought when and at what current, and when it's full. The plan is worked out again every cycle (new prices, a
   different solar forecast, what's charged so far); a grid window that's
   running finishes.
+- **Full by a time after the known prices** *(as of 2026.11.57)*: when the
+  car has to be done (an hour before the time given) later than the prices
+  known so far - say full by Friday 07:00 while only Thursday's are in -
+  the known quarters are only used at or below the **reference price of
+  the last week** (the median over 7 days of each day's 6 cheapest hours,
+  the same one the battery planning uses). What they don't bring in waits
+  for the next day's prices (in at about 13:00), as long as it fits, at the
+  maximum current, between the end of the known prices and the time it has
+  to be done; it's planned from the end of the known prices on, so it still
+  charges in time if no new prices come in. Once they're in, the time lies
+  within the known prices and the cheapest quarters are chosen as before.
+  Doesn't the rest fit in the unknown hours, or isn't there a reference
+  price yet (fewer than 3 days of prices): the cheapest known quarters, as
+  before. The answer and the card's charge plan say what waits, from when,
+  and the reference price; its window shows "price not known yet".
 - **Dear quarters out of the house battery** *(as of 2026.11.4)*: per
   quarter the car's energy can also come out of the house battery, at what
   it costs to fill it up again - the cheapest price after that quarter
@@ -794,7 +809,8 @@ charger of its own the predictions come from the charging energy, as before.
 (on the card, or predicted from the log): it's forecast with its own plan
 (calm by preference - the lowest current at most 2 ct/kWh dearer than the cheapest - done an hour before its time, sun
 first, the cheapest hours, dear quarters out of the house battery; where the prices for then aren't known yet, a calm charge
-from its start), and the battery forecast leaves its grid part out. **Plugged
+from its start - as of 2026.11.57, with a reference price, planned as a plugged-in car would be: the
+known quarters up to the reference, the rest after the known prices), and the battery forecast leaves its grid part out. **Plugged
 in during a planned session** - one predicted from the log (from its
 earliest plug-in on, see above) or from the charging energy, edited or
 added on the card - its plan is taken over right
