@@ -179,7 +179,8 @@ const I18N = {
     hp_none_note: "No own metering: the bars are the household's day totals; only the weather difference is added to the planning.",
     hp_no_model: "No model yet - it needs at least two weeks of days.", hp_axis: "outdoor \u00b0C (day, smoothed)",
     hp_balance: "Balance temperature", hp_per_degree: "Per degree colder", hp_per_day: "per day", hp_base: "Base",
-    hp_wind_t: "Wind", hp_wind_unit: "kWh per m/s per degree", hp_sun_t: "Sun", hp_sun_unit: "kWh per kWh of sun",
+    hp_wind_t: "Wind", hp_wind_unit: "kWh per m/s per degree",
+    hp_wind_learning: () => "learning \u00b7 cool days with wind", hp_wind_learning_tip: "The model uses wind once enough cool days have a measured wind.", hp_sun_t: "Sun", hp_sun_unit: "kWh per kWh of sun",
     hp_cool_t: "Cooling", hp_from: "from", hp_per_degree_short: "per degree", hp_error: "Error 14 days",
     hp_measured_day: "measured day (fainter = older)", hp_expected: "expected",
     hp_outdoor: "outdoor", hp_days: "days", hp_measured: "measured", hp_last: "last", hp_to: "to",
@@ -406,7 +407,8 @@ const I18N = {
     hp_none_note: "Geen eigen meting: de balken zijn de dagtotalen van het huis; alleen het verschil door het weer gaat de planning in.",
     hp_no_model: "Nog geen model - daar zijn minstens twee weken aan dagen voor nodig.", hp_axis: "buiten \u00b0C (etmaal, uitgevlakt)",
     hp_balance: "Grenstemperatuur", hp_per_degree: "Per graad kouder", hp_per_day: "per dag", hp_base: "Basis",
-    hp_wind_t: "Wind", hp_wind_unit: "kWh per m/s per graad", hp_sun_t: "Zon", hp_sun_unit: "kWh per kWh zon",
+    hp_wind_t: "Wind", hp_wind_unit: "kWh per m/s per graad",
+    hp_wind_learning: () => "leert \u00b7 koele dagen met wind", hp_wind_learning_tip: "Het model gebruikt wind zodra genoeg koele dagen een gemeten wind hebben.", hp_sun_t: "Zon", hp_sun_unit: "kWh per kWh zon",
     hp_cool_t: "Koelen", hp_from: "vanaf", hp_per_degree_short: "per graad", hp_error: "Afwijking 14 dagen",
     hp_measured_day: "gemeten dag (vager = ouder)", hp_expected: "verwachting",
     hp_outdoor: "buiten", hp_days: "dagen", hp_measured: "gemeten", hp_last: "laatst", hp_to: "tot",
@@ -4916,6 +4918,10 @@ class EssManagerHeatPumpCard extends EssChartCard {
     ];
     if (m.indoor_ref_c != null) tiles.push([this._t("hp_warmer_t"), `+${this._kwh(m.kwh_per_degree_day)}`, this._t("hp_per_day")]);
     if (m.wind_kwh_per_ms_degree != null) tiles.push([this._t("hp_wind_t"), `${m.wind_kwh_per_ms_degree >= 0 ? "+" : ""}${this._num(m.wind_kwh_per_ms_degree, 3)}`, this._t("hp_wind_unit")]);
+    // (as of 2026.11.56) not used yet but a wind source is there: the progress
+    else if (hp.wind && hp.wind.cool_days != null && (hp.wind.hours || hp.wind.cool_days)) {
+      tiles.push([this._t("hp_wind_t"), `${hp.wind.cool_days} / ${hp.wind.days_needed}`, this._t("hp_wind_learning")(hp.wind.days_needed)]);
+    }
     if (m.solar_kwh_per_kwh != null) tiles.push([this._t("hp_sun_t"), this._num(m.solar_kwh_per_kwh, 2), this._t("hp_sun_unit")]);
     if (m.cooling_temp_c != null) tiles.push([this._t("hp_cool_t"), `${this._t("hp_from")} ${this._num(m.cooling_temp_c, 0)} \u00b0C`, `+${this._kwh(m.cooling_kwh_per_degree_day)} ${this._t("hp_per_degree_short")}`]);
     const th = hp.thermal;

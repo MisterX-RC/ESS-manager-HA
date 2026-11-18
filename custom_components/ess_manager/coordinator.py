@@ -1606,6 +1606,18 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._hp_wind_factor = WIND_FACTORS.get(unit, 1.0)
         self._hp_hourly = lists["hourly"]
         self._hp_weather = heatpump.weather_days(lists["hourly"], lists["daily"], tz, self._hp_wind_factor)
+        # (as of 2026.11.56) a wind sensor with a forecast of its own: its wind
+        # speed for the forecast too - learnt and forecast from the same source
+        self.hp.wind_forecast_src = entity_id
+        wind_id = conf.get(CONF_HP_WIND_ENTITY)
+        wst = self.hass.states.get(wind_id) if wind_id else None
+        if wst is not None:
+            wind = heatpump.sensor_wind_forecast(
+                wst.attributes.get("forecast"), WIND_FACTORS.get(wst.attributes.get("unit_of_measurement") or "m/s", 1.0), tz)
+            if wind:
+                self._hp_weather, self._hp_hourly = heatpump.apply_wind_forecast(
+                    self._hp_weather, self._hp_hourly, wind, tz, self._hp_wind_factor)
+                self.hp.wind_forecast_src = wind_id
         return self._hp_weather
 
     def _hp_indoor_source(self, conf: dict[str, Any]) -> tuple[Optional[str], bool]:

@@ -1039,6 +1039,15 @@ its usage from the weather**); two pages follow:
   per entity, hours of speed and of direction). A day's live wind and
   direction go into its journal row only with 12 of its hours; right after
   the recorder is read, days the series covers get the whole day's wind.
+  *(As of 2026.11.56)* a wind speed sensor with a `forecast` list of its own
+  (entries with `datetime` and `wind_speed`, like a solar forecast
+  integration's wind sensor) also gives the forecast's wind speed - per hour
+  where it has the hour, per day with 12 of its hours - so the model learns
+  and forecasts from the same source; the direction stays the weather
+  entity's. `heat_pump.wind.forecast` shows where it comes from, and
+  `heat_pump.wind.cool_days` the cool days with wind the day model counts.
+  The heat pump card's Signature tab shows **Wind x / 21** ("learning") until
+  the model uses wind, then the wind term itself.
 - **The slow part, an energy signature**: per day, kWh = base + kWh per
   degree below the balance temperature (+ wind x degrees, + wind direction
   once there are enough days in most directions) - sun (+ kWh per degree

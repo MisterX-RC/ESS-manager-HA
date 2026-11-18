@@ -12,6 +12,23 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.56] - 2026-11-18
+
+### Heat pump
+- **The forecast's wind from the wind sensor.** A wind speed sensor with a
+  forecast list of its own (datetime + wind_speed per hour) now also gives
+  the forecast's wind speed - per hour, and per day where it has 12 of the
+  day's hours - so the model learns and forecasts with the same source.
+  The wind direction and the temperature stay the weather entity's.
+  `heat_pump.wind.forecast` shows the source.
+
+### Cards
+- **Heat pump card: the wind's progress.** Until the model uses wind, the
+  Signature tab shows a Wind tile with the cool days with wind against the
+  days needed ("learning"); once it does, the wind term as before.
+  `heat_pump.wind.cool_days` counts the days the day model counts (cool days
+  with a measured wind).
+
 ## [2026.11.55] - 2026-11-17
 
 ### Heat pump

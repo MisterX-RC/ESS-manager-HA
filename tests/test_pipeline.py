@@ -6967,6 +6967,26 @@ check("live wind: a day with 3 hours of wind gets none in its row (nor a directi
 check("live wind: a day with 13 hours gets the wind and the direction", _wn_r13.get("w") == 6.0 and _wn_r13.get("wd") == 250.0)
 
 
+
+# (2026.11.56) the forecast's wind speed from the wind sensor's own forecast list
+_wf_day = _wn_date(2026, 11, 20)
+_wf_h0 = heatpump.local_day_start(_wf_day, _wn_tzz)
+_wf = heatpump.sensor_wind_forecast([{"datetime": _wn_dt.fromtimestamp(_wf_h0 + i * 3600, _wn_tzz).isoformat(), "wind_speed": 36.0}
+                                     for i in range(14)] + [{"datetime": "x", "wind_speed": 1}, {"wind_speed": "?"}], 1 / 3.6, _wn_tzz)
+check("wind forecast: a sensor's forecast list per hour in m/s (bad entries skipped)",
+      len(_wf) == 14 and all(v == 10.0 for v in _wf.values()))
+_wf_weather = {"2026-11-20": {"t": 6.0, "w": 2.0, "wd": 200.0}, "2026-11-21": {"t": 7.0, "w": 3.0, "wd": 210.0}}
+_wf_hourly = [{"datetime": _wn_dt.fromtimestamp(_wf_h0 + i * 3600, _wn_tzz).isoformat(), "temperature": 6.0, "wind_speed": 7.2}
+              for i in range(20)]
+_wf_w, _wf_hr = heatpump.apply_wind_forecast(_wf_weather, _wf_hourly, _wf, _wn_tzz, 1 / 3.6)
+check("wind forecast: the day with 12+ hours takes the sensor's mean, keeps its direction and temperature; another day unchanged",
+      _wf_w["2026-11-20"] == {"t": 6.0, "w": 10.0, "wd": 200.0} and _wf_w["2026-11-21"] == _wf_weather["2026-11-21"])
+check("wind forecast: hours the sensor has get its speed (in the weather entity's unit), the rest keep theirs; input not changed",
+      abs(_wf_hr[0]["wind_speed"] - 36.0) < 1e-6 and _wf_hr[15]["wind_speed"] == 7.2 and _wf_hourly[0]["wind_speed"] == 7.2)
+check("wind forecast: no sensor forecast -> the weather entity's as it was",
+      heatpump.apply_wind_forecast(_wf_weather, _wf_hourly, {}, _wn_tzz, 1 / 3.6) == (_wf_weather, _wf_hourly))
+
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

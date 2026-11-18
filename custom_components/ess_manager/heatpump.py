@@ -1225,3 +1225,52 @@ def fill_wind_days(journal: list[dict[str, Any]], wind_hist: dict[str, list], tz
                 del row["wd"]
                 changed += 1
     return changed
+
+
+# -- the wind forecast from the wind sensor (as of 2026.11.56) ----------------------
+# A wind sensor with a forecast list of its own (e.g. a solar forecast
+# integration's wind speed sensor: forecast: [{datetime, wind_speed}]) also
+# gives the forecast's wind speed, so the model learns and forecasts with the
+# same source. The direction stays the weather entity's.
+def sensor_wind_forecast(forecast: Any, factor: float, tz: tzinfo) -> dict[int, float]:
+    """{hour epoch: m/s} from a sensor's `forecast` attribute (`factor`
+    converts its unit); {} when it has none."""
+    out: dict[int, float] = {}
+    if not isinstance(forecast, list):
+        return out
+    for f in forecast:
+        if not isinstance(f, dict):
+            continue
+        dt = _parse(f.get("datetime"), tz)
+        try:
+            w = float(f.get("wind_speed"))
+        except (TypeError, ValueError):
+            continue
+        if dt is not None and math.isfinite(w):
+            out[int(dt.timestamp()) // HOUR * HOUR] = round(w * factor, 2)
+    return out
+
+
+def apply_wind_forecast(weather: dict[str, dict[str, Any]], hourly: list[dict[str, Any]], wind: dict[int, float],
+                        tz: tzinfo, wind_factor: float) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """The weather entity's forecast with the wind speed taken from `wind`
+    ({hour: m/s}): per hour where it has the hour (in the weather entity's own
+    unit, as hourly_weather converts it), per day where it has 12+ of the
+    day's hours. Copies; the rest (temperature, direction) unchanged."""
+    if not wind:
+        return weather, hourly
+    new_hourly = []
+    for f in hourly or []:
+        dt = _parse(f.get("datetime"), tz)
+        h = int(dt.timestamp()) // HOUR * HOUR if dt is not None else None
+        if h is not None and h in wind and wind_factor:
+            f = {**f, "wind_speed": wind[h] / wind_factor}
+        new_hourly.append(f)
+    by_day: dict[str, list[float]] = {}
+    for h, w in wind.items():
+        by_day.setdefault(datetime.fromtimestamp(h, tz).date().isoformat(), []).append(w)
+    new_weather = {}
+    for d, entry in weather.items():
+        ws = by_day.get(d) or []
+        new_weather[d] = {**entry, "w": round(sum(ws) / len(ws), 2)} if len(ws) >= WIND_DAY_HOURS else entry
+    return new_weather, new_hourly

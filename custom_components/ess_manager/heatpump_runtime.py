@@ -72,6 +72,8 @@ class HeatPumpRuntime:
         self.wind_src: Optional[str] = None
         # (as of 2026.11.55) the last read of the recorder for the wind (diagnostics)
         self.wind_read: Optional[dict[str, Any]] = None
+        # (as of 2026.11.56) where the forecast's wind speed comes from (set by the coordinator)
+        self.wind_forecast_src: Optional[str] = None
         self._wind_hour: Optional[list[float]] = None
         # the thermostat's switches, wanted temperature and heat demand
         # seconds per hour (as of 2026.11.20, thermostat.py) - read from the
@@ -277,6 +279,15 @@ class HeatPumpRuntime:
 
     def wind_series(self) -> dict[int, float]:
         return {int(k): v[0] for k, v in self.wind_hist.items() if v and v[0] is not None}
+
+    def _cool_wind_days(self) -> int:
+        """The days the day model counts for wind: cool (smoothed outdoor
+        temperature below 15 degC) with a measured wind."""
+        rows = [r for r in self.journal if r.get("t") is not None and r.get("e") is not None]
+        if not rows:
+            return 0
+        teffs = hp.effective_temps(rows)
+        return sum(1 for r in rows if r.get("w") is not None and teffs.get(r["d"], 99.0) < 15.0)
 
     def fill_wind_days(self, tz: tzinfo, renew: bool = False) -> None:
         """Journal rows without wind get it from the hourly series; with `renew`
@@ -725,6 +736,10 @@ class HeatPumpRuntime:
                 "days_needed": hp.MIN_WIND_DAYS,
                 # (as of 2026.11.55) the recorder read: states per entity, hours each
                 "read": self.wind_read,
+                # (as of 2026.11.56) the cool days with wind (what the day model
+                # counts) and where the forecast's wind speed comes from
+                "cool_days": self._cool_wind_days(),
+                "forecast": self.wind_forecast_src,
             },
             "oldest_day": next((r["d"] for r in self.journal if r.get("e") is not None), None),
             "heating_days": heating_days,

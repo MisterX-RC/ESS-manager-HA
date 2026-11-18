@@ -199,3 +199,47 @@ async def test_wind_read_again_a_day_later_when_nothing_recorded(hass, monkeypat
     freezer.tick(timedelta(hours=23))
     await co.async_refresh()
     assert w() == 2                                       # a day later again
+
+
+async def test_wind_forecast_from_the_wind_sensor(hass, monkeypatch):
+    """(2026.11.56) A wind sensor with a forecast list of its own: the forecast's
+    wind speed comes from it (per hour and per day), the direction and the
+    temperature stay the weather entity's."""
+    from homeassistant.core import SupportsResponse
+    from custom_components.ess_manager import coordinator as coord
+
+    now = dt_util.now()
+    base_states(hass, now)
+    hass.states.async_set("sensor.qube_heat", "100", {"unit_of_measurement": "kWh", "state_class": "total_increasing"})
+    hass.states.async_set("sensor.outdoor", "5", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.indoor", "21.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("climate.house", "heat", {"hvac_action": "idle", "temperature": 21.0, "current_temperature": 21.0})
+    hass.states.async_set("weather.home", "cloudy", {"wind_speed": 18.0, "wind_speed_unit": "km/h", "wind_bearing": 270})
+    day0 = dt_util.start_of_local_day(now)
+    hours = [day0 + timedelta(hours=i) for i in range(72)]
+    hass.states.async_set("sensor.wind", "36", {"unit_of_measurement": "km/h", "state_class": "measurement",
+                                               "forecast": [{"datetime": h.isoformat(), "wind_speed": 36.0} for h in hours]})
+
+    async def forecasts(call):
+        if call.data.get("type") == "hourly":
+            return {"weather.home": {"forecast": [{"datetime": h.isoformat(), "temperature": 6.0, "wind_speed": 18.0,
+                                                   "wind_bearing": 200} for h in hours]}}
+        return {"weather.home": {"forecast": []}}
+
+    async def history(hass_, entity_id, start, end):
+        return []
+
+    monkeypatch.setattr(coord, "async_fetch_state_changes", history)
+    hass.services.async_register("weather", "get_forecasts", forecasts, supports_response=SupportsResponse.ONLY)
+    entry = MockConfigEntry(domain="ess_manager", version=2, title="Thuis",
+                            data={**BASE_DATA, **HP_DATA, "hp_wind_entity": "sensor.wind"})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    co = hass.data["ess_manager"][entry.entry_id]["coordinator"]
+    tomorrow = (now.date() + timedelta(days=1)).isoformat()
+    day = co._hp_weather[tomorrow]
+    assert day["w"] == 10.0 and abs(day["wd"] - 200.0) < 0.5 and day["t"] == 6.0      # 36 km/h from the sensor
+    assert all(abs(float(f["wind_speed"]) * co._hp_wind_factor - 10.0) < 0.01 for f in co._hp_hourly)
+    assert co.data["heat_pump"]["wind"]["forecast"] == "sensor.wind"
+    assert co.data["heat_pump"]["wind"]["cool_days"] == 0
