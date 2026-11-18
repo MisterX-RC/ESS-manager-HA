@@ -3757,8 +3757,9 @@ check("heat pump runtime: no own metering -> only the weather difference is adde
       any(v != 0 for v in _tot_none[:48]) and all(v == 0 for v in _tot_none[-20:]))
 _rt_hp.sample(datetime(2026, 10, 14, 0, 5, tzinfo=_tzA), _tzA, t_out=5.0, wind=3.0)
 _row13 = next(r for r in _rt_hp.journal if r["d"] == "2026-10-13")
-check("heat pump runtime: at midnight the live day goes into the journal (wind direction, setpoint, sun forecast)",
-      _row13.get("wd") == 250.0 and _row13.get("sp") == 20.5 and _rt_hp.live["d"] == "2026-10-14")
+# (as of 2026.11.55) one live hour of wind isn't the day's: no w / wd in the row (12 hours needed - see below)
+check("heat pump runtime: at midnight the live day goes into the journal (setpoint, sun forecast; wind only with 12 hours)",
+      _row13.get("wd") is None and _row13.get("w") is None and _row13.get("sp") == 20.5 and _rt_hp.live["d"] == "2026-10-14")
 _rt2_hp = heatpump_runtime.HeatPumpRuntime()
 _rt2_hp.merge(_hpj[-12:], _hp_today)
 _t2, _a2, _u2 = _rt2_hp.compute("separate", _now_hp, _tzA, _h0, 121, _weather, {}, 6)
@@ -6940,6 +6941,30 @@ _wn2 = heatpump.wind_hours([(_wn_h0 - 60, None, 200.0)], _wn_h0, _wn_h0 + 3600)
 _wn3 = heatpump.wind_hours([(_wn_h0 - 60, 7.0, None)], _wn_h0, _wn_h0 + 3600)
 check("weather wind: an hour with only a direction, or only a speed",
       _wn2.get(_wn_h0) == [None, 200.0] and _wn3.get(_wn_h0) == [7.0, None])
+
+
+
+# (2026.11.55) after reading the recorder a few live hours give way to the whole day
+_wn_j2 = [{"d": "2026-11-10", "e": 4.0, "t": 6.0, "w": 9.0, "wd": 100.0}]
+_wn_hist2 = {str(_wn_start + i * 3600): [5.0, (270.0 if i >= 20 else None)] for i in range(24)}
+heatpump.fill_wind_days(_wn_j2, _wn_hist2, _wn_tzz)
+check("wind days: without renew a row's own wind stays", _wn_j2[0]["w"] == 9.0 and _wn_j2[0]["wd"] == 100.0)
+heatpump.fill_wind_days(_wn_j2, _wn_hist2, _wn_tzz, renew=True)
+check("wind days: renewed - the day's speed from the series; a direction of 4 hours only is dropped",
+      _wn_j2[0]["w"] == 5.0 and "wd" not in _wn_j2[0])
+from datetime import datetime as _wn_dt
+def _wn_live(hours):
+    rt = heatpump_runtime.HeatPumpRuntime()
+    t = _wn_dt(2026, 11, 10, 23 - hours, 30, tzinfo=_wn_tzz)
+    for _ in range(hours * 6):
+        rt.sample(t, _wn_tzz, t_out=5.0, wind=6.0, wind_dir=250.0)
+        t += _wn_td(minutes=10)
+    rt.sample(_wn_dt(2026, 11, 11, 0, 5, tzinfo=_wn_tzz), _wn_tzz, t_out=5.0, wind=6.0, wind_dir=250.0)
+    return next((r for r in rt.journal if r["d"] == "2026-11-10"), {})
+_wn_r3, _wn_r13 = _wn_live(3), _wn_live(13)
+check("live wind: a day with 3 hours of wind gets none in its row (nor a direction)",
+      _wn_r3.get("d") == "2026-11-10" and "w" not in _wn_r3 and "wd" not in _wn_r3)
+check("live wind: a day with 13 hours gets the wind and the direction", _wn_r13.get("w") == 6.0 and _wn_r13.get("wd") == 250.0)
 
 
 if FAILURES:

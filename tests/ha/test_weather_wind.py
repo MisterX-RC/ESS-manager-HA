@@ -154,6 +154,15 @@ async def test_wind_sensor_history_and_weather_left_out_of_the_recorder(hass, mo
     n = len(read)
     await co.async_refresh()
     assert len(read) == n                                 # done: not read again
+    # a row with a value from a few live hours (before 2026.11.55) gets the whole day at the next read
+    day = (dt_util.now().date() - timedelta(days=3)).isoformat()
+    co.hp.journal = [r for r in co.hp.journal if r["d"] != day] + [{"d": day, "e": 4.0, "t": 5.0, "w": 2.5, "wd": 90.0}]
+    co.hp.journal.sort(key=lambda r: r["d"])
+    co.hp.wind_src = None
+    co._hp_wind_tried_at = 0.0
+    await co.async_refresh()
+    row = next(r for r in co.hp.journal if r["d"] == day)
+    assert row["w"] == 10.0 and row["wd"] == 90.0          # speed renewed; no direction in the series: kept
     # the fits: the sensor's statistics (one hour here) and the series for the rest
     h = int(now.timestamp()) // 3600 * 3600 - 7200
     merged = co._hp_wind_hourly({**BASE_DATA, **HP_DATA, "hp_wind_entity": "sensor.wind"}, {"sensor.wind": {h: 3.0}})

@@ -1567,7 +1567,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                              "hours_speed": len(speed_h), "hours_dir": len(dir_h)}
         if hours:
             self.hp.add_wind_hours(hours, now.timestamp(), src=key)
-            self.hp.fill_wind_days(dt_util.get_default_time_zone())
+            self.hp.fill_wind_days(dt_util.get_default_time_zone(), renew=True)
         else:
             self._hp_wind_tried_at = now.timestamp() + 86400        # nothing in the recorder: again tomorrow
         _LOGGER.info("ESS Manager (%s): wind history read - speed %d hours (%s), direction %d hours (%s)", self.entry.title,

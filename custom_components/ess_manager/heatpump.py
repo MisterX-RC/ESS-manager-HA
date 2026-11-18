@@ -1187,15 +1187,18 @@ def wind_hours(samples: list[tuple[float, Optional[float], Optional[float]]], st
     return out
 
 
-def fill_wind_days(journal: list[dict[str, Any]], wind_hist: dict[str, list], tz: tzinfo) -> int:
+def fill_wind_days(journal: list[dict[str, Any]], wind_hist: dict[str, list], tz: tzinfo, renew: bool = False) -> int:
     """Journal rows without wind (w) or direction (wd) get it from the hourly
-    series, when it has WIND_DAY_HOURS of the day. Returns how many rows changed."""
+    series, when it has WIND_DAY_HOURS of the day. With `renew` (as of
+    2026.11.55: right after the recorder was read) a row's value is replaced
+    too where the series has the day - a value from a few live hours before
+    gives way to the whole day. Returns how many rows changed."""
     if not wind_hist:
         return 0
     hist = {int(k): v for k, v in wind_hist.items()}
     changed = 0
     for row in journal:
-        if row.get("w") is not None and row.get("wd") is not None:
+        if not renew and row.get("w") is not None and row.get("wd") is not None:
             continue
         d = date.fromisoformat(row["d"])
         start = local_day_start(d, tz)
@@ -1204,13 +1207,21 @@ def fill_wind_days(journal: list[dict[str, Any]], wind_hist: dict[str, list], tz
         ws = [v[0] for v in vals if v[0] is not None]
         if len(ws) < WIND_DAY_HOURS:
             continue
-        if row.get("w") is None:
-            row["w"] = round(sum(ws) / len(ws), 2)
-            changed += 1
-        if row.get("wd") is None:
+        if row.get("w") is None or renew:
+            w = round(sum(ws) / len(ws), 2)
+            if row.get("w") != w:
+                row["w"] = w
+                changed += 1
+        if row.get("wd") is None or renew:
             x = sum((v[0] or 1.0) * math.cos(math.radians(v[1])) for v in vals if v[1] is not None)
             y = sum((v[0] or 1.0) * math.sin(math.radians(v[1])) for v in vals if v[1] is not None)
             if sum(1 for v in vals if v[1] is not None) >= WIND_DAY_HOURS and (abs(x) > 1e-9 or abs(y) > 1e-9):
-                row["wd"] = round(math.degrees(math.atan2(y, x)) % 360, 1)
+                wd = round(math.degrees(math.atan2(y, x)) % 360, 1)
+                if row.get("wd") != wd:
+                    row["wd"] = wd
+                    changed += 1
+            elif renew and row.get("wd") is not None and any(v[1] is not None for v in vals):
+                # a direction from a few live hours only: not the day's
+                del row["wd"]
                 changed += 1
     return changed

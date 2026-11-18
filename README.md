@@ -1036,7 +1036,9 @@ its usage from the weather**); two pages follow:
   is tried again a day later. With a wind sensor, the house model and the
   cooling fit take its statistics and fill the hours they lack from the
   series recorded here. `heat_pump.wind.read` shows what was read (states
-  per entity, hours of speed and of direction).
+  per entity, hours of speed and of direction). A day's live wind and
+  direction go into its journal row only with 12 of its hours; right after
+  the recorder is read, days the series covers get the whole day's wind.
 - **The slow part, an energy signature**: per day, kWh = base + kWh per
   degree below the balance temperature (+ wind x degrees, + wind direction
   once there are enough days in most directions) - sun (+ kWh per degree

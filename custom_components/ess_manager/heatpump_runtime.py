@@ -278,9 +278,11 @@ class HeatPumpRuntime:
     def wind_series(self) -> dict[int, float]:
         return {int(k): v[0] for k, v in self.wind_hist.items() if v and v[0] is not None}
 
-    def fill_wind_days(self, tz: tzinfo) -> None:
-        """Journal rows without wind get it from the hourly series."""
-        if hp.fill_wind_days(self.journal, self.wind_hist, tz):
+    def fill_wind_days(self, tz: tzinfo, renew: bool = False) -> None:
+        """Journal rows without wind get it from the hourly series; with `renew`
+        (right after reading the recorder) also rows that had it, where the
+        series has the day."""
+        if hp.fill_wind_days(self.journal, self.wind_hist, tz, renew=renew):
             self.dirty = True
 
     def _note_wind(self, now: datetime, wind: Optional[float], wind_dir: Optional[float]) -> None:
@@ -348,6 +350,13 @@ class HeatPumpRuntime:
         add("t", t_out)
         add("w", wind)
         self._note_wind(now, wind, wind_dir)
+        # (as of 2026.11.55) the hours of the day with wind / a direction: the
+        # day's row only gets them with WIND_DAY_HOURS of them (a few evening
+        # hours after a start aren't the day's wind)
+        hour_key = int(now.timestamp()) // hp.HOUR
+        for name, value in (("w_hrs", wind), ("wd_hrs", wind_dir)):
+            if value is not None and hour_key not in lv.setdefault(name, []):
+                lv[name].append(hour_key)
         add("sp", setpoint)
         add("ti", indoor)
         if indoor is not None:
@@ -411,7 +420,9 @@ class HeatPumpRuntime:
             mean = self._mean(name)
             if mean is not None:
                 extra[key] = mean
-        if lv.get("wd_x") is not None:
+        if len(lv.get("w_hrs") or []) < hp.WIND_DAY_HOURS:
+            extra.pop("w", None)
+        if lv.get("wd_x") is not None and len(lv.get("wd_hrs") or []) >= hp.WIND_DAY_HOURS:
             if abs(lv["wd_x"]) > 1e-9 or abs(lv.get("wd_y", 0.0)) > 1e-9:
                 extra["wd"] = round(math.degrees(math.atan2(lv.get("wd_y", 0.0), lv["wd_x"])) % 360, 1)
         if lv.get("s") is not None:

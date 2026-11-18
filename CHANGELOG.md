@@ -27,6 +27,13 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 - `heat_pump.wind.read` in the Status sensor and diagnostics: when the
   recorder was read, the states per entity and the hours of speed and
   direction it gave.
+- **A day's wind needs 12 hours.** The live wind and direction only go into
+  a day's journal row when at least 12 of its hours have them - a few
+  evening hours after a start or an update aren't the day's wind (they
+  counted towards the 21 days). Right after the recorder is read, a day the
+  series has (12 hours or more) gets the whole day's wind instead of an
+  earlier value from a few live hours; a direction from a few hours only is
+  dropped.
 
 ## [2026.11.54] - 2026-11-17
 
