@@ -4,62 +4,119 @@
 [![GitHub release](https://img.shields.io/github/v/release/MisterX-RC/ESS-manager-HA)](https://github.com/MisterX-RC/ESS-manager-HA/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A Home Assistant custom integration for battery/solar/price-aware charge and
-discharge planning: it watches your battery's state of charge, a solar
-production forecast, a household usage forecast, and dynamic electricity
-prices, and decides when to charge, when to discharge, and how much. It can send the
-charge/discharge setpoint to your inverter itself (optional - see "Direct
-control"), or leave that to a separate, small automation that
-acts on its Status sensor.
+A Home Assistant custom integration that plans and steers a home battery on
+dynamic (quarter-hour) electricity prices, a solar forecast and a learned
+household usage forecast - and plans the electric car and the heat pump
+around the same prices.
 
-This started as a hand-written Home Assistant template sensor (that
-original configuration is still in this repository's git history, up to
-v0.2.20) and was rebuilt here as a proper, configurable custom
-integration so it can be shared and installed on other systems via HACS,
-without every install needing to hand-edit Jinja templates or hardcode
-someone else's entity IDs.
+**What it does**
+
+- **Battery planning** - every minute a five-day forecast of the battery
+  level, and plans for when to charge (in the cheapest quarters, each part
+  before it's needed), when to sell (in the priciest), price spikes,
+  negative prices, a periodic full charge for cell balancing, and taking
+  the house from the grid at low prices instead of out of the battery.
+- **Control** - it can send the grid / inverter setpoint itself (for
+  example a Victron GX's ESS setpoint), or leave that to your own
+  automation that follows its Status sensor. With control switched off the
+  status card sets the setpoint by hand.
+- **Prices** - Nord Pool day-ahead prices, optionally including taxes
+  (entered by hand or learned from your supplier's price sensor) and a
+  grid transport tariff. A reference price from the last week keeps the
+  plans from buying at a dear moment while later prices aren't known yet.
+- **Electric car** - a Victron EV charging station or a myenergi zappi:
+  charging sessions "full by" a time (in the cheapest quarters), as soon as
+  possible, slowly or on the sun, predicted from when the car is usually
+  plugged in, with phone notifications that ask the state of charge. Or
+  charge by hand from the card.
+- **Heat pump** - a model of what the heat pump uses per day and per hour
+  (from the weather, the sun and the wind), a learned thermostat, steering
+  of the day / night temperature and buffering heat at cheap moments, and
+  floor heating control (return setpoint) for a Qube heat pump.
+- **Insight** - a forecast check (how good the usage and solar forecasts
+  were, with a Safety buffer advice), what the battery saved against the
+  same house without one, problem notices and diagnostics.
+- **Seven dashboard cards**, drawn by the integration itself - nothing else
+  to install.
+
+It started as a hand-written template sensor and was rebuilt as a
+configurable integration, installable via HACS on any system with the
+entities described under [Requirements](#requirements).
+
+**Contents:**
+[Screenshots](#screenshots) ·
+[How the battery planning works](#what-it-does) ·
+[Requirements](#requirements) ·
+[Household usage forecast](#household-usage-forecast) ·
+[Electric car](#electric-car) ·
+[Heat pump](#heat-pump) ·
+[Forecast check](#forecast-check) ·
+[Grid transport tariff](#grid-transport-tariff) ·
+[Prices including taxes](#prices-including-taxes) ·
+[Installation](#installation) ·
+[Configuration](#configuration) ·
+[Wiring it to your inverter](#wiring-it-to-your-inverter) ·
+[Direct control](#direct-control) ·
+[Full-charge balancing](#full-charge-balancing) ·
+[Problem notices](#problem-notices) ·
+[Diagnostics](#diagnostics) ·
+[Dashboard](#dashboard) ·
+[Versioning](#versioning)
 
 ## Screenshots
 
-**Battery forecast** - always five whole days, today included. Left of
-"now" what happened (the measured battery level, solar and household
-usage), right of it what's expected: the battery level with the planned
-actions in it, coloured by what the battery does (red for a sale, blue for
-a charge, more intense for a spike or negative price plan), the solar and
-usage forecast, and as a thin dotted line the battery level without any
-plan. The band is your min / max SOC, everything after the planning
-horizon is dimmed. Top right: the battery level now and how long you'd
-last without the grid; below the chart a tile per day. Tap (or hover) for
-the values at a moment.
+The integration's own dashboard cards - search for **ESS Manager** in the
+"Add card" picker. See [Dashboard](#dashboard) for their options. *(Shown
+with Home Assistant's default dark theme and demo data; with a theme they
+take its colours.)*
 
-![Battery forecast card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/battery-card.jpg)
-
-**Prices** - today's and tomorrow's prices, coloured from cheap to
-expensive (negative prices apart). The planned buy and sell moments stand
-out in full colour, the rest is dimmed; what's past sits under a darker
-layer, with the plans that ran still visible. Top: the price now, the buy
-price and the cheapest / most expensive moment still to come.
-
-![Price card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/price-card.jpg)
-
-**Status** - the planned sale (Sell) and charge (Buy) side by side, with
-start, stop, a bar that fills as the battery gets there, the energy and
-the target SOC; a block that is running gets an outline in its colour (or
-in the colour of the spike, negative price or balancing plan that drives
-it). Below: the price plan status and a timeline of what the battery
-did over the last hours. Top right: the control toggle and a Settings
-button to the ESS Manager device page.
+**Status** - the planned charge and sale (and the house from the grid)
+side by side with their progress; a block that's running gets an outline.
+Below: the spike and negative price plans and a timeline of the last 24
+hours. Top right: the control toggle and a Settings button.
 
 ![Status card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/status-card.jpg)
 
-These are the integration's own dashboard cards (**ESS Manager - Battery
-forecast**, **- Prices** and **- Status** in the "Add card" picker) - see
-"Dashboard" below for their options.
+**Battery forecast** - five whole days: left of "now" what happened, right
+of it the expected battery level with the planned actions in their colour,
+the solar and usage forecast, and dotted the level without any plan. Below
+the chart a tile per day.
+
+![Battery forecast card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/battery-card.jpg)
+
+**Prices** - today's and tomorrow's prices coloured from cheap to
+expensive, the planned moments in full colour, the reference price as a
+dashed line. Top: the price now and the cheapest / most expensive moment
+still to come.
+
+![Price card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/price-card.jpg)
+
+**Electric car** - the plugged-in car with its plan (here "full by"
+Friday 07:00, waiting for the next day's prices), and the planned or
+predicted sessions of the coming days.
+
+![Electric car card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/ev-card.jpg)
+
+**Heat pump** - the forecast per day from the weather, and in the other
+tabs the energy signature, what the model has learned, the indoor model
+and floor control.
+
+![Heat pump card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/heatpump-card.jpg)
+
+**Forecast check** - how far the usage and solar forecasts were off, the
+Safety buffer advice and which usage forecast is in use.
+
+![Forecast check card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/forecast-card.jpg)
+
+**Savings** - what the battery saved against the same house without one,
+per day, week, month or year.
+
+![Savings card](https://raw.githubusercontent.com/MisterX-RC/ESS-manager-HA/main/docs/images/savings-card.jpg)
 
 ## What it does
 
-Five planning engines, all documented in detail in the code
-(`custom_components/ess_manager/plans.py`):
+How the battery planning works. The planning engines are documented in
+detail in the code (`custom_components/ess_manager/plans.py`):
 
 1. **Low charge plan** - charges before the battery would otherwise drop
    below your minimum SOC, in the cheapest quarters before it's needed -
@@ -330,7 +387,7 @@ just because those weren't loaded yet; after that it plans with what there
 is. The full-charge balancing wait at 100% is
 never interrupted by it.
 
-All five compose on top of a 121-hour (5-day) forecast pipeline: solar
+All plans build on a 121-hour (5-day) forecast pipeline: solar
 forecast minus usage forecast, cumulatively summed into a projected battery
 level, compensated for the fact that the current hour is only partially
 elapsed (see the code comments in `forecasting.py` for why that matters).
