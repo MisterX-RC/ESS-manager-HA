@@ -68,6 +68,8 @@ const I18N = {
     plan_export: "Solar export", plan_exported: "Exported", export_expected: "Export expected", legend_export: "Solar export",
     ed_export_color: "Solar export", tip_grid_use: "House from the grid", tip_export: "Solar export (expected)",
     no_prices: "No prices yet",
+    price_ref_label: "ref", price_ref_info: "Reference price: the median over the last 7 days of each day's 6 cheapest hours (buy price) - not in use now",
+    price_ref_used: "Reference price: the median over the last 7 days of each day's 6 cheapest hours (buy price) - in use: the plans only buy at or below it while later prices aren't known",
     msg_not_found: (e) => `ESS Manager: ${e} not found - choose the installation's "Status" sensor.`,
     msg_not_status: (e) => `ESS Manager: ${e} is not an ESS Manager Status sensor - choose the "Status" sensor.`,
     msg_unavailable: (e) => `ESS Manager has no data yet: ${e} is unavailable. Right after a restart that's normal for a moment; if it stays, look in Settings > System > Logs for "ess_manager".`,
@@ -300,6 +302,8 @@ const I18N = {
     plan_export: "Teruglevering", plan_exported: "Teruggeleverd", export_expected: "Teruglevering verwacht", legend_export: "Teruglevering",
     ed_export_color: "Teruglevering", tip_grid_use: "Huis uit het net", tip_export: "Teruglevering (verwacht)",
     no_prices: "Nog geen prijzen",
+    price_ref_label: "ref", price_ref_info: "Referentieprijs: de mediaan over de afgelopen 7 dagen van de 6 goedkoopste uren per dag (inkoopprijs) - nu niet in gebruik",
+    price_ref_used: "Referentieprijs: de mediaan over de afgelopen 7 dagen van de 6 goedkoopste uren per dag (inkoopprijs) - in gebruik: zolang latere prijzen onbekend zijn, kopen de plannen alleen tot deze prijs",
     msg_not_found: (e) => `ESS Manager: ${e} niet gevonden - kies de "Status"-sensor van de installatie.`,
     msg_not_status: (e) => `ESS Manager: ${e} is geen ESS Manager Status-sensor - kies de "Status"-sensor.`,
     msg_unavailable: (e) => `ESS Manager heeft nog geen gegevens: ${e} is niet beschikbaar. Vlak na een herstart is dat even normaal; blijft het zo, kijk dan in Instellingen > Systeem > Logboeken naar "ess_manager".`,
@@ -1627,6 +1631,15 @@ class EssManagerPriceCard extends EssChartCard {
     // tariff is set); without one it would just trace the top of the bars.
     const showBuyLine = opt.show_buy_line !== false && buy.some((v, i) => v !== null && prices[i] !== null && Math.abs(v - prices[i]) > 1e-6);
     const lineVals = showBuyLine ? buy.filter((v) => v !== null) : [];
+    // (as of 2026.11.58) the reference price of the last week as a dashed
+    // line - a buy price, so not in the sell view; emphasised while it's in
+    // use (the battery's plans, or a car's "full by" waiting for prices)
+    const pref = attrs.price_reference || {};
+    const refPrice = view !== "sell" && pref.price != null && isFinite(Number(pref.price)) ? Number(pref.price) : null;
+    if (refPrice !== null) lineVals.push(refPrice);
+    const evSession = ((attrs.ev || {}).charger || {}).session || {};
+    const refUsed = !!pref.active || !!evSession.wait_from
+      || ((attrs.ev || {}).sessions || []).some((x) => x && x.full_by && x.full_by.wait_from);
     let lo = Math.min(0, ...valid, ...lineVals);
     let hi = Math.max(...valid, ...lineVals);
     const steps = [0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5];
@@ -1761,7 +1774,9 @@ class EssManagerPriceCard extends EssChartCard {
     const svg = `<defs>${grad}</defs>${axis}${sunUnder}${under}
       <path d="${bars(all)}" fill="url(#lvl)" fill-opacity="0.75"/>
       <path d="${bars(all.filter(inWindow))}" fill="url(#lvl)"/>
-      ${sunStreaks}${streaks}${buyLine}
+      ${sunStreaks}${streaks}${buyLine}${refPrice !== null ? `<g><title>${esc(this._t(refUsed ? "price_ref_used" : "price_ref_info"))}</title>
+        <line x1="${X0}" y1="${r1(y(refPrice))}" x2="${W}" y2="${r1(y(refPrice))}" style="stroke:var(--primary-text-color, #e8e8e8)" stroke-opacity="${refUsed ? 0.9 : 0.45}" stroke-width="${refUsed ? 1.5 : 1}" stroke-dasharray="6 4"/>
+        <text x="${W - 2}" y="${r1(y(refPrice) - 4)}" text-anchor="end" style="font-size:10px;fill:var(--primary-text-color, #e8e8e8);paint-order:stroke;stroke:${bg};stroke-width:3px;stroke-linejoin:round" fill-opacity="${refUsed ? 0.95 : 0.6}">${esc(this._t("price_ref_label"))} ${esc(f.money(refPrice))}</text></g>` : ""}
       <rect x="${X0}" y="0" width="${r1(clamp(xNow - X0, 0, W - X0))}" height="${r1(bottom + 8)}" style="fill:${bg}" fill-opacity="0.6"/>
       ${dayLine ? `<line x1="${r1(x(dayLine))}" y1="${top - 4}" x2="${r1(x(dayLine))}" y2="${r1(bottom + 8)}" stroke="rgba(127,127,127,.45)"/>` : ""}
       ${n < slots ? `<text x="${r1((xi(n) + W) / 2)}" y="${r1(top + H / 2)}" text-anchor="middle" style="font-size:11px">${esc(this._t("no_prices"))}</text>` : ""}

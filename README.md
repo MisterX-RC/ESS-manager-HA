@@ -2291,7 +2291,12 @@ a label ("Sell 19:15", "Negative price 13:00"); the other bars are dimmed.
 Everything before "now" sits under a darker layer; the plans that ran
 today (from the Battery action history - "Charged 03:00", "Sold 19:15")
 still show in it. The dotted line is the buy price (with transport - only
-when a transport tariff is set, otherwise it equals the price). Top:
+when a transport tariff is set, otherwise it equals the price). *(As of
+2026.11.58)* a dashed line across the whole chart - the part without
+prices yet included - marks the **reference price of the last week**
+("ref € 0.33", the buy price, so not in the sell view): bold while it's in
+use (the battery's plans, or a car's "full by" waiting for the next day's
+prices), faint otherwise; hover it for what it is. Top:
 the price now, the buy price, and the cheapest and most expensive moment
 still to come. Tap (or hover) for the price of a quarter.
 

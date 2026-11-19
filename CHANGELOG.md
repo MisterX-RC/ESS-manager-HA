@@ -12,6 +12,17 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.58] - 2026-11-19
+
+### Cards
+- **Price card: the reference price as a line.** A dashed line across the
+  whole chart, the part without prices yet included, at the reference
+  price of the last week ("ref € 0.33"; a buy price, so not in the sell
+  view). Bold while it's in use - the battery's plans while later prices
+  aren't known, or a car's "full by" waiting for the next day's prices -
+  faint otherwise. The scale takes it in, so it's always on the chart; a
+  tooltip says what it is.
+
 ## [2026.11.57] - 2026-11-18
 
 ### Electric car
