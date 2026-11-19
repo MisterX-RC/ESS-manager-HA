@@ -125,9 +125,8 @@ detail in the code (`custom_components/ess_manager/plans.py`):
    full battery. A charge split over several blocks is finished: once its
    first block has run, the rest still counts up to minimum SOC + buffer
    (not just minimum SOC) until the last planned block, so it isn't dropped
-   just because the first block already lifted the dip above the minimum
-   (as of 2026.10.13). As of 2026.10.19 a charge aims at the **lowest point
-   of the planning horizon**, not just the first dip: every later dip gets
+   just because the first block already lifted the dip above the minimum.
+   A charge aims at the **lowest point of the planning horizon**, not just the first dip: every later dip gets
    its part before its own hours, in the cheapest quarters (what the first
    dip needs before the first dip, the rest before the lowest point), and
    only as much as fits under 100% before it - a sunny day that fills the
@@ -135,9 +134,8 @@ detail in the code (`custom_components/ess_manager/plans.py`):
    higher all along (more left in a power cut), and a later dip can wait
    for a cheaper valley because the level is already higher. A dip below
    the surplus minimum is always met; the plan shows `lowest_kwh` and
-   `horizon_target_kwh`. *(as of 2026.10.40)* What's needed after the end
-   of the known prices is no longer left until they come in: it's bought
-   now, before that end, as far as it fits under 100% - so a battery that
+   `horizon_target_kwh`. What's needed after the end of the known prices
+   isn't left until they come in: it's bought now, before that end, as far as it fits under 100% - so a battery that
    only drains for days (little sun, cars to charge) is topped up a bit
    more every day instead of getting just enough to reach midnight. Those
    not-yet-urgent parts (and every other part only needed "where it fits")
@@ -157,7 +155,7 @@ detail in the code (`custom_components/ess_manager/plans.py`):
    When it doesn't (say the best moment before the overflow is 0.13 while
    the overflow exports at 0.125 and tonight goes to 0.24), the overflow is
    left to the grid and what's still too much is sold before the next
-   overflow, at its best price (as of 2026.10.10; the Status attribute
+   overflow, at its best price (the Status attribute
    `high_discharge_plan.overflow_to_grid` lists what was left to the grid).
    An expensive morning before a cheap midday overflow is still sold in
    the morning.
@@ -167,15 +165,13 @@ detail in the code (`custom_components/ess_manager/plans.py`):
    sessions (each at most four hours at the charge speed, or 30x the
    average hourly usage when that's more); the status card's Buy block
    shows the session - its energy over all its blocks and the level it
-   ends at (as of 2026.10.33; up to then always "-> 100%"). While it's
-   charging or balancing it comes first. While it's only **scheduled**
-   (as of 2026.10.33) it no longer holds the other plans back: the low
+   ends at. While it's charging or balancing it comes first. While it's
+   only **scheduled** it doesn't hold the other plans back: the low
    charge plan counts the full charge's quarters (it only buys what the
    full charge doesn't bring in in time, and never in the same quarters),
    and a low charge, negative price or spike plan whose window is now goes
    ahead - the status says `Full charge scheduled` only when nothing else
-   is going on. Up to then a scheduled full charge kept everything else
-   idle until it started, which with a slow charger could be days. A sale
+   is going on. A sale
    of the surplus (the max SOC sale) isn't planned while a full charge is
    due: that energy is what fills the battery.
 4. **Spike arbitrage plan** - on a day with a large enough price spread,
@@ -190,7 +186,7 @@ detail in the code (`custom_components/ess_manager/plans.py`):
 5. **Negative price plan** - when the price goes low enough that charging
    pays you outright, buys as much as your hardware can take in that
    window, clearing room beforehand if needed.
-6. **The house from the grid at low prices** *(optional, as of 2026.10.41)*
+6. **The house from the grid at low prices** *(optional)*
    - every kWh put into the battery and taken out again loses something
    (charge x discharge efficiency, e.g. 90% x 90% = 81%). With flat prices
    that means charging and then using the battery at about the same price
@@ -204,7 +200,7 @@ detail in the code (`custom_components/ess_manager/plans.py`):
    the price is still low enough. Rules: the house only comes from the grid
    **below the lowest known price after the losses** (lowest price /
    (charge x discharge efficiency): with 0.21 and 81%, up to 0.26) -
-   *(as of 2026.11.33)* except for a **hard** part (the floor, or the
+   except for a **hard** part (the floor, or the
    minimum without a surplus minimum, that has to be met by a certain
    hour): that one may take the house from the grid in any quarter before
    its deadline, also an expensive one, since in the same quarter that
@@ -220,7 +216,7 @@ detail in the code (`custom_components/ess_manager/plans.py`):
    the grid can still become a charge when that's cheaper. Solar left over
    still goes into the battery. A short solar gap (up to an hour) between
    two such quarters comes along: a 15-minute forecast average can hide a
-   peak above the sun. *(As of 2026.11.16)* with a shortfall to plan for
+   peak above the sun. With a shortfall to plan for
    (a charge is triggered), **every** quarter at or below that price limit
    is taken from the grid - also where no requirement needs it, and where
    the sun is forecast to cover the house (at 0 kWh) - as long as the
@@ -228,18 +224,18 @@ detail in the code (`custom_components/ess_manager/plans.py`):
    an unplanned load or a peak (the washing machine) or less sun than
    forecast then comes from the grid at that low price instead of out of
    the battery; a real surplus still charges it. No shortfall, nothing from
-   the grid. *(As of 2026.11.40)* in a **solar deficit** (the sun alone
+   the grid. In a **solar deficit** (the sun alone
    doesn't fill the battery) that check is made with the battery stopping at
-   100%: a planned charge that would go over the top no longer counts its
+   100%: a planned charge that would go over the top doesn't count its
    overshoot in every later hour. And a quarter after which the battery does
    reach the top still goes from the grid when a planned charge lies between
    it and that moment - the charge then simply needs less (it stops at its
    target). Without a charge in between, what's kept in the battery would go
-   to the grid later, so there it stays out. In a surplus nothing changes.
-   *(As of 2026.11.50)* **a reference price from the last week** while
-   tomorrow's prices aren't known yet: until then the planner only sees the
+   to the grid later, so there it stays out. In a surplus it isn't capped.
+   **A reference price from the last week** while
+   tomorrow's prices aren't known yet: until they are, the planner only sees the
    rest of today, and on a day that is dear as a whole "the cheapest quarter
-   left today" is itself dear - the house was taken from the grid and the
+   left today" is itself dear - the house would be taken from the grid and the
    battery topped up at prices well above what a charge normally costs. The
    reference is what a charge usually cost: per day the average buy price of
    its **6 cheapest hours**, and of the last **7 days** the **median** (at
@@ -248,39 +244,36 @@ detail in the code (`custom_components/ess_manager/plans.py`):
    min(lowest known price, reference) / (charge x discharge efficiency), and
    what is needed **after** the known prices is only bought at or below the
    reference - the rest waits for tomorrow's prices, and once those are in
-   the plan is made over today and tomorrow as before. It only applies
+   the plan is made over today and tomorrow. It only applies
    while no prices after today are known, **before 18:00** and when the
    battery doesn't drop below the low threshold within **12 hours** (the
-   safety net: otherwise it plans as before, in the cheapest quarters left
-   today). **Hard** parts (below the threshold before the end of the known
+   safety net: otherwise it plans in the cheapest quarters left today). **Hard** parts (below the threshold before the end of the known
    prices) are never held back by it. The day prices come from those the
    savings card keeps (the last 14 days; days missing are read from the
    recorder). The `price_reference` attribute shows the price, whether it
    applies (`reason`: `active`, `tomorrow_known`, `after_18`, `empty_soon`,
    `too_few_days`) and the value per day. No setting.
-   A quarter that started from the grid is finished that way
-   (as of 2026.11.30), like a running charge window - unless a charge takes
-   it over: with the battery nearly full and the sun filling it to the top
-   later on, the minute-by-minute choice otherwise flipped between the grid
-   and the battery every minute or two. Meanwhile the Status is **House from grid** and, with
+   A quarter that started from the grid is finished that way, like a
+   running charge window - unless a charge takes it over - so with the
+   battery nearly full and the sun filling it to the top later on, it
+   doesn't flip between the grid and the battery every minute or two. Meanwhile the Status is **House from grid** and, with
    direct control, the grid setpoint follows the battery's measured power
    **every 15 seconds** (a fast loop that only does this - the rest of the
    cycle stays once a minute): the last setpoint plus 60% of what the
    battery discharges (minus what it charges), so it settles where the
    battery is at 0 W in a few steps without overshooting - never below the
    idle value, a car or a kettle included, back to idle by itself when the
-   sun comes out (±30 W counts as 0; without a power reading: idle). *(As of
-   2026.10.43)* the setpoint entity's own `step` is taken into account: a
+   sun comes out (±30 W counts as 0; without a power reading: idle). The
+   setpoint entity's own `step` is taken into account: a
    coarse one (say whole kW) gets a dead band of half a step, at least one
    whole step per correction and values rounded to its step, so it settles
    on the nearest step instead of jumping between two (the battery then
-   stays within half a step of 0); a fine one (W) works as before. The forecast keeps that energy in the
-   battery. The cards show it in purple (as of 2026.10.41): on the price
+   stays within half a step of 0); a fine one (W) is followed directly. The forecast keeps that energy in the
+   battery. The cards show it in purple: on the price
    chart as blocks labelled "From the grid", on the battery chart the
    forecast line in that colour with a label for stretches of 45 minutes
-   or more (as of 2026.10.42 blocks of the same kind less than three hours
-   apart share one label, "+2"; a label that would overlap another is left
-   out) and a line
+   or more (blocks of the same kind less than three hours apart share one
+   label, "+2"; a label that would overlap another is left out) and a line
    in the hover tooltip ("House from the grid
    23:15-08:00 · ~1.2 kWh"); afterwards both charts show when it ran (the
    Battery action `grid_use`).
@@ -301,11 +294,10 @@ usage or less solar than forecast). Once the spike charge has run, a
 further top-up before the peak is only bought in quarters where the buy
 price is at least the **Spike margin** below the peak price, and only if
 it's at least the **Minimum charge target**; the sale is sized on what the
-battery is then expected to hold at the peak. (Up to v0.5.11 the spike and
-negative price plans were fixed as a whole.)
+battery is then expected to hold at the peak.
 
-**Charging in the cheapest quarters, each part before it's needed** (as of
-2026.10.6). The low charge and full charge plans don't look for one long
+**Charging in the cheapest quarters, each part before it's needed**.
+The low charge and full charge plans don't look for one long
 window that holds the whole amount. Every part of a charge is bought in the
 cheapest quarters before the moment it's needed: if the battery runs short
 tonight and keeps draining until the day after tomorrow, it buys tonight
@@ -320,17 +312,13 @@ known price waits until the next prices are in (they're published around
 13:00, well before). A charge also only goes where the battery has room
 for it (under 100% at every later hour) as long as it can. Making a block
 long enough can add more than needed; what's then left over is dropped in
-the way that leaves the cheapest plan (as of 2026.10.32 - up to then whole
-blocks went first, so a cheap short block could go while dearer quarters
-added to lengthen another block stayed). A block also stops lower when the
-sun after it - before the next block - would take the battery over 100%
-(as of 2026.11.46): it keeps its quarters, so its minimum length, but stops
+the way that leaves the cheapest plan. A block also stops lower when the
+sun after it - before the next block - would take the battery over 100%:
+it keeps its quarters, so its minimum length, but stops
 earlier on its level, and the sun fills the battery to the top instead of
 going to the grid. Never so low that an hour in between drops under min SOC
-plus the Safety buffer. Up to then a block lengthened to the minimum
-duration, or one just before a sunny afternoon, bought energy the sun
-after it then sent to the grid. As of 2026.11.47 that check counts the
-high side of the solar forecast (Helios Forecast's p90, Solcast's
+plus the Safety buffer. That check counts the high side of the solar
+forecast (Helios Forecast's p90, Solcast's
 pv_estimate90) instead of the forecast itself, so the block leaves room for
 a sunnier afternoon than expected (the floor check stays on the forecast;
 the current hour and hours without a band count the forecast). After such a
@@ -339,7 +327,7 @@ sunny one the room is filled by the sun instead of exported. A later block
 only ends the hours looked at when it still has room to fill. The high
 side per hour is in the diagnostics (`solar_120h_p90`).
 
-**Selling in the priciest quarters too** (as of 2026.10.10). A sale isn't
+**Selling in the priciest quarters too**. A sale isn't
 one window either: it goes into the priciest quarters before the moment
 it's needed, possibly in several blocks of at least the same **Minimum
 charge/sale duration**. Each quarter is only used as far as the forecast
@@ -349,7 +337,7 @@ with a low point at 07:00) sells what fits there and the rest after that
 low point - instead of either selling less, or all of it at the cheaper
 moment. The first block is the plan's window, like a charge.
 
-**Charging with the sun in mind** (as of 2026.10.4). The battery takes at
+**Charging with the sun in mind**. The battery takes at
 most your **max battery charge speed**. In a sunny hour the sun already
 charges it, so a grid charge can only add what's left up to that max -
 nothing at all when the sun alone fills it (say a 1.8 kW charger with
@@ -357,14 +345,14 @@ nothing at all when the sun alone fills it (say a 1.8 kW charger with
 charge, spike top-up, negative price charge) work out per quarter what the
 grid really adds: the sun only makes a window longer - quarters it already
 fills add nothing, so the window runs on until the amount is in - and the
-cheapest window is still chosen, costed on what's really bought. *(As of
-2026.11.34)* What's bought is what the grid can really deliver during a
+cheapest window is still chosen, costed on what's really bought.
+What's bought is what the grid can really deliver during a
 charge: the house's shortfall plus what the battery still takes up to its
 max (after the sun), never more than the Charge speed - nothing is counted
 as sold back. A Charge speed well above the battery's max (so that without
-sun the inverter charges at its max and the house is covered on top) no
-longer makes charge quarters look dearer, the sunny ones most: a cheap
-midday dip is costed at its own price and chosen. A
+sun the inverter charges at its max and the house is covered on top)
+doesn't make charge quarters look dearer: a cheap midday dip is costed
+at its own price and chosen. A
 low charge stops at the forecast level at the end of its window plus its
 amount (never above 100%), so the sun shining during the window doesn't
 count toward what was meant to be bought; and it's only planned where the
@@ -376,10 +364,10 @@ afresh, running windows included - so a charge started because of a
 threshold you've since changed back stops if it's no longer needed (or
 continues, resized, if it still is). A switch between solar surplus and
 deficit does the same, since it changes the minimum SOC every plan works
-with. A (re)start of Home Assistant or the integration does it too (as of
-2026.10.14), so a window stored before the restart is checked against the
+with. A (re)start of Home Assistant or the integration does it too,
+so a window stored before the restart is checked against the
 current settings and forecast. When a sensor it needs (battery SOC, price)
-isn't there yet right after a restart (as of 2026.10.15), the entities are unavailable until
+isn't there yet right after a restart, the entities are unavailable until
 the next cycle (once a minute) finds it - no reload needed. For the first 10
 minutes after a start it also waits for the solar forecast sensor(s) and the
 household usage statistics, so it never plans with "no sun" or "no usage"
@@ -395,7 +383,7 @@ elapsed (see the code comments in `forecasting.py` for why that matters).
 **Two forecasts at the top: clipped and not.** The running sum of solar
 minus usage has no top - on a sunny day it can "fill" the battery to 106%.
 In reality the battery stops at 100% and the rest goes to the grid. So
-(as of 2026.10.1) the charge plan, the negative price and spike plans and
+ the charge plan, the negative price and spike plans and
 the cards use the forecast clipped at 100% - after a full day the next dip
 starts from 100%, not 106%, so a morning dip isn't underestimated (and the
 negative price plan never plans to charge above 100%, whatever the max
@@ -423,8 +411,7 @@ whether the sun or the grid refills the battery, so there are two:
 The whole 121-hour forecast counts, and the nearest of the two moments
 decides. 0% and 100% are the only switch points: when the forecast does
 neither within the 5 days (it stays between 0% and 100% all along), the
-mode simply stays what it was (as of 2026.10.8 - before that it went back
-to surplus). The mode is stored, so a restart or an update keeps it too; a
+mode simply stays what it was. The mode is stored, so a restart or an update keeps it too; a
 brand-new installation starts in surplus. The minimum in use is the low threshold for every plan - when to
 charge, and how far a sale may go. The **Solar mode** sensor shows
 `Deficit` or `Surplus`, the minimum in use, in how many hours the raw
@@ -440,10 +427,8 @@ switches. The charge plan therefore treats the two differently:
 - A dip below the **surplus minimum** is charged for before the battery
   gets there, the full amount, exactly as in surplus mode.
 - A dip that only reaches into the band between the two minimums is
-  charged in the cheapest window before its lowest point (as of
-  2026.10.8 - until then before the dip was over, so part of it could be
-  bought after the lowest point, when it no longer lifts anything) -
-  just what's missing (rounded up to the **Minimum charge target**), and
+  charged in the cheapest window before its lowest point (after it, a
+  charge would no longer lift anything) - just what's missing (rounded up to the **Minimum charge target**), and
   never more than still fits under 100% at the forecast peaks after the
   charge (a peak before it, like this afternoon's for a charge tomorrow,
   doesn't count - the window goes after it), so nothing
@@ -454,8 +439,8 @@ switches. The charge plan therefore treats the two differently:
   needs no charge.
 
 A charge for a dip below the surplus minimum buys what's missing up to
-the surplus minimum plus the band part that fits. No charge fills the
-battery up to 100% any more (as of 2026.10.7).
+the surplus minimum plus the band part that fits. A charge never fills the
+battery to 100% just because it charges (that's the full charge plan's job).
 
 By default the integration only decides: its `Status` sensor says what
 should happen and your own automation acts on it - see "Wiring it to your
@@ -477,7 +462,7 @@ integration producing the same shape works):
   with the planning engines' 15-minute unit indexing. The lists run in
   real time from local midnight, so the day summer time ends has 100
   quarters and the day it starts 92; ESS Manager counts the current
-  quarter the same way (as of 2026.10.25).
+  quarter the same way.
 - **Household usage forecast**: nothing extra if your Home Assistant
   Energy dashboard is set up (at least a grid source) - the integration
   calculates the forecast itself from the statistics the Energy dashboard
@@ -491,7 +476,7 @@ integration producing the same shape works):
     time of day updates happen to run (Solcast typically needs
     today/tomorrow/day_3 at minimum, more if you want headroom late in the
     day).
-  - **Helios Forecast** *(as of 2026.10.21)*: pick its "Power now" sensor
+  - **Helios Forecast**: pick its "Power now" sensor
     (`sensor.helios_forecast_power_now`). Its `forecast` attribute holds one
     point per quarter hour (`{"datetime", "watts", ...}`) from midnight
     today through seven days ahead, so that one sensor covers the whole
@@ -505,7 +490,7 @@ integration producing the same shape works):
   on. A sensor with neither attribute counts as no sun at all, so the
   integration logs a warning for it once.
 - **Grid/inverter setpoint** *(optional but recommended; on the Battery
-  control pages as of 2026.11.42)*: the entity that holds your current
+  control pages)*: the entity that holds your current
   commanded charge/discharge power - a sensor, a `number` or an
   `input_number`. With **Status sensor only** it's asked on the Battery
   control page itself: the setpoint your own ESS automation writes. With
@@ -531,10 +516,10 @@ integration producing the same shape works):
   balancing" below.
 
 The planning runs once a minute, and also right at every quarter boundary
-(:00, :15, :30, :45 - as of 2026.10.20; it was every 30 seconds), so a
+(:00, :15, :30, :45), so a
 planned block or the night limit still starts and stops on the quarter.
 Changing a setting on the card replans straight away. The heavy parts - the battery plans
-and the heat-pump model - run in a worker thread (as of 2026.10.20), so
+and the heat-pump model - run in a worker thread, so
 even on a Raspberry Pi they don't hold up the rest of Home Assistant;
 only reading the sensors, sending the setpoint and setting the thermostat
 happen on Home Assistant's event loop.
@@ -569,15 +554,6 @@ change is logged once, and while more than half of the forecast has no
 history, a notice under Settings -> System -> Repairs asks you to keep an eye
 on the plans; it disappears by itself. The Status sensor is not affected by
 any of this.
-
-*Removed in 0.3.0:* the older **existing h0..h120 sensor** and **calculated
-from hand-picked sensors** sources (deprecated since 0.2.10). When an
-installation that still used one updates to 0.3.0, it's switched to the
-Energy dashboard source automatically if the Energy dashboard has a grid
-source, with a notice under Settings -> System -> Repairs asking you to
-check the forecast. If that's not possible, planning pauses and Repairs
-shows an error until you pick a source in Configure - it never plans with
-zero household usage.
 
 **Calculated from your Energy dashboard** *(recommended)* - the
 integration reads the grid, solar and battery statistics straight from
@@ -616,8 +592,8 @@ reporting in Wh or MWh work too.
 
 ## Electric car
 
-For an electric car that charges **from the home battery** (as of
-2026.10.11). A car that doesn't take power from the battery doesn't need
+For an electric car that charges **from the home battery**.
+A car that doesn't take power from the battery doesn't need
 any of this - its charging never shows up in the battery's planning.
 
 Switch it on in Configure, on the price plans page (**Electric car that
@@ -630,7 +606,7 @@ charges from the home battery**); two pages follow:
   230 V per phase - 16 A on 3 phases is 11.0 kW) and **Predict sessions
   from history**.
 - **The cars**: a name, optionally the battery size (kWh), the usual
-  target (%) and *(as of 2026.10.36)* the **charge efficiency** (%,
+  target (%) and the **charge efficiency** (%,
   default 90): what reaches the car's battery of the energy the charger
   delivers. The energy a state of charge needs is divided by it, so the
   plan counts what comes from the house battery or the grid (40 -> 80% of
@@ -669,14 +645,14 @@ its day; sessions on the same day share the surplus in start order. When
 there's no surplus that day, or not enough, the card says so.
 
 **Running.** While the power sensor is above 0 (50 W), the session it
-belongs to (started up to two hours early or late, as of 2026.10.29) is running: its day and
+belongs to (started up to two hours early or late) is running: its day and
 start time are fixed, the rest can still change, and what's already charged
 (from the energy sensor) counts. Charging that matches no session becomes a
 manual session from the current hour (with the typical energy - change it
 on the card). Ten minutes without power and the session is done.
 
-**While the house battery charges from the grid** *(as of 2026.10.40,
-without the Victron charger, with direct control)*: the grid setpoint sent
+**While the house battery charges from the grid** *(without a charger of
+its own, with direct control)*: the grid setpoint sent
 goes up by what the car takes (the power sensor), so the battery still
 charges at the planned speed - also at the night speed, where a car taking
 more than that would otherwise be fed by the battery. The battery forecast
@@ -684,7 +660,7 @@ leaves the car's energy out for the rest of that running charge.
 
 ### Victron EV charging station
 
-*(As of 2026.10.27.)* Instead of an energy and a power sensor, the charger
+Instead of an energy and a power sensor, the charger
 page can take a **Victron EV charging station** - the device of the
 **Victron GX** integration (in Home Assistant itself since 2026.5). Its
 entities are found on the device by themselves (status, power, total
@@ -711,7 +687,7 @@ possible**, **Slowly now** or **Full by a time**.
   it will be full.
 - **Slowly now**: the same at the minimum current.
 - **Full by a time**: today, tomorrow, the day after or "doesn't matter"
-  (as of 2026.10.31 tomorrow and the day after are shown as their day of
+  (tomorrow and the day after are shown as their day of
   the week - *Tuesday*, *Wednesday*; that's four buttons: an iPhone shows
   them all, Android only the first three, so "doesn't matter" is then on
   the card); for a day it asks the hour (typed: `7`, `7:30`, `19u`), then the state of
@@ -721,7 +697,7 @@ possible**, **Slowly now** or **Full by a time**.
   is **bought in the cheapest quarters before the deadline** ("doesn't
   matter": within the prices known), in Manual mode, in blocks of at least
   half an hour. ESS Manager picks the speed itself, **calm by
-  preference** (as of 2026.11.7): the **lowest current that costs at most
+  preference**: the **lowest current that costs at most
   2 ct/kWh more** than the cheapest plan. Where a calm charge needs really
   dear quarters (a faster charge fits in the cheap ones) it's the faster
   current; when the calm one doesn't make it in time, a higher one. It plans to be done **an hour before** the time given
@@ -731,7 +707,7 @@ possible**, **Slowly now** or **Full by a time**.
   is bought when and at what current, and when it's full. The plan is worked out again every cycle (new prices, a
   different solar forecast, what's charged so far); a grid window that's
   running finishes.
-- **Full by a time after the known prices** *(as of 2026.11.57)*: when the
+- **Full by a time after the known prices**: when the
   car has to be done (an hour before the time given) later than the prices
   known so far - say full by Friday 07:00 while only Thursday's are in -
   the known quarters are only used at or below the **reference price of
@@ -741,12 +717,12 @@ possible**, **Slowly now** or **Full by a time**.
   maximum current, between the end of the known prices and the time it has
   to be done; it's planned from the end of the known prices on, so it still
   charges in time if no new prices come in. Once they're in, the time lies
-  within the known prices and the cheapest quarters are chosen as before.
+  within the known prices and the cheapest quarters are chosen.
   Doesn't the rest fit in the unknown hours, or isn't there a reference
   price yet (fewer than 3 days of prices): the cheapest known quarters, as
   before. The answer and the card's charge plan say what waits, from when,
   and the reference price; its window shows "price not known yet".
-- **Dear quarters out of the house battery** *(as of 2026.11.4)*: per
+- **Dear quarters out of the house battery**: per
   quarter the car's energy can also come out of the house battery, at what
   it costs to fill it up again - the cheapest price after that quarter
   divided by the charge x discharge efficiency (e.g. 0.20 / 0.855 = 0.23).
@@ -760,16 +736,14 @@ possible**, **Slowly now** or **Full by a time**.
   cheapest hours. On the EV card these quarters show in green ("House
   battery"). The card's own preview while sliding shows the grid only. A window that's running ends where it was
   planned: its last quarter doesn't count as a "lone quarter" that takes a
-  neighbour along (as of 2026.11.26 - before, a running window grew by a
-  quarter every quarter and pushed out cheaper quarters later on).
+  neighbour along, so it doesn't grow and push out cheaper quarters later on.
 - **During a grid window the house battery stays out of it**: with direct
   control, the grid setpoint sent goes up by what the car takes (measured),
   so the grid supplies the car and the battery does what it was going to
   do anyway; the battery forecast leaves that energy out too.
 
 **Until there's an answer** - and when there never is one - ESS Manager
-**doesn't start anything** (as of 2026.10.31; up to then the charger was put
-on its Auto mode), unless the car is plugged in during a planned or
+**doesn't start anything**, unless the car is plugged in during a planned or
 predicted session: then that plan is taken over and charging starts (see
 *Planned "full by" sessions* below). **Unplugging puts the charger back to
 rest** (Manual mode, charging off - once), so the next car plugged in
@@ -777,9 +751,9 @@ without a plan doesn't charge by itself on what the last session left
 behind. ESS Manager sends a value to the
 charger only when its plan changes (plugging in, a choice, a grid window
 starting or ending, done); what you change on the charger itself in
-between - e.g. starting a charge by hand - is left alone (as of
-2026.10.28). When the plan changes, the charger is checked as a whole -
-mode, current and start (as of 2026.11.6): a grid window that puts the
+between - e.g. starting a charge by hand - is left alone.
+When the plan changes, the charger is checked as a whole -
+mode, current and start: a grid window that puts the
 charger on Manual also sends start, even when start was already sent
 before the window. A charge the charger starts **by itself** before there's a
 choice - by hand on the charger, its own auto start, a schedule or its own
@@ -788,24 +762,22 @@ session is forecast at that current, and the card says so. A choice made
 afterwards takes over. The plugged-in car's
 session can't be removed on the card while the car is plugged in. Once the
 energy is in according to the sums (or the charger says "charged") the
-charger is **left as it is** (as of 2026.10.29; up to then it was switched
-off): the car stops by itself when it's really full, and a state of charge
+charger is **left as it is**: the car stops by itself when it's really full, and a state of charge
 or a battery size that's a bit off doesn't leave it short. When the car
 stops itself well before the goal (at least 1 kWh and 10 % still to go by
-the sums - *as of 2026.11.21*), the card says so: "The car stopped at about
+the sums), the card says so: "The car stopped at about
 80 % instead of 90 % - is its own charge limit set lower?". Unplugging ends
 the session and clears the notification. With direct control's **Automatic
 control** switch off, ESS Manager doesn't touch the charger.
 
-**A session added while a car is plugged in** *(as of 2026.10.35)* that
+**A session added while a car is plugged in** that
 starts before that car is done waits for it: it stays on the card ("waits
 for the plugged-in car - counts from 15:15"), and counts in the forecast
-only from the plugged-in car's end on - one charger, one car at a time (up
-to then it was counted on top of it, and dropped two hours past its
-start). It isn't dropped while the car stays plugged in, and when the car
+only from the plugged-in car's end on - one charger, one car at a time.
+It isn't dropped while the car stays plugged in, and when the car
 is unplugged it starts then, so the next car plugged in takes it over.
 
-**State-of-charge correction** *(as of 2026.10.35)*. What really goes into
+**State-of-charge correction**. What really goes into
 the car rarely matches the state-of-charge sum exactly (charging losses, a
 battery size or state of charge that's a bit off). So every charge with a
 state of charge **you gave** (on the phone, on the card, or the start SOC
@@ -815,7 +787,7 @@ of a session you set on the card - not a predicted one) that the car
 minutes. The energy that went in since the state of charge was given,
 against what the state of charge said was needed, is one sample. From
 three samples on, the energy charged over the energy planned in the car's
-last ten samples - on top of its charge efficiency (as of 2026.10.36) - is
+last ten samples - on top of its charge efficiency - is
 its **correction factor** (kept between 0.7 and 1.5),
 and every state-of-charge sum for that car is multiplied by it - the
 energy a session needs, when it's full, "full by", the forecast. A sample
@@ -827,8 +799,7 @@ target in ESS Manager to the car's own charge limit). The EV card shows
 the factor per car ("State-of-charge correction: x1.08 (5 charges)"), the
 diagnostics the last samples.
 
-**The plug-in log and the predictions** (as of 2026.10.29; the zappi as of
-2026.11.21). With a charger of its own (Victron or zappi) ESS Manager keeps
+**The plug-in log and the predictions**. With a charger of its own (Victron or zappi) ESS Manager keeps
 its own log of every time a car was plugged in (car, plugged in, unplugged,
 kWh, the way of charging chosen, the time for "full by"), 12 weeks long -
 the recorder keeps plugged-in states only about 10 days. Once the log
@@ -836,7 +807,7 @@ covers your usage lookback (usually 6 weeks), the predicted sessions come
 from it, per connection instead of per charge: a "full by" that the prices
 split into two blocks is one session.
 
-*(As of 2026.11.48)* a prediction is a **block in which the car is usually
+A prediction is a **block in which the car is usually
 plugged in**, not a plug-in time. For each day the connections of the same
 weekday in the lookback weeks are laid over each other (followed up to 36
 hours past that day's midnight, so Friday evening to Saturday morning stays
@@ -852,62 +823,58 @@ choice when the block is at least 3 hours and well over twice as long as
 charging takes; a shorter block without a choice charges at a fixed current
 from its start. Plugging in from the **earliest plug-in** of that block on
 takes the session over (attribute `plug_from`), so an early plug-in still
-charges "full by" in the cheapest quarters from then on. Up to 2026.11.47
-connections were grouped by plug-in hour (within two hours of each other),
-so a car whose plug-in times were further apart never got a prediction.
+charges "full by" in the cheapest quarters from then on. Plug-in times
+that vary a lot don't stop a prediction: it's the block the car is there
+that counts.
 
 Until the log covers the lookback there are **no** predictions with a
-charger of its own (as of 2026.11.48): the charging energy then follows the
+charger of its own: the charging energy then follows the
 hours the planning chose for "full by", not when the car was there, so it
 would predict sessions at the wrong time and of the wrong kind. Without a
-charger of its own the predictions come from the charging energy, as before.
+charger of its own the predictions come from the charging energy.
 
 **Planned "full by" sessions.** A planned session can be "full by" as well
 (on the card, or predicted from the log): it's forecast with its own plan
 (calm by preference - the lowest current at most 2 ct/kWh dearer than the cheapest - done an hour before its time, sun
-first, the cheapest hours, dear quarters out of the house battery; where the prices for then aren't known yet, a calm charge
-from its start - as of 2026.11.57, with a reference price, planned as a plugged-in car would be: the
-known quarters up to the reference, the rest after the known prices), and the battery forecast leaves its grid part out. **Plugged
+first, the cheapest hours, dear quarters out of the house battery; where the prices for then aren't known yet, planned as a
+plugged-in car would be - the known quarters up to the reference price, the rest after the known prices - or, without a
+reference price yet, a calm charge from its start), and the battery forecast leaves its grid part out. **Plugged
 in during a planned session** - one predicted from the log (from its
 earliest plug-in on, see above) or from the charging energy, edited or
 added on the card - its plan is taken over right
 away, and the phone only asks
 "the planned session is taken over: full by 07:30, 9 kWh. Is that right?" -
 **Yes** keeps it (the end time follows), **Something else** brings the usual
-questions (the plan stays until a new choice). *(As of 2026.11.21)* with a car
+questions (the plan stays until a new choice). With a car
 whose battery size is known it talks in the state of charge the car shows,
 not kWh: "... taken over: full by 07:30, from 60 % to 80 %. Is it at 60 %?
 Tap Yes, or fill in its state of charge." (without a planned state of
 charge: "What is its state of charge now?") - a **State of charge** reply
 field next to Yes and Something else; the answer sets what's needed (to the plan's target), the
-plan itself stays, and it counts for the state-of-charge correction. As of 2026.10.31 sessions
-predicted from the charging energy are taken over too (up to then they
-weren't); a session counts from two hours before its start to two hours
+plan itself stays, and it counts for the state-of-charge correction. Sessions
+predicted from the charging energy are taken over too; a session counts from two hours before its start to two hours
 after it (or to its end or "full by" time). Nothing planned or predicted
 then: only the question, and the charger isn't started.
 
 **09:00 on a day with a planned session** (predicted or added on the
 card): "A charging session is planned today at 18:00 - still right?"
-**No** switches it off (as of 2026.10.37 it stays on the card with its
-tick off; up to then it was removed); **Yes** asks the expected state of
-charge (or kWh), which then sets the session's energy. As of 2026.10.37
-this question also comes without the Victron charger (energy and power
+**No** switches it off (it stays on the card with its tick off); **Yes**
+asks the expected state of charge (or kWh), which then sets the session's
+energy. This question also comes without a charger of its own (energy and power
 sensors only), on the phones picked under **Phones to ask on**.
 
-**When a session starts and ends** *(as of 2026.10.37)*. Right after
+**When a session starts and ends**. Right after
 plugging in, the Victron charger passes "waiting for start" and sometimes
 even "charged" before it really charges. A session only really starts
 when the Status is **charging and power goes in** - until then it's
-"plugged in", and a "charged" doesn't end it (up to then that ended a
-planned session before it began). Unplugged without ever charging, it
+"plugged in", and a "charged" doesn't end it. Unplugged without ever charging, it
 wasn't a session: nothing goes into the plug-in log and the planned
 sessions it took over come back. A finished session stays on the card
 as **completed**, with the energy that went in, for **6 hours** after the
-car is unplugged (Victron) or after the charging stopped (sensors only);
-up to then it was gone right away.
+car is unplugged (Victron) or after the charging stopped (sensors only).
 
-**The same on the EV card** (rebuilt in 2026.10.29: one way of charging for
-every session, one panel). At the top, **Now**: the plugged-in car. Without
+**The same on the EV card** (one way of charging for every session, one
+panel). At the top, **Now**: the plugged-in car. Without
 a choice yet, four buttons - **Fast**, **Slow**, **On the sun** (the solar
 surplus only - the charger's Auto mode) and **Full by …** - open the panel:
 for "full by" the day (today, tomorrow, the day after - those two by their
@@ -921,7 +888,7 @@ away and the end time arrives as a notification, the same as after
 answering there. With a plan the block shows the progress (state of
 charge), for "full by" a timeline of the grid windows up to the deadline,
 and **Change** opens the panel again - for Fast/Slow with a slider for the
-charging current; the end time follows the slider. *(As of 2026.11.49)* The
+charging current; the end time follows the slider. The
 state-of-charge controls (now and target, in both panels) sit one under the
 other over the full width, with a bigger slider that leaves a vertical swipe
 to scrolling, **−** and **+** buttons (1% per tap, hold to keep going) and
@@ -933,10 +900,9 @@ target, quick picks **60 / 70 / 80 / 90 / 100%**. Below, **Planned**: the
 predicted and added sessions, each with its way of charging (fast, slow or
 on the sun); tap one to edit it in the same kind of panel (day, plug-in
 time, way of charging, state of charge when plugged in and target; for
-"full by" the day and the time it should be full - as of 2026.10.32 the day
-is picked too: the plug-in day or one of the three after it, moving along
-when the plug-in day changes). As of 2026.11.5 a "full by" shows its
-**charge plan** in that panel: the price per quarter from the start to the
+"full by" the day and the time it should be full - the day is the
+plug-in day or one of the three after it, moving along when the plug-in day
+changes). A "full by" shows its **charge plan** in that panel: the price per quarter from the start to the
 deadline, the charge windows on it (blue = grid, green = house battery) and
 per window the time, the current, the kWh and the average price, with the
 estimated cost below. A saved session that's opened unchanged shows the
@@ -944,7 +910,7 @@ integration's own plan; as soon as something is changed the card's preview
 ("preview") until it's saved. The session's line shows its planned start
 (as set) and the time it's full; when the charging starts later, that
 start goes with the number of blocks ("1 block from 20:45"). The
-plugged-in car's panel shows the same charge plan (as of 2026.11.6): the
+plugged-in car's panel shows the same charge plan: the
 integration's own plan while the choice is unchanged, the preview once
 it's changed; its day comes from the deadline itself, so "tomorrow" chosen
 in the evening shows as today after midnight. The card uses the service `ess_manager.ev_charge_plan` (`choice`: asap / calm /
@@ -965,7 +931,7 @@ Developer tools > Actions).
 
 ### myenergi zappi
 
-*(As of 2026.11.21)* A zappi of the
+ A zappi of the
 [myenergi integration](https://github.com/CJNE/ha-myenergi) works like the
 Victron charging station - plugging in starts a session, the questions on
 the phone, taking over a planned session, "full by" with its charge plan,
@@ -973,7 +939,7 @@ the phone, taking over a planned session, "full by" with its charge plan,
 its **charge mode**. In Configure > Electric car pick "myenergi zappi" and
 the zappi's device; its charge mode, status and plug status are found on
 the device (by the end of their unique id). The energy and the power come
-from the charger's own meter - pick those sensors as before (a separate kWh
+from the charger's own meter - pick those sensors yourself (a separate kWh
 meter in the meter cabinet; the zappi's own CT values are cloud-polled and
 coarse).
 
@@ -981,10 +947,10 @@ coarse).
 |---|---|
 | Now (fast) / a grid or battery window of "full by" | Fast |
 | Now, slowly | Eco - at least 6 A (about 1.4 kW on one phase); Fast when the min current set here equals the max |
-| "Full by" between its windows / on the sun | Stopped (as of 2026.11.31; Eco+ before) |
+| "Full by" between its windows / on the sun | Stopped |
 | No choice, done, unplugged | Stopped (once after unplugging, so the next car doesn't start by itself) |
 
-*(As of 2026.11.31)* The zappi's **Grid CT clamp sits between the Victron
+ The zappi's **Grid CT clamp sits between the Victron
 and the grid** - the point the Victron keeps at its grid setpoint. Eco and
 Eco+ never see consumption there: once started (a short export when a load
 switches off is enough) they keep taking more, the house battery covering
@@ -998,9 +964,8 @@ now. With min and max current both at the max (e.g. 13 A), "now, slowly"
 is the same as "now" and runs at Fast as well. A mode is sent when the plan's mode changes, not again while
 it stays the same - a change in the myenergi app is left alone meanwhile,
 once the zappi has shown the mode sent. Until it does, the mode is sent
-again every 3 minutes, at most 4 times, then a warning (as of 2026.11.30:
-a command lost on its way through the cloud was taken for a change in the
-app before, and the car stayed on Stopped).
+again every 3 minutes, at most 4 times, then a warning - so a command lost
+on its way through the cloud isn't taken for a change in the app.
 The integration polls the myenergi cloud (every 60 s by default), so a mode
 change can take a minute or two to show on the meter; each command and how
 long the meter took to follow is in the diagnostics
@@ -1012,7 +977,7 @@ ESS Manager plans the charging.
 
 ### EV charger control and manual charging
 
-*(As of 2026.11.52)* With a charger of its own (Victron or zappi) the device
+ With a charger of its own (Victron or zappi) the device
 has an **EV charger control** switch, also on top of the EV card ("Automatic
 charging"). On (default): ESS Manager drives the charger as the plugged-in
 car's plan says, as described above. Off:
@@ -1049,7 +1014,7 @@ battery). Diagnostics: `switches.ev_charger_control`,
 
 ## Heat pump
 
-For a heat pump whose electricity follows the weather (as of 2026.10.16).
+For a heat pump whose electricity follows the weather.
 The household usage forecast is the same hour and weekday averaged over the
 last weeks - for a heat pump that lags behind: too low in autumn, too high
 in spring. With this switched on, the heat pump is forecast from the weather
@@ -1071,7 +1036,7 @@ its usage from the weather**); two pages follow:
   fine), the **weather forecast** (a weather entity: Met.no, Buienradar,
   Open-Meteo, ...; read per day, per hour where it has it) and optionally
   wind speed, wind direction (without them the weather entity's own wind
-  is used, as of 2026.11.54), indoor temperature (it also teaches the model
+  is used), indoor temperature (it also teaches the model
   how fast the house cools - see below; without it a thermostat's own
   temperature is used) and the wanted
   temperature (a thermostat or a sensor/number).
@@ -1085,7 +1050,7 @@ its usage from the weather**); two pages follow:
   the first start it's filled from the long-term statistics that already
   exist; after that yesterday is added every day. What has no statistics
   (a wind direction, a thermostat) is recorded live from then on.
-- **Wind from the weather entity** *(as of 2026.11.54)*: without a wind
+- **Wind from the weather entity**: without a wind
   speed or wind direction sensor of its own, the model takes them from the
   weather entity's current state (`wind_speed` in its `wind_speed_unit`,
   converted to m/s, and `wind_bearing`) - nothing to set up. A weather
@@ -1094,14 +1059,14 @@ its usage from the weather**); two pages follow:
   weather entity, reads the recorder's ~10 days of its states to start with.
   Journal days without wind are filled from that series (12 hours of the
   day needed). Learning and forecasting then use the same source. A wind
-  sensor that is set still wins (its statistics as before). The day model
-  uses wind once it's known on **21 cool days** (or, as before, on 60 % of
+  sensor that is set still wins (read from its own statistics). The day model
+  uses wind once it's known on **21 cool days** (or on 60 % of
   them) - days without get the median of those that have it, not 0; the
   wind direction still needs 30 cool days in 3 directions. The house model
   and the cooling fit use a wind term once 70 % of their hours have it (as
   before). `heat_pump.wind` shows the hours recorded, the source, the
   journal days with wind and the days needed.
-  *(As of 2026.11.55)* the start is read per part: the **speed** from the
+  the start is read per part: the **speed** from the
   wind speed sensor's own recorded states when one is set (it may have no
   statistics yet), else from the weather entity; the **direction** from the
   direction sensor, else from the weather entity. An entity left out of the
@@ -1112,7 +1077,7 @@ its usage from the weather**); two pages follow:
   per entity, hours of speed and of direction). A day's live wind and
   direction go into its journal row only with 12 of its hours; right after
   the recorder is read, days the series covers get the whole day's wind.
-  *(As of 2026.11.56)* a wind speed sensor with a `forecast` list of its own
+  a wind speed sensor with a `forecast` list of its own
   (entries with `datetime` and `wind_speed`, like a solar forecast
   integration's wind sensor) also gives the forecast's wind speed - per hour
   where it has the hour, per day with 12 of its hours - so the model learns
@@ -1127,8 +1092,8 @@ its usage from the weather**); two pages follow:
   above the cooling temperature, with cooling data - from 16 °C at the
   lowest). With the indoor temperature on most cool days the heat loss
   follows indoor - outdoor: the balance temperature belongs to the usual
-  indoor temperature on the cool days (as of 2026.10.38 - before, a
-  summer-warm house moved it) and moves with each day's own, so a degree warmer
+  indoor temperature on the cool days (a summer-warm house doesn't move
+  it) and moves with each day's own, so a degree warmer
   inside costs the kWh per degree colder; the coming days are forecast with
   the usual indoor temperature of the last heating days, moved by how much
   the thermostat now differs (a holiday at 16 °C). Without it, the wanted
@@ -1157,17 +1122,16 @@ its usage from the weather**); two pages follow:
   out of the summer) says nothing about what such a day needs, and a day far
   off the model is a meter jump: both are left out of the fit. On the
   Signature tab they're grey rings. *Heat demand* comes from the heat
-  pump's **heat demand switch** when floor control is set up (as of
-  2026.10.38 - the heat pump heats only while it's on, hot water and
-  cooling run outside it, so it works for any heat pump without its own
+  pump's **heat demand switch** when floor control is set up (the heat pump
+  heats only while it's on, hot water and cooling run outside it, so it works for any heat pump without its own
   sensors), else from the thermostat (a climate entity as the wanted
   temperature: its hvac_action, else indoor below wanted). Switching
   between the two clears the demand hours of the old source once; the
   recorder's last days refill them.
 - **Falling back**: with fewer than 21 heating days, or heating days in fewer
   than 3 temperature classes of 2.5 °C (3+ days each), a poor fit or no
-  weather forecast, the heat pump stays in the household usage as before
-  (6-week average). In summer (no heating day in the coming days) only the
+  weather forecast, the heat pump stays in the household usage (6-week
+  average). In summer (no heating day in the coming days) only the
   daily base counts.
 - **The house's own heat** (with an indoor temperature and the heat pump's
   own metering - the indoor temperature is a separate sensor with long-term
@@ -1207,26 +1171,25 @@ its usage from the weather**); two pages follow:
   like the evening (or the night).
 
 **The house hour by hour (step 1) and steering (step 2)** - two switches on
-the heat pump page in Configure, as of 2026.10.17:
+the heat pump page in Configure:
 
 - **Step 1, the forecast**: the model also learns how the indoor
   temperature follows the outdoor temperature, wind, sun and the heat put
-  in - with the floor's delay (its time constant it finds itself: as of
-  2026.11.9 from 1 up to 24 hours, the heat of the last 36 hours - a
-  concrete floor heated in a block of a few hours gives its heat off over
-  far more hours than the 6 h / 12 h it looked at before) and,
+  in - with the floor's delay (its time constant it finds itself, from 1 up
+  to 24 hours, over the heat of the last 36 hours - a concrete floor heated
+  in a block of a few hours gives its heat off over many hours) and,
   with the optional **COP sensor**, the COP by the outdoor temperature (so
-  it counts the heat, not only the electricity). *(as of 2026.10.38)* Only
+  it counts the heat, not only the electricity). Only
   hours the COP sensor never dropped below 1 count - the heat pump ran the
   whole hour: a COP sensor reads 0 while the heat pump is off, so the mean
   of an hour it ran for part of is far too low. With fewer than 48 such
   hours there's no COP model yet; floor control then uses its measured
-  heat / electricity. *(as of 2026.11.9)* `house_model.cop_check` in the
+  heat / electricity. `house_model.cop_check` in the
   diagnostics says how many of the COP sensor's hours fell out and why: no
   outdoor temperature, hardly any heating that hour (hot water or standby -
   the heating meter didn't count it), a COP outside 1-10, or not running the
   whole hour.
-  *(as of 2026.11.10)* **Heat meter**: with the heat pump's heat meter (kWh
+  **Heat meter**: with the heat pump's heat meter (kWh
   of heat - heating and hot water together, e.g. the Qube's "thermic yield
   total") and the meter of **all its electricity** (separate metering
   only), the model counts the heat that really went into the house: each
@@ -1253,7 +1216,7 @@ the heat pump page in Configure, as of 2026.10.17:
   weather, cross-validated: split into 3 groups, each group played with a
   model fitted on all other hours (so it never saw those days) - is the energy put
   in the right part of the day and does the house follow the measured
-  temperature with the measured heating? *(As of 2026.11.35)* the energy is
+  temperature with the measured heating? the energy is
   checked in **blocks of 6 hours**, each started again from the measured
   room and the heat measured before it - as the live control starts from
   the measurement every minute - and compared per block with the usual
@@ -1273,20 +1236,20 @@ the heat pump page in Configure, as of 2026.10.17:
   `review.block_hours` says the block length (the errors `hour_error_kwh` /
   `pattern_error_kwh` are per block); `review.ess_hours` how many of the
   tested hours floor control switched the heat demand itself (below).
-  *(As of 2026.11.37)* `review.per_day` lists each test day on its own,
+  `review.per_day` lists each test day on its own,
   newest first: its error and the pattern's per block, their ratio (under
   0.9 is what passing asks of the whole), the indoor error, the wanted
   temperature's range and number of changes that day (a night setback or a
   change by hand) and the hours floor control switched - to see which days
   score badly and why. It changes nothing in the verdict.
-  *(As of 2026.11.38)* with the learned thermostat the self-check only plays
+  With the learned thermostat the self-check only plays
   days whose wanted temperature per hour is known (the thermostat's history
   is kept from its first read on): a day from before that would have the
   thermostat switch around a guessed wanted temperature. Those days are left
   out while the thermostat is used (`review.skipped_days`), the thermostat is
   compared with the smooth controller on the same days.
-  *(As of 2026.11.43)* **how many test days are needed follows how much the
-  days differ** (10 fixed before), like the learned thermostat's switches:
+  **How many test days are needed follows how much the
+  days differ**, like the learned thermostat's switches:
   each day's margin is 0.9 × the pattern's error minus the model's error
   (per block), and its average must be clearly above zero - at least 2
   standard errors. Needed = (2 × spread ÷ average margin)², at least 6 and
@@ -1297,12 +1260,11 @@ the heat pump page in Configure, as of 2026.10.17:
   `review.needed_days`, `review.needed_raw` (before the 6-14 limits),
   `review.margin_kwh` and `review.margin_sd_kwh`; the card's Indoor tab
   shows how many days are needed. The fit itself runs once a day just
-  after midnight and *(as of 2026.11.43)* waits until yesterday's last hour
+  after midnight and waits until yesterday's last hour
   is in Home Assistant's statistics (they're written a few seconds after the
-  hour; at most two hours, then it fits without it as before) - before, the
-  first cycle after midnight could come first, and all of yesterday was left
-  out of the self-check until the next night.
-  **The thermostat learned from the house** *(as of 2026.11.20)*: with a
+  hour; at most two hours, then it fits without it), so yesterday is always
+  part of the self-check.
+  **The thermostat learned from the house**: with a
   thermostat (a climate entity as the wanted temperature) ESS Manager reads
   its history every day and keeps each switch of its heat demand
   (`hvac_action`) with the room and wanted temperature at that moment. From
@@ -1311,8 +1273,8 @@ the heat pump page in Configure, as of 2026.10.17:
   `generic_thermostat` that comes out as its `cold_tolerance` and
   `hot_tolerance`), and a minimum run or pause when it keeps one - no
   settings, any make. Switches within 15 minutes of a setpoint or mode
-  change don't count (the change made them, not the room). *(As of
-  2026.11.36)* how many switches each way are needed depends on how close
+  change don't count (the change made them, not the room).
+  how many switches each way are needed depends on how close
   together they are: learned once the threshold is known to 0.1 °C (the
   sensor's step) with about 95 % certainty - at least 5 each way when they
   agree, more when they scatter (about 16 at a spread of 0.2 °C), at most
@@ -1324,7 +1286,7 @@ the heat pump page in Configure, as of 2026.10.17:
   hours quarter by quarter with that on/off behaviour instead of a smooth
   controller, so the heat lands in the hours it really does. Both are played
   in the self-check, and the thermostat is only used when it places the hours
-  better (`review.thermostat`: both errors and `used`). *(As of 2026.11.35)*
+  better (`review.thermostat`: both errors and `used`). 
   hours in which floor control (stage Full) switched the heat demand itself
   are played as ESS Manager plans them, with the smooth controller - the
   thermostat didn't switch the heat pump then - and their thermostat demand
@@ -1335,13 +1297,12 @@ the heat pump page in Configure, as of 2026.10.17:
   modulates shows its switches scattered (`kind: modulating`) and the
   smooth controller stays. What was learned: `house_model.thermostat`; the
   switches themselves are in the diagnostics (`thermostat_events`). Its history is read with every recorded
-  update, also those where only the attributes changed (as of 2026.11.27 -
-  before, only changes of the state itself came in, and a thermostat's state
-  stays "heat": no switches and a wanted temperature stuck at its first
-  value). What the last read found is in the diagnostics as
+  update, also those where only the attributes changed (a thermostat's
+  state stays "heat" - its switches and wanted temperature are in the
+  attributes). What the last read found is in the diagnostics as
   `thermostat_read` (rows, rows with a heat demand, switches, clean ones, an
   error if the read failed - then it's logged as a warning and tried again
-  30 minutes later; as of 2026.11.28).
+  30 minutes later).
 - **Step 2, steering** (needs step 1 and a thermostat - a climate entity):
   on the card a steering switch, a day and a night temperature with the
   hours they start, and a buffer range. Steering on: the thermostat follows
@@ -1363,7 +1324,7 @@ fallback, attributes the figures), hidden while the heat pump is off.
 
 ### Floor control
 
-*(as of 2026.10.23)* With a thermostat the heat pump runs until the room
+ With a thermostat the heat pump runs until the room
 reaches its setpoint - by then the floor still holds a few hours of heat
 that comes out afterwards, and the room overshoots. With floor control ESS
 Manager heats the floor itself: the hour-by-hour house model plans the heat
@@ -1377,8 +1338,8 @@ becomes
   from the supply and return temperatures, the room and the heat pump's
   thermal power. Little heat needed: a low setpoint and a better COP.
   It stays within 20-35 °C and the setpoint entity's own range, and never
-  above the number **Floor control maximum return setpoint** (as of
-  2026.10.39, default 35 °C, also on the Floor tab of the heat pump card) -
+  above the number **Floor control maximum return setpoint** (default
+  35 °C, also on the Floor tab of the heat pump card) -
   for a floor whose pipes take less, like PVC. That also goes for the old
   setpoint it hands back when it stops;
 - **heat demand** on/off: on when the heat owed (planned minus delivered)
@@ -1389,7 +1350,7 @@ becomes
   (full at 1.2 °C), and 1 °C too cold the return setpoint never goes below
   the one the heat pump had before.
 
-*(as of 2026.11.45)* **Minimum floor temperature** (number **Floor control
+ **Minimum floor temperature** (number **Floor control
 minimum floor temperature**, on the Indoor tab of the heat pump card under
 the buffer range; 0 = off, the default; on the card "+" from off jumps to
 20 °C). For comfort - warm feet - the floor is kept at least at this
@@ -1417,7 +1378,7 @@ bar can appear and on cold days go away again. Diagnostics: the floor
 attribute's `min_floor` (`t_c`, `limit_c`, `target_c`, `too_warm`, `sp_min`,
 `active`).
 
-*(as of 2026.11.33)* **Down gently while the compressor runs.** A big drop
+ **Down gently while the compressor runs.** A big drop
 of the return setpoint below the return made the heat pump switch off and
 start again instead of modulating down. So while the compressor runs (the
 Qube's status *heating* or starting up with the valve on CH; without a Qube
@@ -1429,7 +1390,7 @@ return already at the new value (a cold start), it goes straight there.
 The diagnostics show both: `sp_planned` (what's sent) and `sp_goal` (where
 it's going), with `compressor_running`.
 
-*(as of 2026.10.38)* Heat counts as the floor's only while the heat demand
+ Heat counts as the floor's only while the heat demand
 switch is on. With it off the heat pump makes hot water (the circulation
 pump may run too): those minutes aren't learned as running hours, their
 heat isn't counted as delivered to the floor, and they don't enter the
@@ -1445,7 +1406,7 @@ proven itself:
 | Return setpoint | ESS Manager sets the return setpoint by the planned heat, the thermostat still switches heat demand | the floor's heat output is learned: 30 settled running hours, at most 25 % off on the newest hours |
 | Full | ESS Manager also switches heat demand; the thermostat is only where the wanted temperature is set | the heat pump delivered the target power within 30 % in the return setpoint stage - 8 to 24 running hours depending on how steadily (see below), from at least 3 separate heating periods - and the house model passed its self-check |
 
-*(As of 2026.11.44)* **How many running hours the response check needs**
+ **How many running hours the response check needs**
 follows how steadily the heat pump delivered the target power (24 fixed
 before): each settled running hour's error (|delivered - target| / target)
 must on average be clearly below 30 % - at least 2 standard errors. Needed
@@ -1458,7 +1419,7 @@ check keeps running in Full and falls back to Return setpoint when it no
 longer holds. The diagnostics show `response.needed`, `response.periods`
 and `response.sd`; the card shows the hours and periods still to go.
 
-*(As of 2026.11.35)* The house model's self-check runs every night, also in
+ The house model's self-check runs every night, also in
 Full - and the days ESS Manager switched are judged as it switched them
 (see the house model above), so a model that passed stays in Full instead
 of failing on its own days and falling back to Return setpoint.
@@ -1469,7 +1430,7 @@ running (and settled for 10 minutes) count. A **floor sensor** in the
 screed (optional, between two pipes, about half way down) is used as the
 reference instead of the room once most running hours have it.
 
-*(as of 2026.11.13)* With a **Qube heat pump** chosen as a device (the
+ With a **Qube heat pump** chosen as a device (the
 `qube_heatpump` integration, optional, on the floor control page) its
 *Heat pump status* and *Three-way valve status* sensors are found by
 themselves, and only the minutes it really heats the floor count: status
@@ -1549,13 +1510,13 @@ from those only (`floor_records` in the diagnostics: `heat_s`, `dhw_s`).
 **Cooling.** The heat pump's heat demand switch also starts cooling (with
 the changeover switch on). While the changeover is on, or the cooling
 thermostat calls for cooling (its action is *cooling* - left on *cool* and
-idle all year it doesn't count, as of 2026.10.24), floor control steps aside
+idle all year it doesn't count), floor control steps aside
 completely: the return
 setpoint goes back to its old value once, the heat demand switch is never
 touched (also not when ESS Manager stops), nothing is learned, and the
 stage sensor says **cooling**. Once cooling is over it goes on in the stage
 you chose (from *return setpoint* again; the response hours gathered
-before still count, as of 2026.11.33).
+before still count).
 
 Switching the thermostat off (mode off) means no heating in every stage:
 in *full* the heat pump goes back to the thermostat until it's on again.
@@ -1566,7 +1527,7 @@ thermostat wants it. With steering on, the day/night temperatures and the
 buffer are still written to the thermostat, so its card always shows the
 wanted temperature; a change by hand counts until the next day/night switch.
 
-*(as of 2026.11.33)* The **24 running hours of the response check** are
+ The **24 running hours of the response check** are
 kept over such a hand-back for a moment - an input missing for a cycle (a
 Qube on modbus right after a restart), a restart or update, the thermostat
 off, cooling: only hours ESS Manager set the return setpoint in count
@@ -1574,7 +1535,7 @@ anyway. Only the select set to *watch* starts the check over.
 
 ## Forecast check
 
-*(as of 2026.10.22)* How good were the forecasts, and how big does the
+ How good were the forecasts, and how big does the
 Safety buffer need to be? The **Forecast check** card (and the attribute
 `forecast_check` on the Status sensor) answers that, once a day from the
 statistics - nothing to set up.
@@ -1598,7 +1559,7 @@ which have their own forecasts) are tested on the last 8 weeks:
 The best one is used for the planning, but only when it beat the plain
 average by at least 5 % (daily error) over at least 14 complete days.
 
-*(as of 2026.10.38)* A day counts as soon as it's measured completely and
+ A day counts as soon as it's measured completely and
 the plain average can be made for it (one week of history is enough). The
 level method needs 90 % of the lookback weeks before the day complete in
 the statistics (with 6 weeks: about 6 weeks); on days where it can't be
@@ -1608,7 +1569,7 @@ history (a new installation, a battery or meter added recently to the
 Energy dashboard) the usage days show up after about a week, and the
 level method joins in later.
 
-**Short-term correction** *(as of 2026.11.33)*. The usage forecast is a
+**Short-term correction**. The usage forecast is a
 weekly pattern: a load that started a few days ago (or a house left empty)
 only shows in it after weeks, and the level method above is a day factor.
 So every hour the last **3 complete hours** are measured against what was
@@ -1665,8 +1626,8 @@ buying below the threshold?") and the spike plan's charge window. Every
 sell decision uses the sell price: the high discharge plan, making room
 before a negative price window, and the spike plan's discharge window. The
 spike plan's gain is the day's highest sell price minus its lowest buy
-price still ahead (as of 2026.11.32 a cheap quarter that's already past
-no longer counts, unless the spike's charge has already run) divided by
+price still ahead (a cheap quarter that's already past doesn't count,
+unless the spike's charge has already run) divided by
 the charge and discharge efficiency (so its
 `day_min_price` is a buy price, `day_max_price` a sell price), and its
 discharge price floor is that lowest buy price / the efficiencies plus the
@@ -1686,12 +1647,12 @@ there. The Status sensor shows the value in use as `transport_tariff`.
 
 ## Prices including taxes
 
-*(as of 2026.10.44)* The price sensor (e.g. Nordpool) gives the bare
+ The price sensor (e.g. Nordpool) gives the bare
 market price; what you really pay per kWh also has the supplier's purchase
 fee, the energy tax and VAT. Configure (page 1, **Prices including taxes**)
 offers three choices:
 
-- **No** (default) - everything as before.
+- **No** (default) - the bare prices.
 - **Enter them myself** - energy tax and purchase fee per kWh excl. VAT,
   and the VAT: incl = (price + purchase fee + energy tax) x (1 + VAT). The
   amounts are on your energy bill. Leave out the grid operator's fixed
@@ -1714,7 +1675,7 @@ offers three choices:
 transport tariff, see "Grid transport tariff"), selling brings in the bare
 price - as when net metering (salderen) ends in the Netherlands on
 1 January 2027. Without prices incl taxes ("No") buying is price +
-transport and selling the price, as before.
+transport and selling the price.
 
 The Status sensor carries `price_incl` (the way chosen, the line a / b, how
 well it fits, how many quarters, or why it's still learning) and
@@ -1782,13 +1743,13 @@ The setup wizard walks through these pages:
 4. **Battery and system** - capacity, normal charge/discharge speed, max
    battery charge/discharge speed, charge/discharge efficiency, min/max SOC.
 5. **Price plans** - a short explanation of the negative price and spike
-   arbitrage plans, with a switch for each (and, as of 2026.10.41, one for
+   arbitrage plans, with a switch for each (and one for
    the house from the grid at low prices - its page with the battery's
    power sensor follows).
 6. **Battery control** - whether ESS Manager sends the setpoint itself
    (see "Direct control"). "Status sensor only" is the default; with it,
    the setpoint your own automation writes and its polarity (optional) are
-   on this page too *(as of 2026.11.42 - before, on the Sensors page)*.
+   on this page too.
 7. **Battery control - target** - only when direct control is chosen: the
    number/input_number entity, its unit (W/kW), sign convention and idle
    value, and an optional separate readback with its polarity.
@@ -1843,8 +1804,8 @@ Manager device in Settings -> Devices & Services -> Entities:
 | Negative price threshold | Price (EUR/kWh) below which charging is considered "getting paid" |
 | Spike margin | Minimum day price spread (EUR/kWh) to treat a day as spike-worthy |
 | Minimum charge target | The smallest amount (kWh) any charge buys. Low charge plan: the dip is lifted back to the low threshold; if that needs less than this, the charge is rounded up to it (but never so far that a later peak would cross your max SOC and just be sold again). Spike plan: a pre-peak top-up smaller than this is skipped. Full-charge balancing and the negative price plan are not affected |
-| Minimum charge/sale duration | The shortest charge or sale block, in minutes (15-120 in steps of 15, default 30). A charge may be split over the cheapest quarters before it's needed, a sale over the priciest ones (as of 2026.10.10), but never into blocks shorter than this |
-| Safety buffer | % of battery capacity kept on top of your min SOC (default 5%), both ways. With the **Automatic safety buffer** switch on (as of 2026.10.22) the forecast check's advice is used instead - see [Forecast check](#forecast-check). Selling: a sale never brings the forecast below min SOC + buffer - e.g. min SOC 10% + buffer 5% = sales stop at 15%, so a sale doesn't end in buying energy back. Charging (as of 2026.10.4): a charge lifts the dip to min SOC + buffer, not just to min SOC, so a bit more usage or less sun than forecast doesn't take the battery just under it (when to charge still follows min SOC itself - except for the rest of a charge in several blocks whose first block has run, which counts from min SOC + buffer until its last block, as of 2026.10.13; as of 2026.10.34 only what keeps that rest's dip at min SOC itself is due before the dip: the buffer on top comes with the next charge, in its cheaper quarters, before the end of the known prices - and isn't bought at all when it doesn't fit under 100% there, e.g. because the sun fills the battery after it anyway). 0 = right down to / up to min SOC |
+| Minimum charge/sale duration | The shortest charge or sale block, in minutes (15-120 in steps of 15, default 30). A charge may be split over the cheapest quarters before it's needed, a sale over the priciest ones, but never into blocks shorter than this |
+| Safety buffer | % of battery capacity kept on top of your min SOC (default 5%), both ways. With the **Automatic safety buffer** switch on the forecast check's advice is used instead - see [Forecast check](#forecast-check). Selling: a sale never brings the forecast below min SOC + buffer - e.g. min SOC 10% + buffer 5% = sales stop at 15%, so a sale doesn't end in buying energy back. Charging: a charge lifts the dip to min SOC + buffer, not just to min SOC, so a bit more usage or less sun than forecast doesn't take the battery just under it (when to charge still follows min SOC itself - except for the rest of a charge in several blocks whose first block has run, which counts from min SOC + buffer until its last block; only what keeps that rest's dip at min SOC itself is due before the dip: the buffer on top comes with the next charge, in its cheaper quarters, before the end of the known prices - and isn't bought at all when it doesn't fit under 100% there, e.g. because the sun fills the battery after it anyway). 0 = right down to / up to min SOC |
 | Transport tariff | Base grid transport tariff (EUR/kWh, default 0): buying costs price + (tariff x factor for that hour), selling doesn't - see "Grid transport tariff" above. 0 = no transport |
 | Planning horizon | How many hours ahead the low/high plans are allowed to react to (price data usually doesn't exist much beyond ~48h anyway) |
 | Full charge interval | Days between full-charge/balance cycles |
@@ -1859,7 +1820,7 @@ the passive, solar/usage-driven battery energy forecast (anything solar or
 usage implies faster than this is assumed to flow to/from the grid
 instead), and what a charge or sale really moves in and out of the
 battery: the speeds above are grid setpoints, the battery side is capped
-at these (as of 2026.10.27). They don't limit the setpoint that is sent -
+at these. They don't limit the setpoint that is sent -
 set the inverter's own limits (e.g. Victron DVCC max charge current) to
 protect the battery.
 
@@ -1870,16 +1831,16 @@ efficiency, 2.0 kWh of solar or grid power puts 1.8 kWh into the battery;
 at 90% discharge efficiency, 0.5 kWh of usage (or of a sale) takes
 0.5 / 0.9 = 0.56 kWh out of it. Charge and sale windows are sized for what
 actually reaches or leaves the battery; the setpoint that's sent stays the
-configured (grid-side) speed. *(As of 2026.10.41)* with the **Energy
+configured (grid-side) speed. With the **Energy
 dashboard** as the usage source, the house's own solar and usage are taken
 as they are: that usage is worked out from the grid, solar and battery
 meters, so the losses are already in it (this needs battery meters on the
 DC side, like a battery monitor - with meters on the AC side of the
 inverter they'd be left out). A grid charge, a sale and the grid-use
 threshold still count both efficiencies; with a consumption sensor (the
-loads themselves) everything does, as before.
+loads themselves) everything does.
 
-**On a Raspberry Pi** *(as of 2026.10.44)*: a cycle runs once a minute.
+**On a Raspberry Pi**: a cycle runs once a minute.
 The Status sensor's attributes (~15 KB of forecasts and plans) are kept
 out of the recorder, and the diagnostics show what a cycle costs
 (`coordinator.cycle_timing`: last, average and longest of the last 60, in
@@ -1889,7 +1850,7 @@ ms).
 
 The integration produces a `Status` sensor whose state is one of `Standby`,
 `Start charge`, `Actief` (engaged), `Start discharge`, `Stop`,
-`House from grid` (as of 2026.10.41 - see plan 6),
+`House from grid` (see plan 6),
 `Solar export`, `Start negative price charge`,
 `Negative price charge`, `Start spike discharge`, `Spike discharge`,
 `Full charge scheduled`, `Awaiting solar (full charge)` - see
@@ -1904,12 +1865,12 @@ during this same wait). `Solar export`: there's solar left over now, the
 battery is forecast to reach 100% later today, and the price now is higher
 than every price until then - exporting now pays more than storing (and in
 a negative price plan, solar going to the grid before the negative window).
-*(As of 2026.11.3)* "full" means the sun alone - the forecast without any
+"Full" means the sun alone - the forecast without any
 plan - takes the battery over the max SOC (the level that triggers a sale);
 a battery that only gets full through a grid charge never exports: ESS
 Manager buys and sells as little as it can, only the spike and negative
 price plans trade.
-*(As of 2026.10.41)* with direct control and the battery's power sensor
+With direct control and the battery's power sensor
 (battery page) it's steered: the grid setpoint follows the battery's power
 every 15 seconds (the same fast loop, 60% of the deviation per step) so
 the battery keeps charging at **1000 W** and the solar above that goes
@@ -1917,17 +1878,13 @@ to the grid - export only, never above the idle value, so nothing is
 bought for it (with less than 1000 W of surplus the battery just takes
 what there is). Before a negative price window the battery is kept at
 0 W instead, so the room stays free. Without the power sensor there's no
-`Solar export` at all (as of 2026.10.43 - up to then it was a label only):
-the Status says `Standby`. The cards show it in orange: where it's
+`Solar export` at all: the Status says `Standby`. The cards show it in orange: where it's
 **expected** - the same rule on the forecast (solar left over, full later
 today, the price above every price until then, plus the negative price
 plan's export window), attribute `solar_export_expected` - as a block
 with a dashed line on the price chart ("Export expected") and in that
 colour on the battery chart's forecast line and tooltip; afterwards when
-it really ran (the Battery action `solar_export`, only when steered). (`Grid usage` - a
-battery within 1 kWh of the low threshold waiting for a planned charge -
-is gone as of 2026.10.41: the house from the grid at low prices is now
-planned, plan 6.)
+it really ran (the Battery action `solar_export`, only when steered).
 Unless you switch on "Direct control" (below), it
 does **not** write to any inverter or battery control entity itself, since
 every make/model exposes a different control surface (an `input_number`, a
@@ -1962,17 +1919,15 @@ What gets sent: each action uses the speed its plan was sized with -
 Charge speed for normal charges (low charge, spike top-up, full charge),
 Discharge speed for normal discharges, Negative price charge speed and
 Spike discharge speed for those plans - limited only to the target
-entity's own min/max. The speeds are **grid setpoints** (as of
-2026.10.27): what the inverter takes from (or sends to) the grid. The
+entity's own min/max. The speeds are **grid setpoints**:
+what the inverter takes from (or sends to) the grid. The
 house is covered out of it and the battery gets the rest, but never more
 than its max charge/discharge speed - the inverter limits that by itself,
 and the plans count with it. So a Charge speed above the battery's max
 charges the battery at its max and keeps the house on the grid too (the
 battery fills faster than with a setpoint at the max, which the house
 would share); a Charge speed below it is a gentler charge, which the
-house shares. (Up to 2026.10.26 the setpoint was cut down to the max
-battery speed, and the sales were sized at the full Discharge speed even
-when the battery couldn't deliver it.) Every
+house shares. Every
 Status that means "do nothing" (`Stop`, `Standby`, `Full charge scheduled`, `Awaiting solar (full charge)`)
 sends your **idle value** exactly as entered (usually 0; some Victron
 systems idle at -30 W). This is the same mapping as
@@ -1984,20 +1939,19 @@ charging in a charge window and keep discharging in a discharge window.
 The entity is only written when the value changes, or when something else
 changed it (then at most once a minute).
 
-**Night limit** (as of 2026.10.18): on the battery page in Configure,
+**Night limit**: on the battery page in Configure,
 "Limit the charge/discharge speed at night (22:00-07:00)" asks for a night
 charge and a night discharge speed. Between 22:00 and 07:00 those limit
 every other speed - normal, negative-price, spike and full charge: a speed
-above the night speed is lowered to it, a lower one stays as it is (as of
-2026.10.27; up to then the night speeds replaced the others, also when they
-were higher). The charge plans count with that speed for those quarters (so
+above the night speed is lowered to it, a lower one stays as it is. The
+charge plans count with that speed for those quarters (so
 a charge at night gets a longer window; 0 means no grid charging at night),
 and a sale is worked out per quarter too - at the average of the night
 speed in its night quarters and its own speed in the others, so a block
 across 07:00 or 22:00 plans exactly what is sent. The setpoint switches by
 itself at 07:00 and 22:00 (also in the middle of a running block).
 
-*As of 2026.11.22, with the battery's power measured* (the battery power
+*With the battery's power measured* (the battery power
 sensor of the house-from-the-grid plan), the night speeds are limits **on
 the battery itself**, as if they were the inverter's own - they're there
 to keep the inverter cool and quiet at night, which is about what the
@@ -2015,10 +1969,9 @@ usual night usage, and the battery forecast never gives the house more than
 the night speed at night - and a car's "full by" only gets a battery
 quarter at night when it fits under the night speed minus the house (else
 grid quarters at their real price). What a night charge costs is what really comes
-from the grid - the battery's night speed and the house, nothing sent back
-(as of 2026.11.25; before, the full charge speed counted as bought and the
-rest as sold back at the bare price, so with prices incl. tax a slow night
-charge looked dearer than a full-speed evening block and lost to it). The loop follows the measured power, so a sudden
+from the grid - the battery's night speed and the house, nothing sent back,
+so a slow night charge isn't made to look dearer than a full-speed evening
+block. The loop follows the measured power, so a sudden
 peak is above the limit for the few seconds it takes to catch up. Turning
 the night limit on in Configure therefore needs the battery power sensor on
 the same page; an older setup without it keeps the grid-setpoint limit
@@ -2033,7 +1986,7 @@ Safety:
   until you turn it back on. Its state survives restarts; on by default.
   Turning it off also turns **EV charger control** off (see "EV charger
   control and manual charging" under Electric car).
-- **Grid setpoint by hand** *(as of 2026.11.53)*: while Automatic control
+- **Grid setpoint by hand**: while Automatic control
   is off, the status card shows an orange block with a slider for the grid
   setpoint (only with a setpoint entity set up - with "Status sensor only"
   there's no switch and no slider). The slider runs over +/- 20 kW (the
@@ -2066,7 +2019,7 @@ Safety:
 - A target that shows "unknown" (no value read back yet - some Modbus/MQTT
   numbers, like a Victron grid setpoint over MQTT without keepalive) is
   still written, only without the readback check; "unavailable" or a target
-  that doesn't exist is not, and says so in `last_error` (as of 2026.10.18).
+  that doesn't exist is not, and says so in `last_error`.
 
 **Planned setpoint** (a sensor, kW, positive = charge) and the Status
 sensor's `control_action` / `control` attributes show what would be sent -
@@ -2083,11 +2036,11 @@ control is only an in-between and the inverter reports what it really
 took over - then the Status shows whether the inverter followed. A
 readback equal to the controlled entity is cleared on saving (it's the
 same thing), and switching between Status sensor only and direct control
-never leaves an older readback behind unseen *(as of 2026.11.42)*.
+never leaves an older readback behind unseen.
 
 When does `Start charge` become `Actief` (and `Start discharge` become
 `Actief`)? Once the readback holds at least half of the charge (discharge)
-speed - or, with direct control (as of 2026.11.39), at least half of the
+speed - or, with direct control, at least half of the
 setpoint ESS Manager itself sent last. A charge that's deliberately below
 the charge speed - the night limit, a car charging on the same grid - so
 reads `Actief` as soon as the inverter has taken the setpoint, instead of
@@ -2141,8 +2094,7 @@ starts. For the whole hold the battery is told to charge, so household
 loads can't erode the SOC while the cells finish balancing, even when solar
 alone is what's holding the battery full. `Status` reports it like the
 charging phase: `Start charge` until the setpoint readback shows the charge
-applied, then `Actief` (up to v0.5.10 it said `Start charge` for the whole
-hold). Your automation reacts to `Start charge` and sets the setpoint;
+applied, then `Actief`. Your automation reacts to `Start charge` and sets the setpoint;
 should it drop away mid-hold, the Status goes back to `Start charge` and
 the automation sets it again. The **Battery action** sensor says
 `balancing` during the hold. Once the three conditions above are satisfied
@@ -2156,26 +2108,24 @@ battery back into overshoot, the plan quietly waits for that; if not, the
 charging logic schedules a fresh grid-charge session at the cheapest
 available window to complete the balance.
 
-*(as of 2026.11.14)* A grid-charge session for a full charge is planned
+A grid-charge session for a full charge is planned
 **together with its balancing wait**: one stretch of charge quarters with
 the "Full charge max hold" right after it - a charge of 1 hour with a
 2-hour hold needs a 3-hour stretch. The stretch is chosen on the charge at
 the buy price plus the house's usage over the hold at the buy price (the
-battery is held full then, the house runs on the grid), so the hold no
-longer lands in the evening peak because the cheapest charge quarter came
-right before it. *(As of 2026.11.15)* The session is planned half an hour
+battery is held full then, the house runs on the grid), so the hold doesn't
+land in the evening peak just because the cheapest charge quarter came
+right before it. The session is planned half an hour
 longer for the slower last part, and a session whose window runs out at
 95 % or more charges on to full (at most an hour) before the balancing
 wait starts. The Buy block on the card says until when it balances at
-the latest, and the forecast holds the battery at 100 % over it. (Up to
-2026.11.13 the session could be split over the cheapest quarters in
-blocks, and the hold fell wherever the battery happened to get full.) A session is worked out afresh when the capacity or max
+the latest, and the forecast holds the battery at 100 % over it. A session is worked out afresh when the capacity or max
 SOC it was sized against changes, and a stored session ends at its own end
-time (as of 2026.10.14).
+time.
 
 ## Problem notices
 
-*(as of 2026.10.23)* When something keeps the integration from doing its
+ When something keeps the integration from doing its
 job, a notice appears in **Settings > Repairs** - and goes away by itself
 once the problem is over. A problem has to last a while first, so a sensor
 that's briefly gone after a restart doesn't raise one:
@@ -2186,7 +2136,7 @@ that's briefly gone after a restart doesn't raise one:
 | Planning paused - a sensor has no value | the battery SOC sensor has no number, or the price sensor is unavailable / has no prices for today - nothing is planned and direct control keeps the battery idle | 15 minutes |
 | A solar forecast sensor can't be read | a chosen solar forecast sensor is available but has neither a Solcast `detailedHourly` nor a Helios Forecast `forecast` attribute - it would count as no sun (an attribute that's just empty for now is fine) | 15 minutes |
 | Battery expected below its minimum | even with the plans, the battery is expected to run into a dip below its minimum within the next 24 hours that have prices and lie within the planning horizon - usually a charge that can't be fitted (charge speed, night limit, too little room) | 30 minutes |
-| A battery sensor stopped updating | *(as of 2026.10.44)* the battery SOC, or the battery's power while the setpoint follows it (House from grid / Solar export), still has a value but no longer updates - the Status shows **Standby** and direct control keeps the battery idle until it updates again (see below) | at once (the check itself waits) |
+| A battery sensor stopped updating | the battery SOC, or the battery's power while the setpoint follows it (House from grid / Solar export), still has a value but no longer updates - the Status shows **Standby** and direct control keeps the battery idle until it updates again (see below) | at once (the check itself waits) |
 
 **A sensor that stopped updating.** An integration that loses its
 connection often keeps the sensor's last value instead of making it
@@ -2219,7 +2169,7 @@ integration clears its notices.
 
 ## Diagnostics
 
-*(as of 2026.10.22)* Settings > Devices & services > ESS Manager > the
+ Settings > Devices & services > ESS Manager > the
 three-dot menu > **Download diagnostics** gives one JSON file with
 everything needed to see why the integration does what it does - handy to
 attach to an issue instead of copying YAML out of Developer tools:
@@ -2237,7 +2187,7 @@ attach to an issue instead of copying YAML out of Developer tools:
   action, the setpoint, the status or a control error changed, with time,
   SOC and price - what it did last night and why. Kept in memory, so it
   starts empty after a restart.
-- *(as of 2026.11.13)* **the floor's learning hours** (`floor_records`):
+- **the floor's learning hours** (`floor_records`):
   every hour the heat pump ran for the floor with its averages (supply,
   return, thermal power, room, running seconds) - what floor control's
   emission model is fitted on.
@@ -2263,7 +2213,7 @@ browser refresh), edit a dashboard, choose **Add card** and search for
 | ESS Manager - Savings (`custom:ess-manager-savings-card`) | what the battery saved against the same house without one - per day, week, month and year, with what was bought and sold and the average price per kWh |
 
 All of them are drawn by the integration itself - nothing else to install
-(since v0.5.1 also not apexcharts-card). The integration loads the card
+(no apexcharts-card needed). The integration loads the card
 file on every page and also adds it as a dashboard resource
 (`/ess_manager/ess-manager-cards.js?v=<version>&resource=1`, under
 Settings > Dashboards > Resources), kept on the current version and removed
@@ -2303,7 +2253,7 @@ expected:
 - the battery level with the plans in it (`battery_forecast_adjusted`):
   green, red during a sale, blue during a charge, intense red / blue for a
   spike sale / negative price charge, with a label at each planned moment.
-  It never goes above 100% (as of 2026.10.1): what solar would add on top
+  It never goes above 100%: what solar would add on top
   goes to the grid, so after a full day the line drains from 100%;
 - a thin dotted line: the battery level without any plan
   (`battery_forecast`, solar minus usage only), not cut off at the min /
@@ -2348,8 +2298,8 @@ a label ("Sell 19:15", "Negative price 13:00"); the other bars are dimmed.
 Everything before "now" sits under a darker layer; the plans that ran
 today (from the Battery action history - "Charged 03:00", "Sold 19:15")
 still show in it. The dotted line is the buy price (with transport - only
-when a transport tariff is set, otherwise it equals the price). *(As of
-2026.11.58)* a dashed line across the whole chart - the part without
+when a transport tariff is set, otherwise it equals the price).
+a dashed line across the whole chart - the part without
 prices yet included - marks the **reference price of the last week**
 ("ref € 0.33", the buy price, so not in the sell view): bold while it's in
 use (the battery's plans, or a car's "full by" waiting for the next day's
@@ -2362,8 +2312,8 @@ price at a time: the **buy** prices with a solar deficit, the **sell**
 prices with a solar surplus. The header says which ("Electricity price ·
 buy · now") and whether the price now is **incl** (buying) or **excl**
 (selling) taxes; tap the header to switch between the two. The tooltip
-always shows both, each labelled. The battery forecast's tooltip follows that choice
-*(as of 2026.11.21)*: its price is the buy price incl taxes or the sell
+always shows both, each labelled. The battery forecast's tooltip follows that choice:
+its price is the buy price incl taxes or the sell
 price excl, labelled the same way.
 
 **Solar surplus** (yellow column and line, "Solar surplus 14:15" - or
@@ -2385,9 +2335,6 @@ to the grid. From the Status sensor's `solar_surplus` attribute.
 | `sell_color` / `buy_color` | red / blue | the colours of a planned sale / charge |
 | `surplus_color` | yellow | the colour of the solar surplus |
 
-Options from before v0.5.1 (`show_<item>`, `legend_<item>`, `labels_<item>`
-and so on) are ignored - they belonged to the apexcharts version.
-
 **Status card.** At the top the title, the Status and a toggle for the
 control (the integration's **Automatic control** switch when it controls
 the battery itself, otherwise the automation you choose in the card's
@@ -2395,25 +2342,25 @@ options; hover it for its name) and next to it **Settings**, which opens
 the ESS Manager device page with all its numbers, switches and sensors
 (written out when there's room, just the cog on a narrow card; only shown
 to admins). Below, two blocks side by side: **Sell**
-on the left, **Buy** on the right - *(as of 2026.11.17)* with the house from
+on the left, **Buy** on the right - with the house from
 the grid at low prices switched on a third, **From the grid**: the current
 or next window the house is taken from the grid (start and stop, "+2" for
 the later ones - hover it for their times, a bar that fills while it
 runs), and what it keeps in the battery or "sun covers the house" (then a
-peak comes from the grid). The three stay in one row: *(as of
-2026.11.18)* a block without a plan shrinks to a narrow strip (its icon,
+peak comes from the grid). The three stay in one row:
+a block without a plan shrinks to a narrow strip (its icon,
 name and "none") and the planned ones share the rest of the width - a
 sale and a charge are never planned at the same time, so at most two are
 wide; a block narrower than about 200 px gets compact lines ("5,1 🔋 67 %",
 "0,2 kWh kept"). On a phone (up to 380 px) they're under each other, an
-empty block a low bar. *(As of 2026.11.41)* with nothing planned at all
+empty block a low bar. With nothing planned at all
 the three empty blocks share the full width evenly instead of three narrow
 strips on the left. `show_grid: false` in the card's YAML hides the
-grid block. *(As of 2026.11.19)* tapping a planned block (or its "+2") opens
+grid block. Tapping a planned block (or its "+2") opens
 the **planning panel**: every plan from now on in time order - charges,
 sales, the house from the grid, the full charge (with until when it
 balances) and the balancing wait, spike and negative price plans, solar
-export, and *(as of 2026.11.21)* the expected solar surplus as on the price
+export, and the expected solar surplus as on the price
 chart (battery full or more than it can take, with the kWh to the grid) -
 with the time, the kWh, the average price and the battery level
 after it, grouped by day, "now" / "next" on the running and next one, and
@@ -2514,8 +2461,7 @@ or the kWh extra to warm it up. Three tabs:
 - **Indoor** (with step 1): the measured indoor temperature of the last 24
   hours, the expected one for the next 48 with the target (dashed) and the
   heating per hour (bars: the measured heating electricity of the last 24
-  hours solid, the expected one lighter - as of 2026.10.23, with heating
-  meters chosen); the model's stage (learning, watching along,
+  hours solid, the expected one lighter - with heating meters chosen); the model's stage (learning, watching along,
   used, steering) with its self-check's figures; the buffer plan (warmer /
   cooler when, what it saves); COP at 7 and −2 °C, the floor's delay, the
   heat-up per 10 kWh. With step 2 the steering switch and the day/night
@@ -2526,7 +2472,7 @@ or the kWh extra to warm it up. Three tabs:
 | `title` | `Heat pump` | the card's title |
 | `hp_color` | orange | the heat pump colour |
 
-**Savings card** *(as of 2026.11.0)*. What the battery saved against the
+**Savings card**. What the battery saved against the
 same house without a battery: per quarter, the grid import and export
 that were measured, against what would have gone through the grid without
 the battery (export - import + charged - discharged, per 5 minutes) -
@@ -2534,9 +2480,9 @@ bought at the buy price incl taxes and transport (see [Prices including
 taxes](#prices-including-taxes)), sold at the bare price. The battery's
 losses are in it by themselves: only measured energy counts.
 
-**The battery's stock** (as of 2026.11.8). Energy put in the battery counts
-on the day it comes out, at what it cost to put in - up to then a day the
-battery was filled cheaply for the next day showed as a loss, and the next
+**The battery's stock**. Energy put in the battery counts
+on the day it comes out, at what it cost to put in - so a day the battery
+is filled cheaply for the next day doesn't show as a loss, and the next
 day as a big saving. The integration keeps what's in the battery (its state
 of charge x capacity) and what that cost: grid charging at the buy price
 incl of that quarter (the part of the charge the grid gave as much as:
@@ -2553,10 +2499,9 @@ it cost. The card shows the change in the **with ESS Manager** box ("into
 the battery" / "out of the battery") and below the chart what's in the
 battery now and its average price. Over a month it's the same money; only
 the days are fairer. It needs the state of charge sensor's statistics
-(state_class measurement); without them the days are as before. The stock
+(state_class measurement); without them the stock isn't counted. The stock
 starts at the first day the recorder still has, valued at that day's
-average buy price; the days stored before 2026.11.8 are worked out again
-as far as the recorder still has them.
+average buy price.
 
 At the top the saving in the period - **Day** (just the totals, no bars:
 within a day the money goes out while charging and the saving comes when
@@ -2581,7 +2526,7 @@ far as the recorder keeps its history (`keep_days` of the recorder, 10 days
 by default - set it higher in `configuration.yaml` to look back further).
 Days the statistics don't cover are skipped (the reason is in the
 sensor's `skipped` attribute). The prices of each day are kept by the
-integration itself (as of 2026.11.1) - for the days before that it needs
+integration itself - for days before it started keeping them it reads
 the price sensor's recorded history. Without the battery in the
 Energy dashboard the card says so instead. A day is stored as raw sums
 (kWh and kWh x price), so the line incl taxes is put on when shown - a
@@ -2600,61 +2545,26 @@ build your own: each file's header comment explains which placeholder
 entity_ids to replace with your own. The built-in cards no longer use
 them.
 
-## What changed vs. the original hand-written version
+## Where it came from
 
-This is a full rewrite (Jinja2 template sensor -> Python custom
-integration), not a mechanical export, so a few things were deliberately
-generalized for portability - documented here so nothing is a surprise if
-you're the one who ran the original on a live system:
-
-- **Every entity reference is configurable** - the original hardcoded
-  Victron/Nordpool/Solcast entity IDs; this version only assumes the
-  *shape* of data described under Requirements above.
-- **The household usage forecast is calculated internally**, with no
-  external SQL sensor - see "Household usage forecast" above. It also
-  fixes a flagged correctness issue in the original's MySQL-specific SQL
-  sensor (a week with missing data was silently averaged in as a 0 instead
-  of being excluded).
-- **Min/max SOC are direct % tunables**, not derived from an external
-  "inverter's own minimum SOC" sensor plus a hardcoded margin. If you want
-  that margin back, just set Minimum SOC a few points above your inverter's
-  own floor.
-- **Capacity is a tunable**, not hardcoded to 30 kWh, and the dashboard
-  cards read it live from the sensor rather than a hardcoded constant.
-- **Idle setpoint tolerance** is generalized to 0W (the original's -30W was
-  a quirk of one specific Victron install's idle reading).
-- **Plan state survives Home Assistant restarts** (persisted via
-  Home Assistant's storage helper; since 2026.10.14 the first cycle after a
-  restart checks running windows again against the current settings, and
-  the balancing wait carries on) - the original template sensor's
-  self-referencing `this.attributes` lookups would silently reset on
-  restart. This is an intentional improvement, not a bug-for-bug port.
-- **"Days since last full charge" can be tracked internally**, rather than
-  requiring an external "time since last full charge" sensor that not
-  everyone will have - though if you do have one (e.g. from your BMS), you
-  can point the integration at it instead; see "Full-charge balancing"
-  above.
-- **One rich "Status" sensor + several small display sensors**, rather than
-  one sensor with ~40 flattened attributes - the forecast arrays and plan
-  dictionaries the dashboard needs still live as attributes on `Status`
-  (for drop-in ApexCharts compatibility), but values useful directly in
-  automations or history graphs (battery level, charge/discharge amount and
-  timing, days to next full charge) are their own entities.
-
-The exact YAML this was ported from (the heavily-commented Jinja2 source
-and the original project notes) is in the git history up to v0.2.20.
+ESS Manager started as a hand-written Home Assistant template sensor for one
+Victron system and was rebuilt as this integration so it can be installed
+anywhere: every entity is configurable, the household usage forecast is
+calculated internally from the Energy dashboard, and the plans survive a
+restart. The original template (and its project notes) is in the git
+history up to v0.2.20; what changed since is in `CHANGELOG.md`.
 
 ## Repository layout
 
 ```
-custom_components/ess_manager/   the integration itself (frontend/ = its dashboard cards)
-dashboard/                       the old dashboard cards as YAML + example automation (not needed with direct control)
-tools/build_cards.py             builds frontend/ess-manager-cards.js from tools/cards_template.js
-docs/images/                     screenshots used in this README
-tests/                           standalone tests (no Home Assistant needed)
-tests/ha/                        Home Assistant tests (pytest-homeassistant-custom-component: pytest tests/ha)
-.github/workflows/validate.yaml  HACS + hassfest validation on every push
-LICENSE                          MIT
+custom_components/ess_manager/ the integration itself (frontend/ = its dashboard cards)
+dashboard/ the old dashboard cards as YAML + example automation (not needed with direct control)
+tools/build_cards.py builds frontend/ess-manager-cards.js from tools/cards_template.js
+docs/images/ screenshots used in this README
+tests/ standalone tests (no Home Assistant needed)
+tests/ha/ Home Assistant tests (pytest-homeassistant-custom-component: pytest tests/ha)
+.github/workflows/validate.yaml HACS + hassfest validation on every push
+LICENSE MIT
 ```
 
 ## Versioning

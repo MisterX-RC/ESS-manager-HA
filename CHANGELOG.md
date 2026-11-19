@@ -12,6 +12,19 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.59] - 2026-11-19
+
+### Documentation
+- **README rewritten.** A new introduction with everything the integration
+  does (battery planning, control, prices, electric car, heat pump,
+  insight, cards), a table of contents, and screenshots of all seven
+  dashboard cards (rendered with the cards themselves on demo data, Home
+  Assistant's default dark theme). The sections now describe how things
+  work today - the per-version history notes ("as of ...", "up to then
+  ...") are gone; that history stays here in the changelog. "What changed
+  vs. the original hand-written version" is a short "Where it came from".
+  No change in behaviour.
+
 ## [2026.11.58] - 2026-11-19
 
 ### Cards
