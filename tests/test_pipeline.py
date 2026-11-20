@@ -4526,8 +4526,9 @@ check("floor: too few running hours -> not ok", not fcm.fit_emission(_recs[:20])
 check("floor: pump-off / short hours are left out",
       fcm.fit_emission([{**r, "run_s": 600} for r in _recs])["n"] == 0)
 _slab_recs = [{**r, "t_slab": r["t_room"] + 2.0, "p_th": 1.2 * ((r["t_ret"] + 2) - (r["t_room"] + 2.0))} for r in _recs]
-_es = fcm.fit_emission(_slab_recs)
-check("floor: with a floor sensor in most hours it is the reference", _es["slab"] and abs(_es["u"] - 1.2) < 0.01)
+_es = fcm.fit_emission(_slab_recs, fcm.REF_SLAB)
+check("floor: against the floor sensor the screed is the reference (2026.11.61: asked for, not by share of hours)",
+      _es["slab"] and abs(_es["u"] - 1.2) < 0.01 and not fcm.fit_emission(_slab_recs)["slab"])
 _sp = fcm.return_setpoint({"u": 0.8, "delta": 4.0}, 2.4, 20.0, 20.0, 35.0, 0.5)
 check("floor: return setpoint for a power: room + P/U - delta/2, on the step, within limits",
       _sp == 21.0 and fcm.return_setpoint({"u": 0.8, "delta": 4.0}, 30.0, 20.0, 20.0, 35.0, 0.5) == 35.0
@@ -6606,14 +6607,14 @@ _mf_t4, _ = heatpump_house.simulate(_mf_house, 21.0, _mf_in, None, [_mf_ss[0]] *
 check("min floor: q_min is ignored when the heat is given (self-check with measured heat)", _mf_t3 == _mf_t4)
 _mf_rt = heatpump_runtime.HeatPumpRuntime()
 check("min floor: runtime without a minimum keeps the model itself", _mf_rt.with_floor_min(_mf_house, _mf_in, [21.0] * 72, None) is _mf_house)
-_mf_rt.floor_min = {"t": 23.0, "model": _mf_floor, "slab": None}
+_mf_rt.floor_min = {"t": 23.0, "k": _mf_floor["u"], "measured": False}
 _mf_m = _mf_rt.with_floor_min(_mf_house, _mf_in[:3], [21.0, 20.0, 24.0], None)
 check("min floor: runtime adds q_min per hour from the wanted room (thermal model)",
       _mf_m["q_min"] == [0.8, 1.2, 0.0] and "q_min" not in _mf_house)
-_mf_rt.floor_min = {"t": 23.0, "model": {**_mf_floor, "slab": True}, "slab": 22.0}
-check("min floor: with a floor-sensor model the floor sensor is the reference",
-      _mf_rt.with_floor_min(_mf_house, _mf_in[:2], [21.0, 21.0], None)["q_min"] == [0.4, 0.4])
-_mf_rt.floor_min = {"t": 23.0, "model": _mf_floor, "slab": None}
+_mf_rt.floor_min = {"t": 23.0, "k": 0.6, "measured": True}
+check("min floor (2026.11.61): with a floor sensor planned with the screed's k against the wanted room",
+      _mf_rt.with_floor_min(_mf_house, _mf_in[:2], [21.0, 21.0], None)["q_min"] == [1.2, 1.2])
+_mf_rt.floor_min = {"t": 23.0, "k": _mf_floor["u"], "measured": False}
 check("min floor: an electricity model gets the heat divided by the COP",
       _mf_rt.with_floor_min({**_mf_house, "thermal": False}, _mf_in[:1], [21.0], None, 4.0)["q_min"] == [0.2])
 
@@ -7040,6 +7041,86 @@ check("notification: the waiting part in words, the price with a decimal comma i
                                      ref=evn.price_text(0.3291, "nl"), start="vr 00:00")
       and evn.price_text(0.3291, "nl") == "€0,33" and evn.price_text(0.3291, "en") == "€0.33")
 
+
+# 2026.11.61 (Timo): the floor sensor - the emission learned against the room and, apart, against the screed;
+# the screed's is used once it fits and the sensor has a value, else the room's (floor control doesn't drop back
+# to watching because the screed's doesn't fit); the minimum floor temperature is the measured floor then, watched
+# every cycle (too cold below the minimum - 0.2 until the minimum + 0.2), and while the minimum asks for heat the
+# too-warm limit is 2 degC (2.5 straight away)
+_fm2 = fcm.fit_models(_slab_recs)
+check("floor sensor: both fits learned - the room's as the model's own keys, the screed's apart",
+      _fm2["ok"] and not _fm2["slab"] and _fm2["slab_fit"]["ok"] and abs(_fm2["slab_fit"]["u"] - 1.2) < 0.01)
+_am = fcm.active_model(_fm2, 23.0)
+check("floor sensor: the screed's emission in use when it fits and the sensor has a value",
+      _am["slab"] and _am["ref"] == "slab" and abs(_am["u"] - 1.2) < 0.01 and _am["delta"] == _fm2["delta"]
+      and "slab_fit" not in _am and "slab_fit" in _fm2)
+_am = fcm.active_model(_fm2, None)
+check("floor sensor: sensor without a value -> the room's emission (not the screed's U against the room)",
+      not _am["slab"] and _am["ref"] == "room" and _am["u"] == _fm2["u"] and _am["ok"] and _am["ref_reason"] == "sensor_unavailable")
+_fm3 = fcm.fit_models(_recs)
+check("floor sensor: no sensor -> the room's, reason no_sensor",
+      fcm.active_model(_fm3, None)["ref_reason"] == "no_sensor" and fcm.active_model(_fm3, None)["ok"])
+_fm4 = fcm.fit_models(_recs[:40] + _slab_recs[40:])
+check("floor sensor: too few hours with the sensor yet -> the room's, reason slab_learning",
+      fcm.active_model(_fm4, 22.0)["ref"] == "room" and fcm.active_model(_fm4, 22.0)["ref_reason"] == "slab_learning")
+_bad = [{**r, "p_th": r["p_th"] * (0.4 if i % 2 else 1.6)} for i, r in enumerate(_slab_recs)]
+_fm5 = {**fcm.fit_models(_recs), "slab_fit": fcm.fit_models(_bad)["slab_fit"]}
+_am5 = fcm.active_model(_fm5, 22.0)
+check("floor sensor: the screed's doesn't fit -> the room's keeps floor control going (ok), reason slab_inaccurate",
+      not _fm5["slab_fit"]["ok"] and _am5["ok"] and _am5["ref"] == "room" and _am5["ref_reason"] == "slab_inaccurate")
+check("floor sensor: a model stored by an older version (no slab_fit) -> the room's",
+      fcm.active_model({"u": 0.5, "ok": True, "delta": 4.0}, 22.0)["ref"] == "room")
+check("floor sensor: screed -> room in series: 1/0.8 = 1/1.2 + 1/k -> k 2.4",
+      fcm.slab_room_conductance({"u": 0.8, "ok": True, "slab_fit": {"u": 1.2, "ok": True}}) == 2.4)
+check("floor sensor: ... until the screed's is learned the room's U; not ok -> None; close together -> the room's",
+      fcm.slab_room_conductance({"u": 0.8, "ok": True, "slab_fit": {"u": 1.2, "ok": False}}) == 0.8
+      and fcm.slab_room_conductance({"u": 0.8, "ok": False}) is None
+      and fcm.slab_room_conductance({"u": 0.8, "ok": True, "slab_fit": {"u": 0.9, "ok": True}}) == 0.8
+      and fcm.slab_room_conductance({"u": 0.8, "ok": True, "slab_fit": {"u": 0.97, "ok": True}}) == 4.0)
+check("measured floor: too cold below the minimum - 0.2, stays so until the minimum + 0.2",
+      not fcm.floor_cold(False, 22.85, 23.0) and fcm.floor_cold(False, 22.75, 23.0)
+      and fcm.floor_cold(True, 23.15, 23.0) and not fcm.floor_cold(True, 23.25, 23.0))
+check("measured floor: no reading or no minimum -> not cold",
+      not fcm.floor_cold(True, None, 23.0) and not fcm.floor_cold(False, 18.0, 0.0) and not fcm.floor_cold(False, 18.0, None))
+
+def _cs_run(minutes, st, plan, room, target, **kw):
+    out = None
+    for m in range(0, minutes, 5):
+        out = fcm.control_step(st, 1_800_000_000 + m * 60 + st.get("_t0", 0), plan, (out or {}).get("p_target", 0.0),
+                               room, target, 3.25, 4.2, **kw)
+    return out
+_st = {"on": False, "since": 1_800_000_000 - 3600, "debt": 0.0}
+_o = _cs_run(10, _st, 0.0, 21.5, 21.0, floor_cold=True, min_band=True)
+check("measured floor: too cold -> heat demand on without heat owed (plan 0), reason floor_cold, at least p_min",
+      _o["on"] and _st["on"] and _o["p_target"] >= 3.25 and fcm.control_step(
+          dict(_st), 1_800_000_000 + 700, 0.0, 3.25, 21.5, 21.0, 3.25, 4.2, floor_cold=True, min_band=True)["on"])
+_st = {"on": True, "since": 1_800_000_000 - 3600, "debt": -1.0}
+_o = fcm.control_step(_st, 1_800_000_000, 0.0, 3.25, 21.5, 21.0, 3.25, 4.2, floor_cold=True, min_band=True)
+check("measured floor: running past the minimum run, nothing owed - stays on while the floor is too cold",
+      _o["on"] and _o["reason"] == "floor_cold")
+_st = {"on": True, "since": 1_800_000_000 - 3600, "debt": -1.0}
+_o = fcm.control_step(_st, 1_800_000_000, 0.0, 3.25, 21.5, 21.0, 3.25, 4.2, floor_cold=False, min_band=False)
+check("measured floor: ... and off ('delivered') once it's warm enough again", not _o["on"] and _o["reason"] == "delivered")
+_st = {"on": False, "since": 1_800_000_000 - 3600, "debt": 0.0}
+check("comfort: room 1.5 too warm - without the minimum no start, with it (floor too cold) a start",
+      not fcm.control_step(dict(_st), 1_800_000_000, 0.0, 0.0, 22.5, 21.0, 3.25, 4.2, floor_cold=True)["on"]
+      and fcm.control_step(dict(_st), 1_800_000_000, 0.0, 0.0, 22.5, 21.0, 3.25, 4.2, floor_cold=True, min_band=True)["on"])
+_st = {"on": True, "since": 1_800_000_000 - 3600, "debt": 1.0}
+check("comfort: with the minimum asking for heat off at 2.0 too warm after the minimum run, not at 1.5",
+      fcm.control_step(dict(_st), 1_800_000_000, 1.0, 3.25, 22.5, 21.0, 3.25, 4.2, min_band=True)["on"]
+      and not fcm.control_step(dict(_st), 1_800_000_000, 1.0, 3.25, 23.0, 21.0, 3.25, 4.2, min_band=True)["on"])
+_st = {"on": True, "since": 1_800_000_000 - 600, "debt": 1.0}
+check("comfort: ... 2.5 too warm straight away (within the minimum run); without the minimum 1.5",
+      not fcm.control_step(dict(_st), 1_800_000_000, 1.0, 3.25, 23.5, 21.0, 3.25, 4.2, min_band=True)["on"]
+      and fcm.control_step(dict(_st), 1_800_000_000, 1.0, 3.25, 23.4, 21.0, 3.25, 4.2, min_band=True)["on"]
+      and not fcm.control_step(dict(_st), 1_800_000_000, 1.0, 3.25, 22.5, 21.0, 3.25, 4.2)["on"])
+_st = {"on": False, "since": 1_800_000_000 - 3600, "debt": 0.0}
+check("comfort: the too-cold side unchanged with the minimum (1.0 / 1.5)",
+      fcm.control_step(dict(_st), 1_800_000_000, 0.0, 0.0, 19.9, 21.0, 3.25, 4.2, min_band=True)["reason"] == "too_cold")
+_rt61 = heatpump_runtime.HeatPumpRuntime()
+_rt61.floor_min = {"t": 23.0, "k": 0.4, "measured": True}
+check("min floor: the forecast keeps the minimum's heat, the switching plan (with_min False) leaves it out",
+      _rt61.with_floor_min(_mf_house, _mf_in[:2], [21.0, 21.0], None)["q_min"] == [0.8, 0.8])
 
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")

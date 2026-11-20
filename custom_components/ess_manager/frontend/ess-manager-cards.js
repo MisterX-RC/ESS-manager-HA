@@ -219,6 +219,7 @@ const I18N = {
     hp_tab_floor: "Floor", fl_mode: "Floor control", fl_mode_watch: "Watch", fl_mode_setpoint: "Return setpoint", fl_mode_full: "Full",
     fl_max_return: "Max. return setpoint",
     hp_floor_min_t: "Min. floor temperature",
+    hp_floor_min_meas: (t) => `Measured in the screed: ${t} \u00b0C`, hp_floor_min_cold: "floor too cold - heating",
     hp_floor_min_warn: (lim, tgt) => `Above ${lim} \u00b0C the house gets warmer than the wanted ${tgt} \u00b0C over the next 24 hours: the floor then gives off more heat than the house loses.`,
     fl_stage_watch: "Watching along: the thermostat switches, ESS Manager learns the floor",
     fl_stage_setpoint: "ESS Manager sets the return setpoint, the thermostat switches heat demand",
@@ -234,7 +235,8 @@ const I18N = {
     fl_would: (on, why) => `${on ? "Would heat now" : "Wouldn't heat now"} - ${why}`,
     fl_is: (on, why) => `${on ? "Heating" : "Not heating"} - ${why}`,
     fl_r_heat_owed: "heat owed", fl_r_running: "heat still owed", fl_r_delivered: "the planned heat is in", fl_r_too_warm: "room too warm",
-    fl_r_too_cold: "room too cold", fl_r_idle: "no heat owed",
+    fl_r_too_cold: "room too cold", fl_r_idle: "no heat owed", fl_r_floor_cold: "floor below its minimum",
+    fl_ref_slab: "to the screed", fl_ref_room: "to the room",
     fl_delivered: "heat delivered", fl_planned: "heat planned", fl_sp_actual: "return setpoint", fl_sp_plan: "planned return setpoint",
     fl_note: "Heat in thermal kWh per hour. The supply and return temperatures only count with the circulation pump running.",
     fl_learned: (n, e) => `Floor output learned from ${n} running hours, ${e} % off on the newest hours.`,
@@ -447,6 +449,7 @@ const I18N = {
     ed_hp_color: "Warmtepomp", ed_fc_color: "Accent",
     fl_max_return: "Max. retoursetpoint",
     hp_floor_min_t: "Min. vloertemperatuur",
+    hp_floor_min_meas: (t) => `Gemeten in de dekvloer: ${t} \u00b0C`, hp_floor_min_cold: "vloer te koud - verwarmt",
     hp_floor_min_warn: (lim, tgt) => `Boven ${lim} \u00b0C wordt het huis de komende 24 uur warmer dan de gewenste ${tgt} \u00b0C: de vloer geeft dan meer warmte af dan het huis verliest.`,
     hp_tab_floor: "Vloer", fl_mode: "Vloersturing", fl_mode_watch: "Meekijken", fl_mode_setpoint: "Retoursetpoint", fl_mode_full: "Volledig",
     fl_stage_watch: "Meekijken: de thermostaat schakelt, ESS Manager leert de vloer",
@@ -463,7 +466,8 @@ const I18N = {
     fl_would: (on, why) => `${on ? "Zou nu stoken" : "Zou nu niet stoken"} - ${why}`,
     fl_is: (on, why) => `${on ? "Stookt" : "Stookt niet"} - ${why}`,
     fl_r_heat_owed: "warmte te goed", fl_r_running: "nog warmte te goed", fl_r_delivered: "de geplande warmte zit erin", fl_r_too_warm: "kamer te warm",
-    fl_r_too_cold: "kamer te koud", fl_r_idle: "geen warmte te goed",
+    fl_r_too_cold: "kamer te koud", fl_r_idle: "geen warmte te goed", fl_r_floor_cold: "vloer onder het minimum",
+    fl_ref_slab: "naar de dekvloer", fl_ref_room: "naar de kamer",
     fl_delivered: "warmte geleverd", fl_planned: "warmte gepland", fl_sp_actual: "retoursetpoint", fl_sp_plan: "gepland retoursetpoint",
     fl_note: "Warmte in thermische kWh per uur. De aanvoer- en retourtemperatuur tellen alleen als de circulatiepomp draait.",
     fl_learned: (n, e) => `Afgifte vloer geleerd uit ${n} draaiuren, ${e} % ernaast op de nieuwste uren.`,
@@ -4665,7 +4669,8 @@ class EssManagerHeatPumpCard extends EssChartCard {
       html += `<div class="hp-legend"><span><i style="display:inline-block;width:10px;height:8px;background:${opt.hp_color};opacity:.85"></i>${esc(this._t("fl_delivered"))}</span><span><i style="display:inline-block;width:10px;height:8px;border:1px dashed #aaa"></i>${esc(this._t("fl_planned"))}</span><span><i style="display:inline-block;width:14px;height:2px;background:var(--primary-text-color,#f0f0f0)"></i>${esc(this._t("fl_sp_actual"))}</span><span><i style="display:inline-block;width:14px;height:0;border-top:2px dashed var(--primary-text-color,#f0f0f0)"></i>${esc(this._t("fl_sp_plan"))}</span></div>`;
     }
     const tiles = [];
-    if (m.u) tiles.push([this._t("fl_u_t"), this._num(m.u, 2), this._t("fl_u_unit")]);
+    // (2026.11.61) which reference the emission in use has: the screed (floor sensor) or the room
+    if (m.u) tiles.push([this._t("fl_u_t"), this._num(m.u, 2), `${this._t("fl_u_unit")} ${this._t(m.slab ? "fl_ref_slab" : "fl_ref_room")}`]);
     if (m.p_min != null) tiles.push([this._t("fl_p_t"), `${this._num(m.p_min, 1)} - ${this._num(m.p_max, 1)}`, this._t("fl_p_unit")]);
     if (m.delta != null) tiles.push([this._t("fl_delta_t"), `${this._num(m.delta, 1)} \u00b0C`, ""]);
     tiles.push([this._t("fl_sp_t"), `${n.sp_planned != null ? this._num(n.sp_planned, 1) : "\u2014"} / ${n.sp != null ? this._num(n.sp, 1) : "\u2014"} \u00b0C`, this._t("fl_sp_unit")]);
@@ -4848,6 +4853,11 @@ class EssManagerHeatPumpCard extends EssChartCard {
     const v = Number(st.state);
     const shown = v > 0 ? `${this._num(v, 1)} \u00b0C` : this._t("hp_off_short");
     let html = `<div class="hp-ctl"><span>${esc(this._t("hp_floor_min_t"))}</span><span class="val"><button type="button" data-step="-1" data-on="20" data-entity="${esc(mf.entity)}" aria-label="-">\u2212</button><span style="min-width:56px;text-align:center">${esc(shown)}</span><button type="button" data-step="1" data-on="20" data-entity="${esc(mf.entity)}" aria-label="+">+</button></span></div>`;
+    // (2026.11.61) with a floor sensor the minimum is the measured floor: show it, and when it's too cold
+    if (v > 0 && mf.sensor && mf.t_slab != null) {
+      const cold = mf.floor_cold ? ` \u00b7 <b>${esc(this._t("hp_floor_min_cold"))}</b>` : "";
+      html += `<div class="hp-sub" style="opacity:.75;font-size:12px;margin:-4px 0 6px">${esc(this._t("hp_floor_min_meas")(this._num(mf.t_slab, 1)))}${cold}</div>`;
+    }
     if (v > 0 && mf.too_warm && mf.limit_c != null) {
       html += `<div class="hp-banner warn">${icon("alert", HP_WARN, 18)}<div>${esc(this._t("hp_floor_min_warn")(this._num(mf.limit_c, 1), this._num(mf.target_c, 1)))}</div></div>`;
     }

@@ -193,7 +193,7 @@
         },
         "data_description": {
           "floor_pump_entity": "De aanvoer- en retoursensor tonen het vloerwater alleen als de pomp draait - andere metingen worden overgeslagen.",
-          "floor_slab_entity": "Een sensor in de dekvloer tussen twee leidingen. Wordt in plaats van de kamertemperatuur gebruikt als referentie voor de vloer zodra de meeste stookuren hem hebben - het model leert zichzelf opnieuw.",
+          "floor_slab_entity": "Een sensor in de dekvloer tussen twee leidingen. De minimale vloertemperatuur is dan de gemeten vloer, direct bewaakt; de afgifte van de vloer wordt ook tegen de dekvloer geleerd en gebruikt zodra die klopt (anders die tegen de kamer).",
           "floor_qube_device": "Zijn warmtepompstatus en driewegklep: alleen de minuten dat de compressor echt de vloer verwarmt (status verwarmen, klep op CV) tellen mee om de vloer te leren - niet het opstarten, het wachten nadat hij het retour-setpoint haalde, of warm water.",
           "floor_cool_switch_entity": "Zolang de warmtepomp koelt, laat de vloersturing hem helemaal met rust - de warmtevraag hoort dan bij het koelen. Het retour-setpoint gaat één keer terug naar de oude waarde, en er wordt niets geleerd.",
           "floor_cool_climate_entity": "Telt als koelen zolang deze thermostaat om koeling vraagt (actie 'cooling') - dat gebeurt voordat je koelautomatisering de warmtevraag aanzet, dus de vloersturing kan de warmtevraag van het koelen nooit voor verwarmen aanzien. Op 'cool' maar inactief telt niet."
@@ -450,7 +450,7 @@
         },
         "data_description": {
           "floor_pump_entity": "De aanvoer- en retoursensor tonen het vloerwater alleen als de pomp draait - andere metingen worden overgeslagen.",
-          "floor_slab_entity": "Een sensor in de dekvloer tussen twee leidingen. Wordt in plaats van de kamertemperatuur gebruikt als referentie voor de vloer zodra de meeste stookuren hem hebben - het model leert zichzelf opnieuw.",
+          "floor_slab_entity": "Een sensor in de dekvloer tussen twee leidingen. De minimale vloertemperatuur is dan de gemeten vloer, direct bewaakt; de afgifte van de vloer wordt ook tegen de dekvloer geleerd en gebruikt zodra die klopt (anders die tegen de kamer).",
           "floor_qube_device": "Zijn warmtepompstatus en driewegklep: alleen de minuten dat de compressor echt de vloer verwarmt (status verwarmen, klep op CV) tellen mee om de vloer te leren - niet het opstarten, het wachten nadat hij het retour-setpoint haalde, of warm water.",
           "floor_cool_switch_entity": "Zolang de warmtepomp koelt, laat de vloersturing hem helemaal met rust - de warmtevraag hoort dan bij het koelen. Het retour-setpoint gaat één keer terug naar de oude waarde, en er wordt niets geleerd.",
           "floor_cool_climate_entity": "Telt als koelen zolang deze thermostaat om koeling vraagt (actie 'cooling') - dat gebeurt voordat je koelautomatisering de warmtevraag aanzet, dus de vloersturing kan de warmtevraag van het koelen nooit voor verwarmen aanzien. Op 'cool' maar inactief telt niet."

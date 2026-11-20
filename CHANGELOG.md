@@ -12,6 +12,34 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.61] - 2026-11-20
+
+### Changed
+- **Floor sensor: two emissions, falling back to the room.** With a floor
+  sensor in the screed the floor's emission is learned twice - against the
+  room and, apart, against the screed on the running hours that have the
+  sensor. The screed's is used once it fits (30 hours, error at most 25 %)
+  and the sensor has a value; otherwise the room's. Before, the screed
+  became the only reference once most hours had it, and if that didn't fit
+  floor control dropped back to watching; a sensor without a value used the
+  screed's emission against the room. Diagnostics: `model.ref`,
+  `ref_reason`, `room_fit`, `slab_fit`; the Floor tab shows which reference
+  is used.
+- **Minimum floor temperature with a floor sensor: the measured floor.** The
+  number is then the measured floor temperature, watched every minute from
+  the moment the sensor is set up: below the minimum - 0.2 °C the floor is
+  too cold until the minimum + 0.2 °C, and in the Full stage the heat demand
+  goes on and stays on while it lasts, also when nothing else is planned.
+  Planned as the heat a floor at the minimum gives the room. The card shows
+  the measured floor under the setting. Without a floor sensor nothing
+  changes in what the number means.
+- **Comfort limit 2 °C while the minimum floor temperature asks for heat.**
+  Floor control switches the heat demand off only at 2 °C too warm (2.5 °C
+  straight away) instead of 1 °C (1.5 °C) - with a floor sensor while the
+  floor is too cold, without one while the minimum is above the wanted
+  temperature. On sunny days the room gets warmer; the too-cold side is
+  unchanged.
+
 ## [2026.11.60] - 2026-11-20
 
 ### Documentation

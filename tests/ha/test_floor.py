@@ -74,7 +74,7 @@ async def test_qube_status_counts_heating_and_hot_water(hass, freezer):
 A_MODEL = {"u": 0.4332, "delta": 3.86, "p_min": 3.26, "p_max": 4.18, "n": 31, "err": 0.087, "ok": True, "slab": False}
 
 
-async def _floor_a(hass, freezer, ret="27.4"):
+async def _floor_a(hass, freezer, ret="27.4", extra=None):
     tz = dt_util.get_default_time_zone()
     freezer.move_to(dt_util.as_utc(datetime(2026, 11, 11, 6, 0, 30, tzinfo=tz)))
     now = dt_util.now()
@@ -92,7 +92,7 @@ async def _floor_a(hass, freezer, ret="27.4"):
         return {"weather.home": {"forecast": []}}
 
     hass.services.async_register("weather", "get_forecasts", forecasts, supports_response=SupportsResponse.ONLY)
-    entry = MockConfigEntry(domain="ess_manager", version=2, title="Thuis", data={**BASE_DATA, **HP_DATA, **FLOOR_DATA})
+    entry = MockConfigEntry(domain="ess_manager", version=2, title="Thuis", data={**BASE_DATA, **HP_DATA, **FLOOR_DATA, **(extra or {})})
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -243,3 +243,58 @@ async def test_floor_minimum_floor_temperature(hass, freezer):
     assert all(n["sp"] is None or n["sp"] >= 30.5 for n in fl["next"])
     # 21 + 0.004 x 16 / 0.06 / 0.4332 = 23.5 (no sun in the test): 32 is far too warm
     assert mf["target_c"] == 21.0 and mf["limit_c"] is not None and 23.0 <= mf["limit_c"] <= 24.0 and mf["too_warm"]
+
+
+async def test_floor_sensor_minimum_measured_and_model_fallback(hass, freezer, monkeypatch):
+    """2026.11.61 (Timo): with a floor sensor the minimum floor temperature is the
+    measured floor, watched every cycle - too cold: heat demand on in full even
+    with nothing planned and the room 1.3 too warm (the minimum asks for heat:
+    off only at 2 degC too warm); warm enough again: off after the minimum run.
+    The screed's emission in use while it fits and the sensor has a value, else
+    the room's."""
+    from custom_components.ess_manager import floor_control
+
+    co, _ = await _floor_a(hass, freezer, extra={"floor_slab_entity": "sensor.qube_slab"})
+    hass.states.async_set("sensor.qube_slab", "22.5", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.indoor", "22.3", {"unit_of_measurement": "°C"})
+    hass.states.async_set("switch.qube_demand", "off")
+    co.floor.model = {**A_MODEL, "slab_fit": {"u": 0.7, "err": 0.1, "n": 40, "ok": True}}
+    co.hp.plan_heat = lambda *a, **k: {"temps": [22.3] * 25, "q_el": [0.0] * 24, "q_th": [0.0] * 24}
+    monkeypatch.setattr(floor_control, "effective_stage", lambda *a, **k: ("full", []))
+    switch_calls = []
+    record_calls(hass, "switch", "turn_on", switch_calls)
+    record_calls(hass, "switch", "turn_off", switch_calls)
+    await co._numbers["floor_min_temperature"].async_set_native_value(23.0)
+    for _ in range(25):
+        freezer.tick(timedelta(minutes=1))
+        await co.async_refresh()
+    fl = co.data["heat_pump"]["floor"]
+    mf = fl["min_floor"]
+    assert mf["mode"] == "measured" and mf["sensor"] and mf["t_slab"] == 22.5 and mf["floor_cold"]
+    assert mf["comfort_band_c"] == 2.0
+    assert fl["model"]["ref"] == "slab" and fl["model"]["u"] == 0.7 and fl["model"]["room_fit"]["u"] == A_MODEL["u"]
+    # 1/0.4332 = 1/0.7 + 1/k -> k = 1.14
+    assert abs(mf["k"] - 1.137) < 0.01
+    assert fl["now"]["would_heat"] and fl["now"]["reason"] in ("floor_cold", "running")
+    assert any(c[1] == "turn_on" and c[2].get("entity_id") == "switch.qube_demand" for c in switch_calls)
+
+    # warm enough again (minimum + 0.2): off once the minimum run (45 min) is over, not before
+    hass.states.async_set("switch.qube_demand", "on")
+    hass.states.async_set("sensor.qube_slab", "23.3", {"unit_of_measurement": "°C"})
+    switch_calls.clear()
+    freezer.tick(timedelta(minutes=1))
+    await co.async_refresh()
+    assert not co.data["heat_pump"]["floor"]["min_floor"]["floor_cold"]
+    for _ in range(50):
+        freezer.tick(timedelta(minutes=1))
+        await co.async_refresh()
+    assert any(c[1] == "turn_off" and c[2].get("entity_id") == "switch.qube_demand" for c in switch_calls)
+
+    # the sensor drops out: the room's emission (not the screed's U against the room), the minimum planned
+    hass.states.async_set("sensor.qube_slab", "unavailable")
+    freezer.tick(timedelta(minutes=1))
+    await co.async_refresh()
+    fl = co.data["heat_pump"]["floor"]
+    assert fl["model"]["ref"] == "room" and fl["model"]["u"] == A_MODEL["u"] and fl["model"]["ref_reason"] == "sensor_unavailable"
+    assert fl["min_floor"]["mode"] == "planned" and not fl["min_floor"]["floor_cold"]
+    assert fl["stage"] == "full"

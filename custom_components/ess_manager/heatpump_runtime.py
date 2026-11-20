@@ -84,8 +84,8 @@ class HeatPumpRuntime:
         self._ess_last: Optional[float] = None
         self.ess_switches = False
         # (as of 2026.11.45) the minimum floor temperature, set by the coordinator
-        # each cycle: {"t": degC, "model": floor emission model, "slab": the floor
-        # sensor now} or None - see with_floor_min
+        # each cycle: {"t": degC, "k": kW per degC to the room, "measured": the
+        # floor sensor watches it (2026.11.61)} or None - see with_floor_min
         self.floor_min: Optional[dict[str, Any]] = None
         # steering (as of 2026.10.17): {last_set, override_until}
         self.steer: dict[str, Any] = {}
@@ -461,7 +461,7 @@ class HeatPumpRuntime:
         return [self.heat_hist.get(str(hour0_epoch - j * hp.HOUR), 0.0) * cop for j in range(hh.LAG_HOURS - 1, 0, -1)]
 
     def plan_heat(self, hour0_epoch: int, indoor: Optional[float], hourly: list, target: list[float],
-                  cop_fallback: float) -> Optional[dict[str, Any]]:
+                  cop_fallback: float, with_min: bool = True) -> Optional[dict[str, Any]]:
         """Floor control (as of 2026.10.23): the heat per hour (thermal kWh)
         that keeps the house on `target` - the house model's emulated heat
         pump, the floor's delay and the heat of the hours before included.
@@ -476,7 +476,10 @@ class HeatPumpRuntime:
         inputs = hourly[:n]
         if not inputs or inputs[0][0] is None:
             return None
-        hm = self.with_floor_min(hm, inputs, target[:n], copm, cop_fallback)
+        if with_min:
+            # (as of 2026.11.61) without it for the switching itself while the
+            # floor sensor measures the minimum
+            hm = self.with_floor_min(hm, inputs, target[:n], copm, cop_fallback)
         temps, q_el = hh.simulate(hm, indoor, inputs, target[:n], self.q_hist(hour0_epoch, inputs[0][0]), copm)
         q_th = [round(q * (hh.cop_at(copm, inp[0]) if copm else cop_fallback), 3) for q, inp in zip(q_el, inputs)]
         return {"temps": temps, "q_el": q_el, "q_th": q_th}
@@ -489,11 +492,11 @@ class HeatPumpRuntime:
         spec = self.floor_min
         if not hm or not spec:
             return hm
-        fm = spec.get("model") or {}
         n = min(len(inputs), len(target))
-        slab = spec.get("slab")
-        refs = [slab] * n if (fm.get("slab") and slab is not None) else list(target[:n])
-        q_th = fc.min_floor_heat(fm, spec.get("t"), refs)
+        # (as of 2026.11.61) the heat a floor at the minimum gives the room at
+        # the wanted temperature: k = the floor's emission (water, no floor
+        # sensor) or the screed's to the room (with one)
+        q_th = fc.min_floor_heat({"u": spec.get("k")}, spec.get("t"), list(target[:n]))
         if not any(q_th):
             return hm
         if not hm.get("thermal"):
@@ -552,7 +555,7 @@ class HeatPumpRuntime:
                 hm = self.with_floor_min(hm, inputs, target, copm)
             plan = None
             if stage == hh.STAGE_STEERING and prices and prices.get("buy"):
-                fmin = (self.floor_min or {}).get("t") if self.ess_switches else None
+                fmin = ((self.floor_min or {}).get("t"), (self.floor_min or {}).get("k")) if self.ess_switches else None
                 key = (hour0_epoch, house.get("day"), tuple(schedule[:n]), delta, round(indoor, 1), fmin)
                 if (self._plan_cache and self._plan_cache[0][:3] == key[:3] and self._plan_cache[0][3] == delta
                         and self._plan_cache[0][5:] == key[5:]):

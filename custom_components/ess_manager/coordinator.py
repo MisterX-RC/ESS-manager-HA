@@ -2007,13 +2007,29 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _floor_min_spec(self, conf: dict[str, Any]) -> Optional[dict[str, Any]]:
         """What the heat pump's planning needs of the minimum floor
         temperature (as of 2026.11.45): set, floor control set up and heating,
-        the floor's emission learned."""
+        the floor's emission learned. (as of 2026.11.61) `k`: kW per degC
+        above the wanted room - the water's emission without a floor sensor,
+        the screed's to the room with one (the minimum is the measured floor
+        then, `measured` while the sensor has a value)."""
         t = self.floor_min_temperature()
         model = self.floor.model or {}
-        if t is None or not self.floor_configured(conf) or self.floor_cooling(conf) or not model.get("ok"):
+        if t is None or not self.floor_configured(conf) or self.floor_cooling(conf):
             return None
-        return {"t": t, "model": {k: model.get(k) for k in ("u", "delta", "slab")},
-                "slab": self._temp_state(conf.get(CONF_FLOOR_SLAB_ENTITY))}
+        t_slab = self._temp_state(conf.get(CONF_FLOOR_SLAB_ENTITY))
+        active = fc.active_model(model, t_slab)
+        k = self._floor_min_k(conf, model, active)
+        if not active.get("ok") or not k:
+            return None
+        return {"t": t, "k": k, "measured": bool(conf.get(CONF_FLOOR_SLAB_ENTITY)) and t_slab is not None}
+
+    @staticmethod
+    def _floor_min_k(conf: dict[str, Any], model: dict[str, Any], active: dict[str, Any]) -> Optional[float]:
+        """kW per degC the floor at its minimum gives above the wanted room
+        (as of 2026.11.61): with a floor sensor the screed's to the room, else
+        the water's (the active emission)."""
+        if conf.get(CONF_FLOOR_SLAB_ENTITY):
+            return fc.slab_room_conductance(model) or (active.get("u") if active.get("ok") else None)
+        return active.get("u") if active.get("ok") else None
 
     async def _async_floor_setpoint(self, entity_id: str, value: float) -> None:
         # never above the maximum - also when handing the old setpoint back
@@ -2100,9 +2116,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self.async_floor_release(conf)
                 _LOGGER.info("ESS Manager (%s): floor control - the heat pump cools, stepping aside", self.entry.title)
             self.floor.sample(now_ts, {"pump": None}, None, None, cooling=True)
+            self.floor.cold = False
             return {
                 "mode": self.floor_mode, "stage": fc.STAGE_COOLING, "waiting": [],
-                "model": {k: (self.floor.model or {}).get(k) for k in ("u", "delta", "p_min", "p_max", "n", "err", "ok", "slab")},
+                "model": self._floor_model_info(self.floor.model or {}, fc.active_model(self.floor.model, None)),
                 "min_hours": fc.MIN_EMIT_HOURS, "response": {"n": 0, "err": None, "ok": False, "needed": fc.MIN_RESPONSE_HOURS, "periods": 0,
                              "min_periods": fc.RESPONSE_MIN_PERIODS, "min_hours": fc.MIN_RESPONSE_HOURS},
                 "now": {"reason": "cooling"}, "next": [], "select": self.floor_mode_entity_id,
@@ -2138,11 +2155,28 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # watch chosen: the response check starts over once it's set higher again
             floor.setpoint_since = None
         floor.refit(now_ts)
-        model = floor.model or {}
+        # (as of 2026.11.61) the floor's emission when it fits and the floor
+        # sensor has a value, else the room's
+        learned = floor.model or {}
+        model = fc.active_model(learned, readings["t_slab"])
         cop = floor.cop_ratio(self.hp.heat_hist)
         targets = self._floor_targets(conf, hour0, setpoint, attribute)
         plan = self.hp.plan_heat(hour0, indoor, hourly, targets, cop) if targets else None
         plan_kw = plan["q_th"][0] if plan and plan["q_th"] else None
+        # (as of 2026.11.61) the minimum floor temperature with a floor sensor:
+        # the measured floor watched every cycle - the switching follows the
+        # plan without the minimum and runs while the floor is too cold
+        t_min = self.floor_min_temperature()
+        measured = bool(t_min and conf.get(CONF_FLOOR_SLAB_ENTITY) and readings["t_slab"] is not None)
+        floor.cold = fc.floor_cold(floor.cold, readings["t_slab"], t_min) if measured else False
+        if measured and plan is not None and self.hp.floor_min is not None:
+            plan_ctl = self.hp.plan_heat(hour0, indoor, hourly, targets, cop, with_min=False)
+            plan_kw = plan_ctl["q_th"][0] if plan_ctl and plan_ctl["q_th"] else plan_kw
+        # while the minimum asks for heat the too-warm limit is 2 degC (Timo)
+        if measured:
+            min_band = floor.cold
+        else:
+            min_band = bool(self.hp.floor_min is not None and targets and t_min is not None and t_min > targets[0])
         house = self.hp.house or {}
         house_ok = bool((house.get("review") or {}).get("passed")) and bool(house.get("model"))
         response = fc.response_check(floor.records, floor.setpoint_since)
@@ -2164,7 +2198,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # start from what the heat pump does now
             floor.ctl.update({"on": bool(demand_on), "since": now_ts, "debt": 0.0})
         delivered = (readings["p_th"] or 0.0) if demand_on is not False else 0.0
-        step = fc.control_step(floor.ctl, now_ts, plan_kw or 0.0, delivered, indoor, setpoint, p_min, p_max)
+        step = fc.control_step(floor.ctl, now_ts, plan_kw or 0.0, delivered, indoor, setpoint, p_min, p_max,
+                               floor_cold=floor.cold, min_band=min_band)
 
         # the return setpoint: the target power while running (full), the
         # planned power while the thermostat switches (setpoint stage)
@@ -2245,7 +2280,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "mode": self.floor_mode,
             "stage": stage,
             "waiting": waiting,
-            "model": {k: model.get(k) for k in ("u", "delta", "p_min", "p_max", "n", "err", "ok", "slab")},
+            "model": self._floor_model_info(learned, model),
             "min_hours": fc.MIN_EMIT_HOURS,
             "response": {**response, "min_hours": response.get("needed", fc.MIN_RESPONSE_HOURS)},
             "house_ok": house_ok,
@@ -2263,28 +2298,45 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "select": self.floor_mode_entity_id,
             "max_return": getattr(self._numbers.get(NUM_FLOOR_MAX_RETURN), "entity_id", None),
             "max_return_c": hi,
-            "min_floor": self._floor_min_info(model, targets, hourly, readings["t_slab"], sp_min),
+            "min_floor": self._floor_min_info(conf, learned, model, targets, hourly, readings["t_slab"], sp_min,
+                                              measured, min_band),
         }
 
-    def _floor_min_info(self, model: dict[str, Any], targets: Optional[list[float]], hourly: list,
-                        t_slab: Optional[float], sp_min: Optional[float]) -> dict[str, Any]:
+    @staticmethod
+    def _floor_model_info(learned: dict[str, Any], active: dict[str, Any]) -> dict[str, Any]:
+        """The emission for the card and diagnostics (as of 2026.11.61): the one
+        in use (its keys as before, `ref` room / slab and why), and both fits."""
+        out = {k: active.get(k) for k in ("u", "delta", "p_min", "p_max", "n", "err", "ok", "slab", "ref", "ref_reason")}
+        out["room_fit"] = {k: learned.get(k) for k in ("u", "err", "n", "ok")}
+        out["slab_fit"] = dict(learned.get("slab_fit") or {})
+        return out
+
+    def _floor_min_info(self, conf: dict[str, Any], learned: dict[str, Any], model: dict[str, Any],
+                        targets: Optional[list[float]], hourly: list, t_slab: Optional[float],
+                        sp_min: Optional[float], measured: bool = False, min_band: bool = False) -> dict[str, Any]:
         """The card's minimum floor temperature (as of 2026.11.45): the setting,
         and the temperature above which the house would get warmer than wanted
         the next 24 hours - the floor held there gives off more than the house
-        loses (house model, at the forecast weather and wanted temperatures)."""
+        loses (house model, at the forecast weather and wanted temperatures).
+        (as of 2026.11.61) `mode` measured (floor sensor) / planned, the
+        measured floor and whether it's too cold, the 2 degC comfort limit."""
         t = self.floor_min_temperature()
+        k = self._floor_min_k(conf, learned, model)
         out: dict[str, Any] = {
             "entity": getattr(self._numbers.get(NUM_FLOOR_MIN_TEMP), "entity_id", None),
             "t_c": t, "limit_c": None, "target_c": None, "too_warm": False, "sp_min": sp_min,
             "active": self.hp.floor_min is not None,
+            "sensor": bool(conf.get(CONF_FLOOR_SLAB_ENTITY)),
+            "mode": (("measured" if measured else "planned") if t is not None else None),
+            "t_slab": t_slab, "floor_cold": self.floor.cold, "k": k,
+            "comfort_band_c": fc.MIN_FLOOR_COMFORT_BAND if min_band else fc.COMFORT_BAND,
         }
         house = self.hp.house or {}
         n = min(len(targets or []), len(hourly or []), fc.MIN_FLOOR_HOURS)
-        if not n or not model.get("u") or not house.get("model"):
+        if not n or not k or not house.get("model"):
             return out
         need = heatpump_house.steady_heat(house["model"], house.get("cop"), hourly[:n], targets[:n])
-        refs = [t_slab] * n if (model.get("slab") and t_slab is not None) else list(targets[:n])
-        limit = fc.min_floor_limit(model, refs, need)
+        limit = fc.min_floor_limit({"u": k}, list(targets[:n]), need)
         out["limit_c"] = limit
         out["target_c"] = round(sum(targets[:n]) / n, 1)
         out["too_warm"] = bool(t is not None and limit is not None and t > limit)

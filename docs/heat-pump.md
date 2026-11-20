@@ -326,9 +326,9 @@ becomes
 
 - a **return setpoint** for the heat pump: the floor gives off heat in
   proportion to the mean water temperature above the room (or above the
-  screed, with a floor sensor). How much - kW per °C - ESS Manager learns
-  from the supply and return temperatures, the room and the heat pump's
-  thermal power. Little heat needed: a low setpoint and a better COP.
+  screed, with a floor sensor - see below). How much - kW per °C - ESS
+  Manager learns from the supply and return temperatures, the room and the
+  heat pump's thermal power. Little heat needed: a low setpoint and a better COP.
   It stays within 20-35 °C and the setpoint entity's own range, and never
   above the number **Floor control maximum return setpoint** (default
   35 °C, also on the Floor tab of the heat pump card) -
@@ -337,7 +337,9 @@ becomes
 - **heat demand** on/off: on when the heat owed (planned minus delivered)
   is worth a run, off once it's in - at least 45 minutes on and 20 off for
   the compressor, and always on more than 1 °C too cold / off more than
-  1 °C too warm (1.5 °C: even within those times). A safety net for a floor
+  1 °C too warm (1.5 °C: even within those times). While the minimum floor
+  temperature (below) asks for heat, off only from 2 °C too warm (2.5 °C:
+  straight away); the too-cold side stays the same. A safety net for a floor
   that gives off less than learned: from 0.2 °C too cold the power goes up
   (full at 1.2 °C), and 1 °C too cold the return setpoint never goes below
   the one the heat pump had before.
@@ -346,29 +348,49 @@ becomes
 minimum floor temperature**, on the Indoor tab of the heat pump card under
 the buffer range; 0 = off, the default; on the card "+" from off jumps to
 20 °C). For comfort - warm feet - the floor is kept at least at this
-temperature, taken as the **mean water temperature** ((supply + return) / 2)
-the floor model works with; the floor's surface itself is somewhat cooler.
-With the circulation pump stopped the water can't be measured, so the
-minimum is planned rather than switched on a reading: the floor held at
-that temperature gives off U × (minimum - wanted room) kW (with a floor
-sensor model: minus the screed), and floor control's heat plan never plans
-less than that per hour. In the Full stage that heat is what ESS Manager
-switches the heat demand for, and the house forecast on the Indoor tab
-includes it; the comfort limits (1 °C too warm: off) still win. In the
-Return setpoint stage, where the thermostat switches, only the return
-setpoint is held up: never below minimum - half the supply-return
-difference, rounded up to the setpoint's step (the planned setpoints on the
-Floor tab too).
+temperature. What the number means depends on whether there's a floor
+sensor:
+
+- **Without a floor sensor** it's the **mean water temperature**
+  ((supply + return) / 2) the floor model works with; the floor's surface
+  itself is somewhat cooler. With the circulation pump stopped the water
+  can't be measured, so the minimum is planned rather than switched on a
+  reading: the floor held at that temperature gives off U × (minimum -
+  wanted room) kW, and floor control's heat plan never plans less than that
+  per hour. In the Full stage that heat is what ESS Manager switches the
+  heat demand for, and the house forecast on the Indoor tab includes it.
+- **With a floor sensor** it's the **measured floor temperature** in the
+  screed, watched every minute from the moment the sensor is set up (no
+  learning needed): the floor is too cold below the minimum - 0.2 °C and
+  stays so until the minimum + 0.2 °C. While it's too cold, in the Full
+  stage the heat demand goes on (after the 20 minutes off) and stays on
+  (at least 45 minutes) even when nothing else is planned; once it's warm
+  enough the normal plan takes over again. The house forecast plans the
+  heat a floor at the minimum gives the room: k × (minimum - wanted room),
+  with k the screed's emission to the room (from the two learned emissions,
+  below; until the screed's is learned the room's U). The card shows the
+  measured floor under the setting, and when it's too cold. If the sensor
+  has no value, the minimum is planned as above until it's back.
+
+Both ways the 2 °C too-warm limit above applies while the minimum asks for
+heat (with a floor sensor: while the floor is too cold; without one: while
+the minimum is above the wanted temperature) - on a sunny day the room gets
+warmer, that's the price of a warm floor. In the Return setpoint stage,
+where the thermostat switches, only the return setpoint is held up: never
+below minimum - half the supply-return difference, rounded up to the
+setpoint's step (the planned setpoints on the Floor tab too).
 A floor held at a temperature gives off heat whether the house needs it or
 not. From the house model (heat loss at the forecast weather and wanted
 temperatures, minus sun and the house's own electricity) ESS Manager works
 out the temperature above which the floor gives more than the house loses
-over the next 24 hours: mean wanted room + mean heat needed / U. A minimum
+over the next 24 hours: mean wanted room + mean heat needed / U (with a
+floor sensor: / k). A minimum
 above it shows a **warning bar** under the setting (the house gets warmer
 than wanted); the limit follows the weather, so on mild or sunny days the
 bar can appear and on cold days go away again. Diagnostics: the floor
 attribute's `min_floor` (`t_c`, `limit_c`, `target_c`, `too_warm`, `sp_min`,
-`active`).
+`active`, `sensor`, `mode` measured / planned, `t_slab`, `floor_cold`, `k`,
+`comfort_band_c`).
 
  **Down gently while the compressor runs.** A big drop
 of the return setpoint below the return made the heat pump switch off and
@@ -419,8 +441,19 @@ of failing on its own days and falling back to Return setpoint.
 The supply and return sensors sit in the heat pump: with the circulation
 pump stopped they warm up from the cabinet, so only samples with the pump
 running (and settled for 10 minutes) count. A **floor sensor** in the
-screed (optional, between two pipes, about half way down) is used as the
-reference instead of the room once most running hours have it.
+screed (optional, between two pipes, about half way down) gives a second
+emission, learned apart against the screed on the running hours that have
+the sensor (30 hours, error at most 25 %, like the room's). It's used once
+it fits and the sensor has a value; otherwise - still learning, not fitting,
+or the sensor without a value for a moment - the room's, so floor control
+keeps going on the room instead of dropping back to Watch. Only when neither
+fits does it wait for the emission. The screed's mainly makes the return
+setpoint fit better after a long pause (a cold screed takes more) and
+during long runs (a warm one less); the room temperature stays what's
+controlled. The Floor tab shows which one is used ("kW per °C to the
+screed / to the room"); diagnostics: the floor's `model` (the one in use,
+`ref` room / slab and `ref_reason` no_sensor / sensor_unavailable /
+slab_learning / slab_inaccurate) with `room_fit` and `slab_fit`.
 
  With a **Qube heat pump** chosen as a device (the
 `qube_heatpump` integration, optional, on the floor control page) its

@@ -32,9 +32,11 @@ before has proven itself:
 
 The supply and return sensors sit in the heat pump: with the circulation
 pump stopped they warm up from the cabinet, so only samples with the pump
-running (and settled for SETTLE_S) count. A floor sensor in the screed
-(optional) is used instead of the room temperature as the reference once
-it's there.
+running (and settled for SETTLE_S) count. With a floor sensor in the
+screed (optional, as of 2026.11.61) the emission is learned twice - against
+the room and against the floor - and the floor's is used once it fits and
+the sensor has a value, else the room's; the minimum floor temperature is
+then the measured floor temperature, watched every cycle.
 
 Pure Python (no Home Assistant), unit-tested in tests/test_pipeline.py.
 """
@@ -70,6 +72,8 @@ MIN_OFF_S = 20 * 60          # ... and off
 SP_LIMITS = (20.0, 35.0)     # return setpoint, degC (within the entity's own range)
 SP_WRITE_EVERY_S = 300
 MIN_EMIT_HOURS = 30          # settled running hours to learn the floor from
+REF_ROOM = "room"            # the emission's reference temperature (as of 2026.11.61) ...
+REF_SLAB = "slab"            # ... or the floor sensor in the screed
 EMIT_MAX_ERR = 0.25          # mean error of the emission model, share of the power
 MIN_RESPONSE_HOURS = 24      # running hours in the setpoint stage at most ...
 RESPONSE_MAX_ERR = 0.30      # ... with the heat pump following the target power this well
@@ -86,6 +90,10 @@ RESPONSE_PERIOD_GAP_H = 6
 RESPONSE_Z = 2.0
 COMFORT_BAND = 1.0           # degC from the wanted temperature: heat on / off regardless
 COMFORT_HARD = 1.5           # degC: also outside the minimum run / off time
+# (as of 2026.11.61, Timo) while the minimum floor temperature asks for heat the
+# "too warm" side gives way further: off at 2 degC too warm (2.5: straight away)
+MIN_FLOOR_COMFORT_BAND = 2.0
+MIN_FLOOR_COMFORT_HARD = 2.5
 DEBT_CAP_H = 2.0             # heat owed / ahead at most this many hours of maximum power
 RECORD_HOURS = 21 * 24
 DEFAULT_P_MIN = 1.0          # kW, until learned
@@ -97,28 +105,29 @@ def _pct(values: list[float], p: float) -> float:
     return s[min(len(s) - 1, max(0, int(round(p * (len(s) - 1)))))]
 
 
-def fit_emission(records: list[dict[str, Any]]) -> dict[str, Any]:
+def fit_emission(records: list[dict[str, Any]], ref: str = REF_ROOM) -> dict[str, Any]:
     """U (kW per degC of mean water - reference temperature), the supply-
     return difference, the heat pump's power range, from the settled running
-    hours. The reference is the floor sensor when most hours have it, else
-    the room. Checked on the newest quarter of the hours (fitted on the
-    rest); `ok` when enough hours and a small enough error."""
+    hours. The reference is the room, or (`ref` REF_SLAB) the floor sensor -
+    then only the hours that have it. Checked on the newest quarter of the
+    hours (fitted on the rest); `ok` when enough hours and a small enough
+    error."""
     # as of 2026.11.13: once hours come with the heat pump's status (heat_s),
     # only those - the hours before it counted its waits and hot water too
     if any("heat_s" in r for r in records):
         records = [r for r in records if "heat_s" in r]
     rows = [r for r in records if (r.get("run_s") or 0) >= 1800 and r.get("p_th") and r.get("t_sup") is not None
             and r.get("t_ret") is not None]
-    slab = len(rows) >= MIN_EMIT_HOURS and sum(1 for r in rows if r.get("t_slab") is not None) >= 0.8 * len(rows)
+    slab = ref == REF_SLAB
     pts = []
     for r in rows:
-        ref = r.get("t_slab") if slab else r.get("t_room")
-        if ref is None:
+        t_ref = r.get("t_slab") if slab else r.get("t_room")
+        if t_ref is None:
             continue
-        x = (r["t_sup"] + r["t_ret"]) / 2 - ref
+        x = (r["t_sup"] + r["t_ret"]) / 2 - t_ref
         if x > 0.5 and r["p_th"] > 0.1:
             pts.append((x, r["p_th"], r["t_sup"] - r["t_ret"]))
-    out: dict[str, Any] = {"n": len(pts), "slab": slab, "ok": False, "u": None, "err": None,
+    out: dict[str, Any] = {"n": len(pts), "slab": slab, "ref": ref, "ok": False, "u": None, "err": None,
                            "delta": None, "p_min": None, "p_max": None}
     if len(pts) < 8:
         return out
@@ -144,6 +153,56 @@ def fit_emission(records: list[dict[str, Any]]) -> dict[str, Any]:
     })
     out["ok"] = len(pts) >= MIN_EMIT_HOURS and err <= EMIT_MAX_ERR
     return out
+
+
+def fit_models(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """(as of 2026.11.61) The emission against the room (the model's own
+    keys, as before) and, apart, against the floor sensor (`slab_fit`) on the
+    hours that have it - the room's keeps floor control going when the
+    floor's doesn't fit (yet) or the sensor drops out."""
+    model = fit_emission(records, REF_ROOM)
+    sf = fit_emission(records, REF_SLAB)
+    model["slab_fit"] = {k: sf.get(k) for k in ("u", "err", "n", "ok")}
+    return model
+
+
+def active_model(model: Optional[dict[str, Any]], t_slab: Optional[float]) -> dict[str, Any]:
+    """The emission floor control works with this cycle (as of 2026.11.61):
+    the floor's when it fits and the floor sensor has a value, else the
+    room's; `ref` says which, `ref_reason` why not the floor's. The supply-
+    return difference and the power range are the heat pump's, the same for
+    both."""
+    model = dict(model or {})
+    sf = model.pop("slab_fit", None) or {}
+    if sf.get("ok") and sf.get("u") and t_slab is not None:
+        return {**model, "u": sf["u"], "err": sf.get("err"), "n": sf.get("n"), "ok": True, "slab": True,
+                "ref": REF_SLAB, "ref_reason": None}
+    if not sf.get("n") and t_slab is None:
+        reason = "no_sensor"
+    elif t_slab is None:
+        reason = "sensor_unavailable"
+    elif (sf.get("n") or 0) < MIN_EMIT_HOURS:
+        reason = "slab_learning"
+    else:
+        reason = "slab_inaccurate"
+    return {**model, "slab": False, "ref": REF_ROOM, "ref_reason": reason}
+
+
+def slab_room_conductance(model: Optional[dict[str, Any]]) -> Optional[float]:
+    """kW per degC of floor (screed) above the room (as of 2026.11.61): the
+    room's emission is water -> room, the floor's water -> screed, in series
+    1/U_room = 1/U_slab + 1/k. Until the floor's is learned (or when the two
+    don't make sense together) the room's U - less heat than the floor
+    really gives, the measurement catches the rest."""
+    model = model or {}
+    ru = model.get("u") if model.get("ok") else None
+    if not ru:
+        return None
+    sf = model.get("slab_fit") or {}
+    su = sf.get("u") if sf.get("ok") else None
+    if su and su > ru * 1.2:
+        return round(min(1.0 / (1.0 / ru - 1.0 / su), ru * 5.0), 4)
+    return ru
 
 
 def response_check(records: list[dict[str, Any]], since_ts: Optional[float]) -> dict[str, Any]:
@@ -188,8 +247,22 @@ def return_setpoint(model: dict[str, Any], p_kw: float, t_ref: float, lo: float,
 # with the pump stopped the water can't be measured, so it's planned as the
 # heat the floor gives off at that temperature (U x (minimum - reference)),
 # per hour, and the return setpoint never asks for less. 0 = off.
+# (as of 2026.11.61) With a floor sensor it's the measured floor temperature:
+# watched every cycle (too cold below the minimum - MIN_FLOOR_HYST until the
+# minimum + MIN_FLOOR_HYST), planned as the heat a floor at the minimum gives
+# the room (slab_room_conductance).
 MIN_FLOOR_OFF = 0.0
 MIN_FLOOR_HOURS = 24          # the "too warm" limit: averaged over the next day
+MIN_FLOOR_HYST = 0.2          # degC around the minimum for the measured floor
+
+
+def floor_cold(prev: bool, t_slab: Optional[float], t_min: Optional[float]) -> bool:
+    """The measured floor below the minimum (as of 2026.11.61): too cold under
+    the minimum - MIN_FLOOR_HYST, warm enough again from the minimum +
+    MIN_FLOOR_HYST; False without a reading or a minimum."""
+    if t_slab is None or not t_min or t_min <= MIN_FLOOR_OFF:
+        return False
+    return t_slab < t_min + MIN_FLOOR_HYST if prev else t_slab < t_min - MIN_FLOOR_HYST
 
 
 def min_floor_heat(model: dict[str, Any], t_min: Optional[float], refs: list[Optional[float]]) -> list[float]:
@@ -272,7 +345,7 @@ def comfort_power(p_kw: float, room: Optional[float], target: Optional[float], p
 
 def control_step(
     st: dict[str, Any], now_ts: float, plan_kw: float, delivered_kw: float, room: Optional[float],
-    target: Optional[float], p_min: float, p_max: float,
+    target: Optional[float], p_min: float, p_max: float, floor_cold: bool = False, min_band: bool = False,
 ) -> dict[str, Any]:
     """Heat demand on/off and the target power, from the heat owed (plan -
     delivered, kWh) - `st` = {on, since, debt, last, hour} is kept by the
@@ -280,7 +353,11 @@ def control_step(
     when the room is COMFORT_HARD too warm). Off: until the owed heat is
     worth half a minimum run (at least MIN_OFF_S, earlier when the room is
     COMFORT_HARD too cold). The room COMFORT_BAND off the wanted
-    temperature switches regardless once the minimum time is over."""
+    temperature switches regardless once the minimum time is over.
+    (as of 2026.11.61) `floor_cold`: the measured floor below its minimum -
+    on (after the minimum off time) and not off for "delivered" while it
+    lasts; `min_band`: the minimum floor temperature asks for heat - the
+    too-warm limits are MIN_FLOOR_COMFORT_BAND / _HARD then."""
     last = st.get("last") or now_ts
     dt = min(max(now_ts - last, 0.0), 300.0) / 3600.0
     cap = max(p_max, 1.0) * DEBT_CAP_H
@@ -296,19 +373,25 @@ def control_step(
     elapsed = now_ts - since
     reason = "running" if on else "idle"
     warm = room is not None and target is not None and room - target
+    band = MIN_FLOOR_COMFORT_BAND if min_band else COMFORT_BAND
+    hard = MIN_FLOOR_COMFORT_HARD if min_band else COMFORT_HARD
     if on:
-        if warm is not False and warm >= COMFORT_HARD:
+        if warm is not False and warm >= hard:
             on, reason = False, "too_warm"
-        elif elapsed >= MIN_RUN_S and (debt <= 0 or (warm is not False and warm >= COMFORT_BAND)):
-            on, reason = False, "too_warm" if (warm is not False and warm >= COMFORT_BAND) else "delivered"
+        elif elapsed >= MIN_RUN_S and ((debt <= 0 and not floor_cold) or (warm is not False and warm >= band)):
+            on, reason = False, "too_warm" if (warm is not False and warm >= band) else "delivered"
+        elif floor_cold and debt <= 0:
+            reason = "floor_cold"
     else:
         if warm is not False and -warm >= COMFORT_HARD and elapsed >= 300:
             on, reason = True, "too_cold"
-        elif elapsed >= MIN_OFF_S and (warm is False or warm < COMFORT_BAND):
+        elif elapsed >= MIN_OFF_S and (warm is False or warm < band):
             if warm is not False and -warm >= COMFORT_BAND:
                 on, reason = True, "too_cold"
             elif debt >= p_min * MIN_RUN_S / 3600 * 0.5:
                 on, reason = True, "heat_owed"
+            elif floor_cold:
+                on, reason = True, "floor_cold"
     if on != bool(st.get("on")):
         since = now_ts
     st.update({"on": on, "since": since, "debt": round(debt, 4), "last": now_ts, "hour": hour})
@@ -354,6 +437,7 @@ class FloorRuntime:
         self.baseline_sp: Optional[float] = None      # the return setpoint before it took over
         self.last_sp: Optional[float] = None
         self.last_sp_ts: float = 0.0
+        self.cold: bool = False                       # the measured floor below its minimum (2026.11.61)
 
     def as_store(self) -> dict[str, Any]:
         return {"records": self.records, "model": self.model, "ctl": self.ctl, "stage": self.stage,
@@ -469,7 +553,7 @@ class FloorRuntime:
         hour = int(now_ts // 3600)
         if self.model_hour == hour and self.model:
             return
-        self.model = fit_emission(self.records)
+        self.model = fit_models(self.records)
         self.model_hour = hour
 
     def cop_ratio(self, heat_hist: dict[str, float]) -> float:
