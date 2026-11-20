@@ -4,13 +4,27 @@ Every push to this repo gets a new version in
 `custom_components/ess_manager/manifest.json` and an entry here - this is
 what lets HACS reliably tell installed instances an update exists, since
 `sync-and-push.command` publishes a matching GitHub Release (tag
-`v<version>`) automatically as the last step of every push (see the README)
+`v<version>`) automatically as the last step of every push
 - a plain git tag on its own isn't enough for HACS to notice.
 
 Versions are **year.month.release**, like Home Assistant's own (as of
 2026.10.0): the year and month the release is made, then a number counting
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
+
+## [2026.11.60] - 2026-11-20
+
+### Documentation
+- **README shortened** to a plain overview: what the integration does,
+  screenshots, requirements, installation, getting started and a table of
+  documentation pages. The detailed explanations moved unchanged to
+  `docs/`, one page per topic: battery planning, prices, electric car,
+  heat pump, setup, control and dashboard cards. Links between the pages
+  point to the right page; the "learn more" link of the usage-source
+  notice and the floor-control setup text now point to these pages.
+- **Changelog made generic:** older entries no longer refer to specific
+  installations or dates of measurements.
+  No change in behaviour.
 
 ## [2026.11.59] - 2026-11-19
 
@@ -549,11 +563,9 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 - **A spike plan could buy at a price above the peak**: whether a day has a
   spike was worked out from the day's cheapest buy price, also when that
   quarter was already past. The charge then went in the cheapest window
-  still ahead, without checking it still paid for itself. Live (A, 11 Nov
-  10:45): 0.364 incl at 03:45 against 0.453 at 17:45 is a gain of 0.0493
-  per kWh - just under the 0.05 margin, so nothing happened; with a margin
-  of 0.045 the plan would have charged 11.5 kWh right away at ~0.56 incl to
-  sell ~4 kWh at 0.453. The cheapest buy price now only counts from the
+  still ahead, without checking it still paid for itself - with a slightly
+  lower margin it could charge right away at a price above the peak it was
+  going to sell at. The cheapest buy price now only counts from the
   current quarter on. Once the spike's charge has run (its sale still ahead
   or running) the past low still counts, so a night charge for an evening
   peak keeps its sale.
@@ -567,9 +579,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   and Eco+ would only take solar. The clamp sits between the Victron and
   the grid - the point the Victron keeps at its grid setpoint - so Eco and
   Eco+ never see consumption: once started they keep taking more, the
-  house battery covering it, up to the max current. Live (installation C,
-  10 Nov 18:58) Eco+ in the dark: 1.4 kW after 45 s, 2.9 kW by 19:11, the
-  house battery from 75% to 42% by 21:45. The zappi is now only on Eco or
+  house battery covering it, up to the max current - also in the dark,
+  draining the house battery. The zappi is now only on Eco or
   Fast in a planned or chosen charge (a grid or battery window, "now",
   "now, slowly") and on **Stopped** otherwise - also "on the sun"; a "full
   by" plan for a zappi no longer counts on the sun between its windows.
@@ -584,9 +595,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   battery nearly full after a night charge and the sun forecast to fill it
   right up to the top later on, whether the house may come from the grid
   ("the battery stays under the top in every later hour") changed with
-  every small step of the battery level - live (installation A, 10 Nov
-  05:21-05:29) House from grid / Standby every minute or two, visible on the
-  P1 meter as a wobble. A quarter that started from the grid is now finished
+  every small step of the battery level: House from grid / Standby every
+  minute or two, visible on the grid meter as a wobble. A quarter that started from the grid is now finished
   that way, like a running charge window; a charge in that quarter still
   wins, and the next quarter is decided afresh.
 
@@ -594,8 +604,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 - **A zappi mode command that never arrived wasn't sent again**: ESS
   Manager counted a mode as applied the moment it sent it, and a zappi
   showing something else afterwards as a change in the myenergi app (left
-  alone). Live a Fast sent at plug-in (08:13) never came through the cloud:
-  the car stayed on Stopped with an active plan. A mode now counts as
+  alone). A command that got lost in the cloud left the car on Stopped with
+  an active plan. A mode now counts as
   applied only once the zappi shows it; until then it's sent again every 3
   minutes (the cloud takes up to a minute, and the integration shows the old
   mode for a moment after a command), at most 4 times, then a warning in
@@ -609,14 +619,14 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 - **The thermostat's history read failed as a whole**: with every recorded
   update (2026.11.27) several come in the same second, now and then one with
   an unknown value; sorting those (time, value) pairs compared "nothing" with
-  a number (live, in the new `thermostat_read`: "'<' not supported between
-  instances of 'float' and 'NoneType'"). They're sorted by time only now.
+  a number ("'<' not supported between instances of 'float' and
+  'NoneType'"). They're sorted by time only now.
 
 ## [2026.11.28] - 2026-11-09
 
 ### Heat pump
-- **The thermostat's history read can be checked**: live after 2026.11.27
-  still no switches came in, and a failed read only went to the debug log.
+- **The thermostat's history read can be checked**: after 2026.11.27 a
+  thermostat could still show no switches, and a failed read only went to the debug log.
   Now the diagnostics show what the last read found (`thermostat_read`:
   rows, rows with a heat demand, switches, clean ones, or the error), a
   failure is logged as a warning and the read is tried again 30 minutes
@@ -631,7 +641,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   entity stays "heat" while its heat demand (`hvac_action`), wanted and
   current temperature change - those are attributes, and the history was
   read with only real state changes. So the learned thermostat (2026.11.20)
-  never saw a switch (live: 0 of the 10 needed after more than ten days),
+  never saw a switch, even after more than ten days,
   the house model's wanted temperature per hour stayed at the value of the
   start of the read, and a thermostat as the heat demand source gave no
   demand hours. Now every recorded update is read; the next read (at the
@@ -644,9 +654,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 - **A running charge window kept growing**: a "full by" plan gives a quarter
   on its own a neighbour (no lone quarters). The rest of a window that's
   running counted as such a lone quarter too - with one quarter left it
-  took the next one, every quarter again. Live (zappi, installation C) a
-  battery window planned 17:00-18:15 ran on to 20:00, and the cheaper night
-  quarters (23:15-01:00) were dropped for it. The rest of a running window
+  took the next one, every quarter again, so a running window could run on
+  for hours and push out cheaper quarters later on. The rest of a running window
   (grid or battery, Victron and zappi) is no longer a lone quarter.
 
 ## [2026.11.25] - 2026-11-09
@@ -860,19 +869,18 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   the battery stays under the top in every later hour, the cheapest first.
   The setpoint loop keeps the battery at 0 W, so a real surplus still
   charges it, but an unplanned load or a peak or less sun than forecast
-  comes from the grid instead of out of the battery (installation B,
-  7 Nov: 13:15-14:45 at 0.22-0.24 left to the battery, grid use only at
-  12:00 and 15:00). What it keeps in the battery is counted: the charges
+  comes from the grid instead of out of the battery (before, cheap sunny
+  quarters were left to the battery). What it keeps in the battery is counted: the charges
   get smaller. No shortfall, nothing from the grid.
 
 ## [2026.11.15] - 2026-11-07
 
 ### Fixed
-- **Full charge without its balancing wait**: a session planned to 04:00
-  had the battery full at 04:27 (the last part goes slower) - the window
-  had run out, and the "don't hold again right away" flag of the day
-  before's timed-out hold kept it from balancing; it charged again at
-  06:54 and planned yet another full charge (installation A, 7 Nov). Now:
+- **Full charge without its balancing wait**: a session could have the
+  battery full only just after its window (the last part goes slower) - the
+  window had run out, and the "don't hold again right away" flag of the day
+  before's timed-out hold kept it from balancing; it charged again and
+  planned yet another full charge. Now:
   - a session is planned half an hour longer for the slower last part;
   - a session whose window runs out at 95 % or more charges on to full
     (at most an hour), then holds;
@@ -882,8 +890,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   the forecast was set to exactly 100 %, also where the forecast before
   clipping was already above it (the session's kWh on a battery fuller
   than planned). Clipping it at 100 % afterwards turned that into a drop of
-  the overshoot and a jump back (installation A: 30 -> 21.6 -> 30 kWh at
-  04:00-06:00, in the purple "from the grid" stretch). Over the hold it's
+  the overshoot and a jump back. Over the hold it's
   now at least 100 %, so the line stays at the top.
 
 ## [2026.11.14] - 2026-11-06
@@ -894,9 +901,9 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   hold" right after it - a 1-hour charge with a 2-hour hold needs a 3-hour
   stretch. Chosen on the charge at the buy price plus the house's usage
   over the hold at the buy price (the house runs on the grid while the
-  battery is held full). Installation A: the hold fell 15:00-17:00 with
-  prices rising to the evening peak, because the cheapest charge quarters
-  came right before it. Up to now the session could be split over the
+  battery is held full). The hold could otherwise fall in prices rising to
+  the evening peak, just because the cheapest charge quarters came right
+  before it. Up to now the session could be split over the
   cheapest quarters in blocks.
 - The Buy block on the card: "then balancing at 100 % until ... at the
   latest"; the forecast holds the battery at 100 % over the planned hold.
@@ -909,10 +916,10 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   themselves (translation keys `status_heatpump`, `threeway_valve_status`).
   Only the minutes it really heats the floor count for learning the floor
   and checking the return setpoint: status *heating*, valve on CH, from 3
-  minutes after the compressor got there. Installation A: with the return
-  setpoint at 28 degC the Qube heats ~5 minutes and waits ~15 while heat
-  demand stays on and the pump runs - those waits counted as running with
-  0 kW, and the hot water run at 14:00 inside a heating run counted too.
+  minutes after the compressor got there. With a low return setpoint a Qube
+  heats a few minutes and then waits while heat demand stays on and the pump
+  runs - those waits counted as running with 0 kW, and a hot water run
+  inside a heating run counted too.
 - Once hours come with the status, the floor's emission model is learned
   from those only - the older hours had the waits and hot water in them
   (it starts counting again).
@@ -921,8 +928,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 - **The floor's learning hours** (`floor_records`): every hour the heat
   pump ran for the floor, with its averages of supply, return, thermal
   power, room and running seconds - what floor control's emission model
-  (U) is fitted on. Installation A: the model stays at an error of 41 %
-  (25 of 30 hours, 25 % needed) and the hours themselves weren't visible.
+  (U) is fitted on - so a model that keeps a large error can be checked
+  hour by hour.
 
 ## [2026.11.12] - 2026-11-06
 
@@ -931,8 +938,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   groups (spread over time), each played with a model fitted on all other
   hours - it never saw those days. Up to now the check used a model of
   only the hours before those two weeks, and early in the season there was
-  hardly any heating in them (installation A: heating since late October,
-  the check failing on a model that had barely seen the heat pump run).
+  hardly any heating in them (the check then failed on a model that had
+  barely seen the heat pump run).
   The gate stays the same (10 days, 90 % of the pattern's error, 0.6 °C).
 - **Drift guard**: the newest 4 heating days are also played with a model
   of only the hours before them; no better than the usual pattern there,
@@ -946,9 +953,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ### Heat pump - the house hour by hour
 - **Learns again right away** when what the house model is built from
   changes - the indoor sensor, the heat meter, the total electricity meter,
-  the COP sensor, or a new version of the model - instead of the next day
-  (installation A: the heat meter set in the morning, the model still the
-  one of that night).
+  the COP sensor, or a new version of the model - instead of the next day.
 
 ## [2026.11.10] - 2026-11-06
 
@@ -959,8 +964,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   electricity. The house model then counts the heat that really went into
   the house - each hour's heat by the heating's share of the electricity,
   so hot water is taken off - and the COP comes from the meters, hour by
-  hour, without needing whole running hours (installation A: 3 usable hours
-  of the COP sensor, 48 needed).
+  hour, without needing whole running hours (with only a COP sensor it
+  can take weeks to collect enough of those).
 - **The floor's delay chosen on a whole day**: 2026.11.9 let it go up to
   24 h, but the fit kept picking 2 h - it chose on the step of one hour,
   where the temperature moves hundredths of a degree and the noise wins.
@@ -988,8 +993,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   hours back at the heat put in (up to now 12) and tries time constants up
   to 24 hours (up to now 6). A concrete floor heated in a block of a few
   hours gives that heat off over many hours; with the shorter delay the
-  self-check's day simulation drifted more than 2 degC (installation A:
-  2.3 degC against at most 0.6). The fit still picks the best one itself;
+  self-check's day simulation could drift well beyond the 0.6 degC allowed. The fit still picks the best one itself;
   the model stays in shadow until the self-check passes.
 - **Why there is no COP model**: `house_model.cop_check` in the diagnostics
   counts the COP sensor's hours that fell out (no outdoor temperature,
@@ -1001,8 +1005,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ### Savings card - the battery's stock
 - **Energy put in the battery counts on the day it comes out, at what it
   cost to put in.** Up to now a day the battery was filled for the next day
-  showed as a loss (4 November: -EUR 0.89 with about 8 kWh more in the
-  battery at the end of the day) and the day it was used as a big saving.
+  showed as a loss (with several kWh more in the battery at the end of the
+  day) and the day it was used as a big saving.
   The integration now keeps what's in the battery (state of charge x
   capacity) and what it cost: grid charging at the buy price incl of that
   quarter, solar at the bare sell price of that quarter (what it would have
@@ -1022,8 +1026,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ### Victron EV charging station - "full by" charges calm by preference
 - The current is now the **lowest that costs at most 2 ct/kWh more** than
   the cheapest plan (up to now: the cheapest, of equal cost the lowest).
-  The night of 2-3 November (10.1 kWh by 10:00) that's 6 A for EUR 2.22
-  instead of 16 A for EUR 2.14. Where calm charging needs really dear
+  For a night charge that's typically 6 A instead of 16 A for a few cents
+  more. Where calm charging needs really dear
   quarters (a peak, a short night) it's still the faster current, and when
   the calm one doesn't make it in time a higher one, as before.
 - Dear quarters still come out of the house battery when refilling it
@@ -1192,8 +1196,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   line incl = a x price + b is fitted - in use once there's a day of
   quarters with enough price difference and a close fit. Works with any
   supplier sensor (EUR or ct, per quarter or hour); a change of energy tax
-  or fee is followed by itself. On a real day of Zonneplan quarters against
-  Nordpool: a = 1.209, b = 0.131, at most 0.07 ct off.
+  or fee is followed by itself. A supplier's quarter prices are matched to
+  well within a tenth of a cent.
 - **Counted as from 2027**: buying at the price incl taxes (of price +
   transport tariff), selling at the bare price.
 - **The price card** shows the buy prices with a solar deficit and the sell
@@ -1252,14 +1256,14 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   "Laden", "Piek").
 
 ### Performance (for a Raspberry Pi)
-- **The charge planning about 5x faster** (live data: 242 ms -> 47 ms per
-  cycle on a fast machine, roughly 1-1.5 s -> 0.2-0.3 s on a Pi). Nearly
+- **The charge planning about 5x faster** (a cycle on a Raspberry Pi goes
+  from over a second to a few tenths). Nearly
   all of it went into "does this still fit under 100% in every later
   hour", worked out over all the hours for every candidate quarter; now
   the highest level from each hour on is kept up to date as quarters are
   chosen, and what's in by a deadline is counted along instead of summed
-  again every step. The plans come out exactly the same (checked on live
-  data and the full test set).
+  again every step. The plans come out exactly the same (checked on real
+  situations and the full test set).
 - **The Status sensor's attributes stay out of the recorder** (and the heat
   pump model's). They're ~15 KB of forecasts, plans and prices, new every
   minute; nothing reads their history (the cards only use the history of
@@ -1302,8 +1306,9 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   (optional, on the price plans page, with the battery's power sensor and
   its direction on the page after it). Every kWh through the battery loses
   something (charge x discharge efficiency); with flat prices charging and
-  then using the battery at about the same price only costs money (live:
-  charged 21:30-24:00 at ~0.25 to cover the night at 0.24, 81% round trip).
+  then using the battery at about the same price only costs money (charging
+  in the evening to cover a night at about the same price, with 81% round
+  trip).
   The low charge plan now has two ways to cover a need in the same
   cheapest-first choice: a charge (price / charge efficiency per kWh into
   the battery) or taking the house from the grid in a quarter (price x
@@ -1381,11 +1386,9 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 - **Low charge: what's needed after the known prices is bought now where it
   fits.** Up to now that part waited for the prices to come in, so a
   battery that only drains for days (little sun, car sessions) got just
-  enough each day to reach midnight and ran low (live: 30 kWh battery at
-  45%, a 72-hour drain to -20 kWh, 6.4 kWh planned to last until midnight).
-  Now it's a part due by the end of the known prices, bought as far as it
-  fits under 100% (live: ~16 kWh today, the battery stays above ~14 kWh
-  until tomorrow evening instead of ~3).
+  enough each day to reach midnight and ran low. Now it's a part due by the
+  end of the known prices, bought as far as it fits under 100%, so the
+  battery stays well above the minimum while it drains.
 - **Never stretched into the expensive hours for it.** Parts only needed
   "where it fits" - these, later dips, the buffer of a follow-up charge -
   only go in quarters at most the average buy price of the known quarters;
@@ -1411,9 +1414,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   fitted) now comes from its heat demand switch instead of the thermostat's
   hvac_action: the heat pump heats only while that switch is on - hot water
   and cooling run outside it - so it works for any heat pump without its
-  own sensors. A live case had 14 of the last 20 days left out, the coldest
-  ones with 3.5-4.8 kWh of heating among them, because the thermostat didn't
-  show its demand. Switching source clears the old demand hours once; the
+  own sensors. A thermostat that doesn't show its demand could otherwise
+  leave most days - the coldest among them - out of the fit. Switching source clears the old demand hours once; the
   recorder's last ~10 days refill them. Without floor control: the
   thermostat, as before.
 - **Floor control: hot water isn't the floor's heat.** While the heat
@@ -1425,13 +1427,14 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ### Fixed
 - **COP model far too low.** It was fitted on the COP sensor's hourly mean,
   and a COP sensor reads 0 while the heat pump is off: an hour it ran for
-  26 minutes at COP 4.3 counted as 1.9 (live: 2.25 at 7 degC). Now only
+  26 minutes at COP 4.3 counted as 1.9, so the model came out far too low. Now only
   hours the sensor never dropped below 1 (the hourly minimum) count; with
   fewer than 48 there's no COP model yet and floor control uses its
   measured heat / electricity.
 - **Indoor reference from the cool days.** The heat loss follows indoor -
   outdoor around the usual indoor temperature, which was taken over all
-  days - so a summer-warm house set it (live: 24.9 degC). Now the cool days,
+  days - so a summer-warm house set it (far above its winter temperature).
+  Now the cool days,
   as the code's own description already said.
 - **Forecast check: no usage days with a young history.** A test day was
   dropped completely as soon as one of the three methods couldn't be made
@@ -1517,15 +1520,13 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   dip that only reaches into the Safety buffer.** After the first block of
   a charge in several blocks, dips count from min SOC + Safety buffer until
   its last block (so the rest isn't dropped). A dip that only went into the
-  buffer - live: 0.2 kWh into it at 08:00 the next morning, still well
-  above min SOC - had to be bought before it, which with the minimum
-  charge duration became a 3.5 kWh block at 05:15 (EUR 0.08) while the
-  same afternoon's charge was at EUR 0.05. Now only what keeps the dip at
+  buffer - a fraction of a kWh, still well above min SOC - had to be bought
+  before it, which with the minimum charge duration could become a whole
+  early block at a dearer price than the same afternoon's charge. Now only what keeps the dip at
   min SOC itself is due before the dip; the buffer part comes with the next
   charge, in its cheaper quarters, before the end of the known prices - and
   isn't bought at all when it doesn't fit under 100% there (e.g. the sun
-  fills the battery after it anyway). Live case: 13.15 kWh for EUR 0.71
-  instead of 0.78, the 05:15 block gone.
+  fills the battery after it anyway).
 
 ## [2026.10.33] - 2026-10-26
 
@@ -1536,8 +1537,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   nothing else: no low charge, no negative price charge, no spike plan.
   With a slow charger a full charge is spread over several sessions, and
   between them it's scheduled again, so the low charge plan could be off
-  for days (live: a battery at 25% with a low charge planned for tonight,
-  skipped because the full charge's first block was at 02:45). Now:
+  for days (a low battery with a low charge planned for tonight could skip
+  it because the full charge's first block was later that night). Now:
   - the low charge plan works from the forecast with the full charge's
     quarters in it, and doesn't use those quarters itself (the battery
     charges once), so it only buys what the full charge doesn't bring in
@@ -1565,13 +1566,10 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   lengthened into its neighbours, which can add more than needed; the
   surplus was then removed whole blocks first, most expensive first - so
   a cheap short block could go while the expensive quarters added to
-  lengthen another block stayed. Live: Tuesday 10:45 at EUR 0.01 (the
-  cheapest quarter of the day) was dropped and the charge started at
-  11:15. Now the surplus is removed in three ways (as before; the most
-  expensive piece per kWh first; the piece saving the most money first)
-  and the cheapest result is kept: in that case 10:30-13:30 in one block
-  and the evening block shorter, EUR 2.84 instead of 3.40 for the same
-  28 kWh. (In 30,000 random test plans: 2,400 cheaper, 1 a fraction of a cent dearer on a tie, the rest the same.)
+  lengthen another block stayed - even the cheapest quarter of the day
+  could be dropped. Now the surplus is removed in three ways (as before;
+  the most expensive piece per kWh first; the piece saving the most money
+  first) and the cheapest result is kept. (In 30,000 random test plans: 2,400 cheaper, 1 a fraction of a cent dearer on a tie, the rest the same.)
 - **EV card: a planned "full by" session gets its own day.** Adding or
   editing a planned session with "Full by" only had a time: the day was
   always the first one after the plug-in time, so it couldn't be chosen.
@@ -2134,10 +2132,10 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   or values that weren't there yet), the session is worked out afresh
   instead of started with the old amount - also right at its start, where a
   changed setting used to be ignored.
-- **After a restart everything is planned afresh.** Timo's update to
-  2026.10.13 came back from the reboot charging a full charge sized for a
-  30 kWh battery with 7 kW charge speed (the setup values) instead of the
-  15 kWh set on the number entity; only saving Configure made it plan again.
+- **After a restart everything is planned afresh.** An update could come
+  back from the reboot with a running full charge sized on the setup values
+  instead of the capacity set on the number entity; only saving Configure
+  made it plan again.
   Now the first cycle after a (re)start checks running windows again (the
   balancing wait at 100% carries on), a number entity whose stored value
   comes in after a cycle already ran asks for another replan, and the first
@@ -2216,14 +2214,11 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   discharge plan sold before the moment the forecast passes your max SOC,
   at the best price before then - even when that price was no better than
   what the sun gets for the same energy: above 100% the extra solar goes
-  to the grid at that hour's price anyway. A live example sold 3.72 kWh at
-  16:30 for ~0.13 to prevent an overflow that would have exported at
-  ~0.125, while the price went to 0.24 that evening and 0.29 the next
-  morning. Now a sale before an overflow has to earn at least 2 ct/kWh more
+  to the grid at that hour's price anyway - so it could sell cheaply in the
+  afternoon while the evening and next morning were far dearer. Now a sale before an overflow has to earn at least 2 ct/kWh more
   than the overflow hours' price; otherwise the overflow is left to the
   grid and what's still too much is sold before the next overflow, at the
-  best price until then (in the example 1.82 kWh the next morning at
-  0.288). An expensive morning before a cheap midday overflow is still
+  best price until then. An expensive morning before a cheap midday overflow is still
   sold in the morning, and when the overflow hours' prices aren't known yet
   nothing changes. New Status attribute `high_discharge_plan.overflow_to_grid`
   (when, how much, at what price, and what the sale before it would have
@@ -2282,9 +2277,9 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 - **A low charge buys what's missing up to the minimum SOC plus the Safety
   buffer - no longer filled up to 100% at the coming peak.** Until now a
   charge that happened anyway also filled the battery to what fit under
-  100%: live report (15 kWh battery, 1.7 kW charger): 5.4 kWh needed, 11.07
-  kWh planned, five hours of charging. Now it's those 5.4 kWh (rounded up
-  to the Minimum charge target), in the cheapest quarters before they're
+  100% - with a slow charger that could mean twice the energy needed and
+  hours of charging. Now it's what's needed (rounded up to the Minimum
+  charge target), in the cheapest quarters before they're
   needed. To stay further from the minimum, raise the Safety buffer.
 
 ## [2026.10.6] - 2026-10-09
@@ -2316,14 +2311,13 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ### Fixed
 - **Deficit mode planned nothing because of a peak that was already
-  behind it.** Live dump: the battery at 82% this afternoon (peak 28.4 of
-  30 kWh), a dip to 5.6 kWh tomorrow night under the 9 kWh deficit minimum
-  - and "only 1.56 kWh fits", measured on this afternoon's peak. A charge
-  tomorrow can't push this afternoon over 100%. What fits is now measured
+  behind it.** With a nearly full battery this afternoon and a dip under the
+  deficit minimum tomorrow night, "only a little fits" was measured on this
+  afternoon's peak - but a charge tomorrow can't push this afternoon over
+  100%. What fits is now measured
   on the highest level from the latest moment the charge could still go in,
   and the window is placed where it really fits (a charge lifts every hour
-  after it, so any later peak counts). Here: 6.42 kWh tomorrow 13:45-16:15
-  at ~€0.05.
+  after it, so any later peak counts).
 
 ## [2026.10.4] - 2026-10-08
 
@@ -2341,8 +2335,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   all use it.
 - Deficit mode: a dip that only reaches into the band between the two
   minimums charges just what's missing (rounded up to the Minimum charge
-  target), no longer filled up to 100% at the peak. Live report: 0.55 kWh
-  missing became a 6.67 kWh charge. A dip below the surplus minimum still
+  target), no longer filled up to 100% at the peak (half a kWh missing could
+  become a charge of several kWh). A dip below the surplus minimum still
   fills up, like any other charge.
 - **The Safety buffer now works for charging too.** A low charge (and a
   deficit band charge) lifts the dip to the minimum SOC plus the Safety
@@ -2360,8 +2354,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ### Fixed
 - **Deficit mode charged right away at the current price** when the battery
   was just under the deficit minimum while the sun lifts it back above it
-  on its own (live report: 3.9 kWh under a 4.5 kWh minimum at 09:39 started
-  a 6.6 kWh charge at once, instead of in the cheap 12:00-16:00 window). A
+  on its own (a battery just under the minimum in the morning started a
+  large charge at once, instead of in the cheap afternoon window). A
   dip in the band that's at its lowest right now needs no charge - the plan
   looks at the next dip, and charges for that one in its cheapest window.
 - **A charge in a sunny window was drawn going over 100%** (and showed a
@@ -2847,8 +2841,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   *when* a sale is needed, but the sale itself now sells the forecast peak
   back down to 100%. That way a sale is always a meaningful amount (at
   least 10% of the battery with a 110% max SOC) instead of tiny sales like
-  0.2 kWh. Live example (15 kWh battery): 0.21 kWh became 1.71 kWh, sold in
-  the evening peak 19:15-20:00. The safety buffer still applies, and if
+  0.2 kWh. The safety buffer still applies, and if
   your max SOC is set below 100% that value stays the target. The
   discharge plan shows the target as `sale_target_kwh`.
 - **Entities that have nothing to do are hidden.** Using Home Assistant's
@@ -2928,9 +2921,9 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   going deeper than it really does.** Mid-sale it subtracted the full
   rate for every remaining quarter of the window, even when the battery
   was ahead of schedule and would reach its stop target sooner. It also
-  counted the house use during the window twice. A live sale at 20:07
-  showed the battery dipping to 3.76 kWh at 07:00, below the 4.5 kWh
-  safety floor; the realistic low point was about 6.4 kWh. Now:
+  counted the house use during the window twice, so the line could show the
+  battery dipping below the safety floor when the realistic low point was
+  well above it. Now:
   - A running charge/discharge draws only what's left, the distance
     from the battery now to its target level, and nothing once the target
     is reached.
@@ -2971,9 +2964,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   otherwise drop below the low threshold or Minimum charge target before
   the next solar), the plan also tries selling after that low point. It
   used to pick whichever option sold more kWh. It now picks whichever
-  earns more (kWh x the window's average price). Live example: this
-  evening 18:45 (18.23 kWh at 0.267 = 4.87) now wins over tomorrow 08:00
-  (18.65 kWh at 0.210 = 3.92). Whatever the capped sale leaves unsold is
+  earns more (kWh x the window's average price): a dearer evening wins over
+  a cheaper morning that sells slightly more. Whatever the capped sale leaves unsold is
   still surplus, so the next plan after it sells that too, in the best
   window left before the breach.
 
@@ -3129,9 +3121,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   every hour.** It's cached and recomputed at most every 55 minutes, but the
   array is anchored to the hour it was computed in (h0 = that hour). Reused
   after the clock moved into the next hour, every value landed one hour
-  early - a live dump at 19:04 showed the 18:00 value at h0 (confirmed by
-  comparing it with an earlier dump: identical values, shifted exactly one
-  hour). This shifted usage an hour against the solar forecast in every
+  early (the value of the previous hour at h0). This shifted usage an hour against the solar forecast in every
   battery forecast and plan built from it. Affects all three
   statistics-based sources (manual calculated, consumption sensor, Energy
   dashboard) and has been there since the calculated source was added. The
@@ -3146,10 +3136,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   happen before the sale.** It limited how much could be sold by the lowest
   point anywhere in the planning horizon - but selling only lowers the
   battery from the moment of the sale onward, so a low point earlier than
-  the sale can't be affected by it. Caught from a live dump: the cap was
-  0.84 kWh because of a 5.34 kWh low point at 05:00, while the sale itself
-  was scheduled for 19:45 that evening; the lowest point after the sale was
-  9.5 kWh, leaving room for the full 1.79 kWh surplus. The cap now uses the
+  the sale can't be affected by it - an early-morning low point could cap an
+  evening sale to a fraction of the surplus. The cap now uses the
   lowest point from the sale's own hour to the end of the horizon (still
   including hours after the peak - with a max SOC below 100% the peak isn't
   clipped, so the sold energy really is missing from later hours too).
@@ -3165,11 +3153,10 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ### Fixed
 - **The low charge plan sized its charge against the first hour the
   forecast dipped under the low threshold, not the lowest point of that
-  dip.** Caught from a live dump: the forecast first crossed the 3.0 kWh
-  threshold at 2.89 kWh, so the plan scheduled a 0.11 kWh "charge" - but
-  the same dip kept falling for five more hours to -0.38 kWh before solar
-  recovered it, so the real shortfall was 3.38 kWh and the battery would
-  have run empty overnight. `compute_low_charge_plan` now finds where the
+  dip.** The forecast could first cross the threshold just below it, so the
+  plan scheduled a tiny "charge" - while the same dip kept falling for
+  hours before solar recovered it, so the battery would have run empty
+  overnight. `compute_low_charge_plan` now finds where the
   dip ends (the forecast climbing back to the threshold, or the end of the
   horizon) and sizes `deficit_kwh`/`target_kwh` against the lowest point
   in between; the deadline (`breach_unit`) is still the first crossing, so
@@ -3222,17 +3209,16 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   discharge or charge plan's full per-unit rate for its whole committed
   window, instead of the plan's real, intended amount - producing a
   phantom overshoot/undershoot on the forecast and dashboard that never
-  actually happens.** Caught from a live report: a genuine `high_discharge_plan`
-  target of just 0.09 kWh (against an ~10kW discharge speed, whose
-  `effective_discharge_per_unit` for one whole 15-minute unit is 2.72 kWh)
-  showed up on the SOC forecast as a ~2.72 kWh drop reaching below
+  actually happens.** A genuine `high_discharge_plan` target of a tiny
+  amount (against a fast discharge speed that moves several kWh per
+  15-minute unit) showed up on the SOC forecast as a drop of a whole unit reaching below
   `low_threshold_kwh` - looking like the discharge plan was creating an
   undershoot before the far-future price peak it was scheduled against.
   Investigating confirmed the plan's own sizing was already safe (the
   existing `max_safe_surplus` cap in `compute_high_discharge_plan` already
   limits how much surplus can be sold so the raw forecast's own low point
   can't be pushed under `low_threshold_kwh` - which is exactly why the real
-  target came out to a tiny, safe 0.09 kWh here); the bug was entirely in
+  target came out tiny and safe); the bug was entirely in
   `compose_forecast_adjusted` assuming the full configured rate gets
   delivered for the whole rounded-up unit, rather than the plan's own
   `target_kwh`. Since v0.2.2's live target-energy stop now halts the real
@@ -3255,9 +3241,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   charge plan and the high discharge plan.** Every plan window is sized in
   whole 15-minute price units at the full configured charge/discharge rate
   (`math.ceil(...)`), so a genuine need smaller than one unit's capacity
-  finishes well before the unit's 15 minutes are up - caught from a live
-  report of a 0.96 kWh discharge target against a ~10kW discharge speed
-  (2.72 kWh/unit), which meant continuing to discharge at full rate for the
+  finishes well before the unit's 15 minutes are up - continuing to discharge at full rate for the
   rest of the window sold off far more stored energy than intended, an
   overshoot that can force buying back energy later at a worse price.
   Rather than only ever stopping when the window's own timer runs out,
@@ -3292,8 +3276,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 - **Spike plan skips a sub-minimum pre-peak top-up instead of scheduling it.**
   Before its price-spike discharge, the spike plan tops the battery back up
   to full if the forecast expects a small natural dip beforehand (so
-  there's more to sell at the peak price) - caught from a live report where
-  a 1.16 kWh top-up showed up as a real "Start charge" trigger and a real
+  there's more to sell at the peak price) - a small top-up could show up as a real "Start charge" trigger and a real
   entry on the charge sensors, purely to counteract a forecasted dip that
   small. `compute_spike_plan` now takes the same **Minimum charge target**
   value the low charge plan already uses, and if the forecasted gap is
@@ -3476,9 +3459,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ### Changed
 - **The price dashboard chart (`dashboard/price_apexcharts_card.yaml`) no
   longer needs its own separate reference to your Nordpool (or similar)
-  price sensor.** Timo asked whether the chart could pull price data
-  straight from `sensor.ess_manager_status` instead, since the integration
-  already imports it from Nordpool during its own update cycle - it can:
+  price sensor.** The chart can pull price data straight from `sensor.ess_manager_status` instead, since the integration
+  already imports it from Nordpool during its own update cycle:
   every series now reads `sensor.ess_manager_status`'s own `all_price`/
   `current_price_unit` attributes directly, converting each array index to
   a timestamp the same way the battery forecast chart already converts
@@ -3510,7 +3492,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   check.
 
 ### Added
-- **Full-charge balancing reworked per Timo's two-situation spec.**
+- **Full-charge balancing reworked for two situations.**
   `compute_full_charge_plan` and `compute_system_status` now handle both:
   - *Nothing due, but the battery reaches 100% anyway* (typically solar
     alone) - nothing is forced. The plan quietly checks all three
@@ -3570,12 +3552,11 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ### Added
 - New `Status` sensor state, `Awaiting solar (full charge)`, for a real gap
-  Timo caught from a live entities-card screenshot: `sensor.ess_manager_status`
-  showed plain "Standby" while `full_charge_plan.active` was `false` but
-  `relying_on_peak_unit: 540` was set - i.e. the full-charge plan had
-  correctly concluded a genuine future solar peak (21.24 kWh forecast,
-  well past the 15.75 kWh overshoot ceiling, ~4.8 days out) would reach
-  the ceiling on its own, so nothing needed buying - but that conclusion
+  where `sensor.ess_manager_status` showed plain "Standby" while
+  `full_charge_plan.active` was `false` but `relying_on_peak_unit` was set -
+  i.e. the full-charge plan had correctly concluded a genuine future solar
+  peak (well past the overshoot ceiling, days out) would reach the ceiling
+  on its own, so nothing needed buying - but that conclusion
   was completely invisible on the dashboard, indistinguishable from
   "nothing planned at all."
   - `compute_system_status` (`plans.py`) is now a thin wrapper around the
@@ -3603,12 +3584,10 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ### Changed
 - Max battery charge speed and max battery discharge speed (added in
-  0.1.20) are no longer `number` entities. Timo pointed out these aren't
-  something to adjust from a live dashboard - they're a fixed hardware
+  0.1.20) are no longer `number` entities. These aren't something to adjust from a live dashboard - they're a fixed hardware
   property (the battery's own physical power limit) - so exposing them as
   a `number` entity that could be nudged in normal use was more than
-  needed. They're still set during initial setup, and per Timo's explicit
-  choice they remain editable afterward too: through the integration's
+  needed. They're still set during initial setup, and they remain editable afterward too: through the integration's
   **Configure** (options) screen, the same way entity references
   (`voltage_diff_entity`, `low_cell_voltage_entity`, etc.) are already
   re-editable there, rather than requiring the whole integration to be
@@ -3639,7 +3618,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ## [0.1.21] - 2026-09-20
 
 ### Fixed
-- Fixed a real conflict Timo caught from a live attribute dump: the high
+- Fixed a real conflict between two plans: the high
   discharge plan (`compute_high_discharge_plan`) could independently sell
   off exactly the future solar surplus the full-charge plan is relying on
   to reach a genuine, sustained overshoot for free. The two plans were
@@ -3677,7 +3656,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
     this way, `high_discharge_plan` also carries a
     `suppressed_by_full_charge: true` field for visibility on live
     attribute dumps.
-  - This is a suppression-only fix (Timo's primary ask): a much larger
+  - This is a suppression-only fix (the primary goal): a much larger
     overshoot (e.g. a peak reaching 120%+ against a 110% ceiling) still
     just gets suppressed/curtailed rather than having the discharge plan
     trim the excess back down in a way synchronized to the same peak -
@@ -3702,7 +3681,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   the battery's own physical power limit, and only affects the passive,
   solar/usage-driven battery energy forecast
   (`forecasting.build_battery_forecast`), not any of the planning engines.
-  Per Timo's spec: when a forecasted hour's solar surplus exceeds the max
+  When a forecasted hour's solar surplus exceeds the max
   charge speed, only the max charge speed counts toward the battery's
   forecasted energy for that hour (the rest is assumed exported to the
   grid instead); symmetrically, when a forecasted hour's usage deficit
@@ -3806,8 +3785,8 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   minimum window, expressed in kWh via this session's own
   `charge_speed_kw` (`min_session_kwh = charge_speed_kw * 4`), instead of
   being based purely on 30x the 5-day average hourly usage. This makes
-  charge speed itself a factor in whether the cap ever actually binds, per
-  Timo: a fast charger (e.g. 10 kW) can fully charge a typical battery in
+  charge speed itself a factor in whether the cap ever actually binds: a
+  fast charger (e.g. 10 kW) can fully charge a typical battery in
   a few hours regardless, so its 4-hour floor (40 kWh) sits above any
   realistic single-session deficit and the cap becomes a no-op there -
   `is_full` remains the real backstop, same as before this cap existed at
@@ -3826,8 +3805,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 
 ### Changed
 - Reverted 0.1.15's blanket rule that a session-capped full charge never
-  gets the flat-price window extension. Timo clarified the session cap's
-  actual purpose: it exists so the *initial* window search doesn't have
+  gets the flat-price window extension. The session cap's actual purpose: it exists so the *initial* window search doesn't have
   to reach into meaningfully pricier hours just to fit a large deficit's
   `units_needed` into one sitting - not to put a hard ceiling on how much
   energy a session can ever deliver. The flat-price extension can't
@@ -3840,17 +3818,15 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   minimum. The extension now applies uniformly again, whether or not a
   session's target was reduced by the cap. Updated the 0.1.15 regression
   test to assert the opposite of what it asserted before (the window DOES
-  extend into an available flat valley, using the same numbers from
-  Timo's original report).
+  extend into an available flat valley).
 
 ## [0.1.15] - 2026-09-20
 
 ### Fixed
 - A session-capped full charge (see 0.1.13) could silently deliver far
   more energy than its own cap allowed, driven by the 0.1.13 flat-price
-  window extension - reported live: a session capped to 6.318 kWh (16
-  units) landed on a 37-unit window (start_unit 34, end_unit 71) because
-  a long stretch of near-identical, near-zero prices was available to
+  window extension: a capped session could land on a window more than twice
+  as long as needed because a long stretch of near-identical, near-zero prices was available to
   extend into. The extension was designed on the assumption that
   charging longer than strictly needed is harmless, since `is_full`
   would cut a session off the moment the battery actually reached
@@ -3914,7 +3890,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 - A cap on how much a single full-charge/balance session commits to, and
   the ability to spread a too-big charge across multiple days/sessions
   instead of one very long window - ported from the same pattern already
-  proven on Timo's houseboat charge system. A single session's energy
+  proven in an earlier charge system. A single session's energy
   target is now capped at 30x the home's own average hourly consumption
   over the forecasted next 5 days (a new `session_cap_kwh` attribute on
   `full_charge_plan`), which matters most with a slow charger and a large
@@ -3932,7 +3908,7 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   direction, one 15-minute unit at a time) as long as the neighboring
   price stays within 8% or EUR 0.02 of the window's own average price -
   whichever tolerance is easier to satisfy. Same "extend into a flat
-  block" idea as the houseboat system: it's fine to charge a bit longer
+  block" idea as that earlier system: it's fine to charge a bit longer
   than the strict minimum if the surrounding price is basically
   unchanged, rather than always stopping exactly at the computed minimum
   duration.

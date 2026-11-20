@@ -48,7 +48,7 @@ _FRONTEND_REGISTERED = f"{DOMAIN}_frontend_registered"
 # Added to the dashboard resource's URL, so it differs from the extra module's.
 RESOURCE_SUFFIX = "resource=1"
 
-README_USAGE_URL = "https://github.com/MisterX-RC/ESS-manager-HA#household-usage-forecast"
+README_USAGE_URL = "https://github.com/MisterX-RC/ESS-manager-HA/blob/main/docs/battery-planning.md#household-usage-forecast"
 
 
 def _issue_id(kind: str, entry: ConfigEntry) -> str:

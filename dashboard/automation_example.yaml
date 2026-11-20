@@ -1,7 +1,7 @@
 # Example automation - for when the integration only DECIDES what should
-# happen (via the "Status" sensor's state), which is the default. As of
-# v0.2.14 it can also send the setpoint itself ("Direct control" in the
-# README, chosen on the Battery control page) - then you don't need this
+# happen (via the "Status" sensor's state), which is the default. It can
+# also send the setpoint itself ("Direct control" in docs/control.md,
+# chosen on the Battery control page) - then you don't need this
 # automation at all, and should disable it so the two don't fight.
 #
 # Otherwise the integration doesn't actuate your inverter/battery itself,
