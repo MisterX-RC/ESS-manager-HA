@@ -220,6 +220,7 @@ const I18N = {
     fl_max_return: "Max. return setpoint",
     hp_floor_min_t: "Min. floor temperature",
     hp_floor_min_meas: (t) => `Measured in the screed: ${t} \u00b0C`, hp_floor_min_cold: "floor too cold - heating",
+    hp_floor_min_season: (t, tb) => `Not today: outdoor ${t} \u00b0C on average, at or above the heating limit of ${tb} \u00b0C`,
     hp_floor_min_warn: (lim, tgt) => `Above ${lim} \u00b0C the house gets warmer than the wanted ${tgt} \u00b0C over the next 24 hours: the floor then gives off more heat than the house loses.`,
     fl_stage_watch: "Watching along: the thermostat switches, ESS Manager learns the floor",
     fl_stage_setpoint: "ESS Manager sets the return setpoint, the thermostat switches heat demand",
@@ -450,6 +451,7 @@ const I18N = {
     fl_max_return: "Max. retoursetpoint",
     hp_floor_min_t: "Min. vloertemperatuur",
     hp_floor_min_meas: (t) => `Gemeten in de dekvloer: ${t} \u00b0C`, hp_floor_min_cold: "vloer te koud - verwarmt",
+    hp_floor_min_season: (t, tb) => `Vandaag niet: buiten gemiddeld ${t} \u00b0C, op of boven de stookgrens van ${tb} \u00b0C`,
     hp_floor_min_warn: (lim, tgt) => `Boven ${lim} \u00b0C wordt het huis de komende 24 uur warmer dan de gewenste ${tgt} \u00b0C: de vloer geeft dan meer warmte af dan het huis verliest.`,
     hp_tab_floor: "Vloer", fl_mode: "Vloersturing", fl_mode_watch: "Meekijken", fl_mode_setpoint: "Retoursetpoint", fl_mode_full: "Volledig",
     fl_stage_watch: "Meekijken: de thermostaat schakelt, ESS Manager leert de vloer",
@@ -4854,6 +4856,11 @@ class EssManagerHeatPumpCard extends EssChartCard {
     const shown = v > 0 ? `${this._num(v, 1)} \u00b0C` : this._t("hp_off_short");
     let html = `<div class="hp-ctl"><span>${esc(this._t("hp_floor_min_t"))}</span><span class="val"><button type="button" data-step="-1" data-on="20" data-entity="${esc(mf.entity)}" aria-label="-">\u2212</button><span style="min-width:56px;text-align:center">${esc(shown)}</span><button type="button" data-step="1" data-on="20" data-entity="${esc(mf.entity)}" aria-label="+">+</button></span></div>`;
     // (2026.11.61) with a floor sensor the minimum is the measured floor: show it, and when it's too cold
+    // (2026.11.62) only below the heating limit: say so on warm days (the setting stays)
+    const sea = mf.season || {};
+    if (v > 0 && mf.mode === "off_season" && sea.t_out_c != null && sea.balance_c != null) {
+      html += `<div style="opacity:.75;font-size:12px;margin:-4px 0 6px">${esc(this._t("hp_floor_min_season")(this._num(sea.t_out_c, 1), this._num(sea.balance_c, 1)))}</div>`;
+    }
     if (v > 0 && mf.sensor && mf.t_slab != null) {
       const cold = mf.floor_cold ? ` \u00b7 <b>${esc(this._t("hp_floor_min_cold"))}</b>` : "";
       html += `<div class="hp-sub" style="opacity:.75;font-size:12px;margin:-4px 0 6px">${esc(this._t("hp_floor_min_meas")(this._num(mf.t_slab, 1)))}${cold}</div>`;

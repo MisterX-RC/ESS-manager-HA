@@ -372,6 +372,14 @@ sensor:
   measured floor under the setting, and when it's too cold. If the sensor
   has no value, the minimum is planned as above until it's back.
 
+The minimum only counts while **today's mean outdoor temperature is below
+the heating limit** the day model learned (its balance temperature, on the
+Signature tab): on warmer days - summer, and warm days in spring and autumn
+- it asks for nothing, and the card says so under the setting; the setting
+itself stays. The house's normal heating isn't affected by this: a room
+below its wanted temperature is heated as always. Without a learned day
+model or a forecast the minimum counts as set.
+
 Both ways the 2 °C too-warm limit above applies while the minimum asks for
 heat (with a floor sensor: while the floor is too cold; without one: while
 the minimum is above the wanted temperature) - on a sunny day the room gets
@@ -389,7 +397,8 @@ above it shows a **warning bar** under the setting (the house gets warmer
 than wanted); the limit follows the weather, so on mild or sunny days the
 bar can appear and on cold days go away again. Diagnostics: the floor
 attribute's `min_floor` (`t_c`, `limit_c`, `target_c`, `too_warm`, `sp_min`,
-`active`, `sensor`, `mode` measured / planned, `t_slab`, `floor_cold`, `k`,
+`active`, `sensor`, `mode` measured / planned / off_season, `season`
+(`t_out_c`, `balance_c`, `heating`), `t_slab`, `floor_cold`, `k`,
 `comfort_band_c`).
 
  **Down gently while the compressor runs.** A big drop

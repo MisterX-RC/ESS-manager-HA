@@ -12,6 +12,19 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.62] - 2026-11-20
+
+### Changed
+- **Minimum floor temperature only in the heating season.** It now only
+  counts while today's mean outdoor temperature is below the heating limit
+  the day model learned (its balance temperature). On warmer days - summer,
+  and warm days in spring and autumn - it asks for no heat and the 2 °C
+  comfort limit doesn't apply; the card says so under the setting, and the
+  setting itself is kept. Before, a minimum above the wanted temperature
+  kept the heat pump running every few hours on mild summer evenings. The
+  house's normal heating is unchanged. Diagnostics: `min_floor.mode`
+  `off_season` and `min_floor.season`.
+
 ## [2026.11.61] - 2026-11-20
 
 ### Changed

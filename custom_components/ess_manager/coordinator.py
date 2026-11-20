@@ -519,6 +519,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Floor control (as of 2026.10.23) - floor_control.py; the "Floor
         # control" select on the heat pump card sets floor_mode.
         self.floor = fc.FloorRuntime()
+        # (as of 2026.11.62) today's mean outdoor temperature against the heating
+        # limit the day model learned: the minimum floor temperature only then
+        self._floor_min_season: dict[str, Any] = {}
         self.floor_mode = fc.MODE_WATCH
         self.floor_mode_entity_id: Optional[str] = None
         self.auto_buffer_on = False
@@ -2004,14 +2007,26 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         t = self.get_number(NUM_FLOOR_MIN_TEMP, 0.0)
         return t if t and t > fc.MIN_FLOOR_OFF else None
 
+    def floor_min_effective(self) -> Optional[float]:
+        """The minimum floor temperature as it counts now (as of 2026.11.62,
+        Timo): the setting, but not while today's mean outdoor temperature is
+        at or above the heating limit the day model learned (summer, spring and
+        autumn's warm days - the setting stays). Without that limit or a
+        forecast: the setting."""
+        t = self.floor_min_temperature()
+        if t is None or self._floor_min_season.get("heating") is False:
+            return None
+        return t
+
     def _floor_min_spec(self, conf: dict[str, Any]) -> Optional[dict[str, Any]]:
         """What the heat pump's planning needs of the minimum floor
         temperature (as of 2026.11.45): set, floor control set up and heating,
         the floor's emission learned. (as of 2026.11.61) `k`: kW per degC
         above the wanted room - the water's emission without a floor sensor,
         the screed's to the room with one (the minimum is the measured floor
-        then, `measured` while the sensor has a value)."""
-        t = self.floor_min_temperature()
+        then, `measured` while the sensor has a value). (as of 2026.11.62)
+        Only below the heating limit."""
+        t = self.floor_min_effective()
         model = self.floor.model or {}
         if t is None or not self.floor_configured(conf) or self.floor_cooling(conf):
             return None
@@ -2166,7 +2181,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # (as of 2026.11.61) the minimum floor temperature with a floor sensor:
         # the measured floor watched every cycle - the switching follows the
         # plan without the minimum and runs while the floor is too cold
-        t_min = self.floor_min_temperature()
+        t_min = self.floor_min_effective()
         measured = bool(t_min and conf.get(CONF_FLOOR_SLAB_ENTITY) and readings["t_slab"] is not None)
         floor.cold = fc.floor_cold(floor.cold, readings["t_slab"], t_min) if measured else False
         if measured and plan is not None and self.hp.floor_min is not None:
@@ -2321,13 +2336,15 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         (as of 2026.11.61) `mode` measured (floor sensor) / planned, the
         measured floor and whether it's too cold, the 2 degC comfort limit."""
         t = self.floor_min_temperature()
+        t_eff = self.floor_min_effective()
         k = self._floor_min_k(conf, learned, model)
         out: dict[str, Any] = {
             "entity": getattr(self._numbers.get(NUM_FLOOR_MIN_TEMP), "entity_id", None),
             "t_c": t, "limit_c": None, "target_c": None, "too_warm": False, "sp_min": sp_min,
             "active": self.hp.floor_min is not None,
             "sensor": bool(conf.get(CONF_FLOOR_SLAB_ENTITY)),
-            "mode": (("measured" if measured else "planned") if t is not None else None),
+            "mode": (("measured" if measured else "planned") if t_eff is not None else ("off_season" if t is not None else None)),
+            "season": dict(self._floor_min_season),
             "t_slab": t_slab, "floor_cold": self.floor.cold, "k": k,
             "comfort_band_c": fc.MIN_FLOOR_COMFORT_BAND if min_band else fc.COMFORT_BAND,
         }
@@ -2478,7 +2495,15 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # hour-by-hour model are pure Python and too heavy for the event loop
         # on a small machine - the arguments are all gathered here first
         steering = self.hp_steering_active(conf)
-        # the minimum floor temperature in floor control's plans (as of 2026.11.45)
+        # the minimum floor temperature in floor control's plans (as of 2026.11.45),
+        # (as of 2026.11.62) only below the heating limit (today's mean outdoor)
+        t_day = (weather.get(today.isoformat()) or {}).get("t") if isinstance(weather, dict) else None
+        tb = (self.hp.model or {}).get("tb")
+        self._floor_min_season = {
+            "t_out_c": round(t_day, 1) if t_day is not None else None,
+            "balance_c": round(tb, 1) if tb is not None else None,
+            "heating": (t_day < tb) if (t_day is not None and tb is not None) else None,
+        }
         self.hp.floor_min = self._floor_min_spec(conf)
         total, attribute, used = await self.hass.async_add_executor_job(functools.partial(
             self.hp.compute,

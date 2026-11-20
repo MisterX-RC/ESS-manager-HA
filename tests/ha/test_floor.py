@@ -298,3 +298,45 @@ async def test_floor_sensor_minimum_measured_and_model_fallback(hass, freezer, m
     assert fl["model"]["ref"] == "room" and fl["model"]["u"] == A_MODEL["u"] and fl["model"]["ref_reason"] == "sensor_unavailable"
     assert fl["min_floor"]["mode"] == "planned" and not fl["min_floor"]["floor_cold"]
     assert fl["stage"] == "full"
+
+
+async def test_floor_minimum_only_below_the_heating_limit(hass, freezer, monkeypatch):
+    """2026.11.62 (Timo): the minimum floor temperature only counts while today's
+    mean outdoor temperature is below the heating limit the day model learned -
+    on warm days (summer) it asks for nothing, the setting stays."""
+    co, _ = await _floor_a(hass, freezer)
+    today = dt_util.now().date()
+    # a learned day model: ~0.6 kWh per degree day below ~14 degC
+    co.hp.journal = sorted(
+        [{"d": (today - timedelta(days=i)).isoformat(), "t": t, "e": round(max(0.6 * (14.0 - t), 0.0) + 0.04, 3)}
+         for i, t in enumerate([(i * 37) % 22 - 2.0 for i in range(1, 80)], start=1)], key=lambda r: r["d"])
+    co.hp.dirty = True
+    day_t = {"t": 16.0}
+
+    async def weather(conf, now, tz):
+        return {today.isoformat(): {"t": day_t["t"], "w": 0.0}}
+
+    monkeypatch.setattr(co, "_async_hp_weather", weather)
+    await co._numbers["floor_min_temperature"].async_set_native_value(22.5)
+    for _ in range(3):
+        freezer.tick(timedelta(minutes=1))
+        await co.async_refresh()
+    tb = co.data["heat_pump"]["model"]["balance_temp_c"]
+    assert 12.0 <= tb <= 16.0
+    mf = co.data["heat_pump"]["floor"]["min_floor"]
+    if day_t["t"] < tb:
+        day_t["t"] = tb + 2.0
+        freezer.tick(timedelta(minutes=1))
+        await co.async_refresh()
+        mf = co.data["heat_pump"]["floor"]["min_floor"]
+    assert mf["t_c"] == 22.5 and mf["mode"] == "off_season" and not mf["active"]
+    assert mf["season"]["heating"] is False and mf["season"]["balance_c"] == round(tb, 1)
+    assert co.hp.floor_min is None and mf["comfort_band_c"] == 1.0
+
+    # a cold day: the minimum counts again (the setting was kept)
+    day_t["t"] = tb - 6.0
+    freezer.tick(timedelta(minutes=1))
+    await co.async_refresh()
+    mf = co.data["heat_pump"]["floor"]["min_floor"]
+    assert mf["mode"] == "planned" and mf["active"] and mf["season"]["heating"] is True
+    assert co.hp.floor_min is not None and co.hp.floor_min["t"] == 22.5 and mf["comfort_band_c"] == 2.0
