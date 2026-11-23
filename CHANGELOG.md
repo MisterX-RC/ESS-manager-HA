@@ -12,6 +12,33 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.63] - 2026-11-23
+
+### Fixed
+- **Floor control stays in Full with a minimum floor temperature.** The
+  house model's nightly self-check played the hours floor control switched
+  the heat demand itself without the minimum floor temperature: it heated
+  nothing once the room was above the wanted temperature, while the real
+  floor kept getting the minimum's heat. The first days with a minimum
+  then failed the self-check and floor control fell back from Full to
+  Return setpoint (the thermostat switching again). Now the heat the
+  minimum asks is kept per hour while floor control switches, and those
+  hours are played with it. For hours from before this version it is read
+  back once from the history of the minimum floor temperature number (only
+  on days below the heating limit).
+
+### Changed
+- **Self-check above the minimum floor temperature.** With a minimum giving
+  most of the heat, the energy test now compares only the heat above it -
+  measured, model and usual pattern alike. Otherwise the timing of the heat
+  pump's runs decides the result and the usual pattern, flattened by the
+  minimum, scores as well as any model, so the model failed after a few
+  weeks however good it was. A day with less than 1 kWh above the minimum
+  isn't a test day; the indoor temperature test is unchanged, and wrong
+  models are still turned down. Without a minimum nothing changes.
+  Diagnostics: `review.per_day[].min_kwh`. The house model is checked
+  again right after the update.
+
 ## [2026.11.62] - 2026-11-20
 
 ### Changed

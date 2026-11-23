@@ -232,8 +232,19 @@ the heat pump page in Configure:
   newest first: its error and the pattern's per block, their ratio (under
   0.9 is what passing asks of the whole), the indoor error, the wanted
   temperature's range and number of changes that day (a night setback or a
-  change by hand) and the hours floor control switched - to see which days
-  score badly and why. It changes nothing in the verdict.
+  change by hand), the hours floor control switched and the part of the
+  day's heat the minimum floor temperature gave (`min_kwh`) - to see which
+  days score badly and why. It changes nothing in the verdict.
+  **With a minimum floor temperature** the hours floor control switched
+  are played with the heat the minimum asked that hour (kept per hour), as
+  floor control planned them - also with the room above the wanted
+  temperature. And the energy test only looks at the heat **above** the
+  minimum, for the measurement, the model and the pattern alike: where the
+  minimum gives most of the heat, when a run lands follows the heat pump's
+  minimum run time rather than the house, and the usual pattern turns as
+  flat as the minimum - no model can beat it there. Above the minimum is
+  what the model decides. A day with less than 1 kWh above it isn't a test
+  day. The indoor temperature test still uses all of the measured heat.
   With the learned thermostat the self-check only plays
   days whose wanted temperature per hour is known (the thermostat's history
   is kept from its first read on): a day from before that would have the
@@ -443,9 +454,13 @@ longer holds. The diagnostics show `response.needed`, `response.periods`
 and `response.sd`; the card shows the hours and periods still to go.
 
  The house model's self-check runs every night, also in
-Full - and the days ESS Manager switched are judged as it switched them
-(see the house model above), so a model that passed stays in Full instead
-of failing on its own days and falling back to Return setpoint.
+Full - and the days ESS Manager switched are judged as it switched them,
+with the minimum floor temperature's heat in them and the energy compared
+above it (see the house model above), so a model that passed stays in Full
+instead of failing on its own days and falling back to Return setpoint.
+Right after the minimum is first set, while the usual pattern still comes
+from days without it, the self-check can drop back to Return setpoint for a
+few days; after about two weeks that settles.
 
 The supply and return sensors sit in the heat pump: with the circulation
 pump stopped they warm up from the cabinet, so only samples with the pump

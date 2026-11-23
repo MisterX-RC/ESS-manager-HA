@@ -7122,6 +7122,139 @@ _rt61.floor_min = {"t": 23.0, "k": 0.4, "measured": True}
 check("min floor: the forecast keeps the minimum's heat, the switching plan (with_min False) leaves it out",
       _rt61.with_floor_min(_mf_house, _mf_in[:2], [21.0, 21.0], None)["q_min"] == [0.8, 0.8])
 
+# 2026.11.63: floor control "full" with a minimum floor temperature - the self-check plays the
+# hours ESS Manager switched with the minimum's heat (kept per hour) and tests the heat above it.
+# Up to then the hours were played without it (no heat with the room above the wanted
+# temperature) and, with the minimum giving most of the heat, the flat usual pattern was as
+# good as any model: back from "full" within days, after a few weeks for good
+_mf_days = 22
+_mf_first = _fz_days_th + _fz_days_ess
+_mf_U = 0.45
+_mf_ess_min = {}
+for _i in range(len(_fz_tout), (_mf_first + _mf_days) * 24 + 48):
+    _fz_tout.append(4 + 4 * _tmath.sin(_i // 24 * 0.5) + 3 * _tmath.sin((datetime.fromtimestamp(_fz_start + _i * 3600, _tzA).hour - 9) / 24 * 2 * _tmath.pi)
+                    + _fz_rnd.gauss(0, 0.5))
+    _fz_sp.append(21.0 if 7 <= datetime.fromtimestamp(_fz_start + _i * 3600, _tzA).hour < 22 else 19.5)
+_mf_avg = sum(_fz["heat"][h] * _fz["cop"][h] for h in _fz["ess"]) / len(_fz["ess"])
+_mf_tmin = round(21.0 + 0.7 * _mf_avg / _mf_U, 1)      # the floor at its minimum: ~70 % of the heat
+
+
+def _mf_run(first_day, n_days, plan_model, state, copm):
+    """The thermostat house on with floor control full and the minimum floor temperature
+    in its plan (as with_floor_min), switching via control_step."""
+    t, hist, th_on, ctl = state["t"], state["hist"], state["th_on"], state["ctl"]
+    for i in range(first_day * 24, (first_day + n_days) * 24):
+        h = _fz_start + i * 3600
+        tout, sp = _fz_tout[i], _fz_sp[i]
+        prev = sum(_fz_w[j] * hist[-j] for j in range(1, 36))
+        c = 3.5 + 0.08 * tout
+        q_th = floor_control.min_floor_heat({"u": _mf_U}, _mf_tmin, _fz_sp[i:i + 24])
+        pm = {**plan_model, "q_min": q_th if plan_model.get("thermal") else
+              [q / _hh.cop_at(copm, _fz_tout[i + k]) for k, q in enumerate(q_th)]}
+        _qh = [_fz["heat"][_fz_start + (i - k) * 3600] for k in range(35, 0, -1)]
+        _, _q = _hh.simulate(pm, t, [(_fz_tout[i + k], None, None) for k in range(24)], _fz_sp[i:i + 24], _qh, copm)
+        plan = (_q[0] if _q else 0.0) * _hh.cop_at(copm, tout)
+        qsum = tsum = ons = 0.0
+        for qi in range(4):
+            ts = h + qi * 900
+            sens = round(t + _fz_noise.gauss(0, 0.02), 1)
+            if qi == 0 and datetime.fromtimestamp(h, _tzA).hour in (7, 22):
+                _fz["rows"].append((ts - 60, "heat", th_on, sens, sp))
+            _fz["rows"].append((ts, "heat", th_on, sens, sp))
+            if th_on and sens >= sp + 0.1:
+                th_on = False
+                _fz["rows"].append((ts + 1, "heat", False, sens, sp))
+            elif not th_on and sens <= sp - 0.2:
+                th_on = True
+                _fz["rows"].append((ts + 1, "heat", True, sens, sp))
+            p_full = 9.0 * (1 + 0.03 * (5 - tout) / 5)
+            pump = False
+            for sub in range(3):
+                pump = floor_control.control_step(ctl, ts + sub * 300, plan, p_full if ctl["on"] else 0.0, sens, sp,
+                                                  p_full, p_full, min_band=_mf_tmin > sp)["on"]
+            qq = p_full if pump else 0.0
+            t += (0.03 - 0.02 * (t - tout) + 0.12 * (_fz_w[0] * qq + prev)) / 4 + _fz_noise.gauss(0, 0.005)
+            qsum += qq
+            tsum += t
+            ons += 900 if th_on else 0
+        _fz["ind"][h], _fz["out"][h] = round(tsum / 4, 2), round(tout, 2)
+        _fz["heat"][h], _fz["cop"][h] = round(qsum / 4 / c, 3), round(c, 2)
+        _fz["sp"][h], _fz["on"][h] = sp, int(ons)
+        _fz["ess"][h] = 3600
+        _mf_ess_min[h] = round(q_th[0], 3)
+        hist = (hist + [qsum / 4])[-35:]
+    state.update(t=t, hist=hist, th_on=th_on)
+
+
+def _mf_learn(day, with_min=True):
+    end = _fz_start + day * 86400
+    today = datetime.fromtimestamp(end, _tzA).date()
+    th = thermostat.learn(thermostat.switch_events(_fz["rows"]), end)
+    return _hh.learn(_fz["ind"], _fz["out"], _fz["heat"], None, None, None, _fz["cop"], _tzA, today, _fz_prof, _fz_shape(end),
+                     thermo=th, on_s=dict(_fz["on"]), setpoint=dict(_fz["sp"]), ess_s=dict(_fz["ess"]),
+                     ess_min=dict(_mf_ess_min) if with_min else None)
+
+
+_mf_plan = _hh.without_thermostat(_fz_r1["model"])
+_mf_run(_mf_first, 2, _mf_plan, _fz_state, _fz_r1["cop"])
+_mf_r2 = _mf_learn(_mf_first + 2)
+_mf_r2n = _mf_learn(_mf_first + 2, with_min=False)
+check("minimum floor temperature: after 2 days the self-check passes with the minimum's heat in the hours ESS switched",
+      _mf_r2["review"]["passed"] and _mf_r2["review"]["per_day"][0]["min_kwh"] > 0)
+check("minimum floor temperature: played without it (as up to 2026.11.62) the newest days score clearly worse",
+      _mf_r2n["review"]["per_day"][0]["error_kwh"] > _mf_r2["review"]["per_day"][0]["error_kwh"])
+_mf_run(_mf_first + 2, _mf_days - 2, _hh.without_thermostat(_mf_r2["model"]), _fz_state, _fz_r1["cop"])
+_mf_end = _mf_first + _mf_days
+_mf_r = _mf_learn(_mf_end)
+_mf_rn = _mf_learn(_mf_end, with_min=False)
+_mf_share = sum(_mf_ess_min.get(h, 0) for h in range(_fz_start + (_mf_end - 7) * 86400, _fz_start + _mf_end * 86400, 3600)) / \
+    sum(_fz["heat"][h] * _fz["cop"][h] for h in range(_fz_start + (_mf_end - 7) * 86400, _fz_start + _mf_end * 86400, 3600))
+print(f"  (minimum {_mf_tmin} degC: {_mf_share:.0%} of the heat; above it {_mf_r['review']['hour_error_kwh']} "
+      f"vs pattern {_mf_r['review']['pattern_error_kwh']}; without it {_mf_rn['review']['hour_error_kwh']} vs {_mf_rn['review']['pattern_error_kwh']})")
+check(f"minimum floor temperature: {_mf_days} days full with the minimum giving most of the heat - still passes (stays in full)",
+      _mf_share > 0.6 and _mf_r["review"]["passed"] and not ((_mf_r["review"].get("recent") or {}).get("drift")))
+check("minimum floor temperature: without the minimum's heat per hour the self-check turns the right model down",
+      not _mf_rn["review"]["passed"])
+for _mf_name, _mf_key, _mf_f in (("heat loss x1.5", "k", 1.5), ("heat loss x0.6", "k", 0.6), ("heat effect x0.7", "g", 0.7)):
+    def _mf_bad(*a, _k=_mf_key, _f=_mf_f, **kw):
+        m = _fz_fit(*a, **kw)
+        return {**m, _k: m[_k] * _f} if m else m
+    _hh.fit_house = _mf_bad
+    try:
+        _mf_rb = _mf_learn(_mf_end)
+    finally:
+        _hh.fit_house = _fz_fit
+    check(f"minimum floor temperature: a wrong model ({_mf_name}) still doesn't pass", not _mf_rb["review"]["passed"])
+# a day all minimum isn't a test day; the minimum counts only in the hours ESS Manager switched
+_mf_day = {"q": [1.0] * 24, "inputs": [(5.0, None, None)] * 24, "ess": [True] * 12 + [False] * 12, "ess_min": [3.5] * 24}
+_mf_el = _hh._min_el(_mf_day, {"c0": 3.0, "c1": 0.1})
+check("minimum as electricity: heat / COP in the hours ESS switched, 0 in the others",
+      abs(_mf_el[0] - 1.0) < 1e-9 and _mf_el[12:] == [0.0] * 12 and _hh._min_el({"q": [1.0] * 3, "inputs": []}, None) == [0.0] * 3)
+_mf_mod = {"thermal": True, "k": 1}
+check("the self-check's block model: q_min only in hours ESS switched with a minimum, else the model itself",
+      _hh._with_ess_min(_mf_mod, None, _mf_day, 10, 14)["q_min"] == [3.5, 3.5, 0.0, 0.0]
+      and _hh._with_ess_min(_mf_mod, None, _mf_day, 12, 18) is _mf_mod
+      and _hh._with_ess_min(_mf_mod, None, {"q": [1.0] * 24, "ess": [True] * 24}, 0, 6) is _mf_mod)
+# the runtime: the minimum's heat per ESS hour (the hour's highest), kept and stored; read back once for older hours
+_mf_rt = heatpump_runtime.HeatPumpRuntime()
+_mf_h = 1794441600
+_mf_rt.thermo["ess"] = {str(_mf_h - 3600): 3600}
+_mf_rt.note_ess(_mf_h + 60, True, 0.5)
+_mf_rt.note_ess(_mf_h + 120, True, 0.7)
+_mf_rt.note_ess(_mf_h + 180, True, 0.6)
+_mf_rt.note_ess(_mf_h + 3660, True)
+_mf_rt.note_ess(_mf_h + 3720, False, 0.9)
+check("runtime: the minimum's heat per ESS hour - the hour's highest, 0 without, nothing while ESS doesn't switch",
+      _mf_rt.thermostat_series("ess_min") == {_mf_h: 0.7, _mf_h + 3600: 0.0}
+      and _mf_rt.ess_hours_without_min() == [_mf_h - 3600])
+_mf_rt.set_ess_min({_mf_h - 3600: 0.68, _mf_h: 9.9})
+_mf_rt2 = heatpump_runtime.HeatPumpRuntime()
+_mf_rt2.restore(_mf_rt.as_store())
+check("runtime: the hours from before read back once - kept hours untouched, marked as read, stored and restored",
+      _mf_rt2.thermostat_series("ess_min") == {_mf_h - 3600: 0.68, _mf_h: 0.7, _mf_h + 3600: 0.0}
+      and _mf_rt2.thermo.get("ess_min_read") is True and _mf_rt2.ess_hours_without_min() == []
+      and heatpump_runtime.HeatPumpRuntime().thermo.get("ess_min") == {})
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

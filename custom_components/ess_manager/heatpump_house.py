@@ -28,7 +28,7 @@ from . import thermostat
 HOUR = 3600
 # what the model is built from changes with these (as of 2026.11.11): a new
 # version learns again right away instead of the next day
-MODEL_VERSION = "2026.11.43"   # the days needed follow their spread: checked again right after the update
+MODEL_VERSION = "2026.11.63"   # ESS hours played with the minimum floor temperature: checked again right after the update
 # the floor's delay (as of 2026.11.9 36 hours back and up to 24 h - up to
 # then 12 and 6: a concrete floor heated in a block of a few hours gives its
 # heat off over far more hours, and the day's simulation drifted)
@@ -544,9 +544,11 @@ def simulate(
 
 # -- the self-check -----------------------------------------------------------------
 def day_series(
-    d: date, tz: tzinfo, indoor, outdoor, heat, wind, sun, gains=None, setpoint=None, ess=None
+    d: date, tz: tzinfo, indoor, outdoor, heat, wind, sun, gains=None, setpoint=None, ess=None, ess_min=None
 ) -> Optional[dict[str, Any]]:
-    """One day's hourly inputs for the self-check (None when incomplete)."""
+    """One day's hourly inputs for the self-check (None when incomplete).
+    `ess_min` (as of 2026.11.63): the heat per hour (thermal kW) the minimum
+    floor temperature asked of floor control in the hours it switched."""
     start = int(datetime(d.year, d.month, d.day, tzinfo=tz).timestamp())
     end = int(datetime.combine(d + timedelta(days=1), datetime.min.time(), tzinfo=tz).timestamp())
     hours = list(range(start, end, HOUR))
@@ -569,6 +571,8 @@ def day_series(
         "sp": [(setpoint or {}).get(h) for h in hours],
         # the hours ESS Manager switched the heat demand itself (as of 2026.11.35)
         "ess": [(ess or {}).get(h, 0) >= ESS_HOUR_S for h in hours],
+        # (as of 2026.11.63) the minimum floor temperature's heat in those hours (thermal kW)
+        "ess_min": [(ess_min or {}).get(h) for h in hours],
     }
 
 
@@ -603,12 +607,19 @@ def _review_sums(
     in the model (as of 2026.11.20) the day is played with its real wanted
     temperatures where they're known, starting with the demand on when the
     hour before heated. `per_day` (as of 2026.11.37): each day's own errors
-    appended to it, for the diagnostics."""
+    appended to it, for the diagnostics. (As of 2026.11.63) the hours ESS
+    Manager switched with a minimum floor temperature are played with its
+    heat, and the energy is compared above it (measured, model and pattern
+    alike); a day with less than TEST_HEAT_KWH above it isn't a test day."""
     th = model.get("thermostat")
     sim_err = pat_err = temp_err = 0.0
     n_hours = n_temp = n_days = 0
     for day in days:
-        total = sum(day["q"])
+        # (as of 2026.11.63) the minimum floor temperature's share, as electricity:
+        # the test is on the heat above it - what the model decides
+        mins = _min_el(day, copm)
+        measured = sum(day["q"])
+        total = measured - sum(mins)
         if total < TEST_HEAT_KWH:
             continue
         cop_hist = [cop_at(copm, day["inputs"][0][0])] * len(day["q_hist"]) if model.get("thermal") else [1.0] * len(day["q_hist"])
@@ -644,21 +655,29 @@ def _review_sums(
             on_b = None
             if on0 is not None:
                 on_b = ((day["q"][b0 - 1] if b0 else day["q_hist"][-1]) or 0.0) > 0.05
-            temps_b, q_b = simulate(model, t0, day["inputs"][b0:b1], target[b0:b1], hist_b, copm, on0=on_b,
-                                    free=free[b0:b1] or None)
+            temps_b, q_b = simulate(_with_ess_min(model, copm, day, b0, b1), t0, day["inputs"][b0:b1], target[b0:b1],
+                                    hist_b, copm, on0=on_b, free=free[b0:b1] or None)
             if len(q_b) < b1 - b0:
                 break
-            sims.append(sum(q_b))
+            sims.append(max(sum(q_b) - sum(mins[b0:b1]), 0.0))
             t_end = temps_b[-1]
         if len(sims) * BLOCK_HOURS < n:
             continue
         s = sum(sims)
+        # (as of 2026.11.63) the measured heat above the minimum, per block: where
+        # the minimum gives most of the heat, when a run lands is the heat pump's
+        # minimum run time, not the house - and the usual pattern turns flat with
+        # it, as good as any model; above the minimum the model is tested
+        total = sum(max(sum(day["q"][b:b + BLOCK_HOURS]) - sum(mins[b:b + BLOCK_HOURS]), 0.0)
+                    for b in range(0, n, BLOCK_HOURS))
+        if total < TEST_HEAT_KWH:
+            continue
         pat_h = [shape[datetime.fromtimestamp(h, tz).hour] for h in day["hours"]]
         ps = sum(pat_h)
         d_sim = d_pat = 0.0
         d_blocks = 0
         for bi, b0 in enumerate(range(0, n, BLOCK_HOURS)):
-            meas = sum(day["q"][b0:b0 + BLOCK_HOURS])
+            meas = max(sum(day["q"][b0:b0 + BLOCK_HOURS]) - sum(mins[b0:b0 + BLOCK_HOURS]), 0.0)
             share = min(BLOCK_HOURS, n - b0) / n
             sim_q = sims[bi] / s * total if s > 1e-6 else total * share
             pat_q = sum(pat_h[b0:b0 + BLOCK_HOURS]) / ps * total if ps > 1e-9 else total * share
@@ -680,11 +699,44 @@ def _review_sums(
         n_temp += d_ntemp
         n_days += 1
         if per_day is not None:
-            per_day.append(_day_record(day, total, d_sim, d_pat, d_blocks, d_temp, d_ntemp))
+            per_day.append(_day_record(day, measured, d_sim, d_pat, d_blocks, d_temp, d_ntemp, sum(mins)))
     return [sim_err, pat_err, n_hours, temp_err, n_temp, n_days]
 
 
-def _day_record(day, total, d_sim, d_pat, d_blocks, d_temp, d_ntemp) -> dict[str, Any]:
+def _min_el(day: dict[str, Any], copm: Optional[dict[str, Any]]) -> list[float]:
+    """The minimum floor temperature's heat per hour of a test day as the heat
+    pump's electricity (as of 2026.11.63, as the day's measured heat): 0
+    outside the hours ESS Manager switched."""
+    out = []
+    for i, (m, f) in enumerate(zip(day.get("ess_min") or [], day.get("ess") or [])):
+        out.append(float(m) / cop_at(copm, day["inputs"][i][0]) if f and m else 0.0)
+    return out + [0.0] * (len(day["q"]) - len(out))
+
+
+def _with_ess_min(model: dict[str, Any], copm: Optional[dict[str, Any]], day: dict[str, Any],
+                  b0: int, b1: int) -> dict[str, Any]:
+    """The model for one block of the self-check with the minimum floor
+    temperature's heat in the hours ESS Manager switched (as of 2026.11.63,
+    `q_min`, model units): those hours are played as floor control planned
+    them - and it planned at least that heat, also with the room above the
+    wanted temperature. The model itself when there's none."""
+    mins = (day.get("ess_min") or [])[b0:b1]
+    free = (day.get("ess") or [])[b0:b1]
+    if not any(m for m, f in zip(mins, free) if f):
+        return model
+    q_min = []
+    for i, (m, f) in enumerate(zip(mins, free)):
+        if not f or not m:
+            q_min.append(0.0)
+        elif model.get("thermal"):
+            q_min.append(float(m))
+        else:
+            # the model in electricity: the heat pump's electricity for that heat
+            q_min.append(float(m) / cop_at(copm, day["inputs"][b0 + i][0]))
+    return {**model, "q_min": q_min}
+
+
+def _day_record(day, total, d_sim, d_pat, d_blocks, d_temp, d_ntemp, min_kwh=0.0) -> dict[str, Any]:
     """One test day in the self-check (as of 2026.11.37, diagnostics only):
     its errors per block, the ratio to the pattern's, the indoor error, and
     what made it special - the wanted temperature's changes (a night setback
@@ -705,6 +757,9 @@ def _day_record(day, total, d_sim, d_pat, d_blocks, d_temp, d_ntemp) -> dict[str
         "sp_max": round(max(sps), 2) if sps else None,
         "sp_changes": changes,
         "ess_hours": sum(1 for x in day.get("ess") or [] if x),
+        # (as of 2026.11.63) the part of the day's heat the minimum floor temperature
+        # gave (the energy test is on the rest)
+        "min_kwh": round(min_kwh, 2),
     }
 
 
@@ -778,6 +833,7 @@ def learn(
     on_s: Optional[dict[int, int]] = None,
     setpoint: Optional[dict[int, float]] = None,
     ess_s: Optional[dict[int, int]] = None,
+    ess_min: Optional[dict[int, float]] = None,
 ) -> dict[str, Any]:
     """The daily round: the COP model, the house checked on the newest
     TEST_DAYS heating days out of sample (as of 2026.11.12 cross-validated,
@@ -794,7 +850,9 @@ def learn(
     heat demand itself (floor control "full"). Those hours are played with
     the smooth controller in the self-check, and their thermostat demand
     seconds don't count for the heat pump's power - the thermostat didn't
-    switch it then."""
+    switch it then. `ess_min` (as of 2026.11.63): the heat per hour (thermal
+    kW) the minimum floor temperature asked in those hours - the smooth
+    controller plays them with at least that, as floor control planned."""
     copm = fit_cop_meters(heat_th, heat, outdoor) if heat_th else None
     if copm is None:
         copm = fit_cop(cop, outdoor, heat, cop_min) if cop else None
@@ -802,8 +860,9 @@ def learn(
     test_days = []
     d = today - timedelta(days=1)
     while len(test_days) < TEST_DAYS and (today - d).days <= 60:
-        series = day_series(d, tz, indoor, outdoor, heat, wind, sun, gains, setpoint, ess_s)
-        if series and sum(series["q"]) >= TEST_HEAT_KWH:
+        series = day_series(d, tz, indoor, outdoor, heat, wind, sun, gains, setpoint, ess_s, ess_min)
+        # (as of 2026.11.63) heat enough above the minimum floor temperature
+        if series and sum(series["q"]) - sum(_min_el(series, copm)) >= TEST_HEAT_KWH:
             test_days.append(series)
         d -= timedelta(days=1)
     result: dict[str, Any] = {"cop": copm, "cop_check": check, "model": None, "review": None}

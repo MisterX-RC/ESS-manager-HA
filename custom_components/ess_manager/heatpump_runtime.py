@@ -78,7 +78,7 @@ class HeatPumpRuntime:
         # the thermostat's switches, wanted temperature and heat demand
         # seconds per hour (as of 2026.11.20, thermostat.py) - read from the
         # recorder daily, kept here beyond its ~10 days
-        self.thermo: dict[str, Any] = {"events": [], "sp": {}, "on": {}, "ess": {}}
+        self.thermo: dict[str, Any] = {"events": [], "sp": {}, "on": {}, "ess": {}, "ess_min": {}}
         # (as of 2026.11.35) the seconds per hour ESS Manager switched the heat
         # demand itself (floor control "full", thermo["ess"]); and whether it does now
         self._ess_last: Optional[float] = None
@@ -119,7 +119,11 @@ class HeatPumpRuntime:
         self.steer = dict(data.get("steer") or {})
         t = data.get("thermo") or {}
         self.thermo = {"events": list(t.get("events") or []), "sp": dict(t.get("sp") or {}), "on": dict(t.get("on") or {}),
-                       "ess": dict(t.get("ess") or {})}
+                       "ess": dict(t.get("ess") or {}), "ess_min": dict(t.get("ess_min") or {})}
+        # (as of 2026.11.63) whether the minimum floor temperature of the ESS hours
+        # from before it was kept per hour has been read from the recorder once
+        if t.get("ess_min_read"):
+            self.thermo["ess_min_read"] = t["ess_min_read"]
         self.dirty = True
 
     def as_store(self) -> dict[str, Any]:
@@ -235,21 +239,41 @@ class HeatPumpRuntime:
             kept = {k: v for k, v in (self.thermo.get(name) or {}).items() if int(k) >= cutoff}
             kept.update({str(int(h)): v for h, v in hours.items()})
             self.thermo[name] = kept
-        self.thermo["ess"] = {k: v for k, v in (self.thermo.get("ess") or {}).items() if int(k) >= cutoff}
+        for name in ("ess", "ess_min"):
+            self.thermo[name] = {k: v for k, v in (self.thermo.get(name) or {}).items() if int(k) >= cutoff}
 
-    def note_ess(self, now_ts: float, active: bool) -> None:
+    def note_ess(self, now_ts: float, active: bool, q_min: Optional[float] = None) -> None:
         """Once a cycle (as of 2026.11.35): whether ESS Manager switches the
         heat demand itself now - the time since the last such cycle (at most
-        ESS_GAP_S, a pause or restart doesn't count) added to its hour."""
+        ESS_GAP_S, a pause or restart doesn't count) added to its hour.
+        `q_min` (as of 2026.11.63): the heat (thermal kW) the minimum floor
+        temperature asks now - kept per hour (the hour's highest), so the
+        house model's self-check plays the hour as floor control planned it."""
         self.ess_switches = active
         if not active:
             self._ess_last = None
             return
+        key = str(int(now_ts) // hp.HOUR * hp.HOUR)
         if self._ess_last is not None and now_ts > self._ess_last:
-            key = str(int(now_ts) // hp.HOUR * hp.HOUR)
             ess = self.thermo.setdefault("ess", {})
             ess[key] = min(int(ess.get(key, 0) + min(now_ts - self._ess_last, ESS_GAP_S)), hp.HOUR)
+        mins = self.thermo.setdefault("ess_min", {})
+        mins[key] = round(max(float(mins.get(key) or 0.0), float(q_min or 0.0)), 3)
         self._ess_last = now_ts
+
+    def ess_hours_without_min(self) -> list[int]:
+        """The hours ESS Manager switched the heat demand with no minimum floor
+        temperature kept for them (as of 2026.11.63: from before it was kept)."""
+        mins = self.thermo.get("ess_min") or {}
+        return sorted(int(k) for k in (self.thermo.get("ess") or {}) if k not in mins)
+
+    def set_ess_min(self, hours: dict[int, float]) -> None:
+        """The minimum floor temperature's heat for ESS hours read afterwards
+        (as of 2026.11.63, once from the recorder) - hours already kept stay."""
+        mins = self.thermo.setdefault("ess_min", {})
+        for h, v in hours.items():
+            mins.setdefault(str(int(h)), round(float(v or 0.0), 3))
+        self.thermo["ess_min_read"] = True
 
     def thermostat_series(self, name: str) -> dict[int, float]:
         return {int(k): v for k, v in (self.thermo.get(name) or {}).items()}

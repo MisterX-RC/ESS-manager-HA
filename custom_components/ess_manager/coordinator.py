@@ -1831,11 +1831,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sp_hours = self.hp.thermostat_series("sp") or None
             # (as of 2026.11.35) the hours ESS Manager switched the heat demand itself
             ess_s = self.hp.thermostat_series("ess") or None
+            if ess_s:
+                await self._async_hp_ess_min_backfill(sp_hours or {}, means.get(conf.get(CONF_HP_OUTDOOR_ENTITY)) or {}, tz)
         learned = await self.hass.async_add_executor_job(
             heatpump_house.learn,
             means.get(indoor_id) or {}, means.get(conf.get(CONF_HP_OUTDOOR_ENTITY)) or {}, heat_only, wind, sun,
             cool_only, means.get(cop_id) if cop_id else None, tz, today, profile, heatpump.hourly_shape(self.hp.journal, today),
             cop_min, heat_th, gains, thermo, on_s, sp_hours, ess_s,
+            self.hp.thermostat_series("ess_min") or None,
         )
         self.hp.house = {**learned, "day": today.isoformat(), "key": self._hp_house_key(conf),
                          # the usual own electricity per local hour, for the forecast (as of 2026.11.11)
@@ -1847,6 +1850,50 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             rev.get("block_hours"), rev.get("hour_error_kwh"), rev.get("pattern_error_kwh"), rev.get("temp_error_c"),
             " - used for the planning" if rev.get("passed") else "",
         )
+
+    async def _async_hp_ess_min_backfill(self, sp_hours: dict[int, float], outdoor: dict[int, float], tz) -> None:
+        """Once (as of 2026.11.63): the minimum floor temperature's heat for the
+        hours ESS Manager switched before it was kept per hour - from the
+        recorder's history of the minimum floor temperature number, the
+        floor's emission now and the wanted temperature of that hour; only on
+        days below the heating limit (2026.11.62). Hours it can't tell get 0
+        (as the self-check played them up to then)."""
+        hours = self.hp.ess_hours_without_min()
+        if not hours or self.hp.thermo.get("ess_min_read"):
+            return
+        found: dict[int, float] = {h: 0.0 for h in hours}
+        entity_id = getattr(self._numbers.get(NUM_FLOOR_MIN_TEMP), "entity_id", None)
+        k = (self.hp.floor_min or {}).get("k") or ((self.floor.model or {}).get("u") if (self.floor.model or {}).get("ok") else None)
+        tb = (self.hp.model or {}).get("tb")
+        if entity_id and k:
+            try:
+                states = await async_fetch_numeric_states(
+                    self.hass, entity_id, dt_util.utc_from_timestamp(hours[0]), dt_util.utcnow())
+            except Exception as err:  # noqa: BLE001 - no history: the hours stay without a minimum
+                _LOGGER.debug("ESS Manager: minimum floor temperature history not read: %s", err)
+                states = []
+            day_mean: dict[str, Optional[float]] = {}
+            for h in hours:
+                t_min = None
+                for ts, v in states:
+                    if ts <= h + 1800:
+                        t_min = v
+                    else:
+                        break
+                wanted = sp_hours.get(h)
+                if not t_min or t_min <= fc.MIN_FLOOR_OFF or wanted is None:
+                    continue
+                d = datetime.fromtimestamp(h, tz).date().isoformat()
+                if d not in day_mean:
+                    vals = [v for hh_, v in outdoor.items() if datetime.fromtimestamp(hh_, tz).date().isoformat() == d]
+                    day_mean[d] = sum(vals) / len(vals) if vals else None
+                if tb is not None and day_mean[d] is not None and day_mean[d] >= tb:
+                    continue
+                q = fc.min_floor_heat({"u": k}, t_min, [wanted])
+                found[h] = q[0] if q else 0.0
+        self.hp.set_ess_min(found)
+        _LOGGER.info("ESS Manager (%s): minimum floor temperature of %d earlier floor control hours read back (%d with heat)",
+                     self.entry.title, len(found), sum(1 for v in found.values() if v))
 
     def _hp_house_key(self, conf: dict[str, Any]) -> str:
         """What the house model is learned from (as of 2026.11.11)."""
@@ -2262,7 +2309,11 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         floor.stage = stage
         # (as of 2026.11.35) the hours ESS Manager switches the heat demand itself,
         # for the house model's self-check and forecast
-        self.hp.note_ess(now_ts, stage == fc.MODE_FULL)
+        # (as of 2026.11.63) with the heat the minimum floor temperature asks now -
+        # the self-check plays the hour as floor control planned it
+        spec = self.hp.floor_min
+        q_min_now = fc.min_floor_heat({"u": spec.get("k")}, spec.get("t"), [targets[0]]) if spec and targets else []
+        self.hp.note_ess(now_ts, stage == fc.MODE_FULL, q_min_now[0] if q_min_now else 0.0)
 
         # what's sent
         if stage in (fc.MODE_SETPOINT, fc.MODE_FULL) and sp_planned is not None and sp_actual is not None:

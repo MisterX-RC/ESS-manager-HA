@@ -340,3 +340,52 @@ async def test_floor_minimum_only_below_the_heating_limit(hass, freezer, monkeyp
     mf = co.data["heat_pump"]["floor"]["min_floor"]
     assert mf["mode"] == "planned" and mf["active"] and mf["season"]["heating"] is True
     assert co.hp.floor_min is not None and co.hp.floor_min["t"] == 22.5 and mf["comfort_band_c"] == 2.0
+
+
+async def test_floor_full_hours_keep_the_minimum_floor_heat(hass, freezer, monkeypatch):
+    """2026.11.63: in the hours ESS Manager switches the heat demand itself, the
+    heat the minimum floor temperature asks is kept per hour (the house model's
+    self-check plays the hour with it); the hours from before it was kept are
+    read back once from the minimum's history."""
+    from custom_components.ess_manager import coordinator as coord_mod
+    from custom_components.ess_manager import floor_control
+
+    co, _ = await _floor_a(hass, freezer)
+    monkeypatch.setattr(floor_control, "effective_stage", lambda *a, **k: ("full", []))
+    await co._numbers["floor_min_temperature"].async_set_native_value(22.5)
+    for _ in range(20):
+        freezer.tick(timedelta(minutes=1))
+        await co.async_refresh()
+    assert co.floor.stage == "full" and co.hp.floor_min is not None
+    u = co.hp.floor_min["k"]
+    mins = co.hp.thermostat_series("ess_min")
+    assert mins and set(mins) <= set(co.hp.thermostat_series("ess"))
+    assert all(abs(v - round(u * (22.5 - 21.0), 3)) < 0.002 for v in mins.values())
+    assert co.hp.as_store()["thermo"]["ess_min"]
+
+    # hours from before (an update): read back once - set before the hour (heat), off (0),
+    # and a day above the heating limit (0 - the minimum didn't count then)
+    h0 = min(mins) - 30 * 3600
+    for h in (h0, h0 + 3600, h0 + 2 * 3600, h0 + 24 * 3600):
+        co.hp.thermo["ess"][str(h)] = 3600
+    calls = []
+
+    async def history(hass_, entity_id, start, end):
+        calls.append((entity_id, start.timestamp()))
+        return [(h0 - 600, 0.0), (h0 + 3000, 23.0), (h0 + 2 * 3600 + 600, 0.0), (h0 + 20 * 3600, 22.5)]
+
+    monkeypatch.setattr(coord_mod, "async_fetch_numeric_states", history)
+    co.hp.model = {"tb": 14.0}
+    tz = dt_util.get_default_time_zone()
+    warm_day = {h: 16.0 for h in range(h0 + 24 * 3600, h0 + 24 * 3600 + 3 * 3600, 3600)}
+    sp = {h: 21.0 for h in (h0, h0 + 3600, h0 + 2 * 3600, h0 + 24 * 3600)}
+    await co._async_hp_ess_min_backfill(sp, warm_day, tz)
+    got = co.hp.thermostat_series("ess_min")
+    assert calls and calls[0][0] == co._numbers["floor_min_temperature"].entity_id and calls[0][1] == h0
+    assert got[h0] == 0.0 and abs(got[h0 + 3600] - round(u * 2.0, 3)) < 0.002 and got[h0 + 2 * 3600] == 0.0
+    assert got[h0 + 24 * 3600] == 0.0 and co.hp.thermo["ess_min_read"]
+    assert all(got[h] == v for h, v in mins.items())
+    # only once
+    co.hp.thermo["ess"][str(h0 - 3600)] = 3600
+    await co._async_hp_ess_min_backfill(sp, {}, tz)
+    assert len(calls) == 1
