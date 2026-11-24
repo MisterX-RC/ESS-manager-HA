@@ -543,7 +543,7 @@
     },
     "solar_unreadable": {
       "title": "ESS Manager: een zonnevoorspelling kan niet worden gelezen",
-      "description": "**{entry_title}**: {entities} heeft geen zonnevoorspelling die de integratie kan lezen (een Solcast-attribuut `detailedHourly` of een Helios Forecast-attribuut `forecast`), dus het telt als helemaal geen zon.\n\nControleer de zonnevoorspellingen via Configureren - kies bij Helios Forecast de sensor **Power now**. Deze melding verdwijnt vanzelf zodra de voorspelling te lezen is."
+      "description": "**{entry_title}**: {entities} heeft geen zonnevoorspelling die de integratie kan lezen - de sensor is niet beschikbaar of bestaat niet meer, of hij heeft geen Solcast-attribuut `detailedHourly` en geen Helios Forecast-attribuut `forecast`. De planning gaat door, maar telt het als helemaal geen zon.\n\nControleer de integratie van de zonnevoorspelling en de zonnevoorspellingen via Configureren - kies bij Helios Forecast de sensor **Power now**. Deze melding verdwijnt vanzelf zodra de voorspelling te lezen is."
     },
     "battery_below_minimum": {
       "title": "ESS Manager: accu komt naar verwachting onder het minimum",
@@ -552,6 +552,10 @@
     "sensor_frozen": {
       "title": "ESS Manager: een accusensor werkt niet meer bij",
       "description": "**{entry_title}**: **{entity}** heeft nog een waarde, maar werkt niet meer bij - al een tijd geen nieuwe melding (10 minuten voor het accuniveau, 2 minuten voor het accuvermogen terwijl het setpoint dat volgt), of het accuvermogen bleef precies gelijk terwijl het setpoint een paar keer veranderde. Sturen op een waarde die niet meer klopt kan de accu verkeerd laden of ontladen, dus ESS Manager toont zolang Standby en houdt de accu idle.\n\nControleer de integratie achter de sensor (bijv. de verbinding met de omvormer of de GX). Deze melding verdwijnt vanzelf, en het sturen gaat verder, zodra de sensor weer bijwerkt."
+    },
+    "update_failed": {
+      "title": "ESS Manager: planning gestopt - onverwachte fout",
+      "description": "**{entry_title}** stopt al 15 minuten op een onverwachte fout, dus er wordt niets gepland en directe sturing houdt de accu in rust:\n\n`{error}`\n\nKijk in Instellingen > Systeem > Logboeken naar \"ess_manager\" voor de details, en meld het graag op GitHub (met de diagnostiek-download). ESS Manager herladen of Home Assistant herstarten kan voorlopig helpen. Deze melding verdwijnt vanzelf zodra een cyclus weer lukt."
     }
   },
   "services": {

@@ -120,6 +120,69 @@ async def test_problem_notice_unavailable_input(hass, freezer):
     assert reg.async_get_issue("ess_manager", f"input_unavailable_{entry.entry_id}") is None
 
 
+async def test_problem_notice_unexpected_error(hass, freezer):
+    """2026.11.65: a cycle that keeps stopping on an unexpected error gets a
+    notice after 15 minutes; a sensor without a value (UpdateFailed, its own
+    notice) doesn't count, and the notice goes with the first good cycle."""
+    base_states(hass, dt_util.now())
+    entry, coordinator = await _entry(hass)
+    reg = ir.async_get(hass)
+    issue = f"update_failed_{entry.entry_id}"
+    original = coordinator._async_buy_prices
+
+    async def boom(*a, **k):
+        raise RuntimeError("something broke")
+
+    coordinator._async_buy_prices = boom
+    await coordinator.async_refresh()
+    assert not coordinator.last_update_success and "update_failed" in coordinator.problems.active()
+    freezer.tick(timedelta(minutes=10))
+    await coordinator.async_refresh()
+    assert reg.async_get_issue("ess_manager", issue) is None              # not before 15 minutes
+    freezer.tick(timedelta(minutes=6))
+    await coordinator.async_refresh()
+    found = reg.async_get_issue("ess_manager", issue)
+    assert found is not None and "RuntimeError: something broke" in found.translation_placeholders["error"]
+    coordinator._async_buy_prices = original
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success and reg.async_get_issue("ess_manager", issue) is None
+    # the battery SOC without a value: input_unavailable, not this one
+    hass.states.async_set("sensor.soc", "unavailable")
+    for _ in range(3):
+        freezer.tick(timedelta(minutes=8))
+        await coordinator.async_refresh()
+    assert reg.async_get_issue("ess_manager", f"input_unavailable_{entry.entry_id}") is not None
+    assert "update_failed" not in coordinator.problems.active() and reg.async_get_issue("ess_manager", issue) is None
+
+
+async def test_problem_notice_solar_sensor_gone(hass, freezer):
+    """2026.11.65: a solar forecast sensor that's unavailable or gone after the
+    startup grace gets the solar notice after 15 minutes - planning goes on."""
+    base_states(hass, dt_util.now())
+    entry, coordinator = await _entry(hass)
+    reg = ir.async_get(hass)
+    issue = f"solar_unreadable_{entry.entry_id}"
+    hass.states.async_set("sensor.helios_forecast_power_now", "unavailable")
+    await coordinator.async_refresh()
+    assert "solar_unreadable" not in coordinator.problems.active()        # still within the startup grace
+    freezer.tick(timedelta(minutes=11))
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success and "solar_unreadable" in coordinator.problems.active()
+    freezer.tick(timedelta(minutes=16))
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success
+    assert reg.async_get_issue("ess_manager", issue).translation_placeholders["entities"] == "sensor.helios_forecast_power_now"
+    hass.states.async_remove("sensor.helios_forecast_power_now")         # gone altogether: still the notice
+    freezer.tick(timedelta(minutes=1))
+    await coordinator.async_refresh()
+    assert reg.async_get_issue("ess_manager", issue) is not None
+    from .conftest import solar_forecast
+    hass.states.async_set("sensor.helios_forecast_power_now", "0", solar_forecast(dt_util.now()))
+    freezer.tick(timedelta(minutes=1))
+    await coordinator.async_refresh()
+    assert reg.async_get_issue("ess_manager", issue) is None
+
+
 async def test_cards_served_and_resource(hass):
     from homeassistant.setup import async_setup_component
 

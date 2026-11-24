@@ -3258,7 +3258,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # under one lock, so the plans in the worker thread never run twice
         # alongside each other (checked by a test, 2026.10.20).
         try:
-            return await self._async_compute()
+            data = await self._async_compute()
         except Exception as err:
             # Fail-safe for direct control: never leave the last command
             # running while the integration can't see what's happening.
@@ -3266,7 +3266,20 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.controller.async_idle(self.control_settings(), f"update failed: {err}")
             self._record_decision({"action": "idle (fail-safe)", "status": f"update failed: {err}"})
             self._report_control_problem(dt_util.now())
+            self._report_cycle_problem(err)
             raise
+        self._report_cycle_problem(None)
+        return data
+
+    def _report_cycle_problem(self, err: Optional[BaseException]) -> None:
+        """A cycle that stopped on an unexpected error (as of 2026.11.65) -
+        a bug, a recorder error, data it can't handle. The known reasons
+        (a sensor without a value, waiting after the start, a removed usage
+        source) are UpdateFailed and have a notice of their own (or need
+        none), so they don't count."""
+        active = err is not None and not isinstance(err, UpdateFailed)
+        error = f"{type(err).__name__}: {err}"[:300] if active else ""
+        self.problems.report("update_failed", active, dt_util.now(), {"error": error})
 
     async def _async_compute(self) -> dict[str, Any]:
         if not self._restored:
@@ -3365,6 +3378,16 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         )
                 elif points or known:
                     self._solar_format_warned.discard(entity_id)
+        # (2026.11.65) also a sensor that's unavailable or gone after the
+        # startup grace - planning goes on as if there's no sun from it
+        if now - self._started_at >= STARTUP_GRACE:
+            for entity_id in conf.get(CONF_SOLAR_FORECAST_ENTITIES, []):
+                state = self.hass.states.get(entity_id)
+                gone = state is None or state.state == "unavailable" or (
+                    state.state == "unknown" and not forecasting.solar_points_from_attributes(state.attributes)
+                    and not ("detailedHourly" in state.attributes or isinstance(state.attributes.get("forecast"), list)))
+                if gone and entity_id not in unreadable:
+                    unreadable.append(entity_id)
         self.problems.report("solar_unreadable", bool(unreadable), now, {"entities": ", ".join(unreadable)})
         if self._usage_missing:
             waiting_for.append("the household usage statistics")

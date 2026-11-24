@@ -12,6 +12,25 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.65] - 2026-11-24
+
+### Added
+- **A notice when planning stops on an unexpected error.** A cycle that
+  keeps failing on an error none of the other notices covers (a bug, a
+  recorder error, data it can't handle) used to show only in the log, with
+  the battery idle under direct control. After 15 minutes there's now a
+  notice in Settings > Repairs with the error; it goes away with the first
+  cycle that works. A sensor without a value or the wait right after a
+  start don't count - they have their own notice or need none.
+
+### Changed
+- **The solar forecast notice also covers a sensor that's unavailable or
+  gone.** Planning went on as if there was no sun from it without a
+  notice; now it shows after 15 minutes (not in the first 10 minutes after
+  a start), just like a sensor with an unreadable forecast.
+- The "learn more" link of the problem notices points to the problem
+  notices section in `docs/control.md`.
+
 ## [2026.11.64] - 2026-11-24
 
 ### Added

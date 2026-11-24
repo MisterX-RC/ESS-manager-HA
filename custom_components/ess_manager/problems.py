@@ -16,13 +16,17 @@ Kinds:
 - prices_cached (as of 2026.11.64): the price sensor has no good prices,
   the cycle runs on the stored lists (price_cache.py), and two reloads of
   the price integration didn't bring them back.
-- solar_unreadable: a solar forecast sensor is available but has no
-  forecast the integration can read - 15 minutes.
+- solar_unreadable: a solar forecast sensor has no forecast the
+  integration can read - available without a known attribute, or (as of
+  2026.11.65) unavailable or gone after the startup grace - 15 minutes.
 - battery_below_minimum: even with the plans, the battery is expected to
   drop below its minimum within the hours that have prices - 30 minutes.
 - sensor_frozen (as of 2026.10.44): the battery SOC or the battery's power
   stopped updating while it still has a value (sensor_watch.py) - at once,
   the check itself waits 10 / 2 minutes.
+- update_failed (as of 2026.11.65): the cycle stops on an unexpected error
+  (not one of the known reasons above) - nothing is planned and direct
+  control idles - 15 minutes.
 """
 from __future__ import annotations
 
@@ -45,11 +49,12 @@ PROBLEM_DELAYS = {
     # the check itself waits for two failed reloads of the price integration
     "prices_cached": timedelta(0),
     "battery_below_minimum": timedelta(minutes=30),
+    "update_failed": timedelta(minutes=15),
     # the check itself already waited (sensor_watch.py)
     "sensor_frozen": timedelta(0),
 }
 PROBLEM_KINDS = tuple(PROBLEM_DELAYS)
-LEARN_MORE = "https://github.com/MisterX-RC/ESS-manager-HA#problem-notices"
+LEARN_MORE = "https://github.com/MisterX-RC/ESS-manager-HA/blob/main/docs/control.md#problem-notices"
 
 
 def problem_issue_id(kind: str, entry_id: str) -> str:
@@ -107,7 +112,7 @@ class ProblemTracker:
             issue_id,
             is_fixable=False,
             is_persistent=False,
-            severity=ir.IssueSeverity.WARNING if kind != "control_write_failed" else ir.IssueSeverity.ERROR,
+            severity=ir.IssueSeverity.ERROR if kind in ("control_write_failed", "update_failed") else ir.IssueSeverity.WARNING,
             translation_key=kind,
             translation_placeholders=values,
             learn_more_url=LEARN_MORE,
