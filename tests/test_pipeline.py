@@ -7255,6 +7255,28 @@ check("runtime: the hours from before read back once - kept hours untouched, mar
       and _mf_rt2.thermo.get("ess_min_read") is True and _mf_rt2.ess_hours_without_min() == []
       and heatpump_runtime.HeatPumpRuntime().thermo.get("ess_min") == {})
 
+# 2026.11.65: a full-charge session whose cheapest charge runs up to the
+# last known price - its taper quarters used to lie past the prices and the
+# whole cycle stopped on a missing charge rate (IndexError)
+_ft_prices = [0.30] * 186 + [0.10] * 6
+_ft_rates = [1.75] * 192
+_ft_session = plans._full_session_window(_ft_prices, _ft_rates, [0.5] * 72, 0, 0, 192, 10.0, 1.0, 12,
+                                         plans.FULL_TAPER_UNITS)
+check("full charge: a session up to the last known price ends there (no taper quarters past the prices)",
+      _ft_session == (186, 6))
+try:
+    _ft_plan = plans.compute_full_charge_plan(
+        prev=None, cur_unit=0, now=now_top_of_hour, interval_days=28.0, time_since_days=30.0,
+        soc_now_percent=66.0, max_hold_minutes=180.0, voltage_diff=None, battery_now_kwh=20.0,
+        high_threshold_kwh=30.0, usage=[0.5] * 120, charge_speed_kw=7.0, all_price=_ft_prices,
+        battery_forecast=[20.0] * 48, battery_voltage=None, target_voltage=55.2,
+        charge_rates=_ft_rates, min_charge_units=1,
+    )
+    _ft_ok = _ft_plan.get("start_unit") is not None and _ft_plan.get("end_unit", 999) <= 192
+except IndexError as _ft_err:
+    _ft_plan, _ft_ok = repr(_ft_err), False
+check("full charge: the plan with its cheapest session at the end of the prices is made (no IndexError)", _ft_ok)
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

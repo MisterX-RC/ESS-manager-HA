@@ -21,7 +21,18 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
   the battery idle under direct control. After 15 minutes there's now a
   notice in Settings > Repairs with the error; it goes away with the first
   cycle that works. A sensor without a value or the wait right after a
-  start don't count - they have their own notice or need none.
+  start don't count - they have their own notice or need none. The notice
+  says where in the code the error happened, and the diagnostics show the
+  last steps (`coordinator.last_traceback`).
+
+### Fixed
+- **Planning stopped when the full charge's cheapest session ran up to the
+  last known price.** The session is planned half an hour longer for the
+  slower last part; when it charged up to the end of the known prices,
+  those extra quarters lay past them and every cycle stopped on
+  `IndexError: list index out of range` - with direct control the battery
+  stayed idle until new prices made another session cheaper. The extra
+  quarters now only count within the known prices.
 
 ### Changed
 - **The solar forecast notice also covers a sensor that's unavailable or

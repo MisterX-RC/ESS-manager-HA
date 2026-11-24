@@ -548,7 +548,8 @@ the buy price plus the house's usage over the hold at the buy price (the
 battery is held full then, the house runs on the grid), so the hold doesn't
 land in the evening peak just because the cheapest charge quarter came
 right before it. The session is planned half an hour
-longer for the slower last part, and a session whose window runs out at
+longer for the slower last part (within the known prices: a session that
+charges up to the last known price ends there), and a session whose window runs out at
 95 % or more charges on to full (at most an hour) before the balancing
 wait starts. The Buy block on the card says until when it balances at
 the latest, and the forecast holds the battery at 100 % over it. A session is worked out afresh when the capacity or max

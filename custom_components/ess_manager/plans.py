@@ -2781,8 +2781,9 @@ def _full_session_window(
     the charge ending by `search_end`. Cost: the charge at buy / charge
     efficiency per kWh added, plus the house's usage over the hold (it
     comes from the grid then - the battery is held full) at buy. A hold
-    past the known prices counts at the last known price. None when no
-    start fits (the target can't be reached before `search_end`)."""
+    past the known prices counts at the last known price; the charge units
+    never run past them. None when no start fits (the target can't be
+    reached before `search_end`)."""
     ce = charge_efficiency if charge_efficiency > 0 else 1.0
     n = min(len(prices), len(rates))
     if n == 0 or target_kwh <= 0:
@@ -2808,7 +2809,11 @@ def _full_session_window(
         for v in range(u, u + taper_units + hold_units):
             cost += prices[min(v, len(prices) - 1)] * usage_q(v)
         if best is None or cost < best[0] - 1e-9:
-            best = (cost, start, u - start + taper_units)
+            # the slower last part only within the known quarters (as of
+            # 2026.11.65): a session that charges up to the last known price
+            # ends there - before, its taper quarters lay past the prices
+            # and the plan stopped on a missing charge rate
+            best = (cost, start, min(u + taper_units, n) - start)
     return (best[1], best[2]) if best else None
 
 

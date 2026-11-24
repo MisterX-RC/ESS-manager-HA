@@ -217,7 +217,7 @@ that's briefly gone after a restart doesn't raise one:
 | Planning on stored prices | the price sensor has no good prices, planning goes on with the stored ones, and two reloads of the price integration didn't bring them back | after the second reload + 5 minutes |
 | A solar forecast sensor can't be read | a chosen solar forecast sensor is unavailable or gone (after the first 10 minutes from the start), or it has neither a Solcast `detailedHourly` nor a Helios Forecast `forecast` attribute - planning goes on but counts it as no sun (an attribute that's just empty for now is fine) | 15 minutes |
 | Battery expected below its minimum | even with the plans, the battery is expected to run into a dip below its minimum within the next 24 hours that have prices and lie within the planning horizon - usually a charge that can't be fitted (charge speed, night limit, too little room) | 30 minutes |
-| Planning stopped - unexpected error | the cycle keeps stopping on an error none of the other notices covers (a bug, a recorder error, data it can't handle) - nothing is planned and direct control keeps the battery idle; the notice shows the error, the log has the details | 15 minutes |
+| Planning stopped - unexpected error | the cycle keeps stopping on an error none of the other notices covers (a bug, a recorder error, data it can't handle) - nothing is planned and direct control keeps the battery idle; the notice shows the error and where in the code it happened, the log and the diagnostics have the details | 15 minutes |
 | A battery sensor stopped updating | the battery SOC, or the battery's power while the setpoint follows it (House from grid / Solar export), still has a value but no longer updates - the Status shows **Standby** and direct control keeps the battery idle until it updates again (see below) | at once (the check itself waits) |
 
 **Prices missing: stored prices and a reload.** A price integration
@@ -303,6 +303,8 @@ attach to an issue instead of copying YAML out of Developer tools:
   read from it; other long attributes are summarised;
 - the last result: forecasts, all plans, the direct-control state (last
   value sent, when, why, last error), night limit, heat pump and EV;
+- when the cycle stops on an unexpected error: the error and where it
+  happened (`coordinator.last_traceback`, the last steps of the code);
 - **the decision history**: every moment of the last 24 hours the battery
   action, the setpoint, the status or a control error changed, with time,
   SOC and price - what it did last night and why. Kept in memory, so it

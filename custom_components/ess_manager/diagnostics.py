@@ -131,6 +131,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     result["coordinator"] = {
         "last_update_success": coordinator.last_update_success,
         "last_exception": repr(coordinator.last_exception) if coordinator.last_exception else None,
+        # where the last unexpected error happened (as of 2026.11.65)
+        "last_traceback": getattr(coordinator, "_last_traceback", None),
         "update_interval_seconds": coordinator.update_interval.total_seconds() if coordinator.update_interval else None,
         # how long a cycle takes (as of 2026.10.44): last, average and max of the last 60
         "cycle_timing": coordinator.cycle_timing(),

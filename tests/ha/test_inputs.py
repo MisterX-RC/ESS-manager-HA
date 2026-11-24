@@ -143,9 +143,15 @@ async def test_problem_notice_unexpected_error(hass, freezer):
     await coordinator.async_refresh()
     found = reg.async_get_issue("ess_manager", issue)
     assert found is not None and "RuntimeError: something broke" in found.translation_placeholders["error"]
+    assert "test_inputs.py line" in found.translation_placeholders["error"]      # where it happened
+    from custom_components.ess_manager.diagnostics import async_get_config_entry_diagnostics
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    trace = diag["coordinator"]["last_traceback"]
+    assert trace[-1] == "RuntimeError: something broke" and any("boom" in line for line in trace)
     coordinator._async_buy_prices = original
     await coordinator.async_refresh()
     assert coordinator.last_update_success and reg.async_get_issue("ess_manager", issue) is None
+    assert (await async_get_config_entry_diagnostics(hass, entry))["coordinator"]["last_traceback"] is None
     # the battery SOC without a value: input_unavailable, not this one
     hass.states.async_set("sensor.soc", "unavailable")
     for _ in range(3):

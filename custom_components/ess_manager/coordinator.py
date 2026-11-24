@@ -9,7 +9,9 @@ from __future__ import annotations
 import asyncio
 import math
 import functools
+import os
 import time
+import traceback
 from collections import deque
 
 import logging
@@ -459,6 +461,8 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # forecast is a stand-in (statistics couldn't be read, nothing cached).
         self._started_at = dt_util.now()
         self._usage_missing = False
+        # the last unexpected error's frames (as of 2026.11.65, diagnostics)
+        self._last_traceback: Optional[list[str]] = None
         # The electric car (as of 2026.10.11) - see ev_runtime.py.
         self.ev = EvRuntime()
         # the Victron charger (as of 2026.10.27): what was written to it
@@ -3278,7 +3282,21 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         source) are UpdateFailed and have a notice of their own (or need
         none), so they don't count."""
         active = err is not None and not isinstance(err, UpdateFailed)
-        error = f"{type(err).__name__}: {err}"[:300] if active else ""
+        error = ""
+        if active:
+            frames = traceback.extract_tb(err.__traceback__)
+            where = ""
+            if frames:
+                last = frames[-1]
+                where = f" - in {os.path.basename(last.filename)} line {last.lineno} ({last.name})"
+            error = f"{type(err).__name__}: {err}"[:240] + where
+            # the diagnostics show where it happened (the last frames)
+            self._last_traceback = [
+                f"{os.path.basename(f.filename)}:{f.lineno} {f.name}: {(f.line or '').strip()[:160]}"
+                for f in frames[-8:]
+            ] + [f"{type(err).__name__}: {str(err)[:300]}"]
+        elif err is None:
+            self._last_traceback = None
         self.problems.report("update_failed", active, dt_util.now(), {"error": error})
 
     async def _async_compute(self) -> dict[str, Any]:
