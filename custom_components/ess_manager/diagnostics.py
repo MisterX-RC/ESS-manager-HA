@@ -136,6 +136,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         "cycle_timing": coordinator.cycle_timing(),
         # sensors that stopped updating (as of 2026.10.44): which report regularly, which are stuck
         "sensor_watch": coordinator.watch.as_dict(),
+        # (2026.11.64) reloads of the integration behind the price sensor
+        "price_reload": coordinator.price_reload.as_diag(),
     }
     result["numbers"] = {
         key: _jsonable(getattr(entity, "native_value", None)) for key, entity in sorted(coordinator._numbers.items())

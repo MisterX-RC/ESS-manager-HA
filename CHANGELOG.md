@@ -12,6 +12,22 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.64] - 2026-11-24
+
+### Added
+- **The price integration is reloaded when the prices are missing.** A
+  price integration sometimes leaves its sensor unavailable until it's
+  reloaded by hand, and without prices nothing is planned. Now, when the
+  price sensor is unavailable / unknown or has no prices for today, the
+  integration the sensor belongs to is reloaded by itself (looked up from
+  the price sensor, no new setting): after 5 minutes (not within 10
+  minutes of the start), then after 15 and 30 minutes, then every hour,
+  starting over once the prices are back. Not while that integration is
+  loading or disabled, and never for a sensor without an integration
+  (a YAML template, say). Each reload is logged, the "Planning paused"
+  notice shows how often it reloaded, and the diagnostics have
+  `coordinator.price_reload`.
+
 ## [2026.11.63] - 2026-11-23
 
 ### Fixed

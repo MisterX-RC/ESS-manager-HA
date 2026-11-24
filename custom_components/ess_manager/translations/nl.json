@@ -535,7 +535,7 @@
     },
     "input_unavailable": {
       "title": "ESS Manager: planning gepauzeerd - een sensor heeft geen waarde",
-      "description": "**{entry_title}** heeft al 15 minuten geen bruikbare waarde van **{entity}**, dus er wordt niets gepland en directe sturing houdt de accu in rust.\n\nControleer de sensor (en de integratie erachter, bijv. die van de omvormer of de prijzen). Deze melding verdwijnt vanzelf zodra de sensor weer een waarde heeft."
+      "description": "**{entry_title}** heeft al 15 minuten geen bruikbare waarde van **{entity}**, dus er wordt niets gepland en directe sturing houdt de accu in rust.\n\nControleer de sensor (en de integratie erachter, bijv. die van de omvormer of de prijzen). Is het de prijssensor, dan herlaadt ESS Manager zelf de integratie erachter (na 5 minuten, daarna na 15, 30 en elke 60 minuten) - tot nu toe {reloads} keer herladen. Deze melding verdwijnt vanzelf zodra de sensor weer een waarde heeft."
     },
     "solar_unreadable": {
       "title": "ESS Manager: een zonnevoorspelling kan niet worden gelezen",

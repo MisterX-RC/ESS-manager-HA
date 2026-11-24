@@ -35,7 +35,8 @@ around the same prices.
   floor heating control (return setpoint) for a Qube heat pump.
 - **Insight** - a forecast check (how good the usage and solar forecasts
   were, with a Safety buffer advice), what the battery saved against the
-  same house without one, problem notices and diagnostics.
+  same house without one, problem notices and diagnostics. When the price
+  sensor goes unavailable, the integration behind it is reloaded by itself.
 - **Seven dashboard cards**, drawn by the integration itself - nothing else
   to install.
 

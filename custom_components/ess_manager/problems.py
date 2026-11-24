@@ -10,6 +10,8 @@ Kinds:
   entity is unavailable, gone, or the service call fails) - 5 minutes.
 - input_unavailable: the battery SOC or price sensor has no usable value,
   so nothing is planned (and direct control idles) - 15 minutes.
+  For the price sensor the integration behind it is reloaded meanwhile
+  (price_reload.py); the notice shows how often.
 - solar_unreadable: a solar forecast sensor is available but has no
   forecast the integration can read - 15 minutes.
 - battery_below_minimum: even with the plans, the battery is expected to

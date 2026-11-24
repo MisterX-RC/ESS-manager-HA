@@ -38,6 +38,7 @@ from .problems import ProblemTracker, below_minimum
 from . import sensor_watch as sw
 from . import price_incl as pi
 from . import price_reference
+from .price_reload import PriceReloader, price_missing
 from . import savings as sv
 from . import floor_control as fc
 from .const import (
@@ -514,6 +515,9 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.acc = AccuracyRuntime()
         # Problem notices in Settings > Repairs (as of 2026.10.23) - problems.py.
         self.problems = ProblemTracker(hass, entry)
+        # (2026.11.64) the integration behind the price sensor reloaded when
+        # the prices stay missing - price_reload.py
+        self.price_reload = PriceReloader(hass, entry.title, entry.entry_id)
         # Sensors that stop updating (as of 2026.10.44) - sensor_watch.py.
         self.watch = sw.SensorWatch()
         # Floor control (as of 2026.10.23) - floor_control.py; the "Floor
@@ -581,12 +585,13 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             soc_ok = False
         if not soc_ok:
             bad = soc_id or "battery SOC"
-        else:
-            price_id = conf.get(CONF_PRICE_ENTITY)
-            price = self.hass.states.get(price_id) if price_id else None
-            if price is None or price.state in ("unavailable", "unknown") or not price.attributes.get("today"):
-                bad = price_id or "price"
-        self.problems.report("input_unavailable", bad is not None, now, {"entity": bad or ""})
+        price_id = conf.get(CONF_PRICE_ENTITY)
+        price_bad = price_missing(self.hass.states.get(price_id) if price_id else None)
+        if soc_ok and price_bad:
+            bad = price_id or "price"
+        self.price_reload.step(price_id, price_bad, now, self._started_at)
+        self.problems.report("input_unavailable", bad is not None, now,
+                             {"entity": bad or "", "reloads": self.price_reload.attempts})
 
     def _report_control_problem(self, now: datetime) -> None:
         """Direct control that can't send its setpoint."""
