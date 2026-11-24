@@ -104,6 +104,7 @@ async def test_night_limited_charge_reads_actief_once_applied(hass, freezer):
 async def test_problem_notice_unavailable_input(hass, freezer):
     base_states(hass, dt_util.now())
     entry, coordinator = await _entry(hass)
+    coordinator.price_cache.days.clear()          # nothing stored to fall back on (see test_price_cache.py)
     hass.states.async_set("sensor.price", "unavailable")
     await coordinator.async_refresh()
     assert "input_unavailable" in coordinator.problems.active()

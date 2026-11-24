@@ -38,7 +38,8 @@ from .problems import ProblemTracker, below_minimum
 from . import sensor_watch as sw
 from . import price_incl as pi
 from . import price_reference
-from .price_reload import PriceReloader, price_missing
+from .price_reload import PriceReloader
+from . import price_cache as pc
 from . import savings as sv
 from . import floor_control as fc
 from .const import (
@@ -518,6 +519,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # (2026.11.64) the integration behind the price sensor reloaded when
         # the prices stay missing - price_reload.py
         self.price_reload = PriceReloader(hass, entry.title, entry.entry_id)
+        # (2026.11.64) the last good price lists, used while the sensor has none - price_cache.py
+        self.price_cache = pc.PriceCache()
+        self.price_lists_store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_price_lists")
+        self._prices: dict[str, Any] = {"today": [], "tomorrow": [], "fault": False}
         # Sensors that stop updating (as of 2026.10.44) - sensor_watch.py.
         self.watch = sw.SensorWatch()
         # Floor control (as of 2026.10.23) - floor_control.py; the "Floor
@@ -586,12 +591,25 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not soc_ok:
             bad = soc_id or "battery SOC"
         price_id = conf.get(CONF_PRICE_ENTITY)
-        price_bad = price_missing(self.hass.states.get(price_id) if price_id else None)
-        if soc_ok and price_bad:
+        # (2026.11.64) the sensor's lists, else the stored ones - price_cache.py
+        sensor = pc.read_sensor(self.hass.states.get(price_id) if price_id else None, now)
+        self._prices = self.price_cache.resolve(sensor, now)
+        if self._prices["changed"]:
+            self.hass.async_create_task(self.price_lists_store.async_save(self.price_cache.as_store()))
+        if soc_ok and not self._prices["today"]:
             bad = price_id or "price"
-        self.price_reload.step(price_id, price_bad, now, self._started_at)
+        self.price_reload.step(price_id, self._prices["fault"], now, self._started_at)
         self.problems.report("input_unavailable", bad is not None, now,
                              {"entity": bad or "", "reloads": self.price_reload.attempts})
+        # running on stored prices and two reloads didn't help: worth a notice
+        cached_problem = bool(self._prices["fault"] and self._prices["today"] and self.price_reload.failed_twice(now))
+        self._prices["problem"] = cached_problem
+        self._prices["known_until"] = self.price_cache.known_until(
+            now, len(self._prices["today"]), len(self._prices["tomorrow"]))
+        self.problems.report("prices_cached", cached_problem, now, {
+            "entity": price_id or "", "reloads": self.price_reload.attempts,
+            "until": (self._prices["known_until"] or "")[:16].replace("T", " "),
+        })
 
     def _report_control_problem(self, now: datetime) -> None:
         """Direct control that can't send its setpoint."""
@@ -646,6 +664,7 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- persistence --------------------------------------------------------
     async def _async_restore(self) -> None:
         self.savings.restore(await self.savings_store.async_load())
+        self.price_cache.restore(await self.price_lists_store.async_load())
         prices = await self.price_store.async_load()
         if isinstance(prices, dict):
             self.price_model.restore(prices)
@@ -3267,11 +3286,12 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"Battery SOC entity {battery_soc_entity} has a non-numeric state") from err
 
         price_entity = conf.get(CONF_PRICE_ENTITY)
-        price_state = self.hass.states.get(price_entity) if price_entity else None
-        if price_state is None:
+        # (2026.11.64) the lists _report_input_problem resolved: the sensor's,
+        # or the stored ones while it has none (price_cache.py)
+        if self.hass.states.get(price_entity or "") is None and not self._prices["today"]:
             raise UpdateFailed(f"Price entity {price_entity} is unavailable")
-        today_price = list(price_state.attributes.get("today") or [])
-        tomorrow_price = list(price_state.attributes.get("tomorrow") or [])
+        today_price = list(self._prices["today"])
+        tomorrow_price = list(self._prices["tomorrow"])
         all_price = [float(p) for p in (today_price + tomorrow_price)]
         # Buying costs price + (transport tariff x factor) per unit; selling
         # is the plain price (as of v0.4.0 - see transport.py).
@@ -4279,6 +4299,14 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "forecast_check": self.acc.attribute(buffer_info, self.auto_buffer_entity_id),
             # problems going on and whether they became a Repairs notice (2026.10.23)
             "problems": self.problems.active(),
+            # (2026.11.64) where the prices came from: the sensor, or the stored
+            # lists while it has none; `problem` once two reloads didn't help (card label)
+            "price_source": {
+                "source": self.price_cache.source,
+                "tomorrow_source": self.price_cache.tomorrow_source,
+                "problem": bool(self._prices.get("problem")),
+                "known_until": self._prices.get("known_until"),
+            },
             "battery_forecast": battery_forecast,
             "battery_forecast_with_negative_price": forecast_with_negative_price,
             "battery_forecast_with_spike": forecast_with_spike,

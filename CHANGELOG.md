@@ -15,18 +15,24 @@ the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 ## [2026.11.64] - 2026-11-24
 
 ### Added
-- **The price integration is reloaded when the prices are missing.** A
-  price integration sometimes leaves its sensor unavailable until it's
-  reloaded by hand, and without prices nothing is planned. Now, when the
-  price sensor is unavailable / unknown or has no prices for today, the
-  integration the sensor belongs to is reloaded by itself (looked up from
-  the price sensor, no new setting): after 5 minutes (not within 10
-  minutes of the start), then after 15 and 30 minutes, then every hour,
-  starting over once the prices are back. Not while that integration is
-  loading or disabled, and never for a sensor without an integration
-  (a YAML template, say). Each reload is logged, the "Planning paused"
-  notice shows how often it reloaded, and the diagnostics have
-  `coordinator.price_reload`.
+- **Planning goes on when the price sensor drops out.** Day-ahead prices
+  don't change once they're published, so the last complete lists of today
+  and tomorrow are now stored (they survive a restart). When the price
+  sensor is unavailable, unknown or gone, has no list for today, or shows
+  another day's list (recognised from `raw_today` / `raw_tomorrow`), the
+  plans use the stored prices; after midnight the stored tomorrow is today.
+  Planning only stops when there's no list for the current day at all.
+- **The price integration is reloaded when its sensor has no good
+  prices.** The integration the price sensor belongs to is reloaded by
+  itself (looked up from the sensor, no new setting): after 5 minutes (not
+  within 10 minutes of the start), then after 15 and 30 minutes, then
+  every hour, starting over once the prices are back. Not while that
+  integration is loading or disabled, and never for a sensor without an
+  integration (a YAML template, say). Each reload is logged.
+- A notice *Planning on stored prices* and a label on the price card, only
+  once two reloads didn't help. *Planning paused* only comes when there are
+  no stored prices for now either. Diagnostics: `coordinator.price_reload`
+  and `coordinator.price_cache`.
 
 ## [2026.11.63] - 2026-11-23
 

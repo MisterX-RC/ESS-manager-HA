@@ -36,7 +36,8 @@ around the same prices.
 - **Insight** - a forecast check (how good the usage and solar forecasts
   were, with a Safety buffer advice), what the battery saved against the
   same house without one, problem notices and diagnostics. When the price
-  sensor goes unavailable, the integration behind it is reloaded by itself.
+  sensor drops out, planning goes on with the stored prices and the
+  integration behind it is reloaded by itself.
 - **Seven dashboard cards**, drawn by the integration itself - nothing else
   to install.
 

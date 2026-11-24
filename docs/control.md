@@ -213,34 +213,49 @@ that's briefly gone after a restart doesn't raise one:
 | Notice | When | After |
 |---|---|---|
 | The setpoint can't be sent | direct control is on, but the target entity doesn't exist, is unavailable or the service call fails - the battery isn't steered meanwhile | 5 minutes |
-| Planning paused - a sensor has no value | the battery SOC sensor has no number, or the price sensor is unavailable / has no prices for today - nothing is planned and direct control keeps the battery idle; for the price sensor the integration behind it is reloaded meanwhile (see below) | 15 minutes |
+| Planning paused - a sensor has no value | the battery SOC sensor has no number, or the price sensor is unavailable / has no prices for today - nothing is planned and direct control keeps the battery idle - for prices only when there are no stored prices for now either (see below) | 15 minutes |
+| Planning on stored prices | the price sensor has no good prices, planning goes on with the stored ones, and two reloads of the price integration didn't bring them back | after the second reload + 5 minutes |
 | A solar forecast sensor can't be read | a chosen solar forecast sensor is available but has neither a Solcast `detailedHourly` nor a Helios Forecast `forecast` attribute - it would count as no sun (an attribute that's just empty for now is fine) | 15 minutes |
 | Battery expected below its minimum | even with the plans, the battery is expected to run into a dip below its minimum within the next 24 hours that have prices and lie within the planning horizon - usually a charge that can't be fitted (charge speed, night limit, too little room) | 30 minutes |
 | A battery sensor stopped updating | the battery SOC, or the battery's power while the setpoint follows it (House from grid / Solar export), still has a value but no longer updates - the Status shows **Standby** and direct control keeps the battery idle until it updates again (see below) | at once (the check itself waits) |
 
-**Prices missing: the price integration is reloaded.** A price
-integration (Nord Pool, say) sometimes leaves its sensor unavailable until
-it's reloaded. So when the price sensor is unavailable / unknown or has no
-prices for today, ESS Manager reloads the integration the sensor belongs
-to - the same as **Reload** on that integration's page in Settings >
-Devices & services. Nothing to set: the integration is looked up from the
-price sensor.
+**Prices missing: stored prices and a reload.** A price integration
+(Nord Pool, say) sometimes leaves its sensor unavailable until it's
+reloaded. Day-ahead prices don't change once they're published, so ESS
+Manager keeps the last complete lists of today and tomorrow (stored, so
+they survive a restart) and handles a sensor without good prices in two
+ways at once:
 
-- The first reload comes after the prices have been missing for 5
-  minutes, never within 10 minutes of ESS Manager's start or while Home
-  Assistant is still starting.
-- If the prices don't come back: again after 15 minutes, then 30 minutes,
-  then every hour.
-- No reload while that integration is loading or unloading, or when it's
-  disabled. A price sensor that doesn't belong to an integration (a YAML
-  template sensor, say) is never reloaded - that's logged once.
-- Once the prices are back it starts over.
+- **It plans on with the stored prices.** Today's list from the store,
+  tomorrow's when it was known; after midnight the stored "tomorrow" is
+  today. Planning only stops (the *Planning paused* notice) when there's no
+  list for the current day at all - the sensor was gone from before
+  tomorrow's prices came out until after midnight.
+- **It reloads the integration the price sensor belongs to** - the same as
+  **Reload** on that integration's page in Settings > Devices & services.
+  Nothing to set: the integration is looked up from the price sensor. The
+  first reload comes after 5 minutes (never within 10 minutes of ESS
+  Manager's start or while Home Assistant is still starting), then after
+  15 minutes, 30 minutes and every hour, until the prices are back. Not
+  while that integration is loading or unloading, or when it's disabled. A
+  price sensor that doesn't belong to an integration (a YAML template
+  sensor, say) is never reloaded - that's logged once.
 
-Each reload is logged (warning), the *Planning paused* notice says how
-often it reloaded so far, and the diagnostics show it under
-`coordinator.price_reload` (since when the prices are missing, the number
-of reloads, the last one and its result: `ok`, `not_loaded`, `failed: ...`,
-`busy`, `disabled` or `no_integration`).
+What counts as no good prices: the sensor is unavailable, unknown or gone,
+has no list for today, or - for a sensor with start times per price
+(`raw_today` / `raw_tomorrow`, as the Nordpool HACS integration has) - a
+list that belongs to another day. An empty tomorrow list is normal before
+the prices come out (around 13:00). A list is only stored when it's
+complete (96 quarters, 92 / 100 on a day the clock changes).
+
+Only once two reloads didn't help (5 minutes after the second, so about 25
+minutes) does it show: the notice *Planning on stored prices* (with how
+long the prices are known and how often it reloaded) and a label on the
+price card. Each reload is logged (warning). The diagnostics show it under
+`coordinator.price_reload` (since when, the number of reloads, the last one
+and its result: `ok`, `not_loaded`, `failed: ...`, `busy`, `disabled` or
+`no_integration`) and `coordinator.price_cache` (the stored days and where
+this cycle's prices came from: `sensor`, `cached` or `none`).
 
 **A sensor that stopped updating.** An integration that loses its
 connection often keeps the sensor's last value instead of making it

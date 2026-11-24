@@ -10,8 +10,12 @@ Kinds:
   entity is unavailable, gone, or the service call fails) - 5 minutes.
 - input_unavailable: the battery SOC or price sensor has no usable value,
   so nothing is planned (and direct control idles) - 15 minutes.
-  For the price sensor the integration behind it is reloaded meanwhile
-  (price_reload.py); the notice shows how often.
+  For prices: only when there's no stored list for today either
+  (price_cache.py); the integration behind the sensor is reloaded
+  meanwhile (price_reload.py) and the notice shows how often.
+- prices_cached (as of 2026.11.64): the price sensor has no good prices,
+  the cycle runs on the stored lists (price_cache.py), and two reloads of
+  the price integration didn't bring them back.
 - solar_unreadable: a solar forecast sensor is available but has no
   forecast the integration can read - 15 minutes.
 - battery_below_minimum: even with the plans, the battery is expected to
@@ -38,6 +42,8 @@ PROBLEM_DELAYS = {
     "control_write_failed": timedelta(minutes=5),
     "input_unavailable": timedelta(minutes=15),
     "solar_unreadable": timedelta(minutes=15),
+    # the check itself waits for two failed reloads of the price integration
+    "prices_cached": timedelta(0),
     "battery_below_minimum": timedelta(minutes=30),
     # the check itself already waited (sensor_watch.py)
     "sensor_frozen": timedelta(0),

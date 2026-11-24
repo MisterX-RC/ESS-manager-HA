@@ -1,8 +1,9 @@
 """Reload the integration behind the price sensor when it has no prices.
 
 A price integration (e.g. Nord Pool) sometimes leaves its sensor unavailable
-until it's reloaded by hand. Without prices nothing can be planned, so when
-the configured price sensor has had no usable value for a while, the config
+until it's reloaded by hand. So when the configured price sensor has had no
+good prices for a while (unavailable, no list for today, or an old day's
+list - see price_cache.read_sensor), the config
 entry the sensor belongs to (looked up in the entity registry - no setting)
 is reloaded, the same as "Reload" on the integration's page.
 
@@ -31,6 +32,8 @@ from homeassistant.helpers import entity_registry as er
 _LOGGER = logging.getLogger(__name__)
 
 FIRST_AFTER = timedelta(minutes=5)
+# a reload counts as failed when the prices aren't back this long after it
+FAILED_AFTER = timedelta(minutes=5)
 STARTUP_WAIT = timedelta(minutes=10)
 # wait after the 1st, 2nd, 3rd reload; the last one repeats
 BACKOFF = (timedelta(minutes=15), timedelta(minutes=30), timedelta(minutes=60))
@@ -44,12 +47,6 @@ def next_reload_at(since: datetime, started_at: datetime, attempts: int, last: O
     if attempts == 0 or last is None:
         return max(since + FIRST_AFTER, started_at + STARTUP_WAIT)
     return last + BACKOFF[min(attempts - 1, len(BACKOFF) - 1)]
-
-
-def price_missing(state: Any) -> bool:
-    """The same test as the price check of the cycle: no state, unavailable /
-    unknown, or no prices for today."""
-    return state is None or state.state in ("unavailable", "unknown") or not state.attributes.get("today")
 
 
 class PriceReloader:
@@ -127,6 +124,13 @@ class PriceReloader:
             _LOGGER.warning("ESS Manager (%s): reloading the price integration failed: %s", self.title, err)
         finally:
             self._running = False
+
+    def failed_twice(self, now: datetime) -> bool:
+        """Two reloads didn't bring the prices back: the second one is
+        FAILED_AFTER old (or there's been a third)."""
+        if self.attempts > 2:
+            return True
+        return self.attempts == 2 and self.last_at is not None and now - self.last_at >= FAILED_AFTER
 
     def as_diag(self) -> dict[str, Any]:
         return {

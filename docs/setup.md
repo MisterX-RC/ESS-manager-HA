@@ -19,7 +19,10 @@ integration producing the same shape works):
   with the planning engines' 15-minute unit indexing. The lists run in
   real time from local midnight, so the day summer time ends has 100
   quarters and the day it starts 92; ESS Manager counts the current
-  quarter the same way.
+  quarter the same way. With `raw_today` / `raw_tomorrow` (start times,
+  as the Nordpool HACS integration has) a list of the wrong day is
+  recognised; the last good lists are kept for when the sensor drops out
+  (see [Control](control.md#problem-notices)).
 - **Household usage forecast**: nothing extra if your Home Assistant
   Energy dashboard is set up (at least a grid source) - the integration
   calculates the forecast itself from the statistics the Energy dashboard

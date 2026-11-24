@@ -535,7 +535,11 @@
     },
     "input_unavailable": {
       "title": "ESS Manager: planning paused - a sensor has no value",
-      "description": "**{entry_title}** has had no usable value from **{entity}** for 15 minutes, so nothing is planned and direct control keeps the battery idle.\n\nCheck the sensor (and the integration behind it, e.g. the inverter or price integration). When it's the price sensor, ESS Manager reloads the integration behind it by itself (after 5 minutes, then after 15, 30 and every 60 minutes) - reloads so far: {reloads}. This notice goes away by itself once the sensor has a value again."
+      "description": "**{entry_title}** has had no usable value from **{entity}** for 15 minutes, so nothing is planned and direct control keeps the battery idle.\n\nCheck the sensor (and the integration behind it, e.g. the inverter or price integration). When it's the price sensor (and there are no stored prices for now either), ESS Manager reloads the integration behind it by itself (after 5 minutes, then after 15, 30 and every 60 minutes) - reloads so far: {reloads}. This notice goes away by itself once the sensor has a value again."
+    },
+    "prices_cached": {
+      "title": "ESS Manager: planning on stored prices - the price sensor has none",
+      "description": "**{entry_title}**: **{entity}** has no up-to-date prices (unavailable, empty, or an old day's list), and reloading the integration behind it didn't help ({reloads} reloads so far; it keeps trying every hour). Meanwhile ESS Manager plans with the prices it stored earlier, known until **{until}**. After that nothing can be planned.\n\nCheck the price integration (Settings > Devices & services). This notice goes away by itself once the sensor has prices again."
     },
     "solar_unreadable": {
       "title": "ESS Manager: a solar forecast sensor can't be read",

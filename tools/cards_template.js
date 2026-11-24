@@ -68,6 +68,7 @@ const I18N = {
     plan_export: "Solar export", plan_exported: "Exported", export_expected: "Export expected", legend_export: "Solar export",
     ed_export_color: "Solar export", tip_grid_use: "House from the grid", tip_export: "Solar export (expected)",
     no_prices: "No prices yet",
+    stored_prices: "Stored prices - the price sensor has none; known until", stored_prices_tip: "The price sensor has had no up-to-date prices and reloading its integration didn't help - the plans use the prices stored earlier",
     price_ref_label: "ref", price_ref_info: "Reference price: the median over the last 7 days of each day's 6 cheapest hours (buy price) - not in use now",
     price_ref_used: "Reference price: the median over the last 7 days of each day's 6 cheapest hours (buy price) - in use: the plans only buy at or below it while later prices aren't known",
     msg_not_found: (e) => `ESS Manager: ${e} not found - choose the installation's "Status" sensor.`,
@@ -305,6 +306,7 @@ const I18N = {
     plan_export: "Teruglevering", plan_exported: "Teruggeleverd", export_expected: "Teruglevering verwacht", legend_export: "Teruglevering",
     ed_export_color: "Teruglevering", tip_grid_use: "Huis uit het net", tip_export: "Teruglevering (verwacht)",
     no_prices: "Nog geen prijzen",
+    stored_prices: "Opgeslagen prijzen - de prijssensor heeft er geen; bekend tot", stored_prices_tip: "De prijssensor heeft geen actuele prijzen en herladen van de integratie hielp niet - de plannen gebruiken de eerder opgeslagen prijzen",
     price_ref_label: "ref", price_ref_info: "Referentieprijs: de mediaan over de afgelopen 7 dagen van de 6 goedkoopste uren per dag (inkoopprijs) - nu niet in gebruik",
     price_ref_used: "Referentieprijs: de mediaan over de afgelopen 7 dagen van de 6 goedkoopste uren per dag (inkoopprijs) - in gebruik: zolang latere prijzen onbekend zijn, kopen de plannen alleen tot deze prijs",
     msg_not_found: (e) => `ESS Manager: ${e} niet gevonden - kies de "Status"-sensor van de installatie.`,
@@ -1808,6 +1810,12 @@ class EssManagerPriceCard extends EssChartCard {
     const tariff = num(attrs.transport_tariff) || 0;
     let buyText = "";
     if (!incl && nowB !== null && (tariff > 0 || nowB !== nowP)) buyText = `${this._t("buy_price")} ${f.money(nowB)}${tariff > 0 ? ` ${this._t("incl_transport")}` : ""}`;
+    // (2026.11.64) planning on stored prices: only once two reloads of the
+    // price integration didn't help (`price_source.problem`)
+    const psrc = attrs.price_source || {};
+    const storedText = psrc.problem
+      ? `${this._t("stored_prices")} ${psrc.known_until ? `${f.weekday(Date.parse(psrc.known_until))} ${f.time(Date.parse(psrc.known_until))}` : "–"}`
+      : "";
     let extremes = "";
     if (opt.show_extremes !== false) {
       let iMin = null;
@@ -1845,12 +1853,14 @@ class EssManagerPriceCard extends EssChartCard {
       @container (max-width: 420px) { .top { flex-direction: column; align-items: stretch; } }
       .top + div { margin-top: -8px; }
       .swap { cursor: pointer; }
+      .stored { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #ffa500; }
     `;
     const changed = setCardContent(this, css, `
       <div class="top">
         <div class="now"><span class="dim${incl ? " swap" : ""}" style="font-size:13px"${incl ? ` title="${esc(this._t("switch_view"))}"` : ""}>${title}${incl ? ` · ${esc(this._t(view === "sell" ? "sell_price" : "buy_price"))}` : ""} · ${esc(this._t("now"))}</span>
           <span class="big${incl ? " swap" : ""}">${nowP === null ? "–" : esc(f.money(nowP))}<small> ${esc(this._t("per_kwh"))}${incl ? ` · ${esc(this._t(view === "sell" ? "excl_tax" : "incl_tax"))}` : ""}</small></span>
-          ${buyText ? `<span class="dim" style="font-size:12px">${esc(buyText)}</span>` : ""}</div>
+          ${buyText ? `<span class="dim" style="font-size:12px">${esc(buyText)}</span>` : ""}
+          ${storedText ? `<span class="stored" title="${esc(this._t("stored_prices_tip"))}">${icon("alert", "#ffa500", 13)}${esc(storedText)}</span>` : ""}</div>
         ${extremes}
       </div>
       <div>

@@ -73,13 +73,15 @@ async def test_price_integration_reloaded_with_backoff(hass, freezer, monkeypatc
     assert len(reloads) == 5
     diag = coordinator.price_reload.as_diag()
     assert diag["attempts"] == 5 and diag["last_result"] == "ok" and diag["entry_id"] == price_entry.entry_id
-    issue = ir.async_get(hass).async_get_issue("ess_manager", f"input_unavailable_{entry.entry_id}")
+    # today's prices were stored: planning goes on, the notice says so (not "paused")
+    assert ir.async_get(hass).async_get_issue("ess_manager", f"input_unavailable_{entry.entry_id}") is None
+    issue = ir.async_get(hass).async_get_issue("ess_manager", f"prices_cached_{entry.entry_id}")
     assert issue is not None and issue.translation_placeholders["reloads"] == "5"
     # prices back: everything starts over
     hass.states.async_set("sensor.price", "0.25", prices_today_tomorrow(dt_util.now()))
     await _minutes(hass, freezer, coordinator, 1)
     assert coordinator.price_reload.attempts == 0 and coordinator.price_reload.since is None
-    assert ir.async_get(hass).async_get_issue("ess_manager", f"input_unavailable_{entry.entry_id}") is None
+    assert ir.async_get(hass).async_get_issue("ess_manager", f"prices_cached_{entry.entry_id}") is None
     # missing again later: first reload 5 minutes after it went missing
     hass.states.async_set("sensor.price", "unavailable")
     await _minutes(hass, freezer, coordinator, 5)          # the first cycle that sees it + 4 minutes
