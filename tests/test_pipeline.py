@@ -7277,6 +7277,35 @@ except IndexError as _ft_err:
     _ft_plan, _ft_ok = repr(_ft_err), False
 check("full charge: the plan with its cheapest session at the end of the prices is made (no IndexError)", _ft_ok)
 
+# -- 2026.11.66: a charge planned while the battery ran low is finished ------
+# without the reference: the first block lifting the forecast above the
+# threshold no longer brings it back halfway through the night
+_fh_t0 = 1_000_000.0
+_fh_blocks = [(_fh_t0, _fh_t0 + 2700), (_fh_t0 + 3600, _fh_t0 + 8100),
+              (_fh_t0 + 11700, _fh_t0 + 14400), (_fh_t0 + 23 * 3600, _fh_t0 + 24 * 3600)]
+_fh = price_reference.next_fill_hold("empty_soon", None, _fh_t0, _fh_blocks)
+check("fill hold: starts with empty_soon and a planned charge, up to the end of its last block within 12 hours",
+      _fh == _fh_t0 + 14400)
+check("fill hold: no charge planned -> no hold",
+      price_reference.next_fill_hold("empty_soon", None, _fh_t0, []) is None)
+check("fill hold: after the first block the reason is fill_plan, not active",
+      price_reference.fill_reason("active", _fh, _fh_t0 + 3000) == "fill_plan"
+      and price_reference.next_fill_hold("active", _fh, _fh_t0 + 3000, _fh_blocks[1:]) == _fh)
+check("fill hold: empty_soon again keeps the same end (not pushed on)",
+      price_reference.next_fill_hold("empty_soon", _fh, _fh_t0 + 3200, _fh_blocks[1:]) == _fh)
+check("fill hold: ends when no block starts before its end any more",
+      price_reference.next_fill_hold("active", _fh, _fh_t0 + 9000, [(_fh_t0 + 23 * 3600, _fh_t0 + 24 * 3600)]) is None)
+check("fill hold: ends at its end time (a later, dearer charge is held back again)",
+      price_reference.fill_reason("active", _fh, _fh + 1) == "active"
+      and price_reference.next_fill_hold("active", _fh, _fh + 1, _fh_blocks) is None)
+check("fill hold: ends when tomorrow's prices are in or there's no reference",
+      price_reference.next_fill_hold("tomorrow_known", _fh, _fh_t0 + 3000, _fh_blocks) is None
+      and price_reference.next_fill_hold("too_few_days", _fh, _fh_t0 + 3000, _fh_blocks) is None)
+check("fill hold: other reasons are left as they are",
+      price_reference.fill_reason("after_18", _fh, _fh_t0 + 3000) == "after_18"
+      and price_reference.fill_reason("active", None, _fh_t0) == "active")
+
+
 if FAILURES:
     print(f"{len(FAILURES)} check(s) FAILED:")
     for f in FAILURES:

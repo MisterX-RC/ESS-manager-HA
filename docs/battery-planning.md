@@ -138,12 +138,20 @@ detail in the code (`custom_components/ess_manager/plans.py`):
    the plan is made over today and tomorrow. It only applies
    while no prices after today are known, **before 18:00** and when the
    battery doesn't drop below the low threshold within **12 hours** (the
-   safety net: otherwise it plans in the cheapest quarters left today). **Hard** parts (below the threshold before the end of the known
+   safety net: otherwise it plans in the cheapest quarters left today). A
+   charge planned under that safety net is **finished as planned**: the
+   first block often lifts the forecast above the threshold, but the
+   reference stays out until the end of the last block of that plan that
+   started within those 12 hours (`reason` `fill_plan`, end in
+   `fill_until`) - so a cheap night fills the battery instead of stopping
+   after one block. It ends earlier when no block starts before that time
+   any more or tomorrow's prices come in; a charge planned later than that
+   (say a dearer morning) is held back by the reference again. **Hard** parts (below the threshold before the end of the known
    prices) are never held back by it. The day prices come from those the
    savings card keeps (the last 14 days; days missing are read from the
    recorder). The `price_reference` attribute shows the price, whether it
    applies (`reason`: `active`, `tomorrow_known`, `after_18`, `empty_soon`,
-   `too_few_days`) and the value per day. No setting.
+   `fill_plan`, `too_few_days`) and the value per day. No setting.
    A quarter that started from the grid is finished that way, like a
    running charge window - unless a charge takes it over - so with the
    battery nearly full and the sun filling it to the top later on, it

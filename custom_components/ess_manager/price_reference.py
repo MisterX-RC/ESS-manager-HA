@@ -71,16 +71,54 @@ def active_reason(ref: Optional[float], tomorrow_known: bool, local_hour: int,
     return "active"
 
 
+def fill_reason(raw_reason: str, hold_until: Optional[float], now_ts: float) -> str:
+    """The reason with the fill hold (as of 2026.11.66): a charge planned
+    while the battery was about to run low (reference not used) is finished
+    to its plan - the first block lifting the forecast above the threshold
+    no longer brings the reference back halfway through - see
+    `next_fill_hold`."""
+    if raw_reason == "active" and hold_until is not None and now_ts < hold_until:
+        return "fill_plan"
+    return raw_reason
+
+
+def next_fill_hold(raw_reason: str, hold_until: Optional[float], now_ts: float,
+                   blocks: list[tuple[float, float]]) -> Optional[float]:
+    """The end of the fill hold after this cycle's charge plan (epoch, None =
+    no hold). `blocks` are the plan's charge blocks as (start, end) epochs.
+    Starts when the reference isn't used because the battery runs low soon
+    and the plan has blocks starting within `EMPTY_WITHIN_HOURS`; it lasts
+    until the end of the last of those blocks - the charge as it was planned
+    then, not a later one (a morning charge at dearer prices stays held
+    back). Ends earlier when no block of the plan starts before that any
+    more, or when tomorrow's prices are in."""
+    if raw_reason in ("tomorrow_known", "too_few_days"):
+        return None
+    if hold_until is not None and now_ts >= hold_until:
+        hold_until = None
+    if raw_reason == "empty_soon":
+        window = now_ts + EMPTY_WITHIN_HOURS * 3600
+        ends = [e for s, e in blocks if s < window and e > now_ts]
+        if hold_until is None and ends:
+            return max(ends)
+        return hold_until
+    if hold_until is not None and not any(s < hold_until and e > now_ts for s, e in blocks):
+        return None
+    return hold_until
+
+
 def hours_below(forecast: list[float], threshold_kwh: float) -> Optional[int]:
     """The first forecast hour (0 = this hour) below the threshold."""
     return next((h for h, v in enumerate(forecast) if v is not None and v < threshold_kwh), None)
 
 
-def attribute(ref: Optional[float], reason: str, days: dict[str, Optional[float]], today: date) -> dict[str, Any]:
+def attribute(ref: Optional[float], reason: str, days: dict[str, Optional[float]], today: date,
+              fill_until: Optional[str] = None) -> dict[str, Any]:
     wanted = [(today - timedelta(days=k)).isoformat() for k in range(LOOKBACK_DAYS, 0, -1)]
     return {
         "price": None if ref is None else round(ref, 4),
         "active": reason == "active",
         "reason": reason,
+        "fill_until": fill_until,
         "days": {d: (None if days.get(d) is None else round(days[d], 4)) for d in wanted if d in days},
     }

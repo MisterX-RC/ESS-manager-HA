@@ -393,6 +393,10 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._price_sampled_ts = 0.0
         self._buy_line: tuple[float, float] = (1.0, 0.0)
         self._price_reference_attr: Optional[dict[str, Any]] = None
+        self._price_reference_days: dict[str, Optional[float]] = {}
+        # end of the fill hold (epoch, 2026.11.66): a charge planned while the
+        # battery was about to run low is finished without the reference
+        self._price_ref_fill_until: Optional[float] = None
         # What the battery saves (as of 2026.11.0) - savings.py; the days in
         # their own store, worked out in the background.
         self.savings_store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_savings")
@@ -3017,15 +3021,49 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {"price_incl": attr if mode != pi.MODE_NONE else None, "all_buy_price_incl": None}
         return {"price_incl": attr, "all_buy_price_incl": pi.apply_line(buy_price, line)}
 
-    def _price_reference_now(self, now: datetime, tomorrow_known: bool, hours_to_empty: Optional[int]) -> Optional[float]:
+    def _price_reference_now(self, now: datetime, tomorrow_known: bool,
+                             hours_to_empty: Optional[int]) -> tuple[Optional[float], Optional[float], str]:
         """The reference price (buy price incl, as the plans use it) when it
         applies now, else None (as of 2026.11.50). From the day prices the
-        savings keep (the last 14 days, also filled from the recorder)."""
-        today = now.date()
+        savings keep (the last 14 days, also filled from the recorder).
+        Also the reference itself and the reason before the fill hold
+        (2026.11.66), for `_price_reference_after_plan`."""
         ref, days = self._price_reference_value(now)
-        reason = price_reference.active_reason(ref, tomorrow_known, now.hour, hours_to_empty)
-        self._price_reference_attr = price_reference.attribute(ref, reason, days, today)
-        return ref if reason == "active" else None
+        raw = price_reference.active_reason(ref, tomorrow_known, now.hour, hours_to_empty)
+        reason = price_reference.fill_reason(raw, self._price_ref_fill_until, now.timestamp())
+        self._price_reference_days = days
+        self._set_price_reference_attr(now, ref, reason)
+        return (ref if reason == "active" else None), ref, raw
+
+    def _set_price_reference_attr(self, now: datetime, ref: Optional[float], reason: str) -> None:
+        until = self._price_ref_fill_until
+        self._price_reference_attr = price_reference.attribute(
+            ref, reason, self._price_reference_days, now.date(),
+            dt_util.as_local(dt_util.utc_from_timestamp(until)).isoformat() if until is not None else None)
+
+    def _price_reference_after_plan(self, now: datetime, ref: Optional[float], raw: str, used: Optional[float],
+                                    plan: Optional[dict], cur_unit: int) -> bool:
+        """Update the fill hold after the charge plan (2026.11.66). True when
+        the hold ended this cycle while it kept the reference out - the plan
+        is then made again with the reference."""
+        blocks: list[tuple[float, float]] = []
+        if plan and plan.get("active"):
+            spans = plan.get("blocks") or ([plan] if plan.get("start_unit") is not None else [])
+            for b in spans:
+                try:
+                    blocks.append((plans._unit_epoch(now, cur_unit, int(b["start_unit"])),
+                                   plans._unit_epoch(now, cur_unit, int(b["end_unit"]))))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        was = self._price_ref_fill_until
+        self._price_ref_fill_until = price_reference.next_fill_hold(raw, was, now.timestamp(), blocks)
+        held = used is None and raw == "active" and ref is not None and was is not None
+        if held and self._price_ref_fill_until is None:
+            self._set_price_reference_attr(now, ref, "active")
+            return True
+        self._set_price_reference_attr(now, ref, price_reference.fill_reason(
+            raw, self._price_ref_fill_until, now.timestamp()))
+        return False
 
     def _price_reference_value(self, now: datetime) -> tuple[Optional[float], dict[str, Optional[float]]]:
         """The reference price of the last week and its day values, whether
@@ -3916,44 +3954,54 @@ class EssManagerCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             prev_low_plan = self._low_charge_plan
             # the reference price of the last week (as of 2026.11.50): only
             # while tomorrow's prices aren't known, see price_reference.py
-            ref_price = self._price_reference_now(
+            ref_price, ref_value, ref_raw = self._price_reference_now(
                 now, bool(tomorrow_price),
                 price_reference.hours_below(forecast_for_low[0 : planning_horizon_hours + 1], low_threshold_kwh))
-            self._low_charge_plan = plans.compute_low_charge_plan(
-                self._low_charge_plan,
-                current_price_unit,
-                forecast_with_spike_clipped,
-                now,
-                charge_speed_kw,
-                low_threshold_kwh,
-                minimum_charge_target_kwh,
-                upper_limit_kwh,
-                usage_forecast,
-                plan_sell,
-                planning_horizon_hours,
-                battery_now_kwh,
-                high_threshold_kwh=high_threshold_kwh,
-                buy_price=plan_buy,
-                charge_efficiency=charge_efficiency,
-                discharge_efficiency=discharge_efficiency,
-                replan=replan,
-                floor_kwh=deficit_floor_kwh,
-                peak_kwh=horizon_peak_kwh,
-                charge_rates=low_charge_rates,
-                # charge up to the low threshold plus the same Safety buffer a
-                # sale keeps (as of 2026.10.4)
-                charge_buffer_kwh=safety_buffer_kwh,
-                min_charge_units=min_charge_units,
-                hold_rates=grid_use_rates,
-                hold_factor=discharge_efficiency,
-                charge_imports=charge_imports,
-                # cheap quarters from the grid on price alone with a deficit (2026.11.40)
-                deficit=solar_mode["mode"] == forecasting.SOLAR_MODE_DEFICIT,
-                # the high side of the solar forecast for a block's stop
-                # level (2026.11.47)
-                sun_extra=forecasting.solar_extra_p90(solar_p90, solar_forecast),
-                price_ref=ref_price,
-            )
+
+            def _low_plan(price_ref: Optional[float]) -> dict:
+                return plans.compute_low_charge_plan(
+                    prev_low_plan,
+                    current_price_unit,
+                    forecast_with_spike_clipped,
+                    now,
+                    charge_speed_kw,
+                    low_threshold_kwh,
+                    minimum_charge_target_kwh,
+                    upper_limit_kwh,
+                    usage_forecast,
+                    plan_sell,
+                    planning_horizon_hours,
+                    battery_now_kwh,
+                    high_threshold_kwh=high_threshold_kwh,
+                    buy_price=plan_buy,
+                    charge_efficiency=charge_efficiency,
+                    discharge_efficiency=discharge_efficiency,
+                    replan=replan,
+                    floor_kwh=deficit_floor_kwh,
+                    peak_kwh=horizon_peak_kwh,
+                    charge_rates=low_charge_rates,
+                    # charge up to the low threshold plus the same Safety buffer a
+                    # sale keeps (as of 2026.10.4)
+                    charge_buffer_kwh=safety_buffer_kwh,
+                    min_charge_units=min_charge_units,
+                    hold_rates=grid_use_rates,
+                    hold_factor=discharge_efficiency,
+                    charge_imports=charge_imports,
+                    # cheap quarters from the grid on price alone with a deficit (2026.11.40)
+                    deficit=solar_mode["mode"] == forecasting.SOLAR_MODE_DEFICIT,
+                    # the high side of the solar forecast for a block's stop
+                    # level (2026.11.47)
+                    sun_extra=forecasting.solar_extra_p90(solar_p90, solar_forecast),
+                    price_ref=price_ref,
+                )
+
+            self._low_charge_plan = _low_plan(ref_price)
+            # a charge planned while the battery was about to run low is
+            # finished without the reference (2026.11.66); once that hold
+            # ends, the plan is made again with it
+            if self._price_reference_after_plan(now, ref_value, ref_raw, ref_price,
+                                                self._low_charge_plan, current_price_unit):
+                self._low_charge_plan = _low_plan(ref_value)
             # a quarter that started with the house from the grid is finished that way (2026.11.30)
             if grid_use_rates is not None and not replan:
                 self._low_charge_plan = plans.keep_grid_use_quarter(prev_low_plan, self._low_charge_plan, current_price_unit)

@@ -12,6 +12,23 @@ Versions are **year.month.release**, like Home Assistant's own (as of
 the releases in that month from 0 - `2026.10.0`, `2026.10.1`, ...,
 `2026.11.0`. Up to 0.5.13 versions went up by 0.0.1 per release.
 
+## [2026.11.66] - 2026-11-26
+
+### Fixed
+- **A night charge that should fill the battery stopped after its first
+  block.** While tomorrow's prices aren't known the reference price of the
+  last week holds back what is needed after the known prices - except when
+  the battery would drop below the low threshold within 12 hours; then the
+  plan fills the battery in the cheapest quarters left. But the first block
+  lifted the forecast above the threshold, the reference came back, and a
+  night price just above it dropped the rest of the fill: the battery
+  stayed far from full before a dear day. A charge planned under that
+  safety net is now finished as planned - the reference stays out until the
+  end of the last block of that plan within those 12 hours (`price_reference`
+  shows `reason: fill_plan` and `fill_until`). A charge planned after that
+  (a dearer morning, say) is held back by the reference as before. No new
+  setting.
+
 ## [2026.11.65] - 2026-11-24
 
 ### Added
